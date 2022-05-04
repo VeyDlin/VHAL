@@ -1,7 +1,7 @@
 #pragma once
 #include <BSP.h>
-#include <Utilities/Data/Byte/ByteConverter.h>
-#include <Utilities/Data/Byte/Bit.h>
+#include <Utilities/Data/ByteConverter.h>
+#include <Utilities/Data/Bit.h>
 #include <Utilities/Data/FIFO/StaticFifo.h>
 
 
@@ -107,18 +107,13 @@ public:
 
 
 
-	void begin(uint8 slave, AUART &serial, AGPIO &dePin) {
+	void begin(uint8 slave, AUART &serial, AUART::Parameters parameters, AGPIO &dePin) {
 		_serial = &serial;
 		_dePin = &dePin;
 
 		_dePin->Reset();
 
-		_serial->SetParameters({
-			.baudRate = 115200,
-			.stopBits = AUART::StopBits::B1,
-			.parity = AUART::Parity::None,
-			.mode = AUART::Mode::TxRx
-		});
+		_serial->SetParameters(parameters);
 
 		_serial->SetContinuousAsyncRxMode(true);
 

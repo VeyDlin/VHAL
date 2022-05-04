@@ -252,6 +252,39 @@ public:
 
 
 
+	virtual uint16 GetClockDivision() override {
+		if(parameters.division == ClockDivision::D1()) {
+			return 1;
+		} else if(parameters.division == ClockDivision::D2()) {
+			return 2;
+		} else if(parameters.division == ClockDivision::D4()) {
+			return 4;
+		}
+
+		return 1;
+	}
+
+
+
+
+
+	virtual uint8 GetChannelIndex(const ChannelMode *channel) override {
+		if(channel == Channel::C1()) {
+			return 0;
+		}
+		if(channel == Channel::C2()) {
+			return 1;
+		}
+		if(channel == Channel::C3()) {
+			return 2;
+		}
+		if(channel == Channel::C4()) {
+			return 3;
+		}
+	}
+
+
+
 protected:
 	virtual Status::statusType Initialization() override {
 		SystemAssert(parameters.prescaler <= 0xFFFF);
@@ -275,6 +308,7 @@ protected:
 			return Status::error;
 		}
 
+		// TODO: ??
 		LL_TIM_DisableARRPreload(timHandle);
 
 		return AfterInitialization();
@@ -291,23 +325,26 @@ protected:
 			LL_TIM_OC_InitTypeDef init = {
 				.OCMode = channel.mode->GetCode(),
 
-				.OCState = LL_TIM_OCSTATE_DISABLE,
-				.OCNState = LL_TIM_OCSTATE_DISABLE,
+				.OCState = CastState(channel.positive.state),
+				.OCNState = CastState(channel.negative.state),
 
 				.CompareValue = channel.compare,
 
-				.OCPolarity = LL_TIM_OCPOLARITY_HIGH,
-				.OCNPolarity = LL_TIM_OCPOLARITY_HIGH,
+				.OCPolarity = CastPolarity(channel.positive.polarity),
+				.OCNPolarity = CastPolarity(channel.negative.polarity),
 
-				.OCIdleState = LL_TIM_OCIDLESTATE_LOW,
-				.OCNIdleState = LL_TIM_OCIDLESTATE_LOW
+				.OCIdleState = CastIdleState(channel.positive.idleState),
+				.OCNIdleState = CastIdleState(channel.negative.idleState)
 			};
-			LL_TIM_OC_DisableFast(timHandle, channel.channel->GetCode(2)); // TODO: 2 ??
+			LL_TIM_OC_DisableFast(timHandle, channel.channel->GetCode(2)); // TODO: channel 2 ??
 
 			if(LL_TIM_OC_Init(timHandle, channel.channel->GetCode(1), &init) != ErrorStatus::SUCCESS) {
 				return Status::error;
 			}
 		}
+
+		// TODO: ClockSource?
+		//LL_TIM_SetClockSource(timHandle, LL_TIM_CLOCKSOURCE_INTERNAL);
 
 		// TODO: Add Trigger to settings
 		LL_TIM_SetTriggerOutput(timHandle, LL_TIM_TRGO_RESET);
@@ -393,6 +430,38 @@ protected:
 	}
 
 
+
+private:
+	uint32 CastPolarity(Polarity polarity) {
+		switch (polarity) {
+			case Polarity::High: return LL_TIM_OCPOLARITY_HIGH;
+			case Polarity::Low: return LL_TIM_OCPOLARITY_LOW;
+		}
+		SystemAbort();
+		return 0;
+	}
+
+
+
+	uint32 CastState(State state) {
+		switch (state) {
+			case State::Enable: return LL_TIM_OCSTATE_ENABLE;
+			case State::Disable: return LL_TIM_OCSTATE_DISABLE;
+		}
+		SystemAbort();
+		return 0;
+	}
+
+
+
+	uint32 CastIdleState(IdleState idleState) {
+		switch (idleState) {
+			case IdleState::High: return LL_TIM_OCIDLESTATE_HIGH;
+			case IdleState::Low: return LL_TIM_OCIDLESTATE_LOW;
+		}
+		SystemAbort();
+		return 0;
+	}
 };
 
 

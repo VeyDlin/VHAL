@@ -3,16 +3,57 @@
 
 
 
-
-
 class TIMOutputCompareHelper: public ITIMHelper {
 
 public:
 	TIMOutputCompareHelper() { }
+	TIMOutputCompareHelper(ATIM &adapter, const ATIM::ChannelMode *channel): ITIMHelper(adapter, channel) { }
 
-	TIMOutputCompareHelper(TIMAdapter *adapter): ITIMHelper(adapter) { }
+
+	TIMOutputCompareHelper& TunePrescaler(float frequencyHz) {
+		auto division = timAdapter->GetClockDivision();
+		auto period = timAdapter->GetParameters().period + 1;
+		auto sourceFrequency = timAdapter->GetBusClockHz() * 1000;
+
+		float input = sourceFrequency / division / period;
+
+		float prescaler = input / frequencyHz;
+		prescaler = prescaler > period ? period - 1 : prescaler;
+
+		SetPrescaler(static_cast<uint16>(prescaler));
+		return *this;
+	}
 
 
+
+
+
+	TIMOutputCompareHelper& SetHalfCompare() {
+		auto period = timAdapter->GetParameters().period + 1;
+
+		uint32 compare = period / 2;
+		compare = compare <= 0 ? 1 : compare;
+
+		SetCompare(compare);
+		return *this;
+	}
+
+
+
+
+	TIMOutputCompareHelper& TuneHalfCompare(uint32 frequencyHz) {
+		TunePrescaler(frequencyHz * 2);
+		SetHalfCompare();
+		return *this;
+	}
+
+
+
+
+	inline TIMOutputCompareHelper& EnableCounter(bool enableTimerCounter) {
+		timAdapter->EnableCounter(enableTimerCounter);
+		return *this;
+	}
 
 
 };

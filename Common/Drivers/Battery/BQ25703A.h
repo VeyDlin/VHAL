@@ -1,6 +1,5 @@
 ﻿#pragma once
-#include <Periphery.h>
-#include <Status.h>
+#include <BSP.h>
 #include <functional>
 
 
@@ -10,12 +9,10 @@ private:
 	 bool adapterPresentStatus;
 
 public:
-	 AI2C *i2c1;
+	 AI2C *i2c;
 
 	 std::function<void()> onAdapterPresent;
 	 std::function<void()> onAdapterNotPresent;
-
-
 
 
 public:
@@ -160,17 +157,15 @@ public:
 
 
 private:
-	 Status::statusType WriteReg(uint8 addr, uint16 reg) {
-		//HAL_StatusTypeDef status = HAL_I2C_Mem_Write(i2c1, 0xd6, addr, 1, (uint8*)&reg, 2, 100);
-		return Status::notSupported;
+	 Status::statusType WriteReg(uint8 addrress, uint16 reg) {
+		return i2c->WriteByteArray(0xd6, addrress, 1, (uint8*)&reg, 2);
 	}
 
 
-	 Status::info<uint16> ReadReg(uint8 addr) {
-		auto ret = Status::info<uint16>();
-		//HAL_StatusTypeDef status = HAL_I2C_Mem_Read(i2c1, 0xd6, addr, 1, (uint8*)&ret.data, 2, 100);
-		ret.type = Status::notSupported;
-		return ret;
+	 Status::info<uint16> ReadReg(uint8 addrress) {
+		auto info = Status::info<uint16>();
+		i2c->ReadByteArray(0xd6, addrress, 1, (uint8*)&ret.data, 2);
+		return info;
 	}
 };
 

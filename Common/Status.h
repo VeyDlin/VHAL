@@ -1,6 +1,8 @@
 ﻿#pragma once
 #include <DataTypes.h>
 
+#define StatusAssert(__e) if(__e != Status::ok) return __e
+
 
 struct Status {
 	typedef enum:uint8 {
@@ -21,6 +23,8 @@ struct Status {
 		notAvailable,								// Недоступен
 		notSupported,								// Не поддерживается
 		noConnection,								// Нет соединения
+		noMatches,									// Нет совпадений
+		notFound,									// Не найдено
 		noDetected,									// Не обнаружен
 		noInit,										// Не инициализирован
 		reset,										// Сброшен

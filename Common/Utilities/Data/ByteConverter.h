@@ -8,19 +8,19 @@
 class ByteConverter {
 public:
 	template <typename TO_ARRAY, typename FROM_DATA>
-	static void ToArrayFromDataCopy(TO_ARRAY &array, FROM_DATA &copyData, uint16 startToCopyPosition = 0) {
+	static void ToArrayFromDataCopy(TO_ARRAY &array, FROM_DATA &copyData, uint32 startToCopyPosition = 0) {
 		memcpy(&array + startToCopyPosition, &copyData, sizeof(FROM_DATA));
 	}
 
 
 	template <typename TO_DATA, typename FROM_ARRAY>
-	static void ToDataFromArrayCopy(TO_DATA &data, FROM_ARRAY &copyArray, uint16 startToCopyPosition = 0) {
+	static void ToDataFromArrayCopy(TO_DATA &data, FROM_ARRAY &copyArray, uint32 startToCopyPosition = 0) {
 		memcpy(&data, copyArray + startToCopyPosition, sizeof(TO_DATA));
 	}
 	
 	
 	template <typename TO_DATA, typename FROM_ARRAY>
-	static TO_DATA FromArray(FROM_ARRAY &copyArray, uint16 startToCopyPosition = 0) {
+	static TO_DATA FromArray(FROM_ARRAY &copyArray, uint32 startToCopyPosition = 0) {
 		TO_DATA data;
 		ToDataFromArrayCopy(data, copyArray, startToCopyPosition);
 		return data;
@@ -43,14 +43,14 @@ public:
 
 	template<typename dataType>
 	static inline uint8 GetByte(dataType& data, uint8 position) {
-		SystemAssert(sizeof(dataType) < position);
+		SystemAssert(sizeof(dataType) > position);
 		return static_cast<uint8>((data >> (8 * position)) & 0xFF);
 	}
 
 
 	template<typename dataType>
 	static void SetByte(dataType& data, uint8 val, uint8 position) {
-		SystemAssert(sizeof(dataType) < position);
+		SystemAssert(sizeof(dataType) > position);
 		*(static_cast<uint8*>(data) + position) = val;
 	}
 

@@ -10,7 +10,7 @@ namespace OSAdapter {
 		static constexpr tEventBits defaultMask = { 0b11111111 };
 
 	public:
-		inline explicit Event(const std::chrono::milliseconds delay, const tEventBits maskBits) :
+		inline Event(const std::chrono::milliseconds delay, const tEventBits maskBits) :
 			timeOut {
 				(std::chrono::duration_cast<TicksPerSecond>(delay)).count()
 			}, mask {

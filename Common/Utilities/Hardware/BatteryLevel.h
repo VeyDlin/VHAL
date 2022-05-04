@@ -1,6 +1,6 @@
 ﻿#pragma once
-#include <DataTypes.h>
-#include <IntWindow.h>
+#include <BSP.h>
+#include <Utilities/Math/Filter/IntWindow.h>
 
 
 
@@ -36,7 +36,7 @@ public:
 public:
 	// drawdown - напряжение, на которое может просадится АКБ, но которое не будет учитывать в индикации класс
 	// если drawdown = 0 то оно расчитывается автоматически
-	BatteryLevel(const Config &config, float drawdown = 0) {
+	BatteryLevel(Config config, float drawdown = 0) {
 		divisionsQuantity = config.divisionsQuantity;
 
 		float maxVoltage = config.batteryType.maxVoltage * config.cellsQuantity;
@@ -53,7 +53,7 @@ public:
 
 
 	// На сколько заполнена шкала заряда
-	uint16 GetDivision(float currentBatteryVoltage) {
+	uint8 GetDivision(float currentBatteryVoltage) {
 		volatile float voltage = voltageLevel.Get(currentBatteryVoltage);
 		volatile float voltageDivision = (voltage - minVoltage) / division;
 
@@ -64,7 +64,7 @@ public:
 			return 0;
 		}
 
-		return (uint16)voltageDivision;
+		return (uint8)voltageDivision;
 	}
 
 };

@@ -77,6 +77,14 @@ public:
 	}
 
 
+	virtual Status::statusType Await() {
+		// TODO: add slave listen
+		// TODO: add timeout
+		while(state != Status::ready);
+		return Status::ok;
+	}
+
+
 	Status::statusType SetSlaveLiisten(bool mode) {
 		auto status = mode ? StartSlaveListen() : StopSlaveListen();
 		//if(status == Status::ok) {

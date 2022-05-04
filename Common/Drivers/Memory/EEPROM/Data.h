@@ -4,7 +4,6 @@
 
 namespace EEPROM {
 
-
 	template<typename DataType>
 	struct Data {
 		Eeprom *chipClass;
@@ -14,9 +13,6 @@ namespace EEPROM {
 		Data() {}
 		Data(Eeprom &setChipClass): chipClass(&setChipClass) {
 			auto address = chipClass->GetMemoryAddress(dataSize);
-			if(address.IsError()) {
-				// Peripheral::CriticalError();
-			}
 			dataAddress = address.data;
 		}
 

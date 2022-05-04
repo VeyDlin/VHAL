@@ -10,7 +10,7 @@
 
 struct TimerChannel {
 	ATIM *timer;
-	const TIMAdapter::ChannelMode *channel;
+	const ATIM::ChannelMode *channel;
 };
 
 
@@ -18,24 +18,37 @@ struct TimerChannel {
 
 class ITIMHelper {
 protected:
-	TIMAdapter *timAdapter;
-
-	const TIMAdapter::ChannelMode *channel;
-	TIMAdapter::ChannelSelect channelSelect;
-
+	ATIM *timAdapter;
+	const ATIM::ChannelMode *timChannel;
 
 public:
 	ITIMHelper() { }
+	ITIMHelper(ATIM &adapter, const ATIM::ChannelMode *channel) : timAdapter(&adapter), timChannel(channel)  { }
 
-	ITIMHelper(TIMAdapter *adapter, const TIMAdapter::ChannelMode *channel) {
-		timAdapter = adapter;
+
+	ITIMHelper& SetState(bool isEnable) {
+		timAdapter->SetChannelsState({{ timChannel, GetChannelEnableSelect(isEnable) }});
+		return *this;
 	}
 
 
+	inline void SetDivision(const ATIM::ClockDivisionMode *division) {
+		timAdapter->SetDivision(division);
+	}
 
 
-	void SetState(bool isEnable) {
-		timAdapter->SetChannelsState({{ channel, GetChannelEnableSelect(isEnable) }});
+	inline void SetPrescaler(uint32 prescaler) {
+		timAdapter->SetPrescaler(prescaler);
+	}
+
+
+	inline void SetPeriod(uint32 period) {
+		timAdapter->SetPeriod(period);
+	}
+
+
+	inline void SetCompare(uint32 compare) {
+		timAdapter->SetCompare(timChannel, compare);
 	}
 
 
@@ -43,14 +56,24 @@ public:
 
 private:
 	TIMAdapter::ChannelEnableSelect GetChannelEnableSelect(bool isEnable) {
-		// TODO: set
-		return TIMAdapter::ChannelEnableSelect::EnableAll;
+		auto select = timAdapter->GetOutputCompareParameters(timChannel).channelSelect;
+
+		if(isEnable) {
+			switch (select) {
+				case ATIM::ChannelSelect::Positive: 		return ATIM::ChannelEnableSelect::EnablePositive;
+				case ATIM::ChannelSelect::Negative: 		return ATIM::ChannelEnableSelect::EnableNegative;
+				case ATIM::ChannelSelect::PositiveNegative: return ATIM::ChannelEnableSelect::EnableAll;
+				case ATIM::ChannelSelect::NoOutput: 		return ATIM::ChannelEnableSelect::DisableAll;
+			}
+		} else {
+			switch (select) {
+				case ATIM::ChannelSelect::Positive: 		return ATIM::ChannelEnableSelect::DisablePositive;
+				case ATIM::ChannelSelect::Negative: 		return ATIM::ChannelEnableSelect::DisableNegative;
+				case ATIM::ChannelSelect::PositiveNegative: return ATIM::ChannelEnableSelect::DisableAll;
+				case ATIM::ChannelSelect::NoOutput: 		return ATIM::ChannelEnableSelect::DisableAll;
+			}
+		}
 	}
-
-
-
-
-
 };
 
 

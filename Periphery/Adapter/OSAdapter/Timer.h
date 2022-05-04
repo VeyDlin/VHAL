@@ -1,6 +1,7 @@
 #pragma once
 #include "Thread.h"
-
+#include "RTOS.h"
+#include <functional>
 
 
 namespace OSAdapter {
@@ -25,7 +26,7 @@ namespace OSAdapter {
 		virtual void Execute() = 0;
 
 
-		void Start() {
+		virtual void Start() {
 			if(state == State::Stoped) {
 				UpdateSleepOutTime();
 				state = State::Run;
@@ -34,12 +35,12 @@ namespace OSAdapter {
 		}
 
 
-		void Stop() {
+		virtual void Stop() {
 			state = State::Stoped;
 		}
 
 
-		void Restart() {
+		virtual void Restart() {
 			if(state == State::Run) {
 				state = State::Restart;
 			}
@@ -92,15 +93,39 @@ namespace OSAdapter {
 
 
 
-	template<std::size_t stackSize>
-	class TimerStatic: public ITimer<ThreadStatic<stackSize>> {
 
+
+	template<class baseClass>
+	class ITimerHandle: public baseClass {
+	public:
+		std::function<void()> onTick;
+
+		virtual void Execute() override {
+			if(onTick != nullptr) {
+				onTick();
+			}
+		}
 	};
 
 
 
-	template<std::size_t stackSize>
-	class Timer: public ITimer<Thread<stackSize>> {
 
-	};
+
+	template<std::size_t stackSize>
+	class TimerStatic: public ITimer<ThreadStatic<stackSize>> { };
+
+
+	template<std::size_t stackSize>
+	class Timer: public ITimer<Thread<stackSize>> { };
+
+
+	template<std::size_t stackSize>
+	class TimerHandleStatic: public ITimerHandle<TimerStatic<stackSize>> { };
+
+
+	template<std::size_t stackSize>
+	class TimerHandle: public ITimerHandle<Timer<stackSize>> { };
+
+
+
 }

@@ -8,6 +8,8 @@
 
 
 class TIMAdapter: public IAdapter {
+	static constexpr uint8 maxChannels = 8;
+
 public:
 	AUNIQUECODE_STRUCT_U32(ClockDivisionMode);
 	AUNIQUECODE_STRUCT_U32(CounterMode);
@@ -28,8 +30,8 @@ public:
 
 	struct Parameters {
 		const ClockDivisionMode *division;
-		uint16 prescaler;
-		uint32 period;
+		uint16 prescaler = 0;
+		uint32 period = 1;
 		const CounterMode *mode;
 		uint16 repetitionCounter = 0;
 		const OutputTriggerMode *outputTrigger = nullptr;
@@ -79,6 +81,9 @@ public:
 protected:
 	TIM_TypeDef *timHandle;
 	Parameters parameters;
+	OutputCompareParameters outputCompareParameters[maxChannels];
+	BreakAndDeadTimeParameters breakAndDeadTimeParameters[maxChannels];
+
 	uint32 inputBusClockHz = 0;
 
 
@@ -105,21 +110,48 @@ public:
 
 
 
+
+
 	const Parameters& GetParameters() {
 		return parameters;
 	}
 
 
+	const OutputCompareParameters& GetOutputCompareParameters(const ChannelMode *channel) {
+		return outputCompareParameters[GetChannelIndex(channel)];
+	}
+
+
+	const BreakAndDeadTimeParameters& GetBreakAndDeadTimeParameters(const ChannelMode *channel) {
+		return breakAndDeadTimeParameters[GetChannelIndex(channel)];
+	}
+
+
+	uint32 GetBusClockHz() {
+		return inputBusClockHz;
+	}
+
+
+
+
 
 	virtual Status::statusType ConfigOutputCompareParameters(const std::initializer_list<OutputCompareParameters>& list) {
-		// TODO: Add save
+		uint8 i = 0;
+		for(auto &channel : list) {
+			outputCompareParameters[i++] = channel;
+			SystemAssert(i <= maxChannels);
+		}
 	    return OutputCompareInitialization(list);
 	}
 
 
 
 	virtual Status::statusType ConfigBreakAndDeadTimeParameters(const std::initializer_list<BreakAndDeadTimeParameters>& list) {
-		// TODO: Add save
+		uint8 i = 0;
+		for(auto &channel : list) {
+			breakAndDeadTimeParameters[i++] = channel;
+			SystemAssert(i <= maxChannels);
+		}
 	    return BreakAndDeadTimeInitialization(list);
 	}
 
@@ -159,6 +191,13 @@ public:
 	virtual inline void SetCompare(const ChannelMode *channel, uint32 compare) = 0;
 
 	virtual inline void IrqHandler() = 0;
+
+	virtual uint16 GetClockDivision() = 0;
+
+	virtual uint8 GetChannelIndex(const ChannelMode *channel) = 0;
+
+
+
 
 
 protected:

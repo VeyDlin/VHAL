@@ -27,6 +27,7 @@ public:
 		AUNIQUECODE_GENERATE(OutputCompareMode, Forzen, 		LL_TIM_OCMODE_FROZEN);
 		AUNIQUECODE_GENERATE(OutputCompareMode, Active, 		LL_TIM_OCMODE_ACTIVE);
 		AUNIQUECODE_GENERATE(OutputCompareMode, Inactive, 		LL_TIM_OCMODE_INACTIVE);
+		AUNIQUECODE_GENERATE(OutputCompareMode, Toggle, 		LL_TIM_OCMODE_TOGGLE);
 		AUNIQUECODE_GENERATE(OutputCompareMode, ForcedInactive, LL_TIM_OCMODE_FORCED_INACTIVE);
 		AUNIQUECODE_GENERATE(OutputCompareMode, ForcedActive,	LL_TIM_OCMODE_FORCED_ACTIVE);
 		AUNIQUECODE_GENERATE(OutputCompareMode, Pwm, 			LL_TIM_OCMODE_PWM1);
@@ -246,6 +247,39 @@ public:
 
 
 
+	virtual uint16 GetClockDivision() override {
+		if(parameters.division == ClockDivision::D1()) {
+			return 1;
+		} else if(parameters.division == ClockDivision::D2()) {
+			return 2;
+		} else if(parameters.division == ClockDivision::D4()) {
+			return 4;
+		}
+
+		return 1;
+	}
+
+
+
+
+
+	virtual uint8 GetChannelIndex(const ChannelMode *channel) override {
+		if(channel == Channel::C1()) {
+			return 0;
+		}
+		if(channel == Channel::C2()) {
+			return 1;
+		}
+		if(channel == Channel::C3()) {
+			return 2;
+		}
+		if(channel == Channel::C4()) {
+			return 3;
+		}
+	}
+
+
+
 protected:
 	virtual Status::statusType Initialization() override {
 		SystemAssert(parameters.prescaler <= 0xFFFF);
@@ -296,7 +330,7 @@ protected:
 				.OCIdleState = LL_TIM_OCIDLESTATE_LOW,
 				.OCNIdleState = LL_TIM_OCIDLESTATE_LOW
 			};
-			LL_TIM_OC_DisableFast(timHandle, channel.channel->GetCode(1)); // TODO: 2 ??
+			LL_TIM_OC_DisableFast(timHandle, channel.channel->GetCode(1)); // TODO: channel 2 ??
 
 			if(LL_TIM_OC_Init(timHandle, channel.channel->GetCode(1), &init) != ErrorStatus::SUCCESS) {
 				return Status::error;
