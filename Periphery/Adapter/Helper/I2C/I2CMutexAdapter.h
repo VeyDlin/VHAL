@@ -57,7 +57,6 @@ public:
 
 
 
-protected:
 	virtual Status::statusType WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
 		CallMutex(true);
 		auto status = AdapterClass::WriteByteArray(device, address, addressSize, writeData, dataSize);
@@ -98,6 +97,8 @@ protected:
 
 
 
+
+protected:
 	virtual void CallMutex(bool isLock) {
 		if(onMutex != nullptr) {
 			onMutex(isLock);
