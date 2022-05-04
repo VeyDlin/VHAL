@@ -189,7 +189,7 @@ protected:
 
 		LL_I2C_InitTypeDef init = {
 			.PeripheralMode = LL_I2C_MODE_I2C,
-			.ClockSpeed = 100000,
+			.ClockSpeed = static_cast<uint16>(parameters.speed),
 			.DutyCycle = LL_I2C_DUTYCYCLE_2,
 			.OwnAddress1 = 0,
 			.TypeAcknowledge = LL_I2C_ACK,
