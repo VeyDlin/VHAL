@@ -4,7 +4,10 @@
 
 
 
-template<class AdapterClass>
+template<
+	class AdapterClass,
+	typename = typename std::enable_if<std::is_base_of<I2CAdapter, AdapterClass>::value>::type
+>
 class I2CMutexAdapter: public AdapterClass {
 public:
 	std::function<void(bool lock)> onMutex;
