@@ -8,23 +8,39 @@
 class ByteConverter {
 public:
 	template <typename TO_ARRAY, typename FROM_DATA>
-	static void ToArrayFromDataCopy(TO_ARRAY &array, FROM_DATA &copyData, uint32 startToCopyPosition = 0) {
+	static void ToArrayFromDataCopy(TO_ARRAY &array, FROM_DATA &copyData, uint16 startToCopyPosition = 0) {
 		memcpy(&array + startToCopyPosition, &copyData, sizeof(FROM_DATA));
 	}
 
 
 	template <typename TO_DATA, typename FROM_ARRAY>
-	static void ToDataFromArrayCopy(TO_DATA &data, FROM_ARRAY &copyArray, uint32 startToCopyPosition = 0) {
+	static void ToDataFromArrayCopy(TO_DATA &data, FROM_ARRAY &copyArray, uint16 startToCopyPosition = 0) {
 		memcpy(&data, copyArray + startToCopyPosition, sizeof(TO_DATA));
 	}
 	
 	
 	template <typename TO_DATA, typename FROM_ARRAY>
-	static TO_DATA FromArray(FROM_ARRAY &copyArray, uint32 startToCopyPosition = 0) {
+	static TO_DATA FromArray(FROM_ARRAY &copyArray, uint16 startToCopyPosition = 0) {
 		TO_DATA data;
 		ToDataFromArrayCopy(data, copyArray, startToCopyPosition);
 		return data;
 	}
+
+
+
+
+
+	template <typename Type>
+	static Type GetType(uint8* data, bool reverse = false) {
+		Type val;
+		memcpy(&val, data, sizeof(Type));
+		if(reverse) {
+			ReverseArray(val);
+		}
+		return val;
+	}
+
+
 
 
 
@@ -46,6 +62,9 @@ public:
 		SystemAssert(sizeof(dataType) > position);
 		return static_cast<uint8>((data >> (8 * position)) & 0xFF);
 	}
+
+
+
 
 
 	template<typename dataType>
