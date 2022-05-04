@@ -330,7 +330,16 @@ private:
 
 
 	inline bool IsAlternate() {
-		return parameters.mode == Mode::Alternate;
+		switch (parameters.mode) {
+			case Mode::Alternate:
+			case Mode::AlternateOpenDrain:
+				return true;
+			break;
+
+			default:
+				return false;
+			break;
+		}
 	}
 
 
