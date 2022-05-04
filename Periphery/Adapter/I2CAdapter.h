@@ -10,7 +10,12 @@ public:
 	enum class DutyCycle { D2, D16_9 };
 	enum class AddressingMode { B7, B10 };
 	enum class Mode { Master, Slave };
-	enum class Speed { Standard, Fast, FastPlus };
+	enum class Speed:uint16 {
+		Low = 10,
+		Standard = 100,
+		Fast = 400,
+		FastPlus = 1000
+	};
 
 	enum class Error { None, SlaveAddressMatch, Busy, ArbitrationLost, OverUnderRun, AcknowledgeFailure };
 
