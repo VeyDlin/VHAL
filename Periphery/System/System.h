@@ -21,6 +21,8 @@ public:
 	static std::function<void(char *string, uint32 line)> criticalErrorHandle;
 	static std::function<void(char *string, size_t size)> writeHandle;
 	static std::function<void(char *string, size_t size)> readHandle;
+	static std::function<bool(uint32 delay)> rtosDelayMsHandle;
+
 
 	struct DeviceId {
 		uint32 w0;
@@ -97,20 +99,16 @@ public:
 	}
 
 
-	static void DelayTick(uint16 delay) {
+	static void DelayMs(uint32 delay) {
+		if(rtosDelayMsHandle != nullptr && rtosDelayMsHandle(delay)) {
+			return;
+		}
 		uint32 ms = delay + GetTick();
 		while(GetTick() < ms);
 	}
 
 
-	static void DelayMs(uint16 delay) {
-		// TODO: use tick clock
-		uint32 ms = delay + GetTick();
-		while(GetTick() < ms);
-	}
-
-
-	static void DelayUs(uint16 delay) {
+	static void DelayUs(uint32 delay) {
 		#if defined (CoreDebug)
 			uint32 start = GetCoreTick();
 			uint32 us = delay;

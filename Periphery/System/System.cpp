@@ -8,6 +8,7 @@ System::SystemPrint System::log;
 std::function<void(char *string, uint32 line)> System::criticalErrorHandle;
 std::function<void(char *string, size_t size)> System::writeHandle;
 std::function<void(char *string, size_t size)> System::readHandle;
+std::function<bool(uint32 delay)> System::rtosDelayMsHandle;
 
 
 
