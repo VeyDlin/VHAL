@@ -104,7 +104,7 @@ namespace OSAdapter {
 
 		inline static bool wIsSchedulerRun() {
 #if (INCLUDE_xTaskGetSchedulerState == 1 )
-			return xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED;
+			return xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED;
 #else
 			SystemAbort();
 #endif
