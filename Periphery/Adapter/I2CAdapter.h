@@ -46,12 +46,17 @@ protected:
 
 	Status::statusType state = Status::ready;
 
-	uint16 rxDataNeed = 0;
-	uint16 rxDataCounter = 0;
+	uint16 deviceAddress = 0;
+
+	uint16 registerAddress = 0; 
+	uint8 registerAddressSize = 0;
+
+	uint32 rxDataNeed = 0;
+	uint32 rxDataCounter = 0;
 	uint8 *rxDataPointer = nullptr;
 
-	uint16 txDataNeed = 0;
-	uint16 txDataCounter = 0;
+	uint32 txDataNeed = 0;
+	uint32 txDataCounter = 0;
 	uint8 *txDataPointer = nullptr;
 
 
