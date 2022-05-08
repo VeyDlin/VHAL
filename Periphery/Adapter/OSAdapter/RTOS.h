@@ -45,6 +45,7 @@ namespace OSAdapter {
 			RtosWrapper::wHandleSysTickInterrupt();
 		}
 
+
 		friend class RtosWrapper;
 
 	private:
