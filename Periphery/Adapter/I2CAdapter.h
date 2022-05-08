@@ -11,6 +11,7 @@ public:
 	enum class AddressingMode { B7, B10 };
 	enum class Mode { Master, Slave };
 	enum class Speed:uint16 {
+		VeryLow = 1,
 		Low = 10,
 		Standard = 100,
 		Fast = 400,
