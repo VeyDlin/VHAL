@@ -3,6 +3,8 @@
 #include "UniqueCode/IUniqueCode.h"
 #include <initializer_list>
 
+#include <System/System.h>
+
 #define AUSED_TIM_ADAPTER
 
 

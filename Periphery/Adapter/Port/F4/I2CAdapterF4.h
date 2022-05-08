@@ -1,9 +1,9 @@
 #pragma once
 #include <System/System.h>
-#include <System/SystemUtilities.h>
+#include <Utilities/WaitCondition/WaitCondition.h>
 #include "../../I2CAdapter.h"
 
-using namespace SystemUtilities;
+using namespace WaitCondition;
 
 
 using AI2C = class I2CAdapterF4;

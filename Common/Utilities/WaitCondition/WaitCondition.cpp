@@ -1,11 +1,11 @@
-#include "SystemUtilities.h"
+#include "WaitCondition.h"
+#include <System/System.h>
 
 
-
-namespace SystemUtilities {
+namespace WaitCondition {
 
 	//bool (*condition)()
-	bool WaitCondition(std::function<bool()> condition, uint32 timeout) {
+	bool Wait(Function<bool(), 32> condition, uint32 timeout) {
 		uint32 endtime = System::GetTick() + timeout;
 		while (!condition()) {
 			if (System::GetTick() < endtime) {
@@ -17,7 +17,7 @@ namespace SystemUtilities {
 
 
 
-	bool WaitConditionDouble(std::function<bool()> condition, std::function<bool()> mandatoryCondition, uint32 timeout) {
+	bool WaitDouble(Function<bool(), 32> condition, Function<bool(), 32> mandatoryCondition, uint32 timeout) {
 		uint32 endtime = System::GetTick() + timeout;
 		while (!condition()) {
 			if(!mandatoryCondition()) {
@@ -30,6 +30,4 @@ namespace SystemUtilities {
 		}
 		return true;
 	}
-
-
 };

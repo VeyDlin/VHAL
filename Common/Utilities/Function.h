@@ -2,9 +2,12 @@
 #include <functional>
 #include <memory>
 
-template <class, size_t MaxSize = 1024> class Function;
 
-template <class R, class... Args, size_t MaxSize> class Function<R(Args...), MaxSize> {
+template <class, size_t MaxSize = 32> class Function;
+
+
+template <class ReturnType, class... Args, size_t MaxSize>
+class Function<ReturnType(Args...), MaxSize> {
 public:
     Function() noexcept {}
 
@@ -18,15 +21,18 @@ public:
         }
     }
 
-    Function(Function&& other) { other.Swap(*this); }
+    Function(Function&& other) {
+        other.swap(*this);
+    }
 
-    template <class F> Function(F&& f) {
+    template <class F>
+    Function(F&& f) {
         using f_type = typename std::decay<F>::type;
         static_assert(alignof(f_type) <= alignof(Storage), "invalid alignment");
         static_assert(sizeof(f_type) <= sizeof(Storage), "storage too small");
         new (&data) f_type(std::forward<F>(f));
-        invoker = &Invoke<f_type>;
-        manager = &Manage<f_type>;
+        invoker = &invoke<f_type>;
+        manager = &manage<f_type>;
     }
 
     ~Function() {
@@ -36,12 +42,12 @@ public:
     }
 
     Function& operator=(const Function& other) {
-        Function(other).Swap(*this);
+        Function(other).swap(*this);
         return *this;
     }
 
     Function& operator=(Function&& other) {
-        Function(std::move(other)).Swap(*this);
+        Function(std::move(other)).swap(*this);
         return *this;
     }
 
@@ -55,16 +61,16 @@ public:
     }
 
     template <typename F> Function& operator=(F&& f) {
-        Function(std::forward<F>(f)).Swap(*this);
+        Function(std::forward<F>(f)).swap(*this);
         return *this;
     }
 
     template <typename F> Function& operator=(std::reference_wrapper<F> f) {
-        Function(f).Swap(*this);
+        Function(f).swap(*this);
         return *this;
     }
 
-    void Swap(Function& other) {
+    void swap(Function& other) {
         std::swap(data, other.data);
         std::swap(manager, other.manager);
         std::swap(invoker, other.invoker);
@@ -72,9 +78,9 @@ public:
 
     explicit operator bool() const noexcept { return !!manager; }
 
-    R operator()(Args... args) {
+    ReturnType operator()(Args... args) {
         if (!invoker) {
-            throw std::bad_function_call();
+        	abort();
         }
         return invoker(&data, std::forward<Args>(args)...);
     }
@@ -82,18 +88,18 @@ public:
 private:
     enum class Operation { Clone, Destroy };
 
-    using Invoker = R(*)(void*, Args &&...);
+    using Invoker = ReturnType(*)(void*, Args &&...);
     using Manager = void (*)(void*, void*, Operation);
     using Storage = typename std::aligned_storage<MaxSize - sizeof(Invoker) - sizeof(Manager), 8>::type;
 
     template <typename F>
-    static R Invoke(void* data, Args &&... args) {
+    static ReturnType invoke(void* data, Args &&... args) {
         F& f = *static_cast<F*>(data);
         return f(std::forward<Args>(args)...);
     }
 
     template <typename F>
-    static void Manage(void* dest, void* src, Operation op) {
+    static void manage(void* dest, void* src, Operation op) {
         switch (op) {
             case Operation::Clone:
                 new (dest) F(*static_cast<F*>(src));
