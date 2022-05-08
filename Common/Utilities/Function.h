@@ -1,4 +1,5 @@
 #pragma once
+#include <System/System.h>
 #include <functional>
 #include <memory>
 
@@ -80,7 +81,7 @@ public:
 
     ReturnType operator()(Args... args) {
         if (!invoker) {
-        	abort();
+        	SystemAbort();
         }
         return invoker(&data, std::forward<Args>(args)...);
     }
