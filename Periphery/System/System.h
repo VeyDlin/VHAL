@@ -23,11 +23,10 @@ public:
 	static std::function<void(char *string, size_t size)> readHandle;
 	static std::function<bool(uint32 delay)> rtosDelayMsHandle;
 
-
-	struct DeviceId {
-		uint32 w0;
-		uint32 w1;
-		uint32 w2;
+	union DeviceId {
+		uint8 byte[12];
+		uint16 halfWorld[6];
+		uint32 world[3];
 	};
 
 
