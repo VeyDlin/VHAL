@@ -1,5 +1,5 @@
 #pragma once
-#include <BSP.h>
+#include <System/System.h>
 #include <limits>
 #include <functional>
 
@@ -35,12 +35,6 @@ private:
 		return out;
 	}
 
-	inline void OnLook(bool isLook) {
-		if(onLook != nullptr) {
-			onLook(isLook);
-		}
-	}
-
 
 
 public:
@@ -54,48 +48,51 @@ public:
 
 
 
-	bool Push(const ElementType inElement) {
+	Status::statusType Push(const ElementType inElement) {
 		if (IsFull()) {
-			return false;
+			return Status::filled;
 		}
 
-		OnLook(true);
+		System::CriticalSection(true);
 		buffer[WriteIndex()] = inElement;
-		OnLook(false);
+		System::CriticalSection(false);
 
-		return true;
+		return Status::ok;
 	}
 
+	
 
 
 
-
-	bool Push(const ElementType *const inElement) {
+	Status::statusType Push(const ElementType *const inElement) {
 		if (IsFull()) {
-			return false;
+			Status::filled;
 		}
 
-		OnLook(true);
+		System::CriticalSection(true);
 		buffer[WriteIndex()] = *inElement;
-		OnLook(false);
+		System::CriticalSection(false);
 
-		return true;
+		return Status::ok;
 	}
 
 
 
 
 
-	bool Pop(ElementType &outElement) {
+	Status::info<ElementType> Pop() {
+		Status::info<ElementType> out;
 		if (IsEmpty()) {
-			return false;
+			out.type = Status::empty;
+			return out;
 		}
 
-		OnLook(true);
-		outElement = buffer[ReadIndex()];
-		OnLook(false);
+		System::CriticalSection(true);
+		out.data = buffer[ReadIndex()];
+		System::CriticalSection(false);
 
-		return true;
+		out.type = Status::ok;
+		return out;
 	}
 
 
@@ -130,15 +127,18 @@ public:
 
 
 
-	ElementType& operator[](uint16 inIndex) {
-		if (inIndex >= size) {
-			return buffer[0];
-		}
+	ElementType operator[](uint16 inIndex) {
+		SystemAssert(inIndex < size);
+
+		System::CriticalSection(true);
 		uint32 index = (uint32)readIndex + (uint32)inIndex;
 		if (index >= (uint32)BufferSize) {
 			index -= (uint32)BufferSize;
 		}
-		return buffer[(uint16)index];
+		ElementType data = buffer[(uint16)index];
+		System::CriticalSection(false);
+
+		return data;
 	}
 
 };
