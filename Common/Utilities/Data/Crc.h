@@ -1,6 +1,5 @@
 ﻿#pragma once
-#include <DataTypes.h>
-
+#include <System/System.h>
 #include <climits>
 #include <cstddef>
 #include <cstdint>
