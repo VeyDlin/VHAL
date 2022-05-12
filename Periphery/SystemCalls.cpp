@@ -33,11 +33,11 @@ extern "C"  int __cxa_guard_acquire(__guard *g) {
 	return !*(char *)(g);
 }
 
-extern "C"  void __cxa_guard_release (__guard *g) {
+extern "C"  void __cxa_guard_release(__guard *g) {
 	*(char *)g = 1;
 }
 
-extern "C"  void __cxa_guard_abort (__guard *) { }
+extern "C"  void __cxa_guard_abort(__guard *) { }
 
 extern "C"  void __cxa_pure_virtual(void) { }
 
@@ -84,9 +84,8 @@ extern "C" {
 		extern uint8_t _end; /* Symbol defined in the linker script */
 		extern uint8_t _estack; /* Symbol defined in the linker script */
 		extern uint32_t _Min_Stack_Size; /* Symbol defined in the linker script */
-		const uint32_t stack_limit = (uint32_t) &_estack
-				- (uint32_t) &_Min_Stack_Size;
-		const uint8_t *max_heap = (uint8_t*) stack_limit;
+		const uint32_t stack_limit = (uint32_t)&_estack - (uint32_t)&_Min_Stack_Size;
+		const uint8_t *max_heap = (uint8_t*)stack_limit;
 		uint8_t *prev_heap_end;
 
 		/* Initialize heap end at first call */
