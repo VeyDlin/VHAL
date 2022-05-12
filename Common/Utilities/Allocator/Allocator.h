@@ -8,7 +8,7 @@
 #define VAllocatorDebug printf
 
 
-class VAllocator {
+class Allocator {
 private:
     static constexpr size_t heapSize = 64 * 1024;
     static constexpr size_t allocatorsSize = 100;
@@ -40,7 +40,7 @@ private:
 
 
 public:
-    VAllocator(){
+    Allocator(){
         heap.memory = heapArray;
         heap.size = heapSize;
     }
@@ -145,6 +145,22 @@ public:
 
 
 
+
+
+    bool ReplacePointer(void **replacePointer, void **newPointer){
+        uint32_t index = 0;
+        if(!ValidatePointer(replacePointer, index)){
+            return false;
+        }
+
+        *newPointer = *replacePointer;
+        heap.allocators.pointer[index].memory = (uint8_t**)newPointer;
+        *replacePointer = nullptr;
+
+        return true
+    }
+
+
 private:
     void Defragmentation(){
         for(uint32_t i = 0; i < heap.allocators.count; i++){
@@ -230,22 +246,6 @@ private:
             }
         }
         return false;
-    }
-
-
-
-
-
-    void ReplacePointer(void **replacePointer, void **newPointer){
-        uint32_t index = 0;
-        if(!ValidatePointer(replacePointer, index)){
-            VAllocatorDebug("Can't replace pointers. No pointer found in buffer");
-            return;
-        }
-
-        *newPointer = *replacePointer;
-        heap.allocators.pointer[index].memory = (uint8_t**)newPointer;
-        *replacePointer = nullptr;
     }
 };
 
