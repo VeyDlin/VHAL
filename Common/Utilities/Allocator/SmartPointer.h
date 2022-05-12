@@ -8,8 +8,8 @@
 template <typename DataType>
 class SmartPointer {
 private:
-	DataType* pointer = nullptr;
-    Allocator *allocator;
+    DataType* pointer = nullptr;
+    Allocator* allocator;
 
 public:
     bool replace_flag = false;
@@ -17,37 +17,30 @@ public:
 
 
 public:
-    SmartPointer(){ }
+    SmartPointer() {}
 
-    
 
-    SmartPointer(DataType* &ptr){
-        SetAllocator(&default_heap);
-        if(!assignPtr(ptr){
-            SmartPointerDebug(" can't assign pointer");
-        }
+
+    SmartPointer(DataType& data, Allocator& _allocator) {
+        SetAllocator(&_allocator);
+        SetDataPointer(data);
         replace_flag = false;
     }
 
 
 
-    SmartPointer(const SmartPointer &sm_ptr_obj){
-        SetAllocator(sm_ptr_obj.GetAllocator());
-
-        if(allocator->ValidatePointer((void**)&(sm_ptr_obj.pointer))){
-            allocator->ReplacePointer((void**)&(sm_ptr_obj.pointer), (void**)&(pointer));
-            sm_ptr_obj.replace_flag = true;
-        }
-        else {
-            SmartPointerDebug(" can't replace pointers");
+    SmartPointer(const SmartPointer& smartPointer) {
+        SetAllocator(smartPointer.GetAllocator());
+        if (allocator->ReplacePointer(smartPointer.GetPointer(), pointer)) {
+            smartPointer.replace_flag = true;
         }
     }
 
 
 
-    ~SmartPointer(){
-        if((pointer != NULL) && (replace_flag == false)){
-            allocator->Free((void**)&pointer);
+    ~SmartPointer() {
+        if (pointer != nullptr && replace_flag == false) {
+            allocator->Free(pointer);
         }
     }
 
@@ -55,105 +48,82 @@ public:
 
 
 
-    DataType* get(){
-        return pointer;
-    }
-
-
-
-
-
-    bool assignPtr(DataType* &ptr){
-        if(allocator->ValidatePointer((void**)&ptr)){
-            allocator->ReplacePointer((void**)&ptr, (void**)&pointer);
-            return true;
-        }
-        return false;
-    }
-
-    
-
-
-
-    bool allocate(uint32_t elements_num){
-        if(pointer != NULL){
+    bool Allocate(uint32_t elementsCount = 1) {
+        if (pointer != nullptr) {
             return false;
         }
+        allocator->Malloc(elementsCount * sizeof(DataType), pointer);
+        return pointer != nullptr;
+    }
 
-        dalloc(elements_num*sizeof(DataType), (void**)&pointer);
-        if(pointer == NULL){
+
+
+    bool Free() {
+        if (pointer == nullptr) {
             return false;
         }
+        allocator->Free(pointer);
         return true;
     }
 
 
 
+    bool Replace() {
 
-
-    bool free(){
-        if((pointer != NULL)){
-            allocator->Free((void**)&pointer);
-            return true;
-        }
-        return false;
     }
 
 
 
-
-
-    SmartPointer<DataType>& operator = (const SmartPointer &sm_ptr_obj){
-        if(&sm_ptr_obj != this) {
-            if(allocator->ValidatePointer((void**)&(sm_ptr_obj.pointer))){
-                allocator->ReplacePointer((void**)&(sm_ptr_obj.pointer), (void**)&(pointer));
-                sm_ptr_obj.replace_flag = true;
-            } else {
-                SmartPointerDebug(" can't replace pointers");
-            }
-        }
-        return *this;
-    };
-
-    
-
-
-
-    SmartPointer<DataType>& operator = (DataType* &ptr){
-        if(&ptr != this){
-            if(allocator->ValidatePointer((void**)&ptr)){
-                allocator->ReplacePointer((void**)&ptr, (void**)&(pointer));
-            }
-            else {
-                SmartPointerDebug(" can't replace pointers");
-            }
-        }
-        return *this;
-    };
-
-
-
-
-
-    DataType& operator*(){
-        return *pointer;
-    }
-
-    
-
-    DataType& operator[](uint32_t i){
-        return pointer[i];
-    }
-
-    
-
-    Allocator* GetAllocator() const{
+    Allocator* GetAllocator() const {
         return allocator;
     }
 
 
 
-    void SetAllocator(Allocator* _allocator){
-        allocator = allocator;
+    void SetAllocator(Allocator* _allocator) {
+        allocator = _allocator;
+    }
+
+
+
+    DataType* GetPointer() {
+        return pointer;
+    }
+
+
+
+    bool SetDataPointer(DataType& data) {
+        return allocator->ReplacePointer(&data, pointer);
+    }
+
+
+
+
+
+    SmartPointer<DataType>& operator = (const SmartPointer& smartPointer) {
+        if (allocator->ReplacePointer(smartPointer.GetPointer(), pointer)) {
+            smartPointer.replace_flag = true;
+        }
+
+        return *this;
+    };
+
+
+
+    SmartPointer<DataType>& operator = (DataType& data) {
+        allocator->ReplacePointer(&data, pointer);
+        return *this;
+    };
+
+
+
+    DataType& operator*() {
+        return *pointer;
+    }
+
+
+
+    DataType& operator[](uint32_t i) {
+        return pointer[i];
     }
 };
