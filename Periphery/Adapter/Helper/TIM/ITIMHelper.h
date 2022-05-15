@@ -72,6 +72,8 @@ private:
 				case ATIM::ChannelSelect::NoOutput: 		return ATIM::ChannelEnableSelect::DisableAll;
 			}
 		}
+
+		return ATIM::ChannelEnableSelect::DisableAll;
 	}
 };
 
