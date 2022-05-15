@@ -4,6 +4,12 @@
 
 
 class TIMOutputCompareHelper: public ITIMHelper {
+public:
+	struct FrequencyInfo {
+		float frequencyHz;
+		float duty; // Duty in %
+	};
+
 
 public:
 	TIMOutputCompareHelper() { }
@@ -41,6 +47,7 @@ public:
 
 
 
+
 	TIMOutputCompareHelper& TuneHalfCompare(uint32 frequencyHz) {
 		TunePrescaler(frequencyHz * 2);
 		SetHalfCompare();
@@ -50,11 +57,28 @@ public:
 
 
 
+
 	inline TIMOutputCompareHelper& EnableCounter(bool enableTimerCounter) {
 		timAdapter->EnableCounter(enableTimerCounter);
 		return *this;
 	}
 
+
+
+
+
+	FrequencyInfo GetFrequencyInfo() {
+		float division = timAdapter->GetClockDivision();
+		float prescaler = timAdapter->GetParameters().prescaler;
+		float period = timAdapter->GetParameters().period;
+		float sourceFrequency = timAdapter->GetBusClockHz() * 1000;
+		float compare = timAdapter->GetOutputCompareParameters(timChannel).compare;
+
+		return FrequencyInfo{
+			.frequencyHz = sourceFrequency / division / (prescaler + 1) / (period + 1),
+			.duty = (compare / period) * 100.f
+		};
+	}
 
 };
 
