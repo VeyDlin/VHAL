@@ -91,8 +91,12 @@ public:
 	virtual Status::statusType Await() {
 		// TODO: add slave listen
 		// TODO: add timeout
-		while(state != Status::ready);
-		return Status::ok;
+		while(state != Status::ready && state != Status::error);
+
+		if (state == Status::ready) {
+			return Status::ok;
+		}
+		return Status::error;
 	}
 
 
