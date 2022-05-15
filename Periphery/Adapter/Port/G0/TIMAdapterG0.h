@@ -281,6 +281,9 @@ public:
 		if(channel == Channel::C4()) {
 			return 3;
 		}
+
+		SystemAbort();
+		return 0;
 	}
 
 
