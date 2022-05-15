@@ -2,23 +2,23 @@
 #include <System/System.h>
 
 
-#define AUNIQUECODE_GENERATE(return_type, method_name, ...) 		\
+#define AUNIQUECODE_GENERATE(return_type, method_name, ...)			\
 	static inline const return_type* method_name () {				\
 		static const return_type cl = { __VA_ARGS__ };				\
 		return &cl;													\
 	}
 
 
-#define AUNIQUECODE_STRUCT(struct_name, return_type) 				\
+#define AUNIQUECODE_STRUCT(struct_name, return_type)				\
 	struct struct_name: public IUniqueCode<return_type> {			\
-		struct_name (const return_type code) 						\
+		struct_name (const return_type code)						\
 			: IUniqueCode(code) { }									\
 	}
 
 
-#define AUNIQUECODE_DOUBLE_STRUCT(struct_name, return_type) 		\
+#define AUNIQUECODE_DOUBLE_STRUCT(struct_name, return_type)			\
 	struct struct_name: public IUniqueCodeDouble<return_type> {		\
-		struct_name (const uint32 code1, const uint32 code2) 		\
+		struct_name (const uint32 code1, const uint32 code2)		\
 			: IUniqueCodeDouble(code1, code2) { }					\
 	}
 
