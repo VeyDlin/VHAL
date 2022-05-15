@@ -14,7 +14,7 @@ private:
     static constexpr size_t allocatorsSize = 100;
 
     struct Pointer {
-        uint8_t **memory = nullptr;
+        uint8_t *memory = nullptr;
         uint32_t size = 0;
         bool free = true;
     };
@@ -48,9 +48,9 @@ public:
 
 
 
-    void Malloc(uint32_t size, void **pointer){
+    void Malloc(uint32_t size, void *pointer){
         if(!size){
-            *pointer = nullptr;
+            pointer = nullptr;
         }
 
         uint32_t offset = heap.offset + size;
@@ -64,16 +64,16 @@ public:
 
         // Check if there is enough memory for new allocation, and if number of allocations is exceeded
         if((offset <= heap.size) && (heap.allocators.count < allocatorsSize)) {
-            *pointer = heap.memory + heap.offset;
+            pointer = heap.memory + heap.offset;
             heap.offset = offset;
 
             // Save info about allocated memory
-            heap.allocators.pointer[heap.allocators.count].memory = (uint8_t**)pointer;
+            heap.allocators.pointer[heap.allocators.count].memory = static_cast<uint8_t*>(pointer);
             heap.allocators.pointer[heap.allocators.count].size = size;
             heap.allocators.pointer[heap.allocators.count].free = false;
             heap.allocators.count++;
         } else {
-            *pointer = nullptr;
+            pointer = nullptr;
             if(offset > heap.size){
                 VAllocatorDebug("Heap size exceeded");
             }
@@ -87,7 +87,7 @@ public:
 
 
 
-    void Free(void **pointer){
+    void Free(void *pointer){
         uint32_t index = 0;
 
         // Try to find given ptr in ptr_info array
@@ -107,7 +107,7 @@ public:
         heap.allocators.pointer[index].free = true;
         if(fillFreeMemory) {
             for(uint32_t i = 0; i < size; i++){
-                *(*(heap.allocators.pointer[index].memory) + i) = 0;
+                *(heap.allocators.pointer[index].memory + i) = 0;
             }
         }
 
@@ -118,7 +118,7 @@ public:
 
 
 
-    bool Realloc(uint32_t size, void **pointer){
+    bool Realloc(uint32_t size, void *pointer){
         uint32_t sizeOld = 0;
         uint32_t indexOld = 0;
 
@@ -128,17 +128,17 @@ public:
             return false;
         }
 
-        uint8_t *newPointer = nullptr;
-        Malloc(size, (void**)&newPointer);
+        uint8_t* pointerNew = nullptr;
+        Malloc(size, static_cast<void*>(pointerNew));
 
-        uint8_t *old_ptr = (uint8_t *)(*pointer);
+        uint8_t* pointerOld = static_cast<uint8_t*>(pointer);
 
         for(uint32_t i = 0; i < sizeOld; i++){
-            newPointer[i] = old_ptr[i];
+            pointerNew[i] = pointerOld[i];
         }
 
         Free(pointer);
-        ReplacePointer((void**)&newPointer, pointer);
+        ReplacePointer(static_cast<void*>(pointerNew), pointer);
 
         return true;
     }
@@ -147,17 +147,21 @@ public:
 
 
 
-    bool ReplacePointer(void **replacePointer, void **newPointer){
+    bool ReplacePointer(void *replacePointer, void *newPointer){
+        if (replacePointer == newPointer) {
+            return false;
+        }
+
         uint32_t index = 0;
         if(!ValidatePointer(replacePointer, index)){
             return false;
         }
 
-        *newPointer = *replacePointer;
-        heap.allocators.pointer[index].memory = (uint8_t**)newPointer;
-        *replacePointer = nullptr;
+        newPointer = replacePointer;
+        heap.allocators.pointer[index].memory = static_cast<uint8_t*>(newPointer);
+        replacePointer = nullptr;
 
-        return true
+        return true;
     }
 
 
@@ -167,11 +171,11 @@ private:
             if(heap.allocators.pointer[i].free == true){
 
                 // Optimize memory
-                uint8_t *memoryStart = *(heap.allocators.pointer[i].memory);
-                uint32_t indexStart = (uint32_t)(memoryStart - heap.memory);
+                uint8_t* memoryStart = heap.allocators.pointer[i].memory;
+                uint32_t indexStart = memoryStart - heap.memory;
 
                 // Set given ptr to nullptr
-                *(heap.allocators.pointer[i].memory) = nullptr;
+                heap.allocators.pointer[i].memory = nullptr;
 
                 uint32_t allocateSize = heap.allocators.pointer[i].size;
                 if(alignment) {
@@ -182,9 +186,9 @@ private:
 
                 // Check if ptrs adresses of defragmentated memory are in heap region
                 for(uint32_t k = i + 1; k < heap.allocators.count; k++){
-                    if(IsPointerInHeapArea((void**)heap.allocators.pointer[k].memory)){
-                        if((size_t)heap.allocators.pointer[k].memory > (size_t)(memoryStart)){
-                            heap.allocators.pointer[k].memory = (uint8_t**)((size_t)(heap.allocators.pointer[k].memory) - allocateSize);
+                    if(IsPointerInHeapArea((void*)heap.allocators.pointer[k].memory)){
+                        if(static_cast<size_t>(heap.allocators.pointer[k].memory) > static_cast<size_t>(memoryStart)){
+                            heap.allocators.pointer[k].memory = static_cast<uint8_t*>(static_cast<size_t>(heap.allocators.pointer[k].memory) - allocateSize);
                         }
                     }
                 }
@@ -225,10 +229,10 @@ private:
 
 
 
-    bool IsPointerInHeapArea(void **pointer){
-        size_t heap_start_area = (size_t)(heap.memory);
-        size_t heap_stop_area = (size_t)(heap.memory) + heap.size;
-        if(((size_t)pointer >= heap_start_area) && ((size_t)pointer <= heap_stop_area)){
+    bool IsPointerInHeapArea(void *pointer){
+        size_t heapStart = static_cast<size_t>(heap.memory);
+        size_t heapEnd = static_cast<size_t>(heap.memory) + heap.size;
+        if(static_cast<size_t>(pointer) >= heapStart && static_cast<size_t>(pointer) <= heapEnd){
             return true;
         }
         return false;
@@ -238,9 +242,9 @@ private:
 
 
 
-    bool ValidatePointer(void **pointer, uint32_t &index){
+    bool ValidatePointer(void *pointer, uint32_t &index){
         for(uint32_t i = 0; i < heap.allocators.count; i++){
-            if(heap.allocators.pointer[i].memory == (uint8_t**)pointer){
+            if(heap.allocators.pointer[i].memory == static_cast<uint8_t*>(pointer)){
                 index = i;
                 return true;
             }
