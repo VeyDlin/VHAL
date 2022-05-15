@@ -24,9 +24,9 @@ public:
 	static std::function<bool(uint32 delay)> rtosDelayMsHandle;
 
 	union DeviceId {
+		uint32 world[3];
 		uint8 byte[12];
 		uint16 halfWorld[6];
-		uint32 world[3];
 	};
 
 
@@ -56,7 +56,7 @@ public:
 
 
 	static inline void TickHandler() {
-		tickCounter++;
+		tickCounter = tickCounter + 1;
 	}
 
 
@@ -81,13 +81,13 @@ public:
 
 	static inline bool InitDelayDWT() {
 		#if defined (CoreDebug)
-			CoreDebug->DEMCR &= ~CoreDebug_DEMCR_TRCENA_Msk; 	// Disable TRC ~0x01000000;
-			CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;  	// Enable TRC 0x01000000;
-			DWT->CTRL &= ~DWT_CTRL_CYCCNTENA_Msk; 				// Disable clock cycle counter ~0x00000001;
-			DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk; 				// Enable  clock cycle counter 0x00000001;
-			DWT->CYCCNT = 0; 									// Reset the clock cycle counter value
+			CoreDebug->DEMCR = CoreDebug->DEMCR & ~CoreDebug_DEMCR_TRCENA_Msk; 	// Disable TRC ~0x01000000;
+			CoreDebug->DEMCR = CoreDebug->DEMCR | CoreDebug_DEMCR_TRCENA_Msk;  	// Enable TRC 0x01000000;
+			DWT->CTRL = DWT->CTRL & ~DWT_CTRL_CYCCNTENA_Msk; 					// Disable clock cycle counter ~0x00000001;
+			DWT->CTRL = DWT->CTRL | DWT_CTRL_CYCCNTENA_Msk; 					// Enable  clock cycle counter 0x00000001;
+			DWT->CYCCNT = 0; 													// Reset the clock cycle counter value
 
-			__asm volatile ("NOP"); // 3 NO OPERATION instructions
+			__asm volatile ("NOP");
 			__asm volatile ("NOP");
 			__asm volatile ("NOP");
 
