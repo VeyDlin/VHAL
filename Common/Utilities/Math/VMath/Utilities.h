@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include <cmath>
+#include <stdlib.h>
 
 
 namespace VMath {
@@ -19,5 +20,11 @@ namespace VMath {
 	template<typename type>
 	type Min(type a, type b) {
 		return a < b ? a : b;
+	}
+
+
+	template<typename type>
+	type Random(type a, type b) {
+		return a + rand() % (b - a + 1);
 	}
 };
