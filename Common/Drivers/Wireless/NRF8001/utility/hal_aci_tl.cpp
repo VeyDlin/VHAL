@@ -308,7 +308,7 @@ void hal_aci_tl_init(aci_pins_t *a_pins, bool /*debug*/)
 		.clockPolarity = ASPI::ClockPolarity::Low,
 		.clockPhase = ASPI::ClockPhase::Edge1,
 		.firstBit = ASPI::FirstBit::LSB,
-		.maxSpeedHz = 1600
+		.maxSpeedHz = 2000
 	});
 
 	/* Initialize the ACI Command queue. This must be called after the delay above. */
