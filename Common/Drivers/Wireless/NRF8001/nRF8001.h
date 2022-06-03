@@ -128,7 +128,7 @@ protected:
 	  this->_aciState.aci_pins.reqn_pin               = req;
 	  this->_aciState.aci_pins.rdyn_pin               = rdy;
 	  this->_aciState.aci_pins.reset_pin              = rst;
-	  this->_aciState.aci_pins.spi              = spi;
+	  this->_aciState.aci_pins.spi              	   = spi;
 	}
 
 
