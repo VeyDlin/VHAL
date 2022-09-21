@@ -2,6 +2,7 @@
 #include <BSP.h>
 #include <cmath>
 
+// TODO: Ref: volt_calc.h
 
 class VoltageCalculator {
 private:

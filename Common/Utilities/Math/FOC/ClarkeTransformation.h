@@ -1,31 +1,13 @@
 ﻿#pragma once
-#include <BSP.h>
-#include <cmath>
-
+#include "Types.h"
 
 
 class ClarkeTransformation {
-public:
-	struct Clarke {
-		float alpha = 0; // stationary d-axis stator variable
-		float beta = 0;  // stationary q-axis stator variable
-	};
-
-	struct Phase {
-		float a = 0; // phase-a stator variable
-		float b = 0; // phase-b stator variable
-		float c = 0; // phase-c stator variable
-	};
-
-	enum class CurrentsMode { 
-		C2, // with 2 currents
-		C3  // with 2 currents
-	};
-
-
 private:
-	Clarke clarke;
-	Phase phase;
+	struct {
+		Phase phase;
+		Phase2 clarke;
+	} inout;
 
 
 public:
@@ -33,58 +15,52 @@ public:
 
 
 
-	ClarkeTransformation& SetClarke(Clarke val) {
-		clarke = val;
-		return *this;
-	}
-
-
-
-	ClarkeTransformation& SetPhase(Phase val) {
-		phase = val;
-		return *this;
-	}
-
-
-
-	ClarkeTransformation& Resolve(CurrentsMode mode = CurrentsMode::C2) {
+	ClarkeTransformation& Resolve2(Phase2 phase2) {
 		static float const D1_SQRT3 = 1 / std::sqrt(3.0f);
 
-		clarke.alpha = phase.a;
+		inout.phase = phase2.GetPhase();
 
-		switch (mode) {
-			case CurrentsMode::C2:
-				clarke.beta = D1_SQRT3 * (phase.a + (2 * phase.b));
-			break;
-
-			case CurrentsMode::C3:
-				clarke.beta = D1_SQRT3 * (phase.b - phase.c);
-			break;
-		}
-	
-		return *this;
-	}
-
-
-
-	InverseClarkeTransformation& ResolveInverse() {
-		phase.a = clarke.alpha;
-		phase.b = (sqrt(3.0f) / 2) * clarke.beta - (1 / 2) * clarke.alpha;
-		phase.c = (-1 / 2) * clarke.alpha - (sqrt(3.0f) / 2) * clarke.beta;
+		inout.clarke.a = phase2.a;
+		inout.clarke.b = D1_SQRT3 * (phase2.a + (2 * phase2.b));
 
 		return *this;
 	}
 
 
 
-	Clarke GetClarke() {
-		return clarke;
+	ClarkeTransformation& Resolve(Phase phase) {
+		static float const D1_SQRT3 = 1 / std::sqrt(3.0f);
+
+		inout.phase = phase;
+
+		inout.clarke.a = phase2.a;
+		inout.clarke.b = D1_SQRT3 * (phase.b - phase.c);
+
+		return *this;
 	}
 
 
 
-	Phase GetPhase() {
-		return phase;
+	ClarkeTransformation& ResolveInverse(Phase2 clarke) {
+		inout.clarke = clarke;
+
+		inout.phase.a = clarke.a;
+		inout.phase.b = (sqrt(3.0f) / 2) * clarke.b - (1 / 2) * clarke.a;
+		inout.phase.c = (-1 / 2) * clarke.a - (sqrt(3.0f) / 2) * clarke.b;
+
+		return *this;
+	}
+
+
+
+	Phase2 Get() {
+		return inout.clarke;
+	}
+
+
+
+	Phase GetInverse() {
+		return inout.phase;
 	}
 
 };

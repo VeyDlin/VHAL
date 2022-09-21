@@ -1,26 +1,13 @@
 ﻿#pragma once
-#include <BSP.h>
-#include <cmath>
+#include "Types.h"
 
 
 class ParkTransformation {
-public:
-	struct Axis {
-		float alpha = 0; // stationary d-axis stator variable
-		float beta = 0;  // stationary q-axis stator variable
-		float angle = 0; // rotating angle
-	};
-
-	struct Park {
-		float dAxis = 0; // rotating d-axis stator variable
-		float qAxis = 0; // rotating q-axis stator variable
-		float angle = 0; // rotating angle
-	};
-
-
 private:
-	Park park;
-	Axis axis;
+	struct {
+		Phase2 phase;
+		QuadratureDirectAxis park;
+	} inout;
 
 
 public:
@@ -28,46 +15,36 @@ public:
 
 
 
-	ParkTransformation& SetPark(Park val) {
-		park = val;
-		return *this;
-	}
+	ParkTransformation& Resolve(Phase2 phase2, float angle) {
+		inout.phase = phase2;
 
-
-
-	ParkTransformation& SetAxis(Axis val) {
-		axis = val;
-		return *this;
-	}
-
-
-
-	ParkTransformation& Resolve() {
-		park.dAxis = (axis.alpha * std::cos(axis.angle)) + (axis.beta * std::sin(axis.angle));
-		park.qAxis = (axis.beta * std::cos(axis.angle))  - (axis.alpha * std::sin(axis.angle));
+		inout.park.d = (phase.a * std::cos(angle)) + (phase.b * std::sin(angle));
+		inout.park.q = (phase.b * std::cos(angle)) - (phase.a * std::sin(angle));
 
 		return *this;
 	}
 
 
 
-	ParkTransformation& ResolveInverse() {
-		axis.alpha = (park.dAxis * std::cos(park.angle)) - (park.qAxis * std::sin(park.angle));
-		axis.beta = (park.dAxis * std::sin(park.angle))  + (park.qAxis * std::cos(park.angle));
+	ParkTransformation& ResolveInverse(QuadratureDirectAxis park, float angle) {
+		inout.park = park;
+
+		inout.phase.a = (park.d * std::cos(angle)) - (park.q * std::sin(angle));
+		inout.phase.b = (park.d * std::sin(angle)) + (park.q * std::cos(angle));
 
 		return *this;
 	}
 
 
 	
-	Park GetPark() {
-		return park;
+	QuadratureDirectAxis Get() {
+		return inout.park;
 	}
 
 
 
-	Axis GetAxis() {
-		return axis;
+	Phase2 GetInverse() {
+		return inout.phase;
 	}
 
 };

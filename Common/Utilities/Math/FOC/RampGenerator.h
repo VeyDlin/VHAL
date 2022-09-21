@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 
+// TODO: Ref: rampgen.h
 
 class RampGenerator {
 private:

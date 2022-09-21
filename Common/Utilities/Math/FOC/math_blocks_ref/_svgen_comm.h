@@ -35,7 +35,7 @@ Default initalizer for the SVGENCOMM object.
 #define SVGENCOMM_MACRO(v)														\
 																				\
 	v.tmp1=_IQdiv2(v.Ualpha); 					/*divide by 2*/					\
-	v.tmp2=_IQmpy(_IQ(0.8660254),v.Ubeta);		/* 0.8660254 = sqrt(3)/2*/		\
+	v.tmp2=_IQmpy(_IQ(0.8660254), v.Ubeta);		/* 0.8660254 = sqrt(3)/2*/		\
 																				\
 	v.Va = v.Ualpha;							/*Inv Clarke*/					\
 	v.Vb = -v.tmp1 + v.tmp2;													\
