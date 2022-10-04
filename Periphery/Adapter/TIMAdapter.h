@@ -17,6 +17,7 @@ public:
 	AUNIQUECODE_STRUCT_U32(CounterMode);
 	AUNIQUECODE_STRUCT_U32(OutputCompareMode);
 	AUNIQUECODE_STRUCT_U32(OutputTriggerMode);
+	AUNIQUECODE_STRUCT_U32(OutputTriggerMode2);
 
 	AUNIQUECODE_DOUBLE_STRUCT_U32(ChannelMode);
 
@@ -37,6 +38,7 @@ public:
 		const CounterMode *mode;
 		uint16 repetitionCounter = 0;
 		const OutputTriggerMode *outputTrigger = nullptr;
+		const OutputTriggerMode2 *outputTrigger2 = nullptr;
 		// TODO: MasterSlaveMode
 	};
 
