@@ -117,13 +117,14 @@ private:
 
 
 		if (LL_I2C_IsActiveFlag_STOP(i2cHandle)) {
+			CallSlaveEndTransfer();
+
 			LL_I2C_ClearFlag_STOP(i2cHandle);
 
 			if (!LL_I2C_IsActiveFlag_TXE(i2cHandle)) {
 				LL_I2C_ClearFlag_TXE(i2cHandle);
 			}
 
-			CallSlaveEndTransfer();
 			return;
 		}
 
