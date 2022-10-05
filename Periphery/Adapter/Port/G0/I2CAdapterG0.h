@@ -204,7 +204,7 @@ protected:
 
 		LL_I2C_InitTypeDef init = {
 			.PeripheralMode = LL_I2C_MODE_I2C,
-			.Timing = 0x00C00000, // TODO: Добавить расчет с I2C_Timing_Configuration_V1.0.1
+			.Timing = 0x10B00000, // TODO: Добавить расчет с I2C_Timing_Configuration_V1.0.1
 			.AnalogFilter = LL_I2C_ANALOGFILTER_ENABLE, // TODO: Добавить
 			.DigitalFilter = parameters.digitalFilter, // TODO: Добавить проверку
 			.OwnAddress1 = parameters.slaveAddress,
