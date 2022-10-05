@@ -26,9 +26,53 @@ public:
 
 
 	virtual void IrqErrorHandler() override {
+		if(!LL_I2C_IsEnabledIT_ERR(i2cHandle)) {
+			return;
+		}
 
+
+		if (state == Status::listen) {
+			// Disable all interrupts, except interrupts related to LISTEN state
+			LL_I2C_DisableIT_TX(i2cHandle);
+			LL_I2C_DisableIT_RX(i2cHandle);
+		} else {
+			// Disable all interrupts
+			LL_I2C_DisableIT_ADDR(i2cHandle);
+			LL_I2C_DisableIT_NACK(i2cHandle);
+			LL_I2C_DisableIT_ERR(i2cHandle);
+			LL_I2C_DisableIT_STOP(i2cHandle);
+			LL_I2C_DisableIT_TX(i2cHandle);
+			LL_I2C_DisableIT_RX(i2cHandle);
+			state = Status::ready;
+		}
+
+
+		if (LL_I2C_IsActiveFlag_BERR(i2cHandle)) {
+			CallError(Error::MisplacedStartStop);
+			LL_I2C_ClearFlag_BERR(i2cHandle);
+		}
+
+		if (LL_I2C_IsActiveFlag_OVR(i2cHandle)) {
+			CallError(Error::OverUnderRun);
+			LL_I2C_ClearFlag_OVR(i2cHandle);
+		}
+
+		if (LL_I2C_IsActiveFlag_ARLO(i2cHandle)) {
+			CallError(Error::ArbitrationLost);
+			LL_I2C_ClearFlag_ARLO(i2cHandle);
+		}
 	}
 
+
+
+	inline void IrqHandler() {
+		//LL_I2C_IsActiveFlag_BERR(i2cHandle) || LL_I2C_IsActiveFlag_ARLO(i2cHandle) || LL_I2C_IsActiveFlag_OVR(i2cHandle)
+		if (i2cHandle->ISR & (I2C_ISR_BERR | I2C_ISR_ARLO | I2C_ISR_OVR)) {
+			IrqErrorHandler();
+		} else {
+			IrqEventHandler();
+		}
+	}
 
 
 public:
@@ -81,10 +125,9 @@ private:
 
 		// AddrCallback
 		if (LL_I2C_IsActiveFlag_ADDR(i2cHandle)) {
-			LL_I2C_ClearFlag_ADDR(i2cHandle);
-
 			if (LL_I2C_GetAddressMatchCode(i2cHandle) != parameters.slaveAddress) {
 				CallError(Error::SlaveAddressMatch);
+				LL_I2C_ClearFlag_ADDR(i2cHandle);
 				return;
 			}
 
@@ -93,6 +136,8 @@ private:
 			} else {
 				LL_I2C_EnableIT_TX(i2cHandle);
 			}
+
+			LL_I2C_ClearFlag_ADDR(i2cHandle);
 			return;
 		}
 
@@ -119,12 +164,11 @@ private:
 		if (LL_I2C_IsActiveFlag_STOP(i2cHandle)) {
 			CallSlaveEndTransfer();
 
-			LL_I2C_ClearFlag_STOP(i2cHandle);
-
 			if (!LL_I2C_IsActiveFlag_TXE(i2cHandle)) {
 				LL_I2C_ClearFlag_TXE(i2cHandle);
 			}
 
+			LL_I2C_ClearFlag_STOP(i2cHandle);
 			return;
 		}
 
