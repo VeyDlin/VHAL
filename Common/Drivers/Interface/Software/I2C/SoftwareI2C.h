@@ -131,7 +131,6 @@ public:
 
 	    status = Close();
 		if(status != Status::ok) {
-			Close();
 			return status;
 		}
 
@@ -221,7 +220,6 @@ public:
 
 	    status = Close();
 		if(status != Status::ok) {
-			Close();
 			return status;
 		}
 
@@ -379,21 +377,7 @@ private:
 		SetSda(Line::Low);
 		Tick();
 
-		// Release SCL
-		SetScl(Line::High);
-		if (clockStretchMode) {
-			if (WaitScl(Line::High)) {
-				Release();
-				return Status::timeout;
-			}
-		}
-		Tick();
-
-		// Release SDA
-		SetSda(Line::High);
-		Tick(4);
-
-		return Status::ok;
+		return Release();
 	}
 
 
