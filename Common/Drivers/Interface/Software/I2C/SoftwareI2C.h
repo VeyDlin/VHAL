@@ -271,7 +271,9 @@ public:
 	}
 
 
-
+	Status::statusType Free() {
+		return Release();
+	}
 
 
 	void SetFrequency(uint16 kHz) {
@@ -497,12 +499,22 @@ private:
 
 
 
-	void Release() {
+	Status::statusType Release() {
 	    SetScl(Line::High);
 	    Tick();
 
 	    SetSda(Line::High);
-	    Tick(4); // 4 times the normal delay, to claim the bus
+	    Tick(10); // 10 times the normal delay, to claim the bus
+
+
+		auto prevMillis = System::GetTick();
+		while (ReadScl() != 1 && ReadSda() != 1) {
+			if (System::GetTick() - prevMillis >= timeout) {
+				return Status::timeout;
+			}
+		}
+
+		return Status::ok;
 	}
 
 
