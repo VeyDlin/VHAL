@@ -118,10 +118,6 @@ public:
 	virtual void IrqEventHandler() = 0;
 	virtual void IrqErrorHandler() = 0;
 
-
-
-
-protected:
 	virtual Status::statusType WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) = 0;
 	virtual Status::statusType ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) = 0;
 
@@ -130,6 +126,7 @@ protected:
 
 
 
+protected:
 	virtual Status::statusType Initialization() = 0;
 
 
