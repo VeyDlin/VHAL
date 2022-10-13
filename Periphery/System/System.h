@@ -111,11 +111,10 @@ public:
 	static void DelayUs(uint32 delay) {
 		#if defined (CoreDebug)
 			uint32 startUs = GetCoreTick();
-			uint32 startTick = GetCoreClock();
+			uint32 startTick = GetCoreTick();
 
-			uint32 endUs = GetCoreClock() / 1000000; // Core ticks in 1us
-			endUs = endUs == 0 ? 1 : endUs;
-			endUs *= delay;
+			uint32 endUs = delay;
+			endUs *= GetCoreClock() / 1000000; // Количество тактов в 1us
 			endUs += startUs;
 
 			uint32 endTick = startTick + (ticksInOneMs * 2);
