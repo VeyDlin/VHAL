@@ -120,14 +120,15 @@ public:
 
 			uint32 endTick = startTick + (ticksInOneMs * 2);
 
-			// TODO: add overflow
-			//if(endUs + startUs > std::numeric_limits<uint32>::max()) {
-			//	uint32 shareUs = us - std::numeric_limits<uint32>::max();
-			//}
-
-			while (GetCoreTick() < endUs && GetCoreClock() < endTick);
+			if (endUs > startTick) {
+				// Not overflowed
+				while (GetCoreTick() < endUs && GetCoreClock() < endTick);
+			} else {
+				// Overflowed
+				while ((GetCoreTick() > startUs || GetCoreTick() < endUs) && GetCoreClock() < endTick);
+			}
 		#else
-			volatile uint32 waitIndex = (delay / 10UL) * ((GetCoreClock() / (100000 * 2)) + 1);
+			volatile uint32 waitIndex = (delay / 10) * ((GetCoreClock() / (100000 * 2)) + 1);
 			while (waitIndex != 0) {
 				waitIndex--;
 			}
