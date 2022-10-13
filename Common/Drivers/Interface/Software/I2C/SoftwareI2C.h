@@ -256,18 +256,14 @@ public:
 
 	// TODO: check if the repeated start actually works
 	Status::statusType Restart() {
-	    SetSda(Line::High);
-	    //  SetScl(Line::High);  // TODO: ??????
-
 	    SetScl(Line::Low);
-
 	    DelayUs(bitDelayUs);
 
 	    SetSda(Line::High);
-
 	    DelayUs(bitDelayUs);
 
 	    SetScl(Line::High);
+		DelayUs(bitDelayUs);
 
 	    if (clockStretchMode) {
 	        auto prevMillis = System::GetTick();
@@ -278,7 +274,8 @@ public:
 	        }
 	    }
 
-	    DelayUs(bitDelayUs);
+		SetSda(Line::Low);
+		DelayUs(bitDelayUs);
 
 	    return Status::ok;
 	}
@@ -397,7 +394,6 @@ private:
 	    uint8 c = ReadSda();
 
 	    SetScl(Line::Low);
-
 	    DelayUs(bitDelayUs);
 
 	    return c;
@@ -423,11 +419,9 @@ private:
 	        return Status::error;
 	    } else {
 	        SetSda(Line::Low);
-
 	        DelayUs(bitDelayUs);
 
 	        SetScl(Line::Low);
-
 	        DelayUs(bitDelayUs);
 	    }
 
