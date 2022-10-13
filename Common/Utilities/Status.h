@@ -7,7 +7,9 @@
 struct Status {
 	typedef enum:uint8 {
 		ok,											
-		error,										
+		error,	
+		unknownError,
+		busError,
 		readError,									
 		writeError,									
 		accessError,								
