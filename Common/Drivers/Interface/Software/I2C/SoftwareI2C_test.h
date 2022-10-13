@@ -38,8 +38,6 @@ public:
 	    sclPin.Reset().SetParameters({ AGPIO::Mode::OpenDrain });
 	    Tick();
 
-	    Release();
-
 	    // TODO: Some tests could be added here, to check if the SDA and SCL are really turning high
 	    return Status::ok;
 	}
@@ -78,26 +76,28 @@ public:
 
 
 
+
+
 	virtual Status::statusType WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *writeData, uint32 dataSize) override {
 		Status::statusType status;
 
 		status = Open();
 		if(status != Status::ok) {
-			Release();
+			Close();
 			return status;
 		}
 
 
 		status = RequestWrite(device);
 		if(status != Status::ok) {
-			Release();
+			Close();
 			return status;
 		}
 
 
 		status = Write(ByteConverter::GetByte(address, 0));
 		if(status != Status::ok) {
-			Release();
+			Close();
 			return status;
 		}
 
@@ -105,7 +105,7 @@ public:
 		if(addressSize != 1) {
 			status = Write(ByteConverter::GetByte(address, 1));
 			if(status != Status::ok) {
-				Release();
+				Close();
 				return status;
 			}
 		}
@@ -116,7 +116,7 @@ public:
 			writeData++;
 
 			if(status != Status::ok) {
-				Release();
+				Close();
 				return status;
 			}
 		}
@@ -124,7 +124,6 @@ public:
 
 	    status = Close();
 		if(status != Status::ok) {
-			Release();
 			return status;
 		}
 
@@ -141,21 +140,21 @@ public:
 
 		status = Open();
 		if(status != Status::ok) {
-			Release();
+			Close();
 			return status;
 		}
 
 
 		status = RequestWrite(device);
 		if(status != Status::ok) {
-			Release();
+			Close();
 			return status;
 		}
 
 
 		status = Write(ByteConverter::GetByte(address, 0));
 		if(status != Status::ok) {
-			Release();
+			Close();
 			return status;
 		}
 
@@ -163,7 +162,7 @@ public:
 		if(addressSize != 1) {
 			status = Write(ByteConverter::GetByte(address, 1));
 			if(status != Status::ok) {
-				Release();
+				Close();
 				return status;
 			}
 		}
@@ -171,7 +170,6 @@ public:
 
 	    status = Close();
 		if(status != Status::ok) {
-			Release();
 			return status;
 		}
 
@@ -181,14 +179,14 @@ public:
 
 		status = Open();
 		if(status != Status::ok) {
-			Release();
+			Close();
 			return status;
 		}
 
 
 		status = RequestRead(device);
 		if(status != Status::ok) {
-			Release();
+			Close();
 			return status;
 		}
 
@@ -203,7 +201,7 @@ public:
 	        }
 
 	        if(readInfo.IsError()) {
-	        	Release();
+				Close();
 	        	return readInfo.type;
 	        }
 
@@ -214,7 +212,6 @@ public:
 
 	    status = Close();
 		if(status != Status::ok) {
-			Release();
 			return status;
 		}
 
@@ -227,116 +224,42 @@ public:
 
 
 	Status::statusType Open() {
-	    return i2c_start();
+	    return LLStart();
 	}
 
 
-
+	Status::statusType Restart() {
+		return LLRestart();
+	}
 
 
 	Status::statusType Close() {
-
-		// Force SCL low
-		SetScl(Line::Low);
-		Tick();
-
-		// Force SDA low
-		SetSda(Line::Low);
-		Tick();
-
-		// Release SCL
-		SetScl(Line::High);
-		if (parameters.clockStretching) {
-			WaitScl(Line::High);
-		}
-		Tick();
-
-		// Release SDA
-		SetSda(Line::High);
-		Tick();
-
-	    return Status::ok;
+	    return LLStop();
 	}
-
-
-
-
-
-	void Release() {
-	    SetScl(Line::High);
-	    Tick();
-
-	    SetSda(Line::High);
-		Tick(4); // 4 times the normal delay, to claim the bus
-	}
-
-
-
-
-
-	// TODO: check if the repeated start actually works
-	Status::statusType Restart() {
-
-		// Force SCL low
-		SetScl(Line::Low);
-		Tick();
-
-		// Release SDA
-		SetSda(Line::High);
-		Tick();
-
-		// Release SCL
-		SetScl(Line::High);
-		if (parameters.clockStretching) {
-			WaitScl(Line::High);
-		}
-		Tick();
-
-		// Force SDA low
-		SetSda(Line::Low);
-		Tick();
-
-	    return Status::ok;
-	}
-
-
-
 
 
 	Status::statusType RequestWrite(uint8 address) {
-	    return i2c_write((address << 1) | 0);
+	    return LLWrite((address << 1) | 0);
 	}
-
-
-
 
 
 	Status::statusType RequestRead(uint8 address) {
-	    return i2c_write((address << 1) | 1);
+	    return LLWrite((address << 1) | 1);
 	}
-
-
-
 
 
 	Status::info<uint8> Read() {
-	    return i2c_read(true);
+	    return LLRead(true);
 	}
-
-
-
 
 
 	Status::info<uint8> ReadLast() {
-	    return i2c_read(false);
+	    return LLRead(false);
 	}
 
 
-
-
-
 	Status::statusType Write(uint8 data) {
-	    return i2c_write(data);
+	    return LLWrite(data);
 	}
 
 
@@ -372,7 +295,7 @@ protected:
 
 
 private:
-	Status::statusType i2c_start() {
+	Status::statusType LLStart() {
 
 		// Force SDA low
 		SetSda(Line::Low);
@@ -393,7 +316,70 @@ private:
 
 
 
-	Status::statusType i2c_write(uint8 data) {
+	// TODO: check if the repeated start actually works
+	Status::statusType LLRestart() {
+
+		// Force SCL low
+		SetScl(Line::Low);
+		Tick();
+
+		// Release SDA
+		SetSda(Line::High);
+		Tick();
+
+		// Release SCL
+		SetScl(Line::High);
+		if (parameters.clockStretching) {
+			if (WaitScl(Line::High)) {
+				LLStop();
+				return Status::timeout;
+			}
+		}
+		Tick();
+
+		// Force SDA low
+		SetSda(Line::Low);
+		Tick();
+
+		return Status::ok;
+	}
+
+
+
+
+
+	Status::statusType LLStop() {
+
+		// Force SCL low
+		SetScl(Line::Low);
+		Tick();
+
+		// Force SDA low
+		SetSda(Line::Low);
+		Tick();
+
+		// Release SCL
+		SetScl(Line::High);
+		if (parameters.clockStretching) {
+			if (WaitScl(Line::High)) {
+				SetSda(Line::High);
+				return Status::timeout;
+			}
+		}
+		Tick();
+
+		// Release SDA
+		SetSda(Line::High);
+		Tick();
+
+		return Status::ok;
+	}
+
+
+
+
+
+	Status::statusType LLWrite(uint8 data) {
 		auto prevMillis = System::GetTick();
 
 		for (uint8 i = 8; i; --i) {
@@ -412,13 +398,16 @@ private:
 			// Release SCL
 			SetScl(Line::High);
 			if (parameters.clockStretching) {
-				WaitScl(Line::High);
+				if (WaitScl(Line::High)) {
+					LLStop();
+					return Status::timeout;
+				}
 			}
 			Tick();
 
 			data <<= 1;
 			if (System::GetTick() - prevMillis >= timeout) {
-				stop(); // Reset bus
+				LLStop(); // Reset bus
 				return Status::timeout;
 			}
 		}
@@ -434,7 +423,10 @@ private:
 		// Release SCL
 		SetScl(Line::High);
 		if (parameters.clockStretching) {
-			WaitScl(Line::High);
+			if (WaitScl(Line::High)) {
+				LLStop();
+				return Status::timeout;
+			}
 		}
 
 		auto state = ReadSda() == 0 ? Status::ok : Status::error
@@ -451,7 +443,7 @@ private:
 
 
 
-	Status::info<uint8> i2c_read(bool sendAck) {
+	Status::info<uint8> LLRead(bool sendAck) {
 		Status::info<uint8> dataInfo;
 		dataInfo.data = 0;
 	
@@ -468,13 +460,16 @@ private:
 			// Release SCL
 			SetScl(Line::High);
 			if (parameters.clockStretching) {
-				WaitScl(Line::High);
+				if (WaitScl(Line::High)) {
+					LLStop();
+					return Status::timeout;
+				}
 			}
 			Tick();
 
 			// Read clock stretch
 			if (WaitScl(Line::High) != Status::ok) {
-				Close(); // Reset bus
+				LLStop(); // Reset bus
 				dataInfo.type = Status::timeout;
 				return dataInfo;
 			}
@@ -496,13 +491,16 @@ private:
 		// Release SCL
 		SetScl(Line::High);
 		if (parameters.clockStretching) {
-			WaitScl(Line::High);
+			if (WaitScl(Line::High)) {
+				LLStop();
+				return Status::timeout;
+			}
 		}
 		Tick();
 
 		// Wait for SCL to return high
 		if (WaitScl(Line::High) != Status::ok) {
-			Close(); // Reset bus
+			LLStop(); // Reset bus
 			dataInfo.type = Status::timeout;
 			return dataInfo;
 		}
@@ -523,11 +521,9 @@ private:
 	}
 
 
-
 	void SetSda(Line state) {
 	    sdaPin.SetState(state != Line::Low);
 	}
-
 
 
 	uint8 ReadScl() {
@@ -535,10 +531,11 @@ private:
 	}
 
 
-
 	uint8 ReadSda() {
 	    return static_cast<uint8>(sdaPin.GetState());
 	}
+
+
 
 
 
