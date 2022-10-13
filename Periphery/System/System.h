@@ -120,7 +120,7 @@ public:
 
 			uint32 endTick = startTick + (ticksInOneMs * 2);
 
-			if (endUs > startTick) {
+			if (endUs > startUs) {
 				// Not overflowed
 				while (GetCoreTick() < endUs && GetCoreClock() < endTick);
 			} else {
