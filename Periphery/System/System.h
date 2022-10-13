@@ -32,6 +32,7 @@ public:
 
 private:
 	static volatile uint32 tickCounter;
+	static float ticksInOneMs; // TODO: Convert Tick to ms
 
 	class SystemPrint: public Print {
 	protected:
@@ -102,26 +103,29 @@ public:
 		if(rtosDelayMsHandle != nullptr && rtosDelayMsHandle(delay)) {
 			return;
 		}
-		uint32 ms = delay + GetTick();
+		uint32 ms = delay + (GetTick() * ticksInOneMs);
 		while(GetTick() < ms);
 	}
 
 
 	static void DelayUs(uint32 delay) {
 		#if defined (CoreDebug)
-			uint32 start = GetCoreTick();
-			uint32 us = delay;
+			uint32 startUs = GetCoreTick();
+			uint32 startTick = GetCoreClock();
 
-			us *= GetCoreClock() / 1000000; // Количество тактов в 1us
-			us = us == 0 ? 1 : us;
-			us += start;
+			uint32 endUs = GetCoreClock() / 1000000; // Core ticks in 1us
+			endUs = endUs == 0 ? 1 : endUs;
+			endUs *= delay;
+			endUs += startUs;
+
+			uint32 endTick = startTick + (ticksInOneMs * 2);
 
 			// TODO: add overflow
-			//if(us > std::numeric_limits<uint32>::max()) {
+			//if(endUs + startUs > std::numeric_limits<uint32>::max()) {
 			//	uint32 shareUs = us - std::numeric_limits<uint32>::max();
 			//}
 
-			while(GetCoreTick() < us);
+			while (GetCoreTick() < endUs && GetCoreClock() < endTick);
 		#else
 			volatile uint32 waitIndex = (delay / 10UL) * ((GetCoreClock() / (100000 * 2)) + 1);
 			while (waitIndex != 0) {

@@ -3,6 +3,7 @@
 
 
 volatile uint32 System::tickCounter = 0;
+float System::ticksInOneMs = 1;
 System::SystemPrint System::log;
 
 std::function<void(char *string, uint32 line)> System::criticalErrorHandle;
