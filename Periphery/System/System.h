@@ -110,21 +110,21 @@ public:
 
 	static void DelayUs(uint32 delay) {
 		#if defined (CoreDebug)
-			uint32 startUs = GetCoreTick();
-			uint32 startTick = GetCoreTick();
+			volatile uint32 startUs = GetCoreTick();
+			volatile uint32 startTick = GetTick();
 
-			uint32 endUs = delay;
-			endUs *= GetCoreClock() / 1000000; // Количество тактов в 1us
+			volatile uint32 endUs = delay;
+			endUs *= GetCoreClock() / 1000000; // Core ticks in 1us
 			endUs += startUs;
 
-			uint32 endTick = startTick + (ticksInOneMs * 2);
+			volatile uint32 endTick = startTick + (ticksInOneMs * 2);
 
 			if (endUs > startUs) {
 				// Not overflowed
-				while (GetCoreTick() < endUs && GetCoreClock() < endTick);
+				while (GetCoreTick() < endUs && GetTick() < endTick);
 			} else {
 				// Overflowed
-				while ((GetCoreTick() > startUs || GetCoreTick() < endUs) && GetCoreClock() < endTick);
+				while ((GetCoreTick() > startUs || GetCoreTick() < endUs) && GetTick() < endTick);
 			}
 		#else
 			volatile uint32 waitIndex = (delay / 10) * ((GetCoreClock() / (100000 * 2)) + 1);
