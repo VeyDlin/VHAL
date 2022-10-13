@@ -44,6 +44,12 @@ public:
 	};
 
 
+	struct IO {
+		GPIO_TypeDef *port;
+		uint8 pin;
+	};
+
+
 protected:
 	GPIO_TypeDef *port;
 	uint16 pin;
@@ -63,6 +69,8 @@ public:
 	GPIOAdapter() { }
 
 	GPIOAdapter(GPIO_TypeDef *gpioPort, uint8 gpioPin, bool gpioInversion = false) : port(gpioPort), pin(1 << gpioPin), inversion(gpioInversion) { }
+
+	GPIOAdapter(IO &io) : port(io.port), pin(1 << io.pin), inversion(false) { }
 
 
 

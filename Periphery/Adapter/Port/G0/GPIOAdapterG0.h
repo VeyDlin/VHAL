@@ -13,10 +13,8 @@ public:
 
 
 	GPIOAdapterG0() { }
-	GPIOAdapterG0(GPIO_TypeDef *gpioPort, uint8 gpioPin, bool gpioInversion = false):GPIOAdapter(gpioPort, gpioPin, gpioInversion) {
-
-	}
-
+	GPIOAdapterG0(GPIO_TypeDef *gpioPort, uint8 gpioPin, bool gpioInversion = false):GPIOAdapter(gpioPort, gpioPin, gpioInversion) { }
+	GPIOAdapterG0(IO &io):GPIOAdapter(io) { }
 
 
 
