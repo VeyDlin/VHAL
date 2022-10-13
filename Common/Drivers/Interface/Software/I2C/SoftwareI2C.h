@@ -7,7 +7,7 @@
 using ASI2C = class SoftwareI2C;
 
 
-class SoftwareI2C {
+class SoftwareI2C : public I2CAdapter {
 private:
 	enum class Line { High, Low };
 
@@ -48,9 +48,36 @@ public:
 
 
 
+	virtual void IrqEventHandler() override {}
+
+	virtual void IrqErrorHandler() override {}
+
+	virtual Status::statusType CheckDevice(uint8 deviceAddress, uint16 repeat = 1) override {
+		return Status::notSupported;
+	}
+
+	virtual Status::statusType CheckDeviceAsync(uint8 deviceAddress, uint16 repeat = 1) override {
+		return Status::notSupported;
+	}
+
+	virtual Status::info<uint8> Scan(uint8* listBuffer, uint8 size) override {
+		return { Status::notSupported };
+	}
+
+	virtual Status::info<uint8> ScanAsync(uint8* listBuffer, uint8 size) override {
+		return { Status::notSupported };
+	}
+
+	virtual Status::statusType WriteByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
+		return Status::notSupported;
+	}
+
+	virtual Status::statusType ReadByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
+		return Status::notSupported;
+	}
 
 
-	Status::statusType WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *writeData, uint32 dataSize) {
+	virtual Status::statusType WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *writeData, uint32 dataSize) override {
 		Status::statusType status;
 
 		status = Open();
@@ -108,7 +135,7 @@ public:
 
 
 
-	Status::statusType ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *readData, uint32 dataSize) {
+	virtual Status::statusType ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *readData, uint32 dataSize) override {
 		Status::statusType status;
 
 		status = Open();
@@ -274,7 +301,6 @@ public:
 	        }
 	    }
 
-		SetSda(Line::Low);
 		DelayUs(bitDelayUs);
 
 	    return Status::ok;
@@ -342,7 +368,17 @@ public:
 
 
 
+protected:
+	virtual Status::statusType Initialization() override {
+		auto status = BeforeInitialization();
+		if (status != Status::ok) {
+			return status;
+		}
 
+		SetFrequency(static_cast<uint16>(parameters.speed));
+
+		return AfterInitialization();
+	}
 
 private:
 	void i2c_writebit(uint8 c) {
