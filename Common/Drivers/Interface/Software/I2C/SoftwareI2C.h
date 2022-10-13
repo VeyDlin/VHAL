@@ -1,6 +1,5 @@
 #pragma once
 #include <Adapter/I2CAdapter.h>
-#include <BSP.h>
 #include <Utilities/Data/ByteConverter.h>
 
 
@@ -9,7 +8,7 @@ using ASI2C = class SoftwareI2C;
 
 class SoftwareI2C : public I2CAdapter {
 private:
-	enum class Line { High, Low };
+	enum class Line:uint8 { High = 1, Low = 0 };
 
 	AGPIO sdaPin;
 	AGPIO sclPin;
@@ -17,11 +16,15 @@ private:
 	Status::statusType lastStatus = Status::ok;
 	uint16 bitDelayUs = 100;
 	bool clockStretchMode = true;
-	uint32 timeoutMs = 1000;
 
 
 public:
 	SoftwareI2C() {}
+	SoftwareI2C(I2C_TypeDef *i2c, uint32 busClockHz):I2CAdapter(i2c, busClockHz) { }
+
+
+
+
 
 	~SoftwareI2C() {
 	    SetSda(Line::High);
@@ -29,22 +32,6 @@ public:
 	}
 
 
-
-
-
-	Status::statusType SetPins(AGPIO::IO scl, AGPIO::IO sda) {
-	    sdaPin = AGPIO(sda);
-	    sclPin = AGPIO(scl);
-
-	    sdaPin.Reset().SetParameters({ AGPIO::Mode::OpenDrain });
-	    sclPin.Reset().SetParameters({ AGPIO::Mode::OpenDrain });
-	    DelayUs(bitDelayUs);
-
-	    Release();
-
-	    // TODO: Some tests could be added here, to check if the SDA and SCL are really turning high
-	    return Status::ok;
-	}
 
 
 
@@ -77,26 +64,47 @@ public:
 	}
 
 
+
+
+
+	Status::statusType SetPins(AGPIO::IO scl, AGPIO::IO sda) {
+	    sdaPin = AGPIO(sda);
+	    sclPin = AGPIO(scl);
+
+	    sdaPin.Reset().SetParameters({ AGPIO::Mode::OpenDrain });
+	    sclPin.Reset().SetParameters({ AGPIO::Mode::OpenDrain });
+	    Tick();
+
+	    Release();
+
+	    // TODO: Some tests could be added here, to check if the SDA and SCL are really turning high
+	    return Status::ok;
+	}
+
+
+
+
+
 	virtual Status::statusType WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *writeData, uint32 dataSize) override {
 		Status::statusType status;
 
 		status = Open();
 		if(status != Status::ok) {
-			Release();
+			Close();
 			return status;
 		}
 
 
 		status = RequestWrite(device);
 		if(status != Status::ok) {
-			Release();
+			Close();
 			return status;
 		}
 
 
 		status = Write(ByteConverter::GetByte(address, 0));
 		if(status != Status::ok) {
-			Release();
+			Close();
 			return status;
 		}
 
@@ -104,7 +112,7 @@ public:
 		if(addressSize != 1) {
 			status = Write(ByteConverter::GetByte(address, 1));
 			if(status != Status::ok) {
-				Release();
+				Close();
 				return status;
 			}
 		}
@@ -115,7 +123,7 @@ public:
 			writeData++;
 
 			if(status != Status::ok) {
-				Release();
+				Close();
 				return status;
 			}
 		}
@@ -123,7 +131,7 @@ public:
 
 	    status = Close();
 		if(status != Status::ok) {
-			Release();
+			Close();
 			return status;
 		}
 
@@ -140,21 +148,21 @@ public:
 
 		status = Open();
 		if(status != Status::ok) {
-			Release();
+			Close();
 			return status;
 		}
 
 
 		status = RequestWrite(device);
 		if(status != Status::ok) {
-			Release();
+			Close();
 			return status;
 		}
 
 
 		status = Write(ByteConverter::GetByte(address, 0));
 		if(status != Status::ok) {
-			Release();
+			Close();
 			return status;
 		}
 
@@ -162,7 +170,7 @@ public:
 		if(addressSize != 1) {
 			status = Write(ByteConverter::GetByte(address, 1));
 			if(status != Status::ok) {
-				Release();
+				Close();
 				return status;
 			}
 		}
@@ -170,7 +178,7 @@ public:
 
 	    status = Close();
 		if(status != Status::ok) {
-			Release();
+			Close();
 			return status;
 		}
 
@@ -180,14 +188,14 @@ public:
 
 		status = Open();
 		if(status != Status::ok) {
-			Release();
+			Close();
 			return status;
 		}
 
 
 		status = RequestRead(device);
 		if(status != Status::ok) {
-			Release();
+			Close();
 			return status;
 		}
 
@@ -202,7 +210,7 @@ public:
 	        }
 
 	        if(readInfo.IsError()) {
-	        	Release();
+	        	Close();
 	        	return readInfo.type;
 	        }
 
@@ -213,7 +221,7 @@ public:
 
 	    status = Close();
 		if(status != Status::ok) {
-			Release();
+			Close();
 			return status;
 		}
 
@@ -226,124 +234,40 @@ public:
 
 
 	Status::statusType Open() {
-	    return i2c_start();
+	    return LLStart();
 	}
 
 
-
-
-	// The stop was not recognized by every chip.
-	// Some code has been added (with comment "ADDED1"),
-	// to be sure that the levels are okay with delays in between.
 	Status::statusType Close() {
-		SetScl(Line::Low); // ADDED1, it should already be low.
-		SetSda(Line::Low);
-
-		// ADDED1, wait to be sure that the slave knows that both are low
-		DelayUs(bitDelayUs);
-
-		// For a stop, make SCL high wile SDA is still low
-		SetScl(Line::High);
-
-		if (clockStretchMode) {
-		    auto prevMillis = System::GetTick();
-		    while (ReadScl() == 0) {
-		        if (System::GetTick() - prevMillis >= timeoutMs) {
-		            break;
-		        }
-		    }
-		}
-
-		DelayUs(bitDelayUs);
-
-		// complete the STOP by setting SDA high
-		SetSda(Line::High);
-
-		// It is not known how fast the next START will happen
-		DelayUs(bitDelayUs);
-
-	    return Status::ok;
+		return LLStop();
 	}
 
 
-
-
-
-	void Release() {
-	    SetScl(Line::High);
-	    DelayUs(bitDelayUs);
-
-	    SetSda(Line::High);
-	    DelayUs(bitDelayUs * 4); // 4 times the normal delay, to claim the bus
-	}
-
-
-
-
-
-	// TODO: check if the repeated start actually works
 	Status::statusType Restart() {
-	    SetScl(Line::Low);
-	    DelayUs(bitDelayUs);
-
-	    SetSda(Line::High);
-	    DelayUs(bitDelayUs);
-
-	    SetScl(Line::High);
-		DelayUs(bitDelayUs);
-
-	    if (clockStretchMode) {
-	        auto prevMillis = System::GetTick();
-	        while (ReadScl() == 0) {
-	            if (System::GetTick() - prevMillis >= timeoutMs) {
-	                break;
-	            }
-	        }
-	    }
-
-		DelayUs(bitDelayUs);
-
-	    return Status::ok;
+	    return LLRestart();
 	}
-
-
-
 
 
 	Status::statusType RequestWrite(uint8 address) {
-	    return i2c_write((address << 1) | 0);
+	    return LLWrite((address << 1) | 0);
 	}
-
-
-
 
 
 	Status::statusType RequestRead(uint8 address) {
-	    return i2c_write((address << 1) | 1);
+	    return LLWrite((address << 1) | 1);
 	}
-
-
-
-
 
 	Status::info<uint8> Read() {
-	    return { Status::ok, i2c_read(true) };
+	    return LLRead(true);
 	}
-
-
-
-
 
 	Status::info<uint8> ReadLast() {
-	    return { Status::ok, i2c_read(false) };
+	    return LLRead(false);
 	}
-
-
-
 
 
 	Status::statusType Write(uint8 data) {
-	    return i2c_write(data);
+	    return LLWrite(data);
 	}
 
 
@@ -362,12 +286,6 @@ public:
 
 
 
-	void SetTimeout(uint32 ms) {
-	    timeoutMs = ms;
-	}
-
-
-
 protected:
 	virtual Status::statusType Initialization() override {
 		auto status = BeforeInitialization();
@@ -380,86 +298,36 @@ protected:
 		return AfterInitialization();
 	}
 
+
+
+
+
 private:
-	void i2c_writebit(uint8 c) {
-	    if (c == 0) {
-	        SetSda(Line::Low);
-	    } else {
-	        SetSda(Line::High);
-	    }
-
-	    DelayUs(bitDelayUs);
-
-	    SetScl(Line::High);
-
-	    if (clockStretchMode) {
-	        auto prevMillis = System::GetTick();
-	        while (ReadScl() == 0) {
-	            if (System::GetTick() - prevMillis >= timeoutMs) {
-	                break;
-	            }
-	        }
-	    }
-
-	    DelayUs(bitDelayUs);
-
-	    SetScl(Line::Low);
-
-	    DelayUs(bitDelayUs);
-	}
-
-
-
-
-
-	uint8 i2c_readbit() {
-	    SetSda(Line::High);
-	    SetScl(Line::High);
-
-	    if (clockStretchMode) {
-	        auto prevMillis = System::GetTick();
-	        while (ReadScl() == 0) {
-	            if (System::GetTick() - prevMillis >= timeoutMs) {
-	                break;
-	            }
-	        }
-	    }
-
-	    DelayUs(bitDelayUs);
-
-	    uint8 c = ReadSda();
-
-	    SetScl(Line::Low);
-	    DelayUs(bitDelayUs);
-
-	    return c;
-	}
-
-
-
-
-
-	Status::statusType i2c_start() {
+	Status::statusType LLStart() {
 
 	    // TODO: can perhaps be removed some day ? if the rest of the code is okay
 	    SetSda(Line::High);
 	    SetScl(Line::High);
+	    Tick();
 
-	    DelayUs(bitDelayUs);
 
-	    // Both the sda and scl should be high.
-	    // If not, there might be a hardware problem with the i2c bus signal lines.
-	    // This check was added to prevent that a shortcut of sda would be seen as a valid ACK
-	    // from a i2c Slave.
 	    if (ReadSda() == 0 || ReadScl() == 0) {
 	        return Status::error;
-	    } else {
-	        SetSda(Line::Low);
-	        DelayUs(bitDelayUs);
-
-	        SetScl(Line::Low);
-	        DelayUs(bitDelayUs);
 	    }
+
+		// Force SDA low
+		SetSda(Line::Low);
+		Tick();
+
+		// Force SCL low
+		SetScl(Line::Low);
+		Tick();
+
+
+	    if (ReadSda() != 0 || ReadScl() != 0) {
+	        return Status::busy;
+	    }
+
 
 	    return Status::ok;
 	}
@@ -468,36 +336,173 @@ private:
 
 
 
-	Status::statusType i2c_write(uint8 c) {
-	    for (uint8 i = 0; i < 8; i++) {
-	        i2c_writebit(c & 0x80); // highest bit first
-	        c <<= 1;
-	    }
+	// TODO: check if the repeated start actually works
+	Status::statusType LLRestart() {
 
-	    return i2c_readbit() == 0 ? Status::ok : Status::error;
+		// Force SCL low
+		SetScl(Line::Low);
+		Tick();
+
+		// Release SDA
+		SetSda(Line::High);
+		Tick();
+
+		// Release SCL
+		SetScl(Line::High);
+		if (clockStretchMode) {
+			if (WaitScl(Line::High)) {
+				return Status::timeout;
+			}
+		}
+		Tick();
+
+		// Force SDA low
+		SetSda(Line::Low);
+		Tick();
+
+		return Status::ok;
 	}
 
 
 
 
 
-	uint8 i2c_read(bool ack) {
+	Status::statusType LLStop() {
+
+		// Force SCL low
+		SetScl(Line::Low);
+		Tick();
+
+		// Force SDA low
+		SetSda(Line::Low);
+		Tick();
+
+		// Release SCL
+		SetScl(Line::High);
+		if (clockStretchMode) {
+			if (WaitScl(Line::High)) {
+				Release();
+				return Status::timeout;
+			}
+		}
+		Tick();
+
+		// Release SDA
+		SetSda(Line::High);
+		Tick(4);
+
+		return Status::ok;
+	}
+
+
+
+
+
+	Status::statusType LLWrite(uint8 c) {
+	    for (uint8 i = 0; i < 8; i++) {
+
+	    	auto wrriteStatus = LLWriteBit(c & 0x80);
+	    	if(wrriteStatus != Status::ok) {
+	    		return wrriteStatus;
+	    	}
+
+	        c <<= 1;
+	    }
+
+        auto bitInfo = LLReadBit();
+        if(bitInfo.IsError()) {
+        	return bitInfo.type;
+        }
+
+	    return bitInfo.data == 0 ? Status::ok : Status::error;
+	}
+
+
+
+
+
+	Status::info<uint8> LLRead(bool ack) {
 	    uint8 res = 0;
 
 	    for (uint8 i = 0; i < 8; i++) {
 	        res <<= 1;
-	        res |= i2c_readbit();
+
+	        auto bitInfo = LLReadBit();
+	        if(bitInfo.IsError()) {
+	        	return bitInfo;
+	        }
+
+	        res |= bitInfo.data;
 	    }
 
-	    if (ack) {
-	        i2c_writebit(0);
-	    } else {
-	        i2c_writebit(1);
+    	auto wrriteStatus = LLWriteBit(ack ? 0 : 1);
+    	if(wrriteStatus != Status::ok) {
+    		return { wrriteStatus };
+    	}
+
+	    Tick();
+
+	    return { Status::ok, res };
+	}
+
+
+
+
+
+	Status::statusType LLWriteBit(uint8 c) {
+	    SetSda(c == 0 ? Line::Low : Line::High);
+	    Tick();
+
+	    SetScl(Line::High);
+
+	    if (clockStretchMode) {
+			if (WaitScl(Line::High)) {
+				return Status::timeout;
+			}
 	    }
 
-	    DelayUs(bitDelayUs);
+	    Tick();
 
-	    return res;
+	    SetScl(Line::Low);
+	    Tick();
+
+	    return Status::ok;
+	}
+
+
+
+
+
+	Status::info<uint8> LLReadBit() {
+	    SetSda(Line::High);
+	    SetScl(Line::High);
+
+	    if (clockStretchMode) {
+			if (WaitScl(Line::High)) {
+				return { Status::timeout };
+			}
+	    }
+
+	    Tick();
+
+	    uint8 bit = ReadSda();
+
+	    SetScl(Line::Low);
+	    Tick();
+
+	    return { Status::ok, bit };
+	}
+
+
+
+
+
+	void Release() {
+	    SetScl(Line::High);
+	    Tick();
+
+	    SetSda(Line::High);
+	    Tick(4); // 4 times the normal delay, to claim the bus
 	}
 
 
@@ -509,17 +514,14 @@ private:
 	}
 
 
-
 	void SetSda(Line state) {
 	    sdaPin.SetState(state != Line::Low);
 	}
 
 
-
 	uint8 ReadScl() {
 	    return static_cast<uint8>(sclPin.GetState());
 	}
-
 
 
 	uint8 ReadSda() {
@@ -530,8 +532,26 @@ private:
 
 
 
-	void DelayUs(uint32 us) {
-	    System::DelayUs(us);
+
+	Status::statusType WaitScl(Line waitState) {
+		auto prevMillis = System::GetTick();
+		while (ReadScl() != static_cast<uint8>(waitState)) {
+			if (System::GetTick() - prevMillis >= timeout) {
+				return Status::timeout;
+			}
+		}
+
+		return Status::ok;
+	}
+
+
+
+
+
+	void Tick(uint8 ticks = 1) {
+		if (ticks != 0) {
+			System::DelayUs(bitDelayUs * ticks);
+		}
 	}
 };
 
