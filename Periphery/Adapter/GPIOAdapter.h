@@ -94,6 +94,12 @@ public:
 		return inversion ? !state : state;
 	}
 
+	inline uint8 GetByteState(uint8 offset = 0) {
+		bool state = GetPinState();
+		state = inversion ? !state : state;
+		return static_cast<uint8>(state) << offset;
+	}
+
 	inline GPIOAdapter& Toggle() {
 		TogglePinState();
 		return *this;
