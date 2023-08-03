@@ -83,6 +83,6 @@ public:
 		}
 
 
-		return std::floor(level / (100.0 / (float)divisions));
+		return static_cast<uint8>(level / (100.0 / (float)divisions));
 	}
 };
