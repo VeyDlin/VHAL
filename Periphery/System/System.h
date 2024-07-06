@@ -127,9 +127,9 @@ public:
 				while ((GetCoreTick() > startUs || GetCoreTick() < endUs) && GetTick() < endTick);
 			}
 		#else
-			volatile uint32 waitIndex = (delay / 10) * ((GetCoreClock() / (100000 * 2)) + 1);
-			while (waitIndex != 0) {
-				waitIndex--;
+			volatile waitIndex = ((delay * (SystemCoreClock / (100000 * 2))) / 10);
+			while(wait != 0) {
+				wait--;
 			}
 		#endif
 	}
