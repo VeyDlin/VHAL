@@ -1,6 +1,5 @@
 #pragma once
-#include <DataTypes.h>
-
+#include <Utilities/DataTypes.h>
 
 
 class COBS {
@@ -32,6 +31,7 @@ public:
 
 
 
+
 	static size_t Decode(uint8 *buffer, const size_t size) {
 		if (size < 1 || size > 255) {
 			return 0;
@@ -49,4 +49,3 @@ public:
 		return size - 1;
 	}
 };
-
