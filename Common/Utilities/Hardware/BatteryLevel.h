@@ -1,70 +1,88 @@
 ﻿#pragma once
 #include <BSP.h>
 #include <Utilities/Math/Filter/IntWindow.h>
+#include <Utilities/Math/VMath/Utilities.h>
 
 
+/*
+	// LiIon simple profile
+	auto battery = BatteryLevel({
+		{4.2, 100},
+		{3.8, 90},
+		{3.55, 20},
+		{3.1, 10},
+		{3.0, 0}
+	});
+*/
 
 class BatteryLevel {
+public:
+	struct BatteryProfilePoint {
+		float voltage;
+		uint8 level;
+	};
+
+
 private:
 	IntWindow<float> voltageLevel;
-	float minVoltage;
-	float division;
-	uint16 divisionsQuantity;
+	uint8 cells; 		// Number of battery cells
+	uint16 divisions; 	// Number of charge levels
 
-public:
-
-	struct BatteryType {
-		// Минимальное напряжение ячейки
-		float minVoltage;
-
-		// Максимальное напряжение ячейки
-		float maxVoltage;
-	};
-
-
-	struct Config {
-		BatteryType batteryType;
-
-		// Количество батарейных ячеек
-		uint8 cellsQuantity;
-
-		// Количество делений в индикации
-		uint16 divisionsQuantity;
-	};
+	uint16 profileCount;
+	BatteryProfilePoint* profile;
 
 
 public:
-	// drawdown - напряжение, на которое может просадится АКБ, но которое не будет учитывать в индикации класс
-	// если drawdown = 0 то оно расчитывается автоматически
-	BatteryLevel(Config config, float drawdown = 0) {
-		divisionsQuantity = config.divisionsQuantity;
+	// if jitter = 0, it is calculated automatically
+	BatteryLevel(const std::initializer_list<BatteryProfilePoint>& batteryProfile, uint8 divisionsQuantity = 10, uint8 cellsQuantity = 1, float jitter = 0) {
+		cells = cellsQuantity;
+		divisions = divisionsQuantity;
 
-		float maxVoltage = config.batteryType.maxVoltage * config.cellsQuantity;
-		minVoltage = config.batteryType.minVoltage * config.cellsQuantity;
+		profileCount = batteryProfile.size();
+		profile = new BatteryProfilePoint[profileCount];
+		std::copy(batteryProfile.begin(), batteryProfile.end(), profile);
 
-		float delta = maxVoltage - minVoltage;
-		division = delta / config.divisionsQuantity;
-
-		if(drawdown <= 0) {
-			drawdown = division / 2.0;
+		if (jitter <= 0) {
+			float maxVoltage = profile[0].voltage * cells;
+			float minVoltage = profile[profileCount - 1].voltage * cells;
+			jitter = ((maxVoltage - minVoltage) / (float)divisions) / 2.0;
 		}
-		voltageLevel = IntWindow<float>(drawdown, IntWindow<>::PullType::noPull);
+
+		voltageLevel = IntWindow<float>(jitter, IntWindow<>::PullType::noPull);
 	}
 
 
-	// На сколько заполнена шкала заряда
-	uint8 GetDivision(float currentBatteryVoltage) {
-		volatile float voltage = voltageLevel.Get(currentBatteryVoltage);
-		volatile float voltageDivision = (voltage - minVoltage) / division;
 
-		if(voltageDivision >= divisionsQuantity) {
-			return divisionsQuantity;
+
+
+	// How full is the charge scale
+	uint8 GetDivision(float batteryVoltage) {
+		float voltage = voltageLevel.Get(batteryVoltage);
+		voltage /= (float)cells;
+
+
+		if (voltage >= profile[0].voltage) {
+			return divisions;
 		}
-		if(voltageDivision < 0) {
+
+		if (voltage <= profile[profileCount - 1].voltage) {
 			return 0;
 		}
 
-		return (uint8)voltageDivision;
-	}
 
+		float level = 0;
+		for (int32 i = profileCount - 1; i >= 0; i--) {
+			if (voltage < profile[i].voltage) {
+				level = VMath::Extrapolation<float>(
+					profile[i].voltage, profile[i].level,
+					profile[i + 1].voltage, profile[i + 1].level,
+					voltage
+				);
+				break;
+			}
+		}
+
+
+		return static_cast<uint8>(level / (100.0 / (float)divisions));
+	}
 };

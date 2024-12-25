@@ -1,0 +1,335 @@
+#pragma once
+#include "../../GPIOAdapter.h"
+
+
+
+using AGPIO = class GPIOAdapterG4;
+
+
+class GPIOAdapterG4 : public GPIOAdapter {
+public:
+	using GPIOAdapter::operator=;
+
+
+
+	GPIOAdapterG4() { }
+	GPIOAdapterG4(GPIO_TypeDef *gpioPort, uint8 gpioPin, bool gpioInversion = false):GPIOAdapter(gpioPort, gpioPin, gpioInversion) { }
+	GPIOAdapterG4(IO &io):GPIOAdapter(io) { }
+
+
+
+protected:
+	virtual inline bool GetPinState() override {
+		if(parameters.mode == Mode::Output) {
+			return static_cast<bool>(LL_GPIO_IsOutputPinSet(port, pin));
+		}
+		return static_cast<bool>(LL_GPIO_IsInputPinSet(port, pin));
+	}
+
+
+
+
+
+	virtual inline void SetPinState(bool state) override {
+		if(state) {
+			LL_GPIO_SetOutputPin(port, pin);
+		} else {
+			LL_GPIO_ResetOutputPin(port, pin);
+		}
+	}
+
+
+
+
+
+	virtual inline void TogglePinState() override {
+		LL_GPIO_TogglePin(port, pin);
+	}
+
+
+
+
+
+	virtual Status::statusType Initialization() override {
+		OnEnableClock();
+
+		auto status = BeforeInitialization();
+		if(status != Status::ok) {
+			return status;
+		}
+
+
+
+		if(IsNormal() || IsAlternate() || IsAnalog()) {
+			LL_GPIO_InitTypeDef init = {
+				.Pin = pin,
+				.Mode = CastMode(),
+				.Speed = CastSpeed(),
+				.OutputType = CastOutputType(),
+				.Pull = CastPull(),
+				.Alternate = (uint32)(alternate)
+			};
+			SystemAssert(LL_GPIO_Init(port, &init) == ErrorStatus::SUCCESS);
+
+			return AfterInitialization();
+		}
+
+
+		if(IsInterrupt()) {
+			SystemAssert(interruptPeripheryInit != nullptr);
+
+			LL_GPIO_SetPinPull(port, pin, CastPull());
+			LL_GPIO_SetPinMode(port, pin, LL_GPIO_MODE_INPUT);
+
+			// TODO: Add LL_EXTI_Init
+
+			InterruptInitialization();
+
+			return AfterInitialization();
+		}
+
+
+		if(IsEvent()) {
+			SystemAssert(eventPeripheryInit != nullptr);
+
+			LL_GPIO_SetPinPull(port, pin, CastPull());
+			LL_GPIO_SetPinMode(port, pin, LL_GPIO_MODE_INPUT);
+
+			EventInitialization();
+
+			return AfterInitialization();
+		}
+
+
+		return Status::invalidParameter;
+	}
+
+
+
+
+
+	virtual void OnEnableClock() {
+#ifdef GPIOA
+			if(port == GPIOA) {
+				LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOA);
+				return;
+			}
+#endif
+
+#ifdef GPIOB
+			if(port == GPIOB) {
+				LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOB);
+				return;
+			}
+#endif
+
+#ifdef GPIOC
+			if(port == GPIOC) {
+				LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOC);
+				return;
+			}
+#endif
+
+#ifdef GPIOD
+			if(port == GPIOD) {
+				LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOD);
+				return;
+			}
+#endif
+
+#ifdef GPIOE
+			if(port == GPIOE) {
+				LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOE);
+				return;
+			}
+#endif
+
+#ifdef GPIOF
+			if(port == GPIOF) {
+				LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOF);
+				return;
+			}
+#endif
+
+#ifdef GPIOG
+			if(port == GPIOG) {
+				LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOG);
+				return;
+			}
+#endif
+	}
+
+
+
+
+
+private:
+	inline uint32 CastMode() {
+		switch (parameters.mode) {
+			case Mode::Output:
+			case Mode::OpenDrain:
+				return LL_GPIO_MODE_OUTPUT;
+			break;
+
+			case Mode::Alternate:
+				return LL_GPIO_MODE_ALTERNATE;
+			break;
+
+			case Mode::Analog:
+				return LL_GPIO_MODE_ANALOG;
+			break;
+
+			case Mode::Input:
+			default:
+				return LL_GPIO_MODE_INPUT;
+			break;
+		}
+	}
+
+
+
+	inline uint32 CastSpeed() {
+		switch (parameters.speed) {
+			case Speed::Low:
+				return LL_GPIO_SPEED_FREQ_LOW;
+			break;
+
+			case Speed::Medium:
+				return LL_GPIO_SPEED_FREQ_MEDIUM;
+			break;
+
+			case Speed::High:
+				return LL_GPIO_SPEED_FREQ_HIGH;
+			break;
+
+			case Speed::VeryHigh:
+				return LL_GPIO_SPEED_FREQ_VERY_HIGH;
+			break;
+
+			default:
+				return LL_GPIO_SPEED_FREQ_MEDIUM;
+			break;
+		}
+	}
+
+
+
+	inline uint32 CastPull() {
+		switch (parameters.pull) {
+			case Pull::None:
+				return LL_GPIO_PULL_NO;
+			break;
+
+			case Pull::Up:
+				return LL_GPIO_PULL_UP;
+			break;
+
+			case Pull::Down:
+				return LL_GPIO_PULL_DOWN;
+			break;
+
+			default:
+				return LL_GPIO_PULL_NO;
+			break;
+		}
+	}
+
+
+
+	inline uint32 CastOutputType() {
+		switch (parameters.mode) {
+			case Mode::OpenDrain:
+			case Mode::AlternateOpenDrain:
+				return LL_GPIO_OUTPUT_OPENDRAIN;
+			break;
+
+			case Mode::Output:
+			default:
+				return LL_GPIO_OUTPUT_PUSHPULL;
+			break;
+		}
+	}
+
+
+
+	inline bool IsNormal() {
+		switch (parameters.mode) {
+			case Mode::Input:
+			case Mode::Output:
+			case Mode::OpenDrain:
+				return true;
+			break;
+
+			default:
+				return false;
+			break;
+		}
+	}
+
+
+	inline bool IsInterrupt() {
+		switch (parameters.mode) {
+			case Mode::InterruptRising:
+			case Mode::InterruptFalling:
+			case Mode::InterruptRisingFalling:
+				return true;
+			break;
+
+			default:
+				return false;
+			break;
+		}
+	}
+
+
+
+	inline bool IsEvent() {
+		switch (parameters.mode) {
+			case Mode::EventRising:
+			case Mode::EventFalling:
+			case Mode::EventRisingFalling:
+				return true;
+			break;
+
+			default:
+				return false;
+			break;
+		}
+	}
+
+
+
+	inline bool IsAlternate() {
+		switch (parameters.mode) {
+			case Mode::Alternate:
+			case Mode::AlternateOpenDrain:
+				return true;
+			break;
+
+			default:
+				return false;
+			break;
+		}
+	}
+
+
+
+	inline bool IsAnalog() {
+		return parameters.mode == Mode::Analog;
+	}
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
