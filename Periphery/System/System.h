@@ -36,7 +36,7 @@ private:
 
 	class SystemPrint: public Print {
 	protected:
-		virtual void _Write(char *string, size_t size) override {
+		virtual void WriteRaw(char *string, size_t size) override {
 			if(System::writeHandle != nullptr) {
 				System::writeHandle(string, size);
 			}
@@ -109,29 +109,51 @@ public:
 
 
 	static void DelayUs(uint32 delay) {
-		#if defined (CoreDebug)
-			volatile uint32 startUs = GetCoreTick();
-			volatile uint32 startTick = GetTick();
+	#if defined(CoreDebug)
+		// If DWT is available
+		const uint32 startUs = GetCoreTick();
+		const uint32 startTick = GetTick();
 
-			volatile uint32 endUs = delay;
-			endUs *= GetCoreClock() / 1000000; // Core ticks in 1us
-			endUs += startUs;
+		// Ticks required for the delay in microseconds
+		const uint32 ticks = delay * (GetCoreClock() / 1000000);
+		const uint32 endUs = startUs + ticks;
 
-			volatile uint32 endTick = startTick + (ticksInOneMs * 2);
+		while (true) {
+			const uint32 currentUs = GetCoreTick();
+			const uint32 currentTick = GetTick();
 
-			if (endUs > startUs) {
-				// Not overflowed
-				while (GetCoreTick() < endUs && GetTick() < endTick);
-			} else {
-				// Overflowed
-				while ((GetCoreTick() > startUs || GetCoreTick() < endUs) && GetTick() < endTick);
+			// Check if the delay has elapsed based on RTOS ticks
+			if (currentTick != startTick) {
+				const uint32 elapsedMs = (currentTick - startTick) * ticksInOneMs;
+				if (elapsedMs >= delay) {
+					break;
+				}
 			}
-		#else
-			volatile uint32 waitIndex = (delay / 10) * ((GetCoreClock() / (100000 * 2)) + 1);
-			while (waitIndex != 0) {
-				waitIndex--;
+
+			// Check if the delay has elapsed based on DWT with overflow handling
+			if ((endUs >= startUs && currentUs >= startUs && currentUs < endUs) || // Without overflow
+				(endUs < startUs && (currentUs >= startUs || currentUs < endUs))) { // With overflow
+				break;
 			}
-		#endif
+		}
+	#else
+		// If DWT is not available
+		const uint32 startTick = GetTick();
+		const uint32 targetTicks = delay / 1000; // Convert delay to milliseconds
+
+		volatile uint32 waitIndex = (delay / 10) * ((GetCoreClock() / (100000 * 2)) + 1);
+
+		while (waitIndex != 0) {
+			// Emulate delay through loop
+			waitIndex--;
+
+			// Check if the required RTOS ticks have elapsed
+			const uint32 currentTick = GetTick();
+			if ((currentTick - startTick) * ticksInOneMs >= delay) {
+				break;
+			}
+		}
+	#endif
 	}
 
 
@@ -169,6 +191,3 @@ public:
 		while (true);
 	}
 };
-
-
-
