@@ -2,14 +2,45 @@
 #include <System/System.h>
 #include <functional>
 #include <memory>
+#include <type_traits>
+#include <utility>
 
+template <typename... Types>
+struct MaxSize;
 
-template <class, size_t MaxSize = 32> class Function;
+template <typename T, typename... Rest>
+struct MaxSize<T, Rest...> {
+    static constexpr size_t value = sizeof(T) > MaxSize<Rest...>::value ? sizeof(T) : MaxSize<Rest...>::value;
+};
 
+template <>
+struct MaxSize<> {
+    static constexpr size_t value = 0;
+};
 
-template <class ReturnType, class... Args, size_t MaxSize>
-class Function<ReturnType(Args...), MaxSize> {
+template <typename... Types>
+struct MaxAlignment;
+
+template <typename T, typename... Rest>
+struct MaxAlignment<T, Rest...> {
+    static constexpr size_t value = alignof(T) > MaxAlignment<Rest...>::value ? alignof(T) : MaxAlignment<Rest...>::value;
+};
+
+template <>
+struct MaxAlignment<> {
+    static constexpr size_t value = 0;
+};
+
+template <class, typename... Callables> class Function;
+
+template <class ReturnType, class... Args, typename... Callables>
+class Function<ReturnType(Args...), Callables...> {
 public:
+    static constexpr size_t MaxSize = MaxSize<Callables...>::value;
+    static constexpr size_t MaxAlign = MaxAlignment<Callables...>::value;
+
+    using Storage = typename std::aligned_storage<MaxSize, MaxAlign>::type;
+
     Function() noexcept {}
 
     Function(std::nullptr_t) noexcept {}
@@ -29,8 +60,8 @@ public:
     template <class F>
     Function(F&& f) {
         using f_type = typename std::decay<F>::type;
-        static_assert(alignof(f_type) <= alignof(Storage), "invalid alignment");
-        static_assert(sizeof(f_type) <= sizeof(Storage), "storage too small");
+        static_assert(sizeof(f_type) <= MaxSize, "Callable size exceeds buffer size");
+        static_assert(alignof(f_type) <= MaxAlign, "Callable alignment is incompatible with storage");
         new (&data) f_type(std::forward<F>(f));
         invoker = &invoke<f_type>;
         manager = &manage<f_type>;
@@ -81,7 +112,7 @@ public:
 
     ReturnType operator()(Args... args) {
         if (!invoker) {
-        	SystemAbort();
+            SystemAbort();
         }
         return invoker(&data, std::forward<Args>(args)...);
     }
@@ -91,7 +122,6 @@ private:
 
     using Invoker = ReturnType(*)(void*, Args &&...);
     using Manager = void (*)(void*, void*, Operation);
-    using Storage = typename std::aligned_storage<MaxSize - sizeof(Invoker) - sizeof(Manager), 8>::type;
 
     template <typename F>
     static ReturnType invoke(void* data, Args &&... args) {
@@ -104,10 +134,10 @@ private:
         switch (op) {
             case Operation::Clone:
                 new (dest) F(*static_cast<F*>(src));
-            break;
+                break;
             case Operation::Destroy:
                 static_cast<F*>(dest)->~F();
-            break;
+                break;
         }
     }
 
