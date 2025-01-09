@@ -1,10 +1,8 @@
 #pragma once
-#include <BSP.h>
-
+#include <System/System.h>
 
 
 namespace Colors {
-
 	template<typename Type>
 	struct IRgb {
 	public:
@@ -36,9 +34,6 @@ namespace Colors {
 	};
 
 
-
-
-
 	struct FRgb : public IRgb<float> {
 		FRgb() {}
 
@@ -46,7 +41,6 @@ namespace Colors {
 
 		template<typename InType>
 		FRgb(IRgb<InType> &rgb): IRgb::IRgb(rgb) { }
-
 
 		static FRgb Black() 	{ static const FRgb c = { 0, 0, 0 }; return c; }
 		static FRgb Red() 		{ static const FRgb c = { 1, 0, 0 }; return c; }
@@ -59,7 +53,6 @@ namespace Colors {
 	};
 
 
-
 	struct URgb : public IRgb<uint8> {
 		URgb() {}
 
@@ -67,7 +60,6 @@ namespace Colors {
 
 		template<typename InType>
 		URgb(IRgb<InType> &rgb): IRgb::IRgb(rgb) { }
-
 
 		static URgb Black() 	{ static const URgb c = { 0x00, 0x00, 0x00 }; return c; }
 		static URgb Red() 		{ static const URgb c = { 0xFF, 0x00, 0x00 }; return c; }
@@ -78,8 +70,4 @@ namespace Colors {
 		static URgb Magenta() 	{ static const URgb c = { 0xFF, 0x00, 0xFF }; return c; }
 		static URgb White() 	{ static const URgb c = { 0xFF, 0xFF, 0xFF }; return c; }
 	};
-
-
-
 };
-

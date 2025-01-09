@@ -2,7 +2,6 @@
 #include "Port/Port.h"
 
 
-
 namespace OSAdapter {
 	class Mutex {
 	public:
@@ -28,4 +27,3 @@ namespace OSAdapter {
 		tMutexHandle handle;
 	};
 }
-

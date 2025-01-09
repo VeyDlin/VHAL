@@ -1,70 +1,74 @@
 ﻿#pragma once
-
+#include <BSP.h>
 
 /*
-	auto kalmanFilter = KalmanFilter(0.01, 3);
+    Example usage:
+    
+    KalmanFilter kalmanFilter(0.01, 3.0, 1.0, 0.0, 1.0);
 
-	float filterVal = kalmanFilter.filter(getSensorVal());
-	Console::LogLn(filterVal);
+    float filteredValue = kalmanFilter.Filter(getSensorValue(), 0.0);
+    Console::LogLn(filteredValue);
 */
-
-
 
 class KalmanFilter {
 private:
-	float R; // Обработка шума
-	float Q; // Измерение шума
-	float A; // Вектор состояния
-	float B; // Вектор управления
-	float C; // Вектор измерения
-	float cov;
-	float x; // Расчетный сигнал без шума
+    float processNoise; 		// Process noise covariance (R)
+    float measurementNoise; 	// Measurement noise covariance (Q)
+    float stateTransition; 		// State transition coefficient (A)
+    float controlInputEffect; 	// Control input coefficient (B)
+    float measurementMapping; 	// Measurement mapping coefficient (C)
+    float covariance; 			// Error covariance
+    float stateEstimate; 		// Current estimated state (filtered signal)
 
-	bool primaryInitX = false; // Произошла ли первичная инициализация x
-
-
+    bool isInitialized = false; // Indicates whether the filter has been initialized
 
 public:
-
-	KalmanFilter(float R, float Q, float A, float B, float C): R(R), Q(Q), A(A), C(C), B(B) {
-		cov = (1 / C) * Q * (1 / C);
-	}
-
-
-
-	// Фильтруем новое значение
-	// z - Последнее значение которое нужно отфильтровать
-	// u - Вектор управления
-	float Filter(float z, float u) {
-
-		// Первичная инициализация x
-		if(!primaryInitX) {
-			primaryInitX = true;
-			x = (1 / C) * z;
-			return x;
-		}
-
-		// Прогнозирование
-		float predX = (A * x) + (B * u); // Предсказываем следующее значение
-		float predCov = ((A * cov) * A) + R; // Неопределенность фильтра
-
-		// Усиление
-		float K = predCov * C * (1 / ((C * predCov * C) + Q));
-
-		// Коррекция
-		x = predX + K * (z - (C * predX));
-		cov = predCov - (K * C * predCov);
-
-		return x;
-	}
+    KalmanFilter(
+		float processNoise, float measurementNoise, float stateTransition, float controlInputEffect, float measurementMapping
+	): 
+		processNoise(processNoise),
+		measurementNoise(measurementNoise), 
+        stateTransition(stateTransition), 
+		controlInputEffect(controlInputEffect), 
+        measurementMapping(measurementMapping) 
+	{
+        covariance = (1 / measurementMapping) * measurementNoise * (1 / measurementMapping);
+    }
 
 
-	// Вернуть последнее отфильтрованное измерение
-	float LastMeasurement() { return x; }
+    // Filters a new measurement
+    // z - The latest measurement to be filtered
+    // u - Control input
+    float Filter(float measurement, float controlInput) {
+        // Initialize the filter state on the first call
+        if (!isInitialized) {
+            isInitialized = true;
+            stateEstimate = (1 / measurementMapping) * measurement;
+            return stateEstimate;
+        }
 
-	// Задать шум измерения (Q)
-	void SetMeasurementNoise(float noise) { Q = noise; }
+        // Prediction step
+        float predictedState = (stateTransition * stateEstimate) + (controlInputEffect * controlInput);
+        float predictedCovariance = ((stateTransition * covariance) * stateTransition) + processNoise;
 
-	// Задать шум обработки (R)
-	void SetProcessNoise(float noise) { R = noise; }
+        // Calculate Kalman gain
+        float kalmanGain = predictedCovariance * measurementMapping * 
+                           (1 / ((measurementMapping * predictedCovariance * measurementMapping) + measurementNoise));
+
+        // Correction step
+        stateEstimate = predictedState + kalmanGain * (measurement - (measurementMapping * predictedState));
+        covariance = predictedCovariance - (kalmanGain * measurementMapping * predictedCovariance);
+
+        return stateEstimate;
+    }
+
+
+    // Returns the last filtered state estimate
+    float GetLastStateEstimate() const { return stateEstimate; }
+
+    // Sets the measurement noise covariance (Q)
+    void SetMeasurementNoise(float noise) { measurementNoise = noise; }
+
+    // Sets the process noise covariance (R)
+    void SetProcessNoise(float noise) { processNoise = noise; }
 };

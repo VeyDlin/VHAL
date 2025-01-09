@@ -59,10 +59,10 @@ protected:
 
 
 public:
-	std::function<void(bool state)> onInterrupt;
+	Function<void(bool state)> onInterrupt;
 
-	std::function<Status::statusType()> interruptPeripheryInit;
-	std::function<Status::statusType()> eventPeripheryInit;
+	Function<Status::statusType()> interruptPeripheryInit;
+	Function<Status::statusType()> eventPeripheryInit;
 
 
 

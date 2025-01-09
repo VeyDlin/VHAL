@@ -1,94 +1,104 @@
 ﻿#pragma once
-#include <DataTypes.h>
+#include <System/System.h>
 #include <string.h>
 
 
 template <size_t heapSize, typename dataSizeType = uint8>
 class DynamicFifo {
 private:
-	uint8 heap[heapSize];
-	size_t endPointer = 0;
-	const uint8 byteForDataSize = sizeof(dataSizeType);
-	bool isReady = true;
+    uint8 heap[heapSize];
+    size_t endPointer = 0;
+    const uint8 byteForDataSize = sizeof(dataSizeType);
+    bool isReady = true;
 
 public:
-	bool Clear() {
-		if(isReady == false) {
-			return false;
-		}
-		isReady = false;
-		endPointer = 0;
-		return true;
-	}
+    bool Clear() {
+        System::CriticalSection(true); 
+        if (!isReady) {
+            System::CriticalSection(false);
+            return false;
+        }
+        isReady = false;
+        endPointer = 0;
+        isReady = true;
+        System::CriticalSection(false); 
+        return true;
+    }
 
+    inline bool IsReady() const {
+        return isReady;
+    }
 
-	inline bool IsReady() const {
-		return isReady;
-	}
+    inline size_t GetCount() const {
+        System::CriticalSection(true);
+        size_t count = endPointer;
+        System::CriticalSection(false);
+        return count;
+    }
 
+    template <typename dataType>
+    bool Push(const dataType& data, dataSizeType dataSize) {
+        System::CriticalSection(true);
+        if (!isReady) {
+            System::CriticalSection(false);
+            return false;
+        }
+        isReady = false;
 
-	inline size_t GetCount() const {
-		return endPointer;
-	}
+        if (heapSize < endPointer + dataSize + byteForDataSize) {
+            isReady = true;
+            System::CriticalSection(false);
+            return false;
+        }
 
+        memcpy(&heap[endPointer], &dataSize, byteForDataSize);
+        endPointer += byteForDataSize;
 
-	template <typename dataType>
-	bool Push(dataType &data, dataSizeType dataSize) {
-		if(isReady == false) {
-			return false;
-		}
-		isReady = false;
+        memcpy(&heap[endPointer], &data, dataSize);
+        endPointer += dataSize;
 
-		if(heapSize < endPointer + dataSize + byteForDataSize) {
-			isReady = true;
-			return false;
-		}
+        isReady = true;
+        System::CriticalSection(false); 
+        return true;
+    }
 
-		memcpy(&heap[endPointer], &dataSize, byteForDataSize);
-		endPointer += byteForDataSize;
+    template <typename dataType>
+    size_t Pop(dataType& data) {
+        System::CriticalSection(true);
+        if (!isReady) {
+            System::CriticalSection(false);
+            return 0;
+        }
+        isReady = false;
 
-		memcpy(&heap[endPointer], &data, dataSize);
-		endPointer += dataSize;
+        if (endPointer == 0) {
+            isReady = true;
+            System::CriticalSection(false);
+            return 0;
+        }
 
-		isReady = true;
-		return true;
-	}
+        auto dataSize = *(dataSizeType*)&heap[0];
+        memcpy(&data, &heap[byteForDataSize], dataSize);
 
+        ShiftHeap(byteForDataSize + dataSize);
 
-	template <typename dataType>
-	size_t Pop(dataType& data) {
-		if(isReady == false) {
-			return false;
-		}
-		isReady = false;
-
-		if (endPointer == 0) {
-			isReady = true;
-			return 0;
-		}
-
-		auto dataSize = *(dataSizeType *)&heap[0];
-		memcpy(&data, &heap[byteForDataSize], dataSize);
-
-		ShiftHeap(byteForDataSize + dataSize);
-
-		isReady = true;
-		return dataSize;
-	}
-
+        isReady = true;
+        System::CriticalSection(false);
+        return dataSize;
+    }
 
 
 private:
-	void ShiftHeap(size_t value) {
-		if (endPointer - value <= 0) {
-			endPointer = 0;
-			return;
-		}
+    void ShiftHeap(size_t value) {
+        System::CriticalSection(true); 
+        if (value >= endPointer) {
+            endPointer = 0;
+            System::CriticalSection(false);
+            return;
+        }
 
-		for (size_t i = 0; i < endPointer - value; i++) {
-			heap[i] = heap[value + i];
-		}
-
-		endPointer -= value;
-	}
+        memmove(heap, &heap[value], endPointer - value);
+        endPointer -= value;
+        System::CriticalSection(false); 
+    }
 };

@@ -4,16 +4,13 @@
 #include <chrono>
 
 
-
 namespace OSAdapter {
 	constexpr tTaskEventMask defaultTaskMaskBits = 0b010101010;
-
 
 
 	enum class StackDepth : std::uint16_t {
 		minimal = 128U, medium = 256U, big = 512U, biggest = 1024U
 	};
-
 
 
 	class IThread {
@@ -73,7 +70,6 @@ namespace OSAdapter {
 	};
 
 
-
 	template<std::size_t stackSize>
 	class ThreadStatic: public IThread {
 		friend class RTOS;
@@ -82,9 +78,6 @@ namespace OSAdapter {
 		static constexpr std::size_t stackDepth = stackSize;
 		std::array<tStack, stackSize> stack;
 	};
-
-
-
 
 
 	template<std::size_t stackSize>

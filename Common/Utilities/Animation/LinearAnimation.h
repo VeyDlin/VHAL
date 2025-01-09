@@ -1,9 +1,8 @@
 ﻿#pragma once
-#include <BSP.h>
-#include <functional>
+#include <System/System.h>
 #include <Adapter/OSAdapter/RTOS.h>
 #include <Adapter/OSAdapter/Timer.h>
-
+#include <functional>
 
 
 template<std::size_t stackSize>
@@ -26,7 +25,6 @@ private:
 	bool pause = false;
 
 
-	// TODO: Если во время анимации задать другое значение то время не должно изменится
 	class AnimationTimer: public Timer<stackSize> {
 	public:
 		LinearAnimation *a;
@@ -68,8 +66,16 @@ public:
 	}
 
 
-
 	LinearAnimation& Animate(float from, float to, std::chrono::milliseconds duration) {
+		if (isActive) {
+			valueEnd = to;
+			step = (valueEnd - valueStart) / steps;
+			if (onStart != nullptr) {
+				onStart(from);
+			}
+			return *this;
+		}
+
 		pause = true;
 		isActive = true;
 
@@ -82,7 +88,7 @@ public:
 		step = (valueEnd - valueStart) / steps;
 
 		if (onStart != nullptr) {
-			onStart(valueStart);
+			onStart(from);
 		}
 
 		pause = false;
@@ -90,9 +96,6 @@ public:
 		timer.Start();
 		return *this;
 	}
-
-
-
 
 
 	LinearAnimation& Animate(float to, std::chrono::milliseconds duration) {
@@ -156,6 +159,3 @@ public:
 		return valueEnd;
 	}
 };
-
-
-

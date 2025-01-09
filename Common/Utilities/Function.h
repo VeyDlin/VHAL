@@ -1,147 +1,101 @@
 #pragma once
-#include <System/System.h>
-#include <functional>
-#include <memory>
-#include <type_traits>
-#include <utility>
 
-template <typename... Types>
-struct MaxSize;
 
-template <typename T, typename... Rest>
-struct MaxSize<T, Rest...> {
-    static constexpr size_t value = sizeof(T) > MaxSize<Rest...>::value ? sizeof(T) : MaxSize<Rest...>::value;
-};
+template <typename>
+class Function;
 
-template <>
-struct MaxSize<> {
-    static constexpr size_t value = 0;
-};
+template <typename ReturnType, typename... Args>
+class Function<ReturnType(Args...)> {
+    using CallbackType = ReturnType(*)(void*, Args...);
 
-template <typename... Types>
-struct MaxAlignment;
+    void* callbackPtr = nullptr;
+    CallbackType callback = nullptr;
 
-template <typename T, typename... Rest>
-struct MaxAlignment<T, Rest...> {
-    static constexpr size_t value = alignof(T) > MaxAlignment<Rest...>::value ? alignof(T) : MaxAlignment<Rest...>::value;
-};
-
-template <>
-struct MaxAlignment<> {
-    static constexpr size_t value = 0;
-};
-
-template <class, typename... Callables> class Function;
-
-template <class ReturnType, class... Args, typename... Callables>
-class Function<ReturnType(Args...), Callables...> {
 public:
-    static constexpr size_t MaxSize = MaxSize<Callables...>::value;
-    static constexpr size_t MaxAlign = MaxAlignment<Callables...>::value;
+    Function() noexcept = default;
 
-    using Storage = typename std::aligned_storage<MaxSize, MaxAlign>::type;
-
-    Function() noexcept {}
-
-    Function(std::nullptr_t) noexcept {}
-
-    Function(const Function& other) {
-        if (other) {
-            other.manager(data, other.data, Operation::Clone);
-            invoker = other.invoker;
-            manager = other.manager;
-        }
+    template <typename Callable, typename = std::enable_if_t<!std::is_same_v<std::decay_t<Callable>, Function>>>
+    Function(Callable&& callable) noexcept {
+        callbackPtr = std::addressof(callable);
+        callback = [](void* callable_ptr, Args... args) -> ReturnType {
+            return (*static_cast<std::add_pointer_t<std::remove_reference_t<Callable>>>(callable_ptr))(std::forward<Args>(args)...);
+        };
     }
 
-    Function(Function&& other) {
-        other.swap(*this);
+
+    Function(const Function& other) noexcept : callbackPtr(other.callbackPtr), callback(other.callback) {}
+
+
+    Function(Function&& other) noexcept : callbackPtr(other.callbackPtr), callback(other.callback) {
+        other.callbackPtr = nullptr;
+        other.callback = nullptr;
     }
 
-    template <class F>
-    Function(F&& f) {
-        using f_type = typename std::decay<F>::type;
-        static_assert(sizeof(f_type) <= MaxSize, "Callable size exceeds buffer size");
-        static_assert(alignof(f_type) <= MaxAlign, "Callable alignment is incompatible with storage");
-        new (&data) f_type(std::forward<F>(f));
-        invoker = &invoke<f_type>;
-        manager = &manage<f_type>;
+
+    ReturnType operator()(Args... args) const {
+        return callback(callbackPtr, std::forward<Args>(args)...);
     }
 
-    ~Function() {
-        if (manager) {
-            manager(&data, nullptr, Operation::Destroy);
-        }
+
+    constexpr explicit operator bool() const noexcept {
+        return callback != nullptr;
     }
 
-    Function& operator=(const Function& other) {
-        Function(other).swap(*this);
-        return *this;
+
+    constexpr bool operator!=(std::nullptr_t) const noexcept {
+        return invoker != nullptr;
     }
 
-    Function& operator=(Function&& other) {
-        Function(std::move(other)).swap(*this);
-        return *this;
+
+    constexpr bool operator==(std::nullptr_t) const noexcept {
+        return invoker == nullptr;
     }
 
-    Function& operator=(std::nullptr_t) {
-        if (manager) {
-            manager(&data, nullptr, Operation::Destroy);
-            manager = nullptr;
-            invoker = nullptr;
+
+    Function& operator=(const Function& other) noexcept {
+        if (this != &other) {
+            callbackPtr = other.callbackPtr;
+            callback = other.callback;
         }
         return *this;
     }
 
-    template <typename F> Function& operator=(F&& f) {
-        Function(std::forward<F>(f)).swap(*this);
+
+    Function& operator=(Function&& other) noexcept {
+        if (this != &other) {
+            callbackPtr = other.callbackPtr;
+            callback = other.callback;
+
+            other.callbackPtr = nullptr;
+            other.callback = nullptr;
+        }
         return *this;
     }
 
-    template <typename F> Function& operator=(std::reference_wrapper<F> f) {
-        Function(f).swap(*this);
+
+    Function& operator=(std::nullptr_t) noexcept {
+        callbackPtr = nullptr;
+        callback = nullptr;
         return *this;
     }
 
-    void swap(Function& other) {
-        std::swap(data, other.data);
-        std::swap(manager, other.manager);
-        std::swap(invoker, other.invoker);
+
+    template <typename Callable, typename = std::enable_if_t<!std::is_same_v<std::decay_t<Callable>, Function>>>
+    Function& operator=(Callable&& callable) noexcept {
+        callbackPtr = std::addressof(callable);
+        callback = [](void* callable_ptr, Args... args) -> ReturnType {
+            return (*static_cast<std::add_pointer_t<std::remove_reference_t<Callable>>>(callable_ptr))(std::forward<Args>(args)...);
+        };
+        return *this;
     }
 
-    explicit operator bool() const noexcept { return !!manager; }
 
-    ReturnType operator()(Args... args) {
-        if (!invoker) {
-            SystemAbort();
-        }
-        return invoker(&data, std::forward<Args>(args)...);
+    template <typename Callable>
+    Function& operator=(std::reference_wrapper<Callable> f) noexcept {
+        callbackPtr = std::addressof(f.get());
+        callback = [](void* callable_ptr, Args... args) -> ReturnType {
+            return (*static_cast<Callable*>(callable_ptr))(std::forward<Args>(args)...);
+        };
+        return *this;
     }
-
-private:
-    enum class Operation { Clone, Destroy };
-
-    using Invoker = ReturnType(*)(void*, Args &&...);
-    using Manager = void (*)(void*, void*, Operation);
-
-    template <typename F>
-    static ReturnType invoke(void* data, Args &&... args) {
-        F& f = *static_cast<F*>(data);
-        return f(std::forward<Args>(args)...);
-    }
-
-    template <typename F>
-    static void manage(void* dest, void* src, Operation op) {
-        switch (op) {
-            case Operation::Clone:
-                new (dest) F(*static_cast<F*>(src));
-                break;
-            case Operation::Destroy:
-                static_cast<F*>(dest)->~F();
-                break;
-        }
-    }
-
-    Storage data;
-    Invoker invoker = nullptr;
-    Manager manager = nullptr;
 };

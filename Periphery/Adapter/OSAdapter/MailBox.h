@@ -3,7 +3,6 @@
 #include <array>
 
 
-
 namespace OSAdapter {
 	template<typename T, std::size_t size = 1>
 	class MailBox {
@@ -33,4 +32,3 @@ namespace OSAdapter {
 		std::array<std::uint8_t, size * sizeof(T)> buffer;
 	};
 }
-

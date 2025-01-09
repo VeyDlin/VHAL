@@ -1,6 +1,7 @@
 #pragma once
 #include "../ITermistor.h"
 
+
 class Termistor_B57861S0103 : public ITermistor {
 protected:
 	const float resistanceTable[43][2] = {
@@ -49,13 +50,11 @@ protected:
 		{155.0, 0.25193}
 	};
 
-
 	TermistorConfig termistorConfig;
 
 	virtual TermistorConfig* GetTermistorConfig() override {
 		return &termistorConfig;
 	}
-
 
 public:
 	Termistor_B57861S0103() {
@@ -64,14 +63,3 @@ public:
 		termistorConfig.tableSize = 43;
 	}
 };
-
-
-
-
-
-
-
-
-
-
-

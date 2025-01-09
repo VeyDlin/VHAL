@@ -10,7 +10,7 @@ template<
 >
 class I2CMutexAdapter: public AdapterClass {
 public:
-	std::function<void(bool lock)> onMutex;
+	Function<void(bool lock)> onMutex;
 
 public:
 	I2CMutexAdapter() { }

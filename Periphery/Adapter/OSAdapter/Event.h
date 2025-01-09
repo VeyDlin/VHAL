@@ -3,7 +3,6 @@
 #include "EventMode.h"
 
 
-
 namespace OSAdapter {
 	class Event {
 	public:
@@ -47,4 +46,3 @@ namespace OSAdapter {
 		tEventBits mask { defaultMask };
 	};
 }
-

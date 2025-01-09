@@ -2,7 +2,6 @@
 #include "IClimateControl.h"
 
 
-
 class SwitchClimateControl: public IClimateControl {
 public:
 	SwitchClimateControl() {
@@ -76,7 +75,4 @@ private:
 			onHold();
 		}
 	}
-
-
-
 };

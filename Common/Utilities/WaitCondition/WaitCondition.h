@@ -1,10 +1,9 @@
 #pragma once
-#include <Periphery.h>
-#include <Utilities/Status.h>
-#include <Utilities/Function.h>
+#include <System/System.h>
+#include <functional>
 
 
 namespace WaitCondition {
-	bool Wait(Function<bool(), 32> condition, uint32 timeout);
-	bool WaitDouble(Function<bool(), 32> condition, Function<bool(), 32> mandatoryCondition, uint32 timeout);
+	bool Wait(std::function<bool()> condition, uint32 timeout);
+	bool WaitDouble(std::function<bool()> condition, std::function<bool()> mandatoryCondition, uint32 timeout);
 };

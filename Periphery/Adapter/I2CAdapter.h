@@ -63,10 +63,10 @@ protected:
 
 
 public:
-	std::function<void(uint8 data)> onSlaveRead;
-	std::function<uint8()> onSlaveWrite;
-	std::function<void()> onSlaveEndTransfer;
-	std::function<void(Error errorType)> onError;
+	Function<void(uint8 data)> onSlaveRead;
+	Function<uint8()> onSlaveWrite;
+	Function<void()> onSlaveEndTransfer;
+	Function<void(Error errorType)> onError;
 	// TODO: Add CheckDevice and ScanAsync
 
 

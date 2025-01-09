@@ -92,13 +92,13 @@ protected:
 
 
 public:
-	std::function<void(uint8 channel)> onInputCaptureEvent;
-	std::function<void(uint8 channel)> onOutputCompareEvent;
-	std::function<void()> onUpdateEvent;
-	std::function<void()> onBreakInputEvent;
-	std::function<void()> onBreak2InputEvent;
-	std::function<void()> onTriggerDetectionEvent;
-	std::function<void()> onCommutationEvent;
+	Function<void(uint8 channel)> onInputCaptureEvent;
+	Function<void(uint8 channel)> onOutputCompareEvent;
+	Function<void()> onUpdateEvent;
+	Function<void()> onBreakInputEvent;
+	Function<void()> onBreak2InputEvent;
+	Function<void()> onTriggerDetectionEvent;
+	Function<void()> onCommutationEvent;
 
 
 public:

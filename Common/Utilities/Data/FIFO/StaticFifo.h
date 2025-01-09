@@ -1,84 +1,105 @@
 ﻿#pragma once
-#include <DataTypes.h>
-#include <Status.h>
+#include <System/System.h>
 #include <cstring>
 
 
 template <size_t ElementsCount, typename Type = uint8>
 class StaticFifo {
 private:
-	uint8 heap[sizeof(Type) * ElementsCount];
-	size_t filled = 0;
-	bool isReady = true;
+    uint8 heap[sizeof(Type) * ElementsCount];
+    size_t filled = 0;
+    bool isReady = true;
 
 public:
-	Status::statusType Clear() {
-		if(isReady == false) {
-			return Status::busy;
-		}
-		isReady = false;
-		filled = 0;
-		return Status::ok;
-	}
+    Status::statusType Clear() {
+        System::CriticalSection(true);
+        if (!isReady) {
+            System::CriticalSection(false);
+            return Status::busy;
+        }
+
+        isReady = false;
+        filled = 0;
+        isReady = true;
+
+        System::CriticalSection(false);
+        return Status::ok;
+    }
 
 
-	inline bool IsReady() const {
-		return isReady;
-	}
+    inline bool IsReady() const {
+        return isReady;
+    }
 
 
-	inline size_t GetCount() const {
-		return filled;
-	}
+    inline size_t GetCount() const {
+        System::CriticalSection(true); 
+        size_t count = filled;
+        System::CriticalSection(false); 
+        return count;
+    }
 
 
-	Status::statusType Push(Type& data) {
-		if(isReady == false) {
-			return Status::busy;
-		}
-		isReady = false;
+    Status::statusType Push(const Type& data) {
+        System::CriticalSection(true); 
+        if (!isReady) {
+            System::CriticalSection(false);
+            return Status::busy;
+        }
 
-		if (filled >= ElementsCount) {
-			isReady = true;
-			return Status::filled;
-		}
+        isReady = false;
 
-		std::memcpy(&heap[filled * sizeof(Type)], &data, sizeof(Type));
-		filled++;
+        if (filled >= ElementsCount) {
+            isReady = true;
+            System::CriticalSection(false);
+            return Status::filled;
+        }
 
-		isReady = true;
-		return Status::ok;
-	}
+        std::memcpy(&heap[filled * sizeof(Type)], &data, sizeof(Type));
+        filled++;
+
+        isReady = true;
+        System::CriticalSection(false); 
+        return Status::ok;
+    }
 
 
-	Status::info<Type> Pop() {
-		Type data;
+    Status::info<Type> Pop() {
+        System::CriticalSection(true); 
+        if (!isReady) {
+            System::CriticalSection(false);
+            return Status::busy;
+        }
 
-		if(isReady == false) {
-			return {Status::busy};
-		}
-		isReady = false;
+        isReady = false;
 
-		if (filled == 0) {
-			isReady = true;
-			return {Status::empty};
-		}
+        if (filled == 0) {
+            isReady = true;
+            System::CriticalSection(false);
+            return Status::empty;
+        }
 
-		std::memcpy(&data, &heap[0], sizeof(Type));
-		ShiftHeap();
+        Type data;
+        std::memcpy(&data, &heap[0], sizeof(Type));
 
-		isReady = true;
-		return {Status::ok, data};
-	}
+        ShiftHeap();
+
+        isReady = true;
+        System::CriticalSection(false); 
+        return data;
+    }
+
 
 private:
-	void ShiftHeap() {
-		size_t endPointer = filled * sizeof(Type);
-		for (size_t i = 0; i < endPointer - sizeof(Type); i++) {
-			heap[i] = heap[sizeof(Type) + i];
-		}
+    void ShiftHeap() {
+        if (filled <= 1) {
+            filled = 0;
+            return;
+        }
 
-		filled--;
-	}
+        size_t remainingBytes = (filled - 1) * sizeof(Type);
+        std::memmove(heap, &heap[sizeof(Type)], remainingBytes);
+
+        filled--;
+    }
 };
-

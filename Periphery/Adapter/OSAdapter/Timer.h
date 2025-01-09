@@ -5,7 +5,6 @@
 
 
 namespace OSAdapter {
-
 	template<class baseClass>
 	class ITimer: public baseClass {
 	public:
@@ -45,7 +44,6 @@ namespace OSAdapter {
 				state = State::Restart;
 			}
 		}
-
 
 
 	protected:
@@ -92,13 +90,10 @@ namespace OSAdapter {
 	};
 
 
-
-
-
 	template<class baseClass>
 	class ITimerHandle: public baseClass {
 	public:
-		std::function<void()> onTick;
+		Function<void()> onTick;
 
 		virtual void Execute() override {
 			if(onTick != nullptr) {
@@ -106,9 +101,6 @@ namespace OSAdapter {
 			}
 		}
 	};
-
-
-
 
 
 	template<std::size_t stackSize>
@@ -125,7 +117,4 @@ namespace OSAdapter {
 
 	template<std::size_t stackSize>
 	class TimerHandle: public ITimerHandle<Timer<stackSize>> { };
-
-
-
 }

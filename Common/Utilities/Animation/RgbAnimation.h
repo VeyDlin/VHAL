@@ -1,9 +1,9 @@
 ﻿#pragma once
-#include <BSP.h>
-#include <functional>
-#include <Utilities/Data/Color/Colors.h>
+#include <System/System.h>
 #include <Adapter/OSAdapter/RTOS.h>
 #include <Adapter/OSAdapter/Timer.h>
+#include <Utilities/Data/Color/Colors.h>
+#include <functional>
 
 
 template<std::size_t stackSize>
@@ -70,6 +70,15 @@ public:
 	
 
 	RgbAnimation& Animate(Colors::FRgb from, Colors::FRgb to, std::chrono::milliseconds duration) {
+		if (isActive) {
+			valueEnd = to;
+			step = (valueEnd - valueStart) / steps;
+			if (onStart != nullptr) {
+				onStart(from);
+			}
+			return *this;
+		}
+
 		pause = true;
 		isActive = true;
 
@@ -85,7 +94,7 @@ public:
 		step.b = (valueEnd.b - valueStart.b) / steps;
 
 		if (onStart != nullptr) {
-			onStart(valueStart);
+			onStart(from);
 		}
 
 		pause = false;
@@ -95,14 +104,10 @@ public:
 	}
 
 
-
-
-
 	RgbAnimation& Animate(Colors::FRgb to, std::chrono::milliseconds duration) {
 		Animate(valueStart, to, duration);
 		return *this;
 	}
-
 
 
 	RgbAnimation& Animate(Colors::FRgb to) {
@@ -160,6 +165,3 @@ public:
 		return valueEnd;
 	}
 };
-
-
-

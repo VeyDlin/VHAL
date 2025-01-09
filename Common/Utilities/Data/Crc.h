@@ -7,19 +7,18 @@
 #include <utility>
 
 
-
-class Crc {
+class CRC {
 public:
 	template<typename CRCType, uint16 CRCWidth>
 	struct Table;
 
 	template<typename CRCType, uint16 CRCWidth>
 	struct Parameters {
-		CRCType polynomial;   	///< Crc polynomial
-		CRCType initialValue; 	///< Initial Crc value
-		CRCType finalXOR;     	///< Value to XOR with the final Crc
+		CRCType polynomial;   	///< CRC polynomial
+		CRCType initialValue; 	///< Initial CRC value
+		CRCType finalXOR;     	///< Value to XOR with the final CRC
 		bool reflectInput;    	///< true to reflect all input bytes
-		bool reflectOutput; 	///< true to reflect the output Crc (reflection occurs before the final XOR)
+		bool reflectOutput; 	///< true to reflect the output CRC (reflection occurs before the final XOR)
 
 		inline Table<CRCType, CRCWidth> MakeTable() const {
 			return Table<CRCType, CRCWidth>(*this);
@@ -69,8 +68,8 @@ public:
 			} while (++byte);
 		}
 
-		Parameters<CRCType, CRCWidth> parameters; ///< Crc parameters used to construct the table
-		CRCType table[1 << CHAR_BIT];             ///< Crc lookup table
+		Parameters<CRCType, CRCWidth> parameters; ///< CRC parameters used to construct the table
+		CRCType table[1 << CHAR_BIT];             ///< CRC lookup table
 	};
 
 
@@ -475,11 +474,11 @@ private:
 
 	template<typename CRCType, uint16 CRCWidth>
 	static inline CRCType CalculateRemainder(const void* data, size_t size, const Parameters<CRCType, CRCWidth>& parameters, CRCType remainder) {
-		static_assert(::std::numeric_limits<CRCType>::digits >= CRCWidth, "CRCType is too small to contain a Crc of width CRCWidth.");
+		static_assert(::std::numeric_limits<CRCType>::digits >= CRCWidth, "CRCType is too small to contain a CRC of width CRCWidth.");
 		const unsigned char* current = reinterpret_cast<const unsigned char*>(data);
 
 		if (parameters.reflectInput) {
-			CRCType polynomial = Crc::Reflect(parameters.polynomial, CRCWidth);
+			CRCType polynomial = CRC::Reflect(parameters.polynomial, CRCWidth);
 			while (size--) {
 				remainder = static_cast<CRCType>(remainder ^ *current++);
 

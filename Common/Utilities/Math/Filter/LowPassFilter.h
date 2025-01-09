@@ -1,5 +1,5 @@
 ﻿#pragma once
-#include "reductionTypes.h"
+#include <BSP.h>
 #include <algorithm>
 #include <cmath>
 
@@ -49,6 +49,3 @@ private:
 		kx0 = 1.0 / (in.frequencyTime + 1.0);
 	}
 };
-
-
-

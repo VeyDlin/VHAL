@@ -1,5 +1,6 @@
 #pragma once
 #include <BSP.h>
+#include <functional>
 #include <Utilities/Data/Byte/ByteConverter.h>
 #include <Utilities/Data/Byte/Bit.h>
 #include <cstring>
@@ -37,7 +38,7 @@ private:
 	uint8 txBuffer[maxTxBuffer] = { 0 };
 
     enum class Step {
-    	Function, Meta, Data
+    	std::function, Meta, Data
     };
 
 	enum class BusStatus : uint8 {
@@ -190,7 +191,7 @@ private:
     BusStatus Receive() {
     	uint8 function;
 
-    	auto step = Step::Function;
+    	auto step = Step::std::function;
     	uint8 lengthToRead = _MODBUS_RTU_FUNCTION + 1;
     	uint8 receiveCounter = 0;
 
@@ -214,7 +215,7 @@ private:
     			}
 
     			switch (step) {
-    				case Step::Function:
+    				case Step::std::function:
     					function = rxBuffer[_MODBUS_RTU_FUNCTION];
     					if (function == _FC_READ_HOLDING_REGISTERS) {
     						lengthToRead = 4;

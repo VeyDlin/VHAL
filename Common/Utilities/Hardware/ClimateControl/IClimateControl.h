@@ -1,5 +1,7 @@
 #pragma once
-#include <Application.h>
+#include <System/System.h>
+#include <Adapter/OSAdapter/RTOS.h>
+#include <Adapter/OSAdapter/Thread.h>
 #include <chrono>
 #include <functional>
 
@@ -83,13 +85,3 @@ public:
 		}
 	}
 };
-
-
-
-
-
-
-
-
-
-

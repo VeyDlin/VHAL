@@ -2,7 +2,6 @@
 #include <BSP.h>
 
 
-
 class ITermistor {
 public:
 	enum class Resolution : uint16 {
@@ -33,8 +32,6 @@ public:
 
 private:
 	Config config;
-
-
 
 
 public:
@@ -86,10 +83,6 @@ public:
 	}
 
 
-
-
-
-
 private:
 	static float Extrapolation(float x0, float y0, float x1, float y1, float x2) {
 		return y0 + (x2 - x0) * (y1 - y0) / (x1 - x0);
@@ -114,17 +107,15 @@ private:
 
 protected:
 	struct TermistorConfig {
-		uint8 r25; // Сопротивление термистора при 25 градусов
+		uint8 r25; // Thermistor resistance at 25 degrees Celsius
 
-		// Таблица коректировки
-		// Является двумерным float массивом: {{температура, сопротивление (kOhm)}, ...}
-		// Первый элемент должен начинатся с самого большого сопротивления и далее по убыванию
+		// Correction table
+		// This is a two-dimensional float array: { {temperature, resistance (kOhm)}, ... }
+		// The first element should start with the highest resistance value, followed by descending order.
 		const float (*table)[2];
 
-		uint8 tableSize; // Размер таблицы коректировки
+		uint8 tableSize; // Size of the correction table
 	};
-
 
 	virtual TermistorConfig* GetTermistorConfig() = 0;
 };
-

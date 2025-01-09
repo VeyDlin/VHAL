@@ -5,7 +5,6 @@
 #include <cstddef>
 
 
-
 namespace OSAdapter {
 	class RTOS {
 	public:
@@ -54,4 +53,3 @@ namespace OSAdapter {
 		}
 	};
 }
-

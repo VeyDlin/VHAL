@@ -2,7 +2,6 @@
 #include "Port/Port.h"
 
 
-
 namespace OSAdapter {
 	class CriticalSection {
 	public:
@@ -15,4 +14,3 @@ namespace OSAdapter {
 		}
 	};
 }
-
