@@ -22,32 +22,32 @@ As an example the following is taken `STM32F412RETx`
 
 ## Initial setup
 - Create a new project in CubeMX and configure standard things such as clocking and enabling SW debugging (SYS ->Debug -> Serial Wire)
--  Use Sytick as Timebase Sourse (SYS -> Timebase Sourse). You can also use the timer as you wish, but make sure it initializes first because some VHAL adapters use `System::TickHandler()` for initialization (ADC can use a delay to have time to calibrate correctly)
-- Enable FreeRTOS in the `Mindware` tab, the CMSYS version does not matter, we only need the FreeRTOS file and for the project to be generated taking into account that RTOS will be used. This step can also be skipped, but many drivers and utilities use RTOSAdapter, be careful.
+- Use Systick as Timebase Source (SYS -> Timebase Source). You can also use the timer as you wish, but make sure it initializes first because some VHAL adapters use `System::TickHandler()` for initialization (ADC can use a delay to have time to calibrate correctly)
+- Enable FreeRTOS in the `Middleware` tab, the CMSIS version does not matter, we only need the FreeRTOS file and for the project to be generated taking into account that RTOS will be used. This step can also be skipped, but many drivers and utilities use RTOSAdapter, be careful.
 
 ## Setting up the periphery
-- Activate the peripherals in CUbeMX you need and their interrupts (if you are going to use interrupts). Nothing else is needed, the rest can be configured directly from VHAL.
+- Activate the peripherals in CubeMX you need and their interrupts (if you are going to use interrupts). Nothing else is needed, the rest can be configured directly from VHAL.
 
 ## Project generation
 - Go to the `Project Manager` tab -> and select `Toolchain / IDE` -> `STM32CubeIDE`
 - In the `Project Manager` tab -> `Advanced Settings`, select each peripheral and change `HAL` to `LL` (since VHAL uses LL)
-- Click the `Generate Code` button (if CubeMX asks if you are sure you want to use SyTick - click `yes`)
+- Click the `Generate Code` button (if CubeMX asks if you are sure you want to use Systick - click `yes`)
 
 # Create VHAL Project
 - Duplicate the newly generated project, it will be used as a code donor
 - Open the original project
 
 ## Config IDE
-- Donvload or clone [VHAL](https://github.com/VeyDlin/VHAL) and copy `VHAL` to project root
+- Download or clone [VHAL](https://github.com/VeyDlin/VHAL) and copy `VHAL` to project root
 - Copy `Application` and `BSP` to project root
 - `Right mouse button` -> `Refresh` (or F5)
 - `Right mouse button` -> `Convert to C++`
 - `Right mouse button` -> `Properties` 
   - `C/C++ Build`
     - (advice) tab `Behavior` -> `Enable Parallel Build` and `Use unlimited jobs`
-    - (advice) `Settings` -> `MCU GCC Compiler` -> `Geniral` -> `Standart` -> GNU18 (Update the cube if you don't have GNU18)
-    - `Settings` -> `MCU G++ Compiler` -> `Geniral` -> `Standart` -> GNU++20 (Update the cube if you don't have GNU++20)
-  - `C/C++ Geniral` -> `Path and Symbols`
+    - (advice) `Settings` -> `MCU GCC Compiler` -> `General` -> `Standard` -> GNU18 (Update the cube if you don't have GNU18)
+    - `Settings` -> `MCU G++ Compiler` -> `General` -> `Standard` -> GNU++20 (Update the cube if you don't have GNU++20)
+  - `C/C++ General` -> `Path and Symbols`
     - `Includes` -> ... (`Add to all configurations` and `Add to all languages`)
       - `Add` -> `Directory`: `Application`
       - `Add` -> `Directory`: `BSP`
@@ -85,7 +85,7 @@ Open a donor project to copy configurations from there. In the future, if you ne
 
 - Open the file (donor) `Core/Inc/main.h` and copy all include and PRIORITYGROUP (if any) to `BSP/Periphery.h` ([example](https://github.com/VeyDlin/VHAL_Template/blob/main/BSP/Periphery.h))
 - Adapters
-  -Open `BSP/PortAdapters.h` and add include adapters of the used peripherals for your STM32 series in the format `#include <Adapter/Port/F_X_/_PERIPHERY_AdapterF_X_.h>` ([example](https://github.com/VeyDlin/VHAL_Template/blob/main/BSP/PortAdapters.h))
+  - Open `BSP/PortAdapters.h` and add include adapters of the used peripherals for your STM32 series in the format `#include <Adapter/Port/F_X_/_PERIPHERY_AdapterF_X_.h>` ([example](https://github.com/VeyDlin/VHAL_Template/blob/main/BSP/PortAdapters.h))
     - Please note that you will have a compilation error if you add adapters to the peripherals that you did not select in CubeMX because CubeMX generates LL library files only for the peripherals that are activated.
 - Interrupts (this step is optional and only for familiarization since the necessary code has already been written in the template)
   - Open the file (donor) `Core/Inc/stm32f4xx_it.h` (the name may differ from the STM32 series) and copy functions prototypes to `BSP/IRQ/SystemIrq.h` ([example](https://github.com/VeyDlin/VHAL_Template/blob/main/BSP/IRQ/SystemIrq.h))
@@ -98,7 +98,7 @@ Open a donor project to copy configurations from there. In the future, if you ne
     ```
    If you use a timer instead of a SysTick, you should add the code there.
 - System
-  -  Open the file (donor) `Core/Src/main.c`
+  - Open the file (donor) `Core/Src/main.c`
     - In the function `int main(void)` before calling `SystemClock_Config()`, there is an MCU Configuration in some versions of STM32, add the code from there to `BSP/BSP.cpp` -> `BSP::InitSystem()`([example](https://github.com/VeyDlin/VHAL_Template/blob/main/BSP/BSP.cpp#L11)). If you don't have this code, then skip this step.
     - In the `void SystemClock_Config(void)` function copy all the contents to `BSP/BSP.cpp` -> `BSP::InitClock()` ([example](https://github.com/VeyDlin/VHAL_Template/blob/main/BSP/BSP.cpp#L30))
       - CubeMX uses [LL_Init1msTick](https://github.com/VeyDlin/VHAL_Template/blob/main/BSP/BSP.cpp#L56) to configure the interrupt frequency `SysTick_Handler`, but we already use [BSP::InitSystemTick](https://github.com/VeyDlin/VHAL_Template/blob/main/BSP/BSP.cpp#L65), so the line with `LL_Init1msTick` can be commented out, or inserted into `BSP::InitSystemTick` at your discretion.
@@ -109,7 +109,7 @@ At this stage, the project should already be successfully compiled and running.
 For example, we will use UART, if you have not included it in the project, then this is a great opportunity to practice.
 
 In case you decide to add a completely new periphery:
--  Enable UART with interrupts in the donor project and then run the CubeMX generator. (don't forget to change `HAL` to `LL` in the `Project Manager` tab -> `Advenced Settings`)
+- Enable UART with interrupts in the donor project and then run the CubeMX generator. (don't forget to change `HAL` to `LL` in the `Project Manager` tab -> `Advanced Settings`)
 - Copy the new libraries that are in the folder `Drivers/STM32F4xx_HAL_Driver` (the name may differ from the STM32 series)
   - (The easiest way is to simply copy the entire `Drivers` folder from the donor project to the original project with a replacement.
 - Add a new include of your periphery to `BSP/PortAdapters.h`
@@ -186,7 +186,7 @@ For example UART is used.
     GPIO_InitStruct.Alternate = LL_GPIO_AF_7;
     LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
     ```
-    In this case it's `PA7` and `PA10`, both use 7 Alternative Mode (`GPIO_Init Struct.Alternative = LL_GPIO_AF_7;`)
+    In this case it's `PA7` and `PA10`, both use 7 Alternative Mode (`GPIO_Init Struct.Alternate = LL_GPIO_AF_7;`)
 - Open it `BSP/BSP.cpp` and add to `BSP::InitAdapterPeripheryEvents()` the `beforePeripheryInit` event for your perm ([example](https://github.com/VeyDlin/VHAL_Template/blob/main/BSP/BSP.cpp#L76)):
 
   ```c++
