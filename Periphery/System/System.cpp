@@ -6,10 +6,10 @@
 volatile uint32 System::tickCounter = 0;
 float System::ticksInOneMs = 1;
 
-Function<void(const char *message, const char *file, uint32 line)> System::criticalErrorHandle = nullptr;
-Function<void(const char *string, size_t size)> System::writeHandle = nullptr;
-Function<int()> System::readHandle = nullptr;
-Function<bool(uint32 delay)> System::rtosDelayMsHandle = nullptr;
+std::function<void(const char *message, const char *file, uint32 line)> System::criticalErrorHandle = nullptr;
+std::function<void(const char *string, size_t size)> System::writeHandle = nullptr;
+std::function<int()> System::readHandle = nullptr;
+std::function<bool(uint32 delay)> System::rtosDelayMsHandle = nullptr;
 
 Console& System::console = []() -> Console& {
     static Console instance; 

@@ -1,4 +1,6 @@
 #pragma once
+#include <functional>
+#include <memory>
 
 
 template <typename>
@@ -43,12 +45,12 @@ public:
 
 
     constexpr bool operator!=(std::nullptr_t) const noexcept {
-        return invoker != nullptr;
+        return callbackPtr != nullptr;
     }
 
 
     constexpr bool operator==(std::nullptr_t) const noexcept {
-        return invoker == nullptr;
+        return callbackPtr == nullptr;
     }
 
 
