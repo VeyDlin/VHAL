@@ -13,7 +13,10 @@ protected:
     virtual size_t Size() const = 0;
 
 public:
-    inline void RegisterData(IRegisterData& data) {
-        data.LinkToMap(*this);
+    template<typename... Args>
+    inline void RegisterData(Args&... args) {
+        static_assert((std::is_base_of_v<IRegisterData, std::remove_reference_t<Args>> && ...),
+                    "All arguments must derive from IRegisterData");
+        (args.LinkToMap(*this), ...);
     }
 };

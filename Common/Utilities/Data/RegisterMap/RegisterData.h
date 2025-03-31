@@ -8,10 +8,10 @@
 template <uint32 Address, typename RawDataType>
 class RegisterData : public IRegisterData {
 private:
-    std::function<void(const RawDataType&)> onUpdate;
+    std::function<bool(const RawDataType&)> onUpdate;
 
 public:
-    RegisterData(std::function<void(const RawDataType&)> event = nullptr) : onUpdate(std::move(event)) {}
+    RegisterData(std::function<bool(const RawDataType&)> event = nullptr) : onUpdate(std::move(event)) {}
 
     static constexpr size_t GetDataTypeSize() noexcept {
         return sizeof(RawDataType);
@@ -26,8 +26,8 @@ public:
         return static_cast<RawDataType>(*storageRef);
     }
 
-    void Set(const RawDataType& value) {
-        UpdateMemory(value);
+    bool Set(const RawDataType& value) {
+        return UpdateMemory(value);
     }
 
     inline RegisterData& operator=(const RawDataType& value) {
@@ -41,11 +41,14 @@ public:
 
 protected:
     template <typename MemoryData = RawDataType>
-    inline void UpdateMemory(const MemoryData& value) {
-        map->UpdateMemory(Address, reinterpret_cast<const uint8*>(&value), sizeof(MemoryData));
-        if(onUpdate) {
-            onUpdate(value);
+    inline bool UpdateMemory(const MemoryData& value) {
+        if(!map->UpdateMemory(Address, reinterpret_cast<const uint8*>(&value), sizeof(MemoryData))) {
+            return false;
         }
+        if(onUpdate) {
+            return onUpdate(value);
+        }
+        return true;
     }
 
     template <typename MemoryData = RawDataType>

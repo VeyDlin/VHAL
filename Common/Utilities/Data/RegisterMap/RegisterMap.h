@@ -9,21 +9,29 @@ template <typename AddressType, size_t MapSize, size_t BufferSize>
 class RegisterMap : public IRegisterMap {
 protected:
     uint8 map[MapSize];
-    uint8 buffer[BufferSize];
+    uint8 mapBuffer[BufferSize];
 
-    inline void UpdateMemory(uint32 address, const uint8* buffer, size_t length) override {
+public:
+    bool UpdateMemory(uint32 address, const uint8* buffer, size_t length) override {
+        System::CriticalSection(true);
         std::memcpy(&map[address], buffer, length);
+        System::CriticalSection(false);
+        return true; // TODO: Add check for address range and length
     }
 
-    inline const uint8* GetMemory(uint32 address) const override {
-        return &(map[address]);
+    template <typename DataType>
+    const DataType GetMemory(uint32 address) const override {
+        DataType data;
+        System::CriticalSection(true);
+        std::memcpy(&data, &(map[address]), sizeof(DataType));
+        System::CriticalSection(false);
+        return data;
     }
 
     inline size_t Size() const override {
         return MapSize;
     }
 
-public:
     static constexpr size_t GetAddressSize() noexcept {
         return sizeof(AddressType);
     }
