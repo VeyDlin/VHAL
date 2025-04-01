@@ -7,11 +7,18 @@
 
 template <uint32 Address, typename RawDataType>
 class RegisterData : public IRegisterData {
-private:
-    std::function<bool(const RawDataType&)> onUpdate;
+public:
+    std::function<bool(const RawDataType&)> onWrite;
+    std::function<RawDataType(const RawDataType&)> onRead;
 
 public:
-    RegisterData(std::function<bool(const RawDataType&)> event = nullptr) : onUpdate(std::move(event)) {}
+    size_t DataTypeSize() override {
+        return sizeof(RawDataType);
+    }
+
+    uint32 Addres() override {
+        return Address;
+    }
 
     static constexpr size_t GetDataTypeSize() noexcept {
         return sizeof(RawDataType);
@@ -21,9 +28,8 @@ public:
         return Address;
     }
 
-    RawDataType Get() const {
-        const auto* storageRef = GetMemory();
-        return static_cast<RawDataType>(*storageRef);
+    inline RawDataType Get() const {
+        return GetData<RawDataType>();
     }
 
     bool Set(const RawDataType& value) {
@@ -39,21 +45,39 @@ public:
         return Get();
     }
 
-protected:
-    template <typename MemoryData = RawDataType>
-    inline bool UpdateMemory(const MemoryData& value) {
-        if(!map->UpdateMemory(Address, reinterpret_cast<const uint8*>(&value), sizeof(MemoryData))) {
-            return false;
+    bool WriteEvent(const uint8* buffer, size_t length) override {
+        if(!onWrite) {
+            return true;
+
         }
-        if(onUpdate) {
-            return onUpdate(value);
-        }
-        return true;
+        RawDataType data;
+        std::memcpy(&data, buffer, length);
+        return onWrite(data);
     }
 
+protected:
     template <typename MemoryData = RawDataType>
-    inline const MemoryData* GetMemory() const {
-        return reinterpret_cast<const MemoryData*>(map->GetMemory(Address));
+    bool UpdateMemory(const MemoryData& value) {
+        return map->UpdateMemory(Address, reinterpret_cast<const uint8*>(&value), sizeof(MemoryData));
+    }
+
+    template <typename MemoryData>
+    inline const MemoryData GetData() const {
+        if(onRead) {
+            System::CriticalSection(true);
+            auto readData = onRead(*reinterpret_cast<const RawDataType*>(map->GetMemoryUnsafe(Address)));
+            System::CriticalSection(false);
+
+            return *reinterpret_cast<const MemoryData*>(&readData);
+        }
+
+        MemoryData data;
+
+		System::CriticalSection(true);
+        data = *reinterpret_cast<const MemoryData*>(map->GetMemoryUnsafe(Address));
+        System::CriticalSection(false);
+
+        return data;
     }
 };
 
@@ -73,18 +97,17 @@ public:
     ) :
         RegisterData<Address, RawDataType>(std::move(event)),
         readMutator(std::move(readMut)),
-        writeMutator(std::move(writeMut)) 
-    {
+        writeMutator(std::move(writeMut)) {
     }
 
     DataType Get() const {
-        const auto* storageRef = this->GetMemory();
-        return readMutator ? readMutator(*storageRef) : static_cast<DataType>(*storageRef);
+        auto data = this->GetData<RawDataType>();
+        return readMutator ? readMutator(&data) : *static_cast<DataType*>(&data);
     }
 
-    void Set(const DataType& value) {
+    bool Set(const DataType& value) {
         RawDataType transformedValue = writeMutator ? writeMutator(value) : static_cast<RawDataType>(value);
-        this->UpdateMemory(transformedValue);
+        return this->UpdateMemory(transformedValue);
     }
 
     inline RegisterDataMutator& operator=(const DataType& value) {
