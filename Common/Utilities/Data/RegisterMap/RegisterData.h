@@ -12,11 +12,46 @@ public:
     std::function<RawDataType(const RawDataType&)> onRead;
 
 public:
-    size_t DataTypeSize() override {
+    inline RegisterData& SetEvents(
+    	std::function<bool(const RawDataType&)> writeEvent = nullptr,
+		std::function<RawDataType(const RawDataType&)> readEvent = nullptr
+	) {
+        onWrite = writeEvent;
+        onRead = readEvent;
+        return *this;
+    }
+
+    inline RegisterData& SetAccess(bool writeAccess = true, bool readAccess = true) {
+    	write = writeAccess;
+    	read = readAccess;
+        return *this;
+    }
+
+    inline RegisterData& ReadOnly() {
+    	write = false;
+    	read = true;
+        return *this;
+    }
+
+    inline RegisterData& WriteOnly() {
+    	write = true;
+    	read = false;
+        return *this;
+    }
+
+    inline bool CanOnWrite() override {
+        return onWrite != nullptr;
+    }
+
+    inline bool CanOnRead() override {
+        return onRead != nullptr;
+    }
+
+    inline size_t DataTypeSize() override {
         return sizeof(RawDataType);
     }
 
-    uint32 Addres() override {
+    inline uint32 Addres() override {
         return Address;
     }
 
@@ -32,7 +67,7 @@ public:
         return GetData<RawDataType>();
     }
 
-    bool Set(const RawDataType& value) {
+    inline bool Set(const RawDataType& value) {
         return UpdateMemory(value);
     }
 
@@ -45,24 +80,29 @@ public:
         return Get();
     }
 
-    bool WriteEvent(const uint8* buffer, size_t length) override {
+    bool WriteEvent(const uint8* buffer) override {
         if(!onWrite) {
             return true;
 
         }
         RawDataType data;
-        std::memcpy(&data, buffer, length);
-        return onWrite(data);
+        std::memcpy(&data, buffer, DataTypeSize());
+
+        System::CriticalSection(true);
+        auto writeData = onWrite(data);
+        System::CriticalSection(false);
+
+        return writeData;
     }
 
 protected:
     template <typename MemoryData = RawDataType>
-    bool UpdateMemory(const MemoryData& value) {
+    inline bool UpdateMemory(const MemoryData& value) {
         return map->UpdateMemory(Address, reinterpret_cast<const uint8*>(&value), sizeof(MemoryData));
     }
 
     template <typename MemoryData>
-    inline const MemoryData GetData() const {
+    const MemoryData GetData() const {
         if(onRead) {
             System::CriticalSection(true);
             auto readData = onRead(*reinterpret_cast<const RawDataType*>(map->GetMemoryUnsafe(Address)));
@@ -101,8 +141,8 @@ public:
     }
 
     DataType Get() const {
-        auto data = this->GetData<RawDataType>();
-        return readMutator ? readMutator(&data) : *static_cast<DataType*>(&data);
+        auto data = this->template GetData<RawDataType>();
+        return readMutator ? readMutator(data) : *static_cast<DataType*>(&data);
     }
 
     bool Set(const DataType& value) {

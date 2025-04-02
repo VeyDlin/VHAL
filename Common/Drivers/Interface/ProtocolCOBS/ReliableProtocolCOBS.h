@@ -18,7 +18,7 @@ template <size_t MaxPacketSize = 256, size_t AckMailCount = 5>
 class ReliableProtocolCOBS {
 public:
     std::function<bool(uint16 address, const uint8* data, size_t length)> onMail = nullptr;
-
+    std::function<Status::statusType(const uint8* encodedBuffer, size_t length)> onWrite = nullptr;
 
 private:
     enum PacketType : uint8 {
@@ -60,9 +60,9 @@ public:
     }
 
 
-    void Execute() {
+    void Execute(const std::chrono::milliseconds mailTimeOut = 10ms) {
         uint8 byte;
-        if (!byteMail.Get(byte)) {
+        if (!byteMail.Get(byte, mailTimeOut)) {
             return;
         }
         if (byte == cobs.GetConfig().startByte || rxBufferCounter >= maxEncodedSize) {
@@ -86,7 +86,7 @@ public:
 
         currentPacketId++;
         uint8 encodedBuffer[maxEncodedSize];
-        auto packet = EncodePacket(PACKET_TYPE_DATA, address, currentPacketId, data, length, encodedBuffer, maxEncodedSize);
+        auto packet = EncodePacket(PacketType::data, address, currentPacketId, data, length, encodedBuffer, maxEncodedSize);
         if (packet.IsError()) {
             return packet.type;
         }
@@ -126,10 +126,14 @@ public:
 
 private:
     Status::statusType SendRawPacket(const uint8* encodedBuffer, size_t length) {
-        writeMutex.Lock();
-        auto status = serial.WriteByteArray(encodedBuffer, length);
-        writeMutex.UnLock();
-        return status;
+    	if (onWrite) {
+            writeMutex.Lock();
+            auto status = onWrite(encodedBuffer, length);
+            writeMutex.UnLock();
+            return status;
+    	}
+
+    	return Status::writeError;
     }
 
 
@@ -153,7 +157,7 @@ private:
         }
 
         // CRC
-        uint16 crc = CRC::Calculate(encodedBuffer, 1 + sizeof(address) + sizeof(packetId) + sizeof(dataSize) + length, Crc::CRC_16_USB());
+        uint16 crc = Crc::Calculate(encodedBuffer, 1 + sizeof(address) + sizeof(packetId) + sizeof(dataSize) + length, Crc::CRC_16_USB());
         memcpy(encodedBuffer + 1 + sizeof(address) + sizeof(packetId) + sizeof(dataSize) + length, &crc, sizeof(crc));
 
         return cobs.Encode(encodedBuffer, 1 + sizeof(address) + sizeof(packetId) + sizeof(dataSize) + length + sizeof(crc), encodedBuffer, encodedBufferSize);
@@ -171,10 +175,9 @@ private:
         auto address = ByteConverter::GetType<uint16>(&decodedBuffer[1]);
         auto packetId = ByteConverter::GetType<uint32>(&decodedBuffer[3]);
         auto size = ByteConverter::GetType<uint16>(&decodedBuffer[7]);
-        const uint8* data = decodedBuffer + 9;
 
         uint16 crc = ByteConverter::GetType<uint16>(&decodedBuffer[9 + size]);
-        if (CRC::Calculate(decodedBuffer, 9 + size, CRC::CRC_16_USB()) != crc) {
+        if (Crc::Calculate(decodedBuffer, 9 + size, Crc::CRC_16_USB()) != crc) {
             return; // CRC error
         }
 
@@ -200,4 +203,6 @@ private:
             }
         }
     }
-}
+};
+
+

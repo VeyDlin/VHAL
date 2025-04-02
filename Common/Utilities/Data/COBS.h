@@ -83,7 +83,6 @@ public:
 
         size_t readIndex = 1;
         size_t writeIndex = 0;
-        size_t tempWriteIndex = 0;
 
         while (readIndex < length - 1) {
             uint8 code = data[readIndex++];
@@ -91,14 +90,14 @@ public:
                 if (readIndex >= length - 1) {
                     return Status::dataCorrupted;
                 }
-                tempBuffer[tempWriteIndex++] = data[readIndex++];
+                tempBuffer[writeIndex++] = data[readIndex++];
             }
             if (code < 0xFF && readIndex < length - 1) {
-                tempBuffer[tempWriteIndex++] = 0;
+                tempBuffer[writeIndex++] = 0;
             }
         }
 
-        return Unescape(tempBuffer, tempWriteIndex, output, maxOutputLength);
+        return Unescape(tempBuffer, writeIndex, output, maxOutputLength);
     }
 
 

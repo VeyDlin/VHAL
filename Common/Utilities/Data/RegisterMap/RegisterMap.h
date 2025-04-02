@@ -5,17 +5,14 @@
 #include "RegisterData.h"
 
 
+
 template <typename AddressType, size_t MapSize, size_t BufferSize>
 class RegisterMap : public IRegisterMap {
 protected:
-    alignas(uint8) uint8 map[MapSize]{};
-    alignas(uint8) uint8 mapBuffer[BufferSize]{ }; // TODO: implement partial updates
+    alignas(uint8) uint8 map[MapSize]{ 0 };
+    alignas(uint8) uint8 mapBuffer[BufferSize]{ 0 }; // TODO: implement partial updates
     IRegisterData* mapRegisterData[MapSize]{ nullptr };
     uint16 mapRegisterDataCounter = 0;
-
-    bool UpdateMemory(uint32 address, const uint8* buffer, size_t length) override {
-        return TryUpdateMemory(address, buffer, length) != nullptr;
-    }
 
     const uint8* GetMemoryUnsafe(uint32 address) const override {
         return &(map[address]);
@@ -26,54 +23,47 @@ protected:
     }
 
     void LinkRegisterData(IRegisterData* registerData) override {
-        if(mapRegisterDataCounter < MapSize) {
+        if (mapRegisterDataCounter < MapSize) {
             mapRegisterData[mapRegisterDataCounter++] = registerData;
-        } else {
+        }
+        else {
             SystemAbort();
         }
     }
 
-    IRegisterData* FindRegisterData(uint32 address) {
+    IRegisterData* FindRegisterData(uint32 address, size_t length) {
         for(IRegisterData* data : mapRegisterData) {
-            if(data != nullptr && data->Addres() == address) {
+            if(
+                data != nullptr &&
+                data->Addres() == address &&
+                data->DataTypeSize() == length &&
+                address + length <= Size()
+            ) {
                 return data;
             }
         }
         return nullptr;
     }
-
 public:
-    IRegisterData* TryUpdateMemory(uint32 address, const uint8* buffer, size_t length) {
-        auto registerData = FindRegisterData(address);
-        if(registerData == nullptr) {
-            return nullptr;
+    bool UpdateMemory(uint32 address, const uint8* buffer, size_t length) override {
+        auto registerData = this->FindRegisterData(address, length);
+        if (registerData == nullptr) {
+            return false;
         }
 
-        if(!registerData->write) {
-            return nullptr;
+        if (!registerData->write) {
+            return false;
         }
 
-        if(registerData->Addres() != address) {
-            return nullptr;
-        }
-
-        if(registerData->DataTypeSize() != length) {
-            return nullptr;
-        }
-
-        if(address + length > MapSize) {
-            return nullptr;
-        }
-
-        if(!registerData->WriteEvent(buffer, length)) {
-            return nullptr;
+        if (!registerData->WriteEvent(buffer)) {
+            return false;
         }
 
         System::CriticalSection(true);
         std::memcpy(&map[address], buffer, length);
         System::CriticalSection(false);
 
-        return registerData;
+        return true;
     }
 
     static constexpr size_t GetAddressSize() noexcept {

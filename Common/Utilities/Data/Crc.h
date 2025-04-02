@@ -7,7 +7,7 @@
 #include <utility>
 
 
-class CRC {
+class Crc {
 public:
 	template<typename CRCType, uint16 CRCWidth>
 	struct Table;
@@ -478,7 +478,7 @@ private:
 		const unsigned char* current = reinterpret_cast<const unsigned char*>(data);
 
 		if (parameters.reflectInput) {
-			CRCType polynomial = CRC::Reflect(parameters.polynomial, CRCWidth);
+			CRCType polynomial = Crc::Reflect(parameters.polynomial, CRCWidth);
 			while (size--) {
 				remainder = static_cast<CRCType>(remainder ^ *current++);
 
