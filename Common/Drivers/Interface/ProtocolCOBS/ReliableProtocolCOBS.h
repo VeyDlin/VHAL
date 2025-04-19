@@ -79,7 +79,7 @@ public:
     }
 
 
-    Status::statusType SendPacket(uint16 address, const uint8* data, size_t length, std::chrono::milliseconds timeout = 1000ms, uint8 retry = 3) {
+    Status::statusType SendPacket(uint16 address, const uint8* data, size_t length, std::chrono::milliseconds timeout = 1s, uint8 retry = 3) {
         if (length > MaxPacketSize) {
             return Status::dataCorrupted;
         }
@@ -177,7 +177,7 @@ private:
         auto size = ByteConverter::GetType<uint16>(&decodedBuffer[7]);
 
         uint16 crc = ByteConverter::GetType<uint16>(&decodedBuffer[9 + size]);
-        if (Crc::Calculate(decodedBuffer, 9 + size, Crc::CRC_16_USB()) != crc) {
+        if (Crc::Calculate(decodedBuffer, 9 + size, Crc::CRC_16_XMODEM()) != crc) {
             return; // CRC error
         }
 
