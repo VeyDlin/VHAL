@@ -15,8 +15,10 @@ public:
 
     virtual void WriteRaw(const char* data, size_t size) = 0;
 
-    void Line(const char* newline = "\r\n") {
-        WriteRaw(newline, strlen(newline));
+    size_t Line(const char* newline = "\r\n") {
+    	size_t size = strlen(newline);
+        WriteRaw(newline, size);
+        return size;
     }
 
 
@@ -26,12 +28,12 @@ public:
         return WriteNumber(number, format);
     }
 
+
     template <typename T>
     std::enable_if_t<std::is_integral_v<T>, size_t>
     WriteLine(T number, Format format = Format::Dec) {
         auto len = Write(number, format);
-        Line();
-        return len + 2; // \r\n
+        return len + Line();
     }
 
 
@@ -41,12 +43,12 @@ public:
         return WriteFloat(number, precision);
     }
 
+
     template <typename T>
     std::enable_if_t<std::is_floating_point_v<T>, size_t>
     WriteLine(T number, uint8 precision = 2) {
         auto len = Write(number, precision);
-        Line();
-        return len + 2; // \r\n
+        return len + Line();
     }
 
 
@@ -55,16 +57,27 @@ public:
         return str.size();
     }
 
+
     size_t WriteLine(const std::string_view str) {
         auto len = Write(str);
-        Line();
-        return len + 2; // \r\n
+        return len + Line();
+    }
+
+
+    inline size_t Write(const char* value) {
+    	return Write(std::string_view(value));
+    }
+
+
+    inline size_t WriteLine(const char* value) {
+        return WriteLine(std::string_view(value));
     }
 
 
     size_t Write(bool value) {
         return Write(std::string_view(value ? "true" : "false"));
     }
+
 
     size_t WriteLine(bool value) {
         return WriteLine(std::string_view(value ? "true" : "false"));
@@ -76,16 +89,29 @@ public:
         return size;
     }
 
+
     size_t WriteLine(uint8* buffer, size_t size) {
         auto len = Write(buffer, size);
-        Line();
-        return len + 2; // \r\n
+        return len + Line();
     }
 
 
+	size_t WriteBuffer(uint8* buffer, size_t size) {
+		for (size_t i = 0; i < size; i++) {
+	        if ((buffer[i] & 0xF0) == 0) {
+	            Write("0");
+	        }
+
+			Write(buffer[i], Print::Format::Hex);
+			Write(" ");
+		}
+		return size + Line();
+	}
+
 private:
     template <typename T>
-    size_t WriteNumber(T number, Format format) {
+    std::enable_if_t<std::is_integral_v<T>, size_t>
+    WriteNumber(T number, Format format) {
         char buffer[64] = {0};
         size_t idx = 0;
 
@@ -123,12 +149,14 @@ private:
         }
 
         buffer[idx] = '\0';
-        return Write(buffer);
+        WriteRaw(&buffer[0], idx);
+        return idx;
     }
 
 
     template <typename T>
-    size_t WriteFloat(T number, uint8 precision) {
+    std::enable_if_t<std::is_floating_point_v<T>, size_t>
+    WriteFloat(T number, uint8 precision) {
         char buffer[64] = {0};
         size_t idx = 0;
 
@@ -137,23 +165,30 @@ private:
             number = -number;
         }
 
-        T integer_part = static_cast<T>(number);
+        T integer_part = static_cast<T>(static_cast<uint64_t>(number));
         T fractional_part = number - integer_part;
 
-        idx += WriteNumber(integer_part, Format::Dec);
+        auto int_part = static_cast<uint64_t>(integer_part);
+        size_t int_start = idx;
+        do {
+            buffer[idx++] = '0' + (int_part % 10);
+            int_part /= 10;
+        } while (int_part > 0);
+        std::reverse(buffer + int_start, buffer + idx);
 
         if (precision > 0) {
             buffer[idx++] = '.';
-        }
-
-        for (uint8 i = 0; i < precision; ++i) {
-            fractional_part *= 10;
-            int digit = static_cast<int>(fractional_part);
-            buffer[idx++] = '0' + digit;
-            fractional_part -= digit;
+            for (uint8 i = 0; i < precision; ++i) {
+                fractional_part *= 10;
+                int digit = static_cast<int>(fractional_part);
+                buffer[idx++] = '0' + digit;
+                fractional_part -= digit;
+            }
         }
 
         buffer[idx] = '\0';
-        return Write(buffer);
+        WriteRaw(&buffer[0], idx);
+        return idx;
     }
+
 };

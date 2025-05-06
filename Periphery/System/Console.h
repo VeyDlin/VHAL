@@ -26,9 +26,7 @@ private:
     ConsolePrint print;
     std::function<void(const std::string_view str)> writeHandle;
     std::function<int()> readHandle;
-
-public:
-
+    Print::Format consoleFormat = Print::Format::Dec;
 
 
 public:
@@ -80,6 +78,15 @@ public:
     }
 
 
+    inline size_t Write(const char* value) {
+    	return Write(std::string_view(value));
+    }
+
+
+    inline size_t WriteLine(const char* value) {
+        return WriteLine(std::string_view(value));
+    }
+
     inline size_t Write(bool value) {
         return print.Write(value);
     }
@@ -90,13 +97,23 @@ public:
     }
 
 
-    inline size_t Write(uint8_t* buffer, size_t size) {
+    inline size_t Write(uint8* buffer, size_t size) {
         return print.Write(buffer, size);
     }
 
 
-    inline size_t WriteLine(uint8_t* buffer, size_t size) {
+    inline size_t WriteLine(uint8* buffer, size_t size) {
         return print.WriteLine(buffer, size);
+    }
+
+
+    inline size_t WriteBuffer(uint8* buffer, size_t size) {
+        return print.WriteBuffer(buffer, size);
+    }
+
+
+    inline size_t Line() {
+    	return print.Line();
     }
 
 
@@ -162,20 +179,35 @@ public:
 
 
     template <typename T>
-    Console& operator<<(const T& value) {
-        print.Write(value);
+    std::enable_if_t<std::is_integral_v<T>, Console&>
+    operator<<(T number) {
+    	print.Write(number, consoleFormat);
+        return *this;
+    }
+
+
+    template <typename T>
+    std::enable_if_t<std::is_floating_point_v<T>, Console&>
+    operator<<(T number) {
+    	print.Write(number);
         return *this;
     }
 
 
     Console& operator<<(const char* value) {
-        print.Write(value);
+        print.Write(std::string_view(value));
         return *this;
     }
 
 
     Console& operator<<(const std::string_view& value) {
         print.Write(value);
+        return *this;
+    }
+
+
+    Console& operator<<(Print::Format format) {
+        consoleFormat = format;
         return *this;
     }
 
@@ -225,7 +257,6 @@ private:
 
 
     void WriteWithPrefixAndTick(const char* prefix, const char* message = nullptr) {
-        auto tick = System::GetTick();
         print.Write(prefix);
         WriteTick();
         if(message != nullptr) {
