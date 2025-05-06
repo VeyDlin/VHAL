@@ -55,7 +55,7 @@ public:
 
 public:
 	TIMAdapterG4() { }
-	TIMAdapterG4(TIM_TypeDef *timer, uint32 busClockHz): TIMAdapter(timer, busClockHz) { }
+	TIMAdapterG4(TIM_TypeDef *timer, uint32 busClockHz, Bitness bit = Bitness::B16): TIMAdapter(timer, busClockHz, bit) { }
 
 
 
@@ -241,6 +241,14 @@ public:
 		} else if(channel == Channel::C4()) {
 			LL_TIM_OC_SetCompareCH4(timHandle, compare);
 		}
+	}
+
+
+
+
+
+	virtual inline void GenerateUpdateEvent() override {
+		LL_TIM_GenerateEvent_UPDATE(timHandle);
 	}
 
 

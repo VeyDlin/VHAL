@@ -29,6 +29,7 @@ public:
 	enum class IdleState { Low, High };
 	enum class ChannelSelect { Positive, Negative, PositiveNegative, NoOutput };
 	enum class ChannelEnableSelect { EnablePositive, EnableNegative, EnableAll, DisablePositive, DisableNegative, DisableAll };
+	enum class Bitness { B16, B32 };
 
 
 	struct Parameters {
@@ -89,6 +90,7 @@ protected:
 	BreakAndDeadTimeParameters breakAndDeadTimeParameters[maxChannels];
 
 	uint32 inputBusClockHz = 0;
+	Bitness bitness = Bitness::B16;
 
 
 public:
@@ -103,7 +105,7 @@ public:
 
 public:
 	TIMAdapter() { }
-	TIMAdapter(TIM_TypeDef *tim, uint32 busClockHz): timHandle(tim), inputBusClockHz(busClockHz) { }
+	TIMAdapter(TIM_TypeDef *tim, uint32 busClockHz, Bitness bit = Bitness::B16): timHandle(tim), inputBusClockHz(busClockHz), bitness(bit) { }
 
 
 
@@ -135,6 +137,10 @@ public:
 		return inputBusClockHz;
 	}
 
+
+	virtual Bitness GetBitness() {
+		return bitness;
+	}
 
 
 
@@ -193,6 +199,7 @@ public:
 	virtual inline void SetPrescaler(uint32 prescaler) = 0;
 	virtual inline void SetPeriod(uint32 period) = 0;
 	virtual inline void SetCompare(const ChannelMode *channel, uint32 compare) = 0;
+	virtual inline void GenerateUpdateEvent() = 0;
 
 	virtual inline void IrqHandler() = 0;
 
