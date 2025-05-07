@@ -65,8 +65,9 @@ bool System::InitDelayDWT() {
 
 void System::DelayMs(uint32_t delay) {
     if (rtosDelayMsHandle) {
-        rtosDelayMsHandle(delay);
-        return;
+        if(rtosDelayMsHandle(delay)) {
+        	return;
+        }
     }
     uint32_t endTick = GetTick() + delay * ticksInOneMs;
     while (GetTick() < endTick);
