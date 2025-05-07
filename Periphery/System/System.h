@@ -20,7 +20,7 @@
 	#define SystemAssert(...) ___SystemGetMacro(__VA_ARGS__, ___SystemAssert2, ___SystemAssert1)(__VA_ARGS__)
 	#define SystemAbort(...) ___SystemGetMacro(__VA_ARGS__, ___SystemAbort2, ___SystemAbort1)(__VA_ARGS__)
 #else
-	#define SystemAssert(...) System::Abort()
+	#define SystemAssert(condition, ...) if (!(condition)) { System::Abort(); }
 	#define SystemAbort(...) System::Abort()
 #endif
 
