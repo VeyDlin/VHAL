@@ -814,7 +814,7 @@ protected:
 	            When the device is in the setup mode
 	            */
 	#ifdef NRF_8001_DEBUG
-	            System::console.WriteLine("Evt Device Started: Setup");
+	            System::console.WriteLine("Evt Device Started: Setup ");
 	#endif
 	            break;
 
@@ -875,6 +875,7 @@ protected:
 	              System::console.Write(": ");
 
 	              System::console.WriteBuffer(aciEvt->params.cmd_rsp.params.read_dynamic_data.dynamic_data, aciEvt->len - 4);
+	              System::console.Line();
 	#endif
 	              if (aciEvt->params.cmd_rsp.params.read_dynamic_data.seq_no == 1) {
 	                this->_dynamicDataOffset = 0;
@@ -1108,6 +1109,7 @@ protected:
 	        System::console.WriteLine(aciEvt->params.data_received.rx_data.pipe_number, Print::Format::Dec);
 
 	        System::console.WriteBuffer(aciEvt->params.data_received.rx_data.aci_data, dataLen);
+	        System::console.Line();
 	#endif
 
 	        for (int i = 0; i < this->_numLocalPipeInfo; i++) {
@@ -1457,7 +1459,7 @@ private:
 	              When the device is in the setup mode
 	              */
 	#ifdef NRF_8001_DEBUG
-	              System::console.WriteLine("Evt Device Started: Setup");
+	              System::console.WriteLine("Evt Device Started: Setup ");
 	#endif
 	              setupMode = true;
 	              break;
@@ -1491,6 +1493,7 @@ private:
 
 	#ifdef NRF_8001_DEBUG
 	  System::console.WriteBuffer(data->buffer, data->buffer[0] + 1);
+	  System::console.Line();
 	#endif
 
 	  hal_aci_tl_send(data);
@@ -1506,14 +1509,14 @@ private:
 	          switch(aciEvt->params.cmd_rsp.cmd_status) {
 	            case ACI_STATUS_TRANSACTION_CONTINUE:
 	#ifdef NRF_8001_DEBUG
-	              System::console.WriteLine("Evt Cmd Rsp: Transaction Continue");
+	              System::console.WriteLine("Evt Cmd Rsp: Transaction Continue ");
 	#endif
 	              setupMsgSent = true;
 	              break;
 
 	            case ACI_STATUS_TRANSACTION_COMPLETE:
 	#ifdef NRF_8001_DEBUG
-	              System::console.WriteLine("Evt Cmd Rsp: Transaction Complete");
+	              System::console.WriteLine("Evt Cmd Rsp: Transaction Complete ");
 	#endif
 	              setupMsgSent = true;
 	              break;
