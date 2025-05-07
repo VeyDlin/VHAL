@@ -90,7 +90,7 @@ public:
 
 	template <typename DataType>
 	inline Status::statusType WriteArray(const DataType* buffer, uint32 size) {
-		return WriteArray<DataType>(buffer, size);
+		return WriteByteArray(const_cast<uint8*>(reinterpret_cast<const uint8*>(buffer)), sizeof(DataType) * size);
 	}
 
 
