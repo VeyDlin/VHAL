@@ -36,15 +36,37 @@ protected:
             if(
                 data != nullptr &&
                 data->Addres() == address &&
-                data->DataTypeSize() == length &&
-                address + length <= Size()
+				(
+					length == 0 || (
+						data->DataTypeSize() == length &&
+			            address + length <= Size()
+					)
+				)
             ) {
                 return data;
             }
         }
         return nullptr;
     }
+
 public:
+    size_t GetUnsafe(uint32 address, uint8* outData) override {
+        auto registerData = this->FindRegisterData(address, 0);
+        if (registerData == nullptr) {
+            return 0;
+        }
+
+        if (!registerData->read) {
+            return 0;
+        }
+
+        System::CriticalSection(true);
+        size_t dataSize = registerData->GetUnsafe(outData);
+        System::CriticalSection(false);
+
+        return dataSize;
+    }
+
     bool UpdateMemory(uint32 address, const uint8* buffer, size_t length) override {
         auto registerData = this->FindRegisterData(address, length);
         if (registerData == nullptr) {
