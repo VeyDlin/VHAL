@@ -37,13 +37,13 @@ private:
 			a->steps--;
 			if (a->steps >= 0) {
 				a->valueStart.Add(a->step);
-				if (a->onUpdate != nullptr) {
+				if (a->onUpdate) {
 					a->onUpdate(a->valueStart);
 				}
 			} else {
 				a->valueStart = a->valueEnd;
 
-				if (a->onUpdate != nullptr) {
+				if (a->onUpdate) {
 					a->onUpdate(a->valueEnd);
 				}
 
@@ -72,8 +72,8 @@ public:
 	RgbAnimation& Animate(Colors::FRgb from, Colors::FRgb to, std::chrono::milliseconds duration) {
 		if (isActive) {
 			valueEnd = to;
-			step = (valueEnd - valueStart) / steps;
-			if (onStart != nullptr) {
+			steps = std::max(1.0f, std::fabs(valueEnd - valueStart) / step);
+			if (onStart) {
 				onStart(from);
 			}
 			return *this;
@@ -86,14 +86,15 @@ public:
 		valueEnd = to;
 		_duration = duration;
 
-		steps = static_cast<float>(std::chrono::milliseconds(_duration).count()) /
-				static_cast<float>(std::chrono::milliseconds(timer.interval).count());
+		steps = std::max(1.0f,
+		    static_cast<float>(_duration.count()) /
+		    static_cast<float>(timer.interval.count()));
 
 		step.r = (valueEnd.r - valueStart.r) / steps;
 		step.g = (valueEnd.g - valueStart.g) / steps;
 		step.b = (valueEnd.b - valueStart.b) / steps;
 
-		if (onStart != nullptr) {
+		if (onStart) {
 			onStart(from);
 		}
 
@@ -143,7 +144,7 @@ public:
 	RgbAnimation& Stop() {
 		isActive = false;
 		pause = false;
-		if (onStop != nullptr) {
+		if (onStop) {
 			onStop(valueEnd);
 		}
 		return *this;
