@@ -70,38 +70,75 @@ public:
 
 	TIMOutputCompareHelper& SetFrequencyInfo(const FrequencyInfo& info) {
 		uint32 sourceFrequency = timAdapter->GetBusClockHz() * 1000;
-	    uint32 divisionFactor = sourceFrequency / info.frequencyHz;
+		uint32 targetFrequency = info.frequencyHz;
+		uint32 duty = info.duty;
 
-	    uint32 prescaler = divisionFactor / 0x10000;
-	    if (prescaler > 0) {
-	        prescaler -= 1;
-	    }
+		uint32 prescaler = 0;
+		uint32 period = 0;
+		uint32 pulse = 0;
 
-	    uint32 period = (sourceFrequency / (timAdapter->GetClockDivision() * (prescaler + 1))) / info.frequencyHz - 1;
-	    if (period == 0) {
-	        period = 1;
-	    }
+		if (timAdapter->GetBitness() == ATIM::Bitness::B32) {
+		    period = (sourceFrequency / (timAdapter->GetClockDivision() * targetFrequency)) - 1;
+		} else {
+		    for (prescaler = 0; prescaler <= 0xFFFF; ++prescaler) {
+		        uint32 tmpPeriod = (sourceFrequency / (timAdapter->GetClockDivision() * (prescaler + 1) * targetFrequency)) - 1;
+		        if (tmpPeriod <= 0xFFFF) {
+		            period = tmpPeriod;
+		            break;
+		        }
+		    }
+		}
 
-	    uint32 pulse = static_cast<uint32>(((period + 1) * info.duty) / 100.f);
-	    if (pulse == 0) {
-	        pulse = 1;
-	    }
+		if (period == 0) {
+		    period = 1;
+		}
 
-	    System::CriticalSection(true);
+		pulse = static_cast<uint32>(((period + 1) * duty) / 100.f);
+		if (pulse == 0) {
+		    pulse = 1;
+		}
 
-	    SetPrescaler(static_cast<uint16>(prescaler));
+		System::CriticalSection(true);
 
-	    if (timAdapter->GetBitness() == ATIM::Bitness::B32) {
-	        SetPeriod(period);
-	        SetCompare(pulse);
-	    } else {
-	        SetPeriod(static_cast<uint16>(period > 0xFFFF ? 0xFFFF : period));
-	        SetCompare(static_cast<uint16>(pulse > 0xFFFF ? 0xFFFF : pulse));
-	    }
+		SetPrescaler(static_cast<uint16>(prescaler));
 
-	    timAdapter->GenerateUpdateEvent();
+		if (timAdapter->GetBitness() == ATIM::Bitness::B32) {
+		    SetPeriod(period);
+		    SetCompare(pulse);
+		} else {
+		    SetPeriod(static_cast<uint16>(period));
+		    SetCompare(static_cast<uint16>(pulse));
+		}
 
-	    System::CriticalSection(false);
+		timAdapter->GenerateUpdateEvent();
+
+		System::CriticalSection(false);
+
+		return *this;
+	}
+
+
+
+
+
+	TIMOutputCompareHelper& SetFrequency(float frequencyHz) {
+		SetFrequencyInfo(FrequencyInfo {
+			.frequencyHz = frequencyHz,
+			.duty = GetFrequencyInfo().duty
+		});
+
+	    return *this;
+	}
+
+
+
+
+
+	TIMOutputCompareHelper& SetDuty(float duty) {
+		SetFrequencyInfo(FrequencyInfo {
+			.frequencyHz = GetFrequencyInfo().frequencyHz,
+			.duty = duty
+		});
 
 	    return *this;
 	}

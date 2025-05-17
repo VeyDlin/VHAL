@@ -42,9 +42,6 @@ public:
 protected:
 	virtual Status::statusType Initialization() = 0;
 	virtual Status::statusType CalculateDividers() = 0;
-
-
-
 };
 
 

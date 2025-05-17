@@ -57,8 +57,8 @@ protected:
 
 
 public:
-	Function<void(Irq irqType)> onInterrupt;
-	Function<void(Error errorType)> onError;
+	std::function<void(Irq irqType)> onInterrupt;
+	std::function<void(Error errorType)> onError;
 
 
 

@@ -124,6 +124,11 @@ public:
 	}
 
 
+	std::chrono::milliseconds GetInterval() {
+		return timer.interval;
+	}
+
+
 	LinearAnimation& SetDuration(std::chrono::milliseconds val) {
 		_duration = val;
 		return *this;

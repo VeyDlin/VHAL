@@ -129,6 +129,11 @@ public:
 	}
 
 
+	std::chrono::milliseconds GetInterval() {
+		return timer.interval;
+	}
+
+
 	RgbAnimation& SetDuration(std::chrono::milliseconds val) {
 		_duration = val;
 		return *this;
