@@ -10,9 +10,9 @@ struct Phase {
 	float b = 0; 
 	float c = 0;
 	
-	inline Phase2 GetPhase2() {
-		return Phase2(a, b);
-	}
+        inline Phase2 GetPhase2() const {
+                return {a, b};
+        }
 };
 
 
@@ -20,8 +20,9 @@ struct Phase2 {
 	float a = 0;
 	float b = 0;
 
-	inline Phase GetPhase(float c = 0) {
-		return Phase2(a, b, c);
+        inline Phase GetPhase(float c = 0) const {
+                return {a, b, c};
+        }
 	}
 };
 

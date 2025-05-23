@@ -32,7 +32,7 @@ public:
 
 		// Synchronous speed computation
     	float speed;
-		if ((electricalAngle < 0.9) & (electricalAngle > 0.1)) {
+		if ((electricalAngle < 0.9) && (electricalAngle > 0.1)) {
 			speed = K1 * (electricalAngle - oldElectricalAngle);
 		} else {
 			speed = out.speed;

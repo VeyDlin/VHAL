@@ -1,5 +1,5 @@
 ﻿#pragma once
-#include "reductionTypes.h"
+#include "../reductionTypes.h"
 #include <algorithm>
 #include <cmath>
 

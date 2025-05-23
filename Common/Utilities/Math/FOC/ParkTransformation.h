@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include "Types.h"
+#include <cmath>
 
 
 class ParkTransformation {
@@ -18,8 +19,8 @@ public:
 	ParkTransformation& Resolve(Phase2 phase2, float angle) {
 		inout.phase = phase2;
 
-		inout.park.d = (phase.a * std::cos(angle)) + (phase.b * std::sin(angle));
-		inout.park.q = (phase.b * std::cos(angle)) - (phase.a * std::sin(angle));
+		inout.park.d = (phase2.a * std::cos(angle)) + (phase2.b * std::sin(angle));
+		inout.park.q = (phase2.b * std::cos(angle)) - (phase2.a * std::sin(angle));
 
 		return *this;
 	}
