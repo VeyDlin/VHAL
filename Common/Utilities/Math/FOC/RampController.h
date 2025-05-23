@@ -1,5 +1,5 @@
 ﻿#pragma once
-#include "reductionTypes.h"
+#include "../reductionTypes.h"
 #include <algorithm>
 #include <cmath>
 
@@ -65,7 +65,7 @@ public:
 	RampController& Resolve() {
 		float dlt = targetPosition - out.position;
 
-		if (abs(dlt) >= parameters.resolution) {
+		if (std::abs(dlt) >= parameters.resolution) {
 			delayCount++;
 
 			if (delayCount >= parameters.delayMax) {
