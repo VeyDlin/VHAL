@@ -97,7 +97,7 @@ public:
 	SpaceVectorGenerator& ResolveCommonMode() {
 		static float const SQRT3_D2 = (std::sqrt(3.0f) / 2);	
 																				
-		float Va = v.alpha;
+		float Va = in.alpha;
 		float Vb = -(in.alpha / 2) + (SQRT3_D2 * in.beta);													
 		float Vc = -(in.alpha / 2) - (SQRT3_D2 * in.beta);	
 		

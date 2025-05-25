@@ -37,7 +37,7 @@ public:
 
 
 	Ramp2Controller& Reset() {
-		out.position = 0;
+		output.position = 0;
 		return *this;
 	}
 
@@ -58,7 +58,7 @@ public:
 
 
 	Ramp2Controller& Resolve() {
-		if (output.position != v.DesiredInput) {
+		if (output.position != input.desiredRamp) {
 			delayCount++;
 
 			if (delayCount >= options.delay) {
@@ -78,7 +78,7 @@ public:
 
 
 
-	Out Get() {
-		return out;
+	Output Get() {
+		return output;
 	}
 };

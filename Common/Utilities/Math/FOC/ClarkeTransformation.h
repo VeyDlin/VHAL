@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include "Types.h"
+#include <cmath>
 
 
 class ClarkeTransformation {
@@ -33,7 +34,7 @@ public:
 
 		inout.phase = phase;
 
-		inout.clarke.a = phase2.a;
+		inout.clarke.a = phase.a;
 		inout.clarke.b = D1_SQRT3 * (phase.b - phase.c);
 
 		return *this;
@@ -45,8 +46,8 @@ public:
 		inout.clarke = clarke;
 
 		inout.phase.a = clarke.a;
-		inout.phase.b = (sqrt(3.0f) / 2) * clarke.b - (1 / 2) * clarke.a;
-		inout.phase.c = (-1 / 2) * clarke.a - (sqrt(3.0f) / 2) * clarke.b;
+		inout.phase.b = (std::sqrt(3.0f) / 2) * clarke.b - (1 / 2) * clarke.a;
+		inout.phase.c = (-1 / 2) * clarke.a - (std::sqrt(3.0f) / 2) * clarke.b;
 
 		return *this;
 	}
