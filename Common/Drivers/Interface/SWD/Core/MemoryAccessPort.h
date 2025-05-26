@@ -8,8 +8,6 @@ private:
 	uint32 apSel;
 
 public:
-	MemoryAccessPort() {}
-
 	MemoryAccessPort(AGPIO& clock, AGPIO& data, uint32 frequency, uint32 apSel) :
 		DebugPort(clock, data, frequency), apSel(apSel)
 	{

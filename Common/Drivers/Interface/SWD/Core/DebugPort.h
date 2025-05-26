@@ -9,8 +9,6 @@ private:
 	unsigned int currentBank;
 
 public:
-	DebugPort() {}
-
 	DebugPort(AGPIO& clock, AGPIO& data, uint32 frequency) :
 		SWD(clock, data, frequency)
 	{
@@ -21,7 +19,7 @@ public:
 	void Init() {
 		SWD::Init();
 		// Parse the IDCODE register content
-		uint32 idCode = GetIdCode();
+		uint32 idCode = GetDebugPortIdCode();
 		if (idCode != 0x0bb11477) {
 			// TODO: runtime_error
 			//throw std::runtime_error("Unknown IDCODE.");
@@ -44,7 +42,7 @@ public:
 	}
 
 
-	uint32 GetIdCode() {
+	uint32 GetDebugPortIdCode() {
 		return Read(false, 0);
 	}
 
