@@ -5,136 +5,116 @@
 
 class MemoryAccessPort : public DebugPort {
 private:
-        uint32 apSel;
-
+	uint32 apSel;
 
 public:
-        MemoryAccessPort() {}
+	MemoryAccessPort() {}
 
-        MemoryAccessPort(AGPIO &clock, AGPIO &data, uint32 frequency, uint32 apSel) :
-                DebugPort(clock, data, frequency),
-                apSel(apSel) {
-                csw(1, 2);
-        }
+	MemoryAccessPort(AGPIO& clock, AGPIO& data, uint32 frequency, uint32 apSel) :
+		DebugPort(clock, data, frequency), apSel(apSel)
+	{
 
-
-
-
-
-	uint32_t getIdCode() {
-                readAP(apSel, 0xfc);
-                return readRB();
 	}
 
 
-
-
-
-	uint32_t readWord(uint32_t address) {
-                writeAP(apSel, 0x04, address);
-                readAP(apSel, 0x0c);
-                return readRB();
+	void Init() {
+		DebugPort::Init();
+		CSW(1, 2);
 	}
 
 
-
-
-
-	uint32_t writeWord(uint32_t address, uint32_t value) {
-                writeAP(apSel, 0x04, address);
-                writeAP(apSel, 0x0c, value);
-                return readRB();
+	uint32 GetIdCode() {
+		ReadAP(apSel, 0xfc);
+		return ReadRB();
 	}
 
 
-
-
-
-	uint32_t readHalf(uint32_t address) {
-		csw(0, 1);
-                writeAP(apSel, 0x04, address);
-                readAP(apSel, 0x0c);
-                csw(1, 2);
-                return readRB();
+	uint32 ReadWord(uint32 address) {
+		WriteAP(apSel, 0x04, address);
+		ReadAP(apSel, 0x0c);
+		return ReadRB();
 	}
 
 
-
-
-
-	uint32_t writeHalf(uint32_t address, uint32_t value) {
-		csw(1, 1);
-                writeAP(apSel, 0x04, address);
-                writeAP(apSel, 0x0c, value);
-                writeAP(apSel, 0x0c, value);
-                csw(1, 2);
-                return readRB();
+	uint32 WriteWord(uint32 address, uint32 value) {
+		WriteAP(apSel, 0x04, address);
+		WriteAP(apSel, 0x0c, value);
+		return ReadRB();
 	}
 
 
+	uint32 ReadHalf(uint32 address) {
+		CSW(0, 1);
+		WriteAP(apSel, 0x04, address);
+		ReadAP(apSel, 0x0c);
+		CSW(1, 2);
+		return ReadRB();
+	}
 
 
+	uint32 WriteHalf(uint32 address, uint32 value) {
+		CSW(1, 1);
+		WriteAP(apSel, 0x04, address);
+		WriteAP(apSel, 0x0c, value);
+		WriteAP(apSel, 0x0c, value);
+		CSW(1, 2);
+		return ReadRB();
+	}
 
-	void readBlock(uint32_t address,  uint32_t count, uint32_t *buffer) {
-                writeAP(apSel, 0x04, address);
-                readAP(apSel, 0x0c);
+
+	void ReadBlock(uint32 address, uint32 count, uint32* buffer) {
+		WriteAP(apSel, 0x04, address);
+		ReadAP(apSel, 0x0c);
 		for (unsigned int i = 0; i < count - 1; i++) {
-                        buffer[i] = readAP(apSel, 0x0c);
+			buffer[i] = ReadAP(apSel, 0x0c);
 		}
-                buffer[count - 1] = readRB();
+		buffer[count - 1] = ReadRB();
 	}
 
 
-
-
-
-	void writeBlock(uint32_t address, uint32_t count, const uint32_t *buffer) {
-                writeAP(apSel, 0x04, address);
+	void WriteBlock(uint32 address, uint32 count, const uint32* buffer) {
+		WriteAP(apSel, 0x04, address);
 		for (unsigned int i = 0; i < count; i++) {
-                        writeAP(apSel, 0x0c, buffer[i]);
+			WriteAP(apSel, 0x0c, buffer[i]);
 		}
 	}
 
 
-
-
-
-	void writeBlockNonInc(uint32_t address, uint32_t count, const uint32_t *buffer) {
+	void WriteBlockNonInc(uint32 address, uint32 count, const uint32* buffer) {
 		// 32-bit non-incrementing addressing
-		csw(0, 2);
-		writeBlock(address, count, buffer);
+		CSW(0, 2);
+
+		WriteBlock(address, count, buffer);
+
 		// 32-bit auto-incrementing addressing
-		csw(1, 2);
+		CSW(1, 2);
 	}
 
 
-
-
-
-	void writeHalfs(uint32_t address, uint32_t count, const uint32_t *buffer) {
+	void WriteHalFS(uint32 address, uint32 count, const uint32* buffer) {
 		// 16-bit auto-incrementing addressing
-		csw(1, 1);
-                writeAP(apSel, 0x04, address);
+		CSW(1, 1);
+
+		WriteAP(apSel, 0x04, address);
 		for (unsigned int i = 0; i < count; i++) {
-                        writeAP(apSel, 0x0c, buffer[i]);
-                        writeAP(apSel, 0x0c, buffer[i]);
+			WriteAP(apSel, 0x0c, buffer[i]);
+			WriteAP(apSel, 0x0c, buffer[i]);
 		}
-		/*// 16-bit packed-incrementing addressing
-		csw(2, 1);
-		writeBlock(address, count, buffer);*/
+		/*
+			// 16-bit packed-incrementing addressing
+			CSW(2, 1);
+			WriteBlock(address, count, buffer);
+		*/
+
 		// 32-bit auto-incrementing addressing
-		csw(1, 2);
+		CSW(1, 2);
 	}
 
 
 private:
-	void csw(unsigned int addrInc, unsigned int size) {
-                readAP(apSel, 0x00);
-                uint32_t csw = readRB() & 0xFFFFFF00;
-                writeAP(apSel, 0x00, csw + (addrInc << 4) + size);
+	void CSW(unsigned int addrInc, unsigned int size) {
+		ReadAP(apSel, 0x00);
+		uint32 csw = ReadRB() & 0xFFFFFF00;
+		WriteAP(apSel, 0x00, csw + (addrInc << 4) + size);
 	}
-
 };
-
-
-

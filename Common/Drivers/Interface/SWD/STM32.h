@@ -1,9 +1,8 @@
 #pragma once
 #include <BSP.h>
-#include "MemoryAccessPort.h"
+#include "Core/MemoryAccessPort.h"
 
 
-// STM32 -> MemoryAccessPort -> DebugPort -> SWD
 class STM32 : public MemoryAccessPort {
 	static const uint32 FLASH_BASE_REGION = 0x40022000;
 
@@ -14,73 +13,72 @@ class STM32 : public MemoryAccessPort {
 
 
 public:
-        STM32(AGPIO &clock, AGPIO &data, uint32 frequency, uint32 apSel) :
-                MemoryAccessPort(clock, data, frequency, apSel) {
-        }
+	STM32(AGPIO& clock, AGPIO& data, uint32 frequency, uint32 apSel) :
+		MemoryAccessPort(clock, data, frequency, apSel) 
+	{
 
-
-	void halt() {
-                writeWord(0xE000EDF0, 0xA05F0003);
 	}
 
 
-	void unhalt() {
-                writeWord(0xE000EDF0, 0xA05F0000);
+	void Init() {
+		MemoryAccessPort::Init();
 	}
 
 
-	void reset() {
-                writeWord(0xE000ED0C, 0x05FA0004);
+	void Halt() {
+		WriteWord(0xE000EDF0, 0xA05F0003);
 	}
 
 
-	void unlockFlash() {
-                writeWord(FLASH_KEYR, 0x45670123);
-                writeWord(FLASH_KEYR, 0xcdef89ab);
+	void UnHalt() {
+		WriteWord(0xE000EDF0, 0xA05F0000);
 	}
 
 
-	void lockFlash() {
-                writeWord(FLASH_CR, readWord(FLASH_CR) | (1 << 7));
+	void Reset() {
+		WriteWord(0xE000ED0C, 0x05FA0004);
 	}
 
 
-	void startProgramming() {
-                writeWord(FLASH_CR, 1);
+	void UnlockFlash() {
+		WriteWord(FLASH_KEYR, 0x45670123);
+		WriteWord(FLASH_KEYR, 0xcdef89ab);
 	}
 
 
-	void endProgramming() {
-                writeWord(FLASH_CR, 0);
+	void LockFlash() {
+		WriteWord(FLASH_CR, ReadWord(FLASH_CR) | (1 << 7));
 	}
 
 
-	void eraseFlash(uint32_t page) {
-                writeWord(FLASH_CR, 2);
-                writeWord(FLASH_AR, page);
-                writeWord(FLASH_CR, 0x42);
-                while ((readWord(FLASH_SR) & 0x1) != 0) {
-                        System::DelayUs(10000);
-                }
-        }
+	void StartProgramming() {
+		WriteWord(FLASH_CR, 1);
+	}
 
 
-	void eraseFlash() {
+	void EndProgramming() {
+		WriteWord(FLASH_CR, 0);
+	}
+
+
+	void EraseFlash(uint32_t page) {
+		WriteWord(FLASH_CR, 2);
+		WriteWord(FLASH_AR, page);
+		WriteWord(FLASH_CR, 0x42);
+		while ((ReadWord(FLASH_SR) & 0x1) != 0) {
+			System::DelayUs(10000);
+		}
+	}
+
+
+	void EraseFlash() {
 		// TODO
 	}
 
 
-	void waitFlash() {
-                while ((readWord(FLASH_SR) & 0x1) != 0) {
-                        System::DelayUs(10000);
-                }
-        }
-
-
-	MemoryAccessPort *getMemoryAccessPort() {
-                return this;
+	void WaitFlash() {
+		while ((ReadWord(FLASH_SR) & 0x1) != 0) {
+			System::DelayUs(10000);
+		}
 	}
-
 };
-
-
