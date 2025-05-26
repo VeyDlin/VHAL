@@ -3,6 +3,7 @@
 #include "MemoryAccessPort.h"
 
 
+// STM32 -> MemoryAccessPort -> DebugPort -> SWD
 class STM32 {
 	static const uint32 FLASH_BASE_REGION = 0x40022000;
 

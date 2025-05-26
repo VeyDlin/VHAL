@@ -14,24 +14,25 @@ protected:
 
 public:
 	struct TriggerSource {
-		AUNIQUECODE_GENERATE(CTriggerSource, Software, 					LL_ADC_REG_TRIG_SOFTWARE);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer1Channel1, 			LL_ADC_REG_TRIG_EXT_TIM1_CH1);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer1Channel2, 			LL_ADC_REG_TRIG_EXT_TIM1_CH2);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer1Channel3, 			LL_ADC_REG_TRIG_EXT_TIM1_CH3);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer2Channel2, 			LL_ADC_REG_TRIG_EXT_TIM2_CH2);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer2Channel3, 			LL_ADC_REG_TRIG_EXT_TIM2_CH3);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer2Channel4, 			LL_ADC_REG_TRIG_EXT_TIM2_CH4);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer2Trigger, 			LL_ADC_REG_TRIG_EXT_TIM2_TRGO);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer3Channel1, 			LL_ADC_REG_TRIG_EXT_TIM3_CH1);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer3Trigger, 			LL_ADC_REG_TRIG_EXT_TIM3_TRGO);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer4Channel4, 			LL_ADC_REG_TRIG_EXT_TIM4_CH4);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer5Channel1, 			LL_ADC_REG_TRIG_EXT_TIM5_CH1);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer5Channel2, 			LL_ADC_REG_TRIG_EXT_TIM5_CH2);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer5Channel3, 			LL_ADC_REG_TRIG_EXT_TIM5_CH3);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer8Channel1, 			LL_ADC_REG_TRIG_EXT_TIM8_CH1);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer8Trigger, 			LL_ADC_REG_TRIG_EXT_TIM8_TRGO);
-		AUNIQUECODE_GENERATE(CTriggerSource, InterruptLine11, 			LL_ADC_REG_TRIG_EXT_EXTI_LINE11);
+		static inline constexpr TriggerSourceOption Software         { LL_ADC_REG_TRIG_SOFTWARE };
+		static inline constexpr TriggerSourceOption Timer1Channel1   { LL_ADC_REG_TRIG_EXT_TIM1_CH1 };
+		static inline constexpr TriggerSourceOption Timer1Channel2   { LL_ADC_REG_TRIG_EXT_TIM1_CH2 };
+		static inline constexpr TriggerSourceOption Timer1Channel3   { LL_ADC_REG_TRIG_EXT_TIM1_CH3 };
+		static inline constexpr TriggerSourceOption Timer2Channel2   { LL_ADC_REG_TRIG_EXT_TIM2_CH2 };
+		static inline constexpr TriggerSourceOption Timer2Channel3   { LL_ADC_REG_TRIG_EXT_TIM2_CH3 };
+		static inline constexpr TriggerSourceOption Timer2Channel4   { LL_ADC_REG_TRIG_EXT_TIM2_CH4 };
+		static inline constexpr TriggerSourceOption Timer2Trigger    { LL_ADC_REG_TRIG_EXT_TIM2_TRGO };
+		static inline constexpr TriggerSourceOption Timer3Channel1   { LL_ADC_REG_TRIG_EXT_TIM3_CH1 };
+		static inline constexpr TriggerSourceOption Timer3Trigger    { LL_ADC_REG_TRIG_EXT_TIM3_TRGO };
+		static inline constexpr TriggerSourceOption Timer4Channel4   { LL_ADC_REG_TRIG_EXT_TIM4_CH4 };
+		static inline constexpr TriggerSourceOption Timer5Channel1   { LL_ADC_REG_TRIG_EXT_TIM5_CH1 };
+		static inline constexpr TriggerSourceOption Timer5Channel2   { LL_ADC_REG_TRIG_EXT_TIM5_CH2 };
+		static inline constexpr TriggerSourceOption Timer5Channel3   { LL_ADC_REG_TRIG_EXT_TIM5_CH3 };
+		static inline constexpr TriggerSourceOption Timer8Channel1   { LL_ADC_REG_TRIG_EXT_TIM8_CH1 };
+		static inline constexpr TriggerSourceOption Timer8Trigger    { LL_ADC_REG_TRIG_EXT_TIM8_TRGO };
+		static inline constexpr TriggerSourceOption InterruptLine11  { LL_ADC_REG_TRIG_EXT_EXTI_LINE11 };
 	};
+
 
 
 public:

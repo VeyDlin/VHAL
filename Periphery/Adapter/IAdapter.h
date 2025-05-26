@@ -3,8 +3,6 @@
 #include <functional>
 #include <cassert>
 
-#include "DMAAdapter.h"
-
 
 
 class IAdapter {
@@ -13,18 +11,8 @@ public:
 	std::function<Status::statusType()> beforePeripheryInit;
 
 
-
 protected:
 	virtual Status::statusType Initialization() = 0;
-	DMAAdapter *dma;
-
-
-
-	inline virtual Status::statusType AddDma(DMAAdapter *_dma) {
-		dma = _dma;
-		return Status::ok;
-	}
-
 
 
 	inline virtual Status::statusType AfterInitialization() {
@@ -34,7 +22,6 @@ protected:
 
 		return Status::ok;
 	}
-
 
 
 	inline virtual Status::statusType BeforeInitialization() {

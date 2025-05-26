@@ -10,78 +10,77 @@ using ATIM = class TIMAdapterG0;
 class TIMAdapterG0: public TIMAdapter {
 public:
 	struct ClockDivision {
-		AUNIQUECODE_GENERATE(ClockDivisionMode, D1, 			LL_TIM_CLOCKDIVISION_DIV1);
-		AUNIQUECODE_GENERATE(ClockDivisionMode, D2, 			LL_TIM_CLOCKDIVISION_DIV2);
-		AUNIQUECODE_GENERATE(ClockDivisionMode, D4, 			LL_TIM_CLOCKDIVISION_DIV4);
+		static inline constexpr ClockDivisionOption D1 { LL_TIM_CLOCKDIVISION_DIV1 };
+		static inline constexpr ClockDivisionOption D2 { LL_TIM_CLOCKDIVISION_DIV2 };
+		static inline constexpr ClockDivisionOption D4 { LL_TIM_CLOCKDIVISION_DIV4 };
 	};
 
 	struct Counter {
-		AUNIQUECODE_GENERATE(CounterMode, Up, 					LL_TIM_COUNTERMODE_UP);
-		AUNIQUECODE_GENERATE(CounterMode, Down, 				LL_TIM_COUNTERMODE_DOWN);
-		AUNIQUECODE_GENERATE(CounterMode, CenterUp, 			LL_TIM_COUNTERMODE_CENTER_UP);
-		AUNIQUECODE_GENERATE(CounterMode, CenterDown, 			LL_TIM_COUNTERMODE_CENTER_DOWN);
-		AUNIQUECODE_GENERATE(CounterMode, CenterUpDown, 		LL_TIM_COUNTERMODE_CENTER_UP_DOWN);
+		static inline constexpr CounterOption Up           { LL_TIM_COUNTERMODE_UP };
+		static inline constexpr CounterOption Down         { LL_TIM_COUNTERMODE_DOWN };
+		static inline constexpr CounterOption CenterUp     { LL_TIM_COUNTERMODE_CENTER_UP };
+		static inline constexpr CounterOption CenterDown   { LL_TIM_COUNTERMODE_CENTER_DOWN };
+		static inline constexpr CounterOption CenterUpDown { LL_TIM_COUNTERMODE_CENTER_UP_DOWN };
 	};
 
 	struct OutputCompare {
-		AUNIQUECODE_GENERATE(OutputCompareMode, Forzen, 		LL_TIM_OCMODE_FROZEN);
-		AUNIQUECODE_GENERATE(OutputCompareMode, Active, 		LL_TIM_OCMODE_ACTIVE);
-		AUNIQUECODE_GENERATE(OutputCompareMode, Inactive, 		LL_TIM_OCMODE_INACTIVE);
-		AUNIQUECODE_GENERATE(OutputCompareMode, ForcedInactive, LL_TIM_OCMODE_FORCED_INACTIVE);
-		AUNIQUECODE_GENERATE(OutputCompareMode, ForcedActive,	LL_TIM_OCMODE_FORCED_ACTIVE);
-		AUNIQUECODE_GENERATE(OutputCompareMode, Pwm, 			LL_TIM_OCMODE_PWM1);
-		AUNIQUECODE_GENERATE(OutputCompareMode, Pwm2, 			LL_TIM_OCMODE_PWM2);
+		static inline constexpr OutputCompareOption Frozen         { LL_TIM_OCMODE_FROZEN };
+		static inline constexpr OutputCompareOption Active         { LL_TIM_OCMODE_ACTIVE };
+		static inline constexpr OutputCompareOption Inactive       { LL_TIM_OCMODE_INACTIVE };
+		static inline constexpr OutputCompareOption ForcedInactive { LL_TIM_OCMODE_FORCED_INACTIVE };
+		static inline constexpr OutputCompareOption ForcedActive   { LL_TIM_OCMODE_FORCED_ACTIVE };
+		static inline constexpr OutputCompareOption Pwm            { LL_TIM_OCMODE_PWM1 };
+		static inline constexpr OutputCompareOption Pwm2           { LL_TIM_OCMODE_PWM2 };
 	};
 
 	struct Channel {
-		AUNIQUECODE_GENERATE(ChannelMode, C1, 					LL_TIM_CHANNEL_CH1, LL_TIM_CHANNEL_CH1N);
-		AUNIQUECODE_GENERATE(ChannelMode, C2,					LL_TIM_CHANNEL_CH2, LL_TIM_CHANNEL_CH2N);
-		AUNIQUECODE_GENERATE(ChannelMode, C3, 					LL_TIM_CHANNEL_CH3, LL_TIM_CHANNEL_CH3N);
-		AUNIQUECODE_GENERATE(ChannelMode, C4, 					LL_TIM_CHANNEL_CH4, 0);
+		static inline constexpr ChannelOption C1 { LL_TIM_CHANNEL_CH1, LL_TIM_CHANNEL_CH1N };
+		static inline constexpr ChannelOption C2 { LL_TIM_CHANNEL_CH2, LL_TIM_CHANNEL_CH2N };
+		static inline constexpr ChannelOption C3 { LL_TIM_CHANNEL_CH3, LL_TIM_CHANNEL_CH3N };
+		static inline constexpr ChannelOption C4 { LL_TIM_CHANNEL_CH4, 0 };
 	};
 
 	struct Interrupt {
-		AUNIQUECODE_GENERATE(InterruptType, CaptureCompare1, 	1);
-		AUNIQUECODE_GENERATE(InterruptType, CaptureCompare2, 	2);
-		AUNIQUECODE_GENERATE(InterruptType, CaptureCompare3, 	3);
-		AUNIQUECODE_GENERATE(InterruptType, CaptureCompare4, 	4);
-		AUNIQUECODE_GENERATE(InterruptType, Update,				5);
-		AUNIQUECODE_GENERATE(InterruptType, Break, 				6);
-		AUNIQUECODE_GENERATE(InterruptType, Trigger, 			7);
-		AUNIQUECODE_GENERATE(InterruptType, Commutation, 		8);
+		static inline constexpr InterruptOption CaptureCompare1 { 1 };
+		static inline constexpr InterruptOption CaptureCompare2 { 2 };
+		static inline constexpr InterruptOption CaptureCompare3 { 3 };
+		static inline constexpr InterruptOption CaptureCompare4 { 4 };
+		static inline constexpr InterruptOption Update          { 5 };
+		static inline constexpr InterruptOption Break           { 6 };
+		static inline constexpr InterruptOption Trigger         { 7 };
+		static inline constexpr InterruptOption Commutation     { 8 };
 	};
-
 
 	struct OutputTrigger {
-		AUNIQUECODE_GENERATE(OutputTriggerMode, Reset, LL_TIM_TRGO_RESET);
-		AUNIQUECODE_GENERATE(OutputTriggerMode, Enable, LL_TIM_TRGO_ENABLE);
-		AUNIQUECODE_GENERATE(OutputTriggerMode, Update, LL_TIM_TRGO_UPDATE);
-		AUNIQUECODE_GENERATE(OutputTriggerMode, CaptureCompare1, LL_TIM_TRGO_CC1IF);
-		AUNIQUECODE_GENERATE(OutputTriggerMode, OC1REF, LL_TIM_TRGO_OC1REF);
-		AUNIQUECODE_GENERATE(OutputTriggerMode, OC2REF, LL_TIM_TRGO_OC2REF); // TODO: OCxREF?
-		AUNIQUECODE_GENERATE(OutputTriggerMode, OC3REF, LL_TIM_TRGO_OC3REF);
-		AUNIQUECODE_GENERATE(OutputTriggerMode, OC4REF, LL_TIM_TRGO_OC4REF);
+		static inline constexpr OutputTriggerOption Reset           { LL_TIM_TRGO_RESET };
+		static inline constexpr OutputTriggerOption Enable          { LL_TIM_TRGO_ENABLE };
+		static inline constexpr OutputTriggerOption Update          { LL_TIM_TRGO_UPDATE };
+		static inline constexpr OutputTriggerOption CaptureCompare1 { LL_TIM_TRGO_CC1IF };
+		static inline constexpr OutputTriggerOption OC1REF          { LL_TIM_TRGO_OC1REF };
+		static inline constexpr OutputTriggerOption OC2REF          { LL_TIM_TRGO_OC2REF };
+		static inline constexpr OutputTriggerOption OC3REF          { LL_TIM_TRGO_OC3REF };
+		static inline constexpr OutputTriggerOption OC4REF          { LL_TIM_TRGO_OC4REF };
 	};
-
 
 	struct OutputTrigger2 {
-		AUNIQUECODE_GENERATE(OutputTriggerMode2, Reset, LL_TIM_TRGO2_RESET);
-		AUNIQUECODE_GENERATE(OutputTriggerMode2, Enable, LL_TIM_TRGO2_ENABLE);
-		AUNIQUECODE_GENERATE(OutputTriggerMode2, Update, LL_TIM_TRGO2_UPDATE);
-		AUNIQUECODE_GENERATE(OutputTriggerMode2, CaptureCompare1, LL_TIM_TRGO2_CC1F);
-		AUNIQUECODE_GENERATE(OutputTriggerMode2, OC1REF, LL_TIM_TRGO2_OC1); // TODO: OCxREF?
-		AUNIQUECODE_GENERATE(OutputTriggerMode2, OC2REF, LL_TIM_TRGO2_OC2);
-		AUNIQUECODE_GENERATE(OutputTriggerMode2, OC3REF, LL_TIM_TRGO2_OC3);
-		AUNIQUECODE_GENERATE(OutputTriggerMode2, OC4REF, LL_TIM_TRGO2_OC4);
-		AUNIQUECODE_GENERATE(OutputTriggerMode2, OC5REF, LL_TIM_TRGO2_OC5);
-		AUNIQUECODE_GENERATE(OutputTriggerMode2, OC6REF, LL_TIM_TRGO2_OC6);
-		AUNIQUECODE_GENERATE(OutputTriggerMode2, RisingFalling4, LL_TIM_TRGO2_OC4_RISINGFALLING);
-		AUNIQUECODE_GENERATE(OutputTriggerMode2, RisingFalling6, LL_TIM_TRGO2_OC6_RISINGFALLING);
-		AUNIQUECODE_GENERATE(OutputTriggerMode2, Rising4Rising6, LL_TIM_TRGO2_OC4_RISING_OC6_RISING);
-		AUNIQUECODE_GENERATE(OutputTriggerMode2, Rising4Falling6, LL_TIM_TRGO2_OC4_RISING_OC6_FALLING);
-		AUNIQUECODE_GENERATE(OutputTriggerMode2, Rising5Rising6, LL_TIM_TRGO2_OC5_RISING_OC6_RISING);
-		AUNIQUECODE_GENERATE(OutputTriggerMode2, Rising5Falling6, LL_TIM_TRGO2_OC5_RISING_OC6_FALLING);
+		static inline constexpr OutputTriggerOption2 Reset             { LL_TIM_TRGO2_RESET };
+		static inline constexpr OutputTriggerOption2 Enable            { LL_TIM_TRGO2_ENABLE };
+		static inline constexpr OutputTriggerOption2 Update            { LL_TIM_TRGO2_UPDATE };
+		static inline constexpr OutputTriggerOption2 CaptureCompare1   { LL_TIM_TRGO2_CC1F };
+		static inline constexpr OutputTriggerOption2 OC1REF            { LL_TIM_TRGO2_OC1 };
+		static inline constexpr OutputTriggerOption2 OC2REF            { LL_TIM_TRGO2_OC2 };
+		static inline constexpr OutputTriggerOption2 OC3REF            { LL_TIM_TRGO2_OC3 };
+		static inline constexpr OutputTriggerOption2 OC4REF            { LL_TIM_TRGO2_OC4 };
+		static inline constexpr OutputTriggerOption2 OC5REF            { LL_TIM_TRGO2_OC5 };
+		static inline constexpr OutputTriggerOption2 OC6REF            { LL_TIM_TRGO2_OC6 };
+		static inline constexpr OutputTriggerOption2 RisingFalling4    { LL_TIM_TRGO2_OC4_RISINGFALLING };
+		static inline constexpr OutputTriggerOption2 RisingFalling6    { LL_TIM_TRGO2_OC6_RISINGFALLING };
+		static inline constexpr OutputTriggerOption2 Rising4Rising6    { LL_TIM_TRGO2_OC4_RISING_OC6_RISING };
+		static inline constexpr OutputTriggerOption2 Rising4Falling6   { LL_TIM_TRGO2_OC4_RISING_OC6_FALLING };
+		static inline constexpr OutputTriggerOption2 Rising5Rising6    { LL_TIM_TRGO2_OC5_RISING_OC6_RISING };
+		static inline constexpr OutputTriggerOption2 Rising5Falling6   { LL_TIM_TRGO2_OC5_RISING_OC6_FALLING };
 	};
+
 
 
 

@@ -14,24 +14,25 @@ protected:
 
 public:
 	struct TriggerSource {
-		AUNIQUECODE_GENERATE(CTriggerSource, Software, 					LL_ADC_REG_TRIG_SOFTWARE);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer1Trigger2, 			LL_ADC_REG_TRIG_EXT_TIM1_TRGO2);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer1Channel4, 			LL_ADC_REG_TRIG_EXT_TIM1_CH4);
-#if defined(TIM2)
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer2Trigger, 			LL_ADC_REG_TRIG_EXT_TIM2_TRGO);
-#endif
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer3Trigger, 			LL_ADC_REG_TRIG_EXT_TIM3_TRGO);
-#if defined(TIM4)
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer4Trigger, 			LL_ADC_REG_TRIG_EXT_TIM4_TRGO);
-#endif
-#if defined(TIM6)
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer6Trigger, 			LL_ADC_REG_TRIG_EXT_TIM6_TRGO);
-#endif
-#if defined(TIM15)
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer15Trigger, 			LL_ADC_REG_TRIG_EXT_TIM15_TRGO);
-#endif
-		AUNIQUECODE_GENERATE(CTriggerSource, InterruptLine11, 			LL_ADC_REG_TRIG_EXT_EXTI_LINE11);
+		static inline constexpr TriggerSourceOption Software        { LL_ADC_REG_TRIG_SOFTWARE };
+		static inline constexpr TriggerSourceOption Timer1Trigger2  { LL_ADC_REG_TRIG_EXT_TIM1_TRGO2 };
+		static inline constexpr TriggerSourceOption Timer1Channel4  { LL_ADC_REG_TRIG_EXT_TIM1_CH4 };
+	#if defined(TIM2)
+		static inline constexpr TriggerSourceOption Timer2Trigger   { LL_ADC_REG_TRIG_EXT_TIM2_TRGO };
+	#endif
+		static inline constexpr TriggerSourceOption Timer3Trigger   { LL_ADC_REG_TRIG_EXT_TIM3_TRGO };
+	#if defined(TIM4)
+		static inline constexpr TriggerSourceOption Timer4Trigger   { LL_ADC_REG_TRIG_EXT_TIM4_TRGO };
+	#endif
+	#if defined(TIM6)
+		static inline constexpr TriggerSourceOption Timer6Trigger   { LL_ADC_REG_TRIG_EXT_TIM6_TRGO };
+	#endif
+	#if defined(TIM15)
+		static inline constexpr TriggerSourceOption Timer15Trigger  { LL_ADC_REG_TRIG_EXT_TIM15_TRGO };
+	#endif
+		static inline constexpr TriggerSourceOption InterruptLine11 { LL_ADC_REG_TRIG_EXT_EXTI_LINE11 };
 	};
+
 
 
 

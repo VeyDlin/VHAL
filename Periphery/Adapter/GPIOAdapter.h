@@ -65,7 +65,7 @@ public:
 
 
 
-	GPIOAdapter() { }
+	GPIOAdapter() = default;
 
 	GPIOAdapter(GPIO_TypeDef *gpioPort, uint8 gpioPin, bool gpioInversion = false) : port(gpioPort), pin(1 << gpioPin), inversion(gpioInversion) { }
 

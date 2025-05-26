@@ -20,7 +20,7 @@ protected:
 
 
 public:
-	IWDGAdapter() { }
+	IWDGAdapter() = default;
 	IWDGAdapter(IWDG_TypeDef *iwdg, uint32 busClockHz): iwdgHandle(iwdg), inputBusClockHz(busClockHz) { }
 
 

@@ -78,19 +78,19 @@ public:
 	};
 
 	struct InputCaptureParameters {
-
+		// TODO: [VHAL] [TIM] [ADAPTER] [ADD SUPPORT] InputCaptureParameters
 	};
 
 	struct EncoderParameters {
-
+		// TODO: [VHAL] [TIM] [ADAPTER] [ADD SUPPORT] EncoderParameters
 	};
 
 	struct HallSensorParameters {
-
+		// TODO: [VHAL] [TIM] [ADAPTER] [ADD SUPPORT] HallSensorParameters
 	};
 
 	struct BreakAndDeadTimeParameters {
-
+		// TODO: [VHAL] [TIM] [ADAPTER] [ADD SUPPORT] BreakAndDeadTimeParameters
 	};
 
 
@@ -121,7 +121,7 @@ public:
 
 
 public:
-	TIMAdapter() { }
+	TIMAdapter() = default;
 	TIMAdapter(TIM_TypeDef *tim, uint32 busClockHz, Bitness bit = Bitness::B16): timHandle(tim), inputBusClockHz(busClockHz), bitness(bit) { }
 
 
@@ -185,7 +185,7 @@ public:
 
 
 	virtual Status::statusType EnableInterrupt(const std::initializer_list<InterruptOption>& list) {
-		// TODO: Add save
+		// TODO: [VHAL] [TIM] [ADAPTER] [ADD] Add save
 		for(auto &channel : list) {
 			auto status = SetInterrupt(channel, true);
 			if(status != Status::ok) {
@@ -198,7 +198,7 @@ public:
 
 
 	virtual Status::statusType DisableInterrupt(const std::initializer_list<InterruptOption>& list) {
-		// TODO: Add save
+		// TODO: [VHAL] [TIM] [ADAPTER] [ADD] Add save
 		for(auto &channel : list) {
 			auto status = SetInterrupt(channel, false);
 			if(status != Status::ok) {

@@ -10,47 +10,48 @@ using ATIM = class TIMAdapterF4;
 class TIMAdapterF4: public TIMAdapter {
 public:
 	struct ClockDivision {
-		AUNIQUECODE_GENERATE(ClockDivisionMode, D1, 			LL_TIM_CLOCKDIVISION_DIV1);
-		AUNIQUECODE_GENERATE(ClockDivisionMode, D2, 			LL_TIM_CLOCKDIVISION_DIV2);
-		AUNIQUECODE_GENERATE(ClockDivisionMode, D4, 			LL_TIM_CLOCKDIVISION_DIV4);
+		static inline constexpr ClockDivisionOption D1 { LL_TIM_CLOCKDIVISION_DIV1 };
+		static inline constexpr ClockDivisionOption D2 { LL_TIM_CLOCKDIVISION_DIV2 };
+		static inline constexpr ClockDivisionOption D4 { LL_TIM_CLOCKDIVISION_DIV4 };
 	};
 
 	struct Counter {
-		AUNIQUECODE_GENERATE(CounterMode, Up, 					LL_TIM_COUNTERMODE_UP);
-		AUNIQUECODE_GENERATE(CounterMode, Down, 				LL_TIM_COUNTERMODE_DOWN);
-		AUNIQUECODE_GENERATE(CounterMode, CenterUp, 			LL_TIM_COUNTERMODE_CENTER_UP);
-		AUNIQUECODE_GENERATE(CounterMode, CenterDown, 			LL_TIM_COUNTERMODE_CENTER_DOWN);
-		AUNIQUECODE_GENERATE(CounterMode, CenterUpDown, 		LL_TIM_COUNTERMODE_CENTER_UP_DOWN);
+		static inline constexpr CounterOption Up           { LL_TIM_COUNTERMODE_UP };
+		static inline constexpr CounterOption Down         { LL_TIM_COUNTERMODE_DOWN };
+		static inline constexpr CounterOption CenterUp     { LL_TIM_COUNTERMODE_CENTER_UP };
+		static inline constexpr CounterOption CenterDown   { LL_TIM_COUNTERMODE_CENTER_DOWN };
+		static inline constexpr CounterOption CenterUpDown { LL_TIM_COUNTERMODE_CENTER_UP_DOWN };
 	};
 
 	struct OutputCompare {
-		AUNIQUECODE_GENERATE(OutputCompareMode, Forzen, 		LL_TIM_OCMODE_FROZEN);
-		AUNIQUECODE_GENERATE(OutputCompareMode, Active, 		LL_TIM_OCMODE_ACTIVE);
-		AUNIQUECODE_GENERATE(OutputCompareMode, Inactive, 		LL_TIM_OCMODE_INACTIVE);
-		AUNIQUECODE_GENERATE(OutputCompareMode, Toggle, 		LL_TIM_OCMODE_TOGGLE);
-		AUNIQUECODE_GENERATE(OutputCompareMode, ForcedInactive, LL_TIM_OCMODE_FORCED_INACTIVE);
-		AUNIQUECODE_GENERATE(OutputCompareMode, ForcedActive,	LL_TIM_OCMODE_FORCED_ACTIVE);
-		AUNIQUECODE_GENERATE(OutputCompareMode, Pwm, 			LL_TIM_OCMODE_PWM1);
-		AUNIQUECODE_GENERATE(OutputCompareMode, Pwm2, 			LL_TIM_OCMODE_PWM2);
+		static inline constexpr OutputCompareOption Forzen         { LL_TIM_OCMODE_FROZEN };
+		static inline constexpr OutputCompareOption Active         { LL_TIM_OCMODE_ACTIVE };
+		static inline constexpr OutputCompareOption Inactive       { LL_TIM_OCMODE_INACTIVE };
+		static inline constexpr OutputCompareOption Toggle         { LL_TIM_OCMODE_TOGGLE };
+		static inline constexpr OutputCompareOption ForcedInactive { LL_TIM_OCMODE_FORCED_INACTIVE };
+		static inline constexpr OutputCompareOption ForcedActive   { LL_TIM_OCMODE_FORCED_ACTIVE };
+		static inline constexpr OutputCompareOption Pwm            { LL_TIM_OCMODE_PWM1 };
+		static inline constexpr OutputCompareOption Pwm2           { LL_TIM_OCMODE_PWM2 };
 	};
 
 	struct Channel {
-		AUNIQUECODE_GENERATE(ChannelMode, C1, 					LL_TIM_CHANNEL_CH1, LL_TIM_CHANNEL_CH1N);
-		AUNIQUECODE_GENERATE(ChannelMode, C2,					LL_TIM_CHANNEL_CH2, LL_TIM_CHANNEL_CH2N);
-		AUNIQUECODE_GENERATE(ChannelMode, C3, 					LL_TIM_CHANNEL_CH3, LL_TIM_CHANNEL_CH3N);
-		AUNIQUECODE_GENERATE(ChannelMode, C4, 					LL_TIM_CHANNEL_CH4, 0);
+		static inline constexpr ChannelOption C1 { LL_TIM_CHANNEL_CH1, LL_TIM_CHANNEL_CH1N };
+		static inline constexpr ChannelOption C2 { LL_TIM_CHANNEL_CH2, LL_TIM_CHANNEL_CH2N };
+		static inline constexpr ChannelOption C3 { LL_TIM_CHANNEL_CH3, LL_TIM_CHANNEL_CH3N };
+		static inline constexpr ChannelOption C4 { LL_TIM_CHANNEL_CH4, 0 };
 	};
 
 	struct Interrupt {
-		AUNIQUECODE_GENERATE(InterruptType, CaptureCompare1, 	1);
-		AUNIQUECODE_GENERATE(InterruptType, CaptureCompare2, 	2);
-		AUNIQUECODE_GENERATE(InterruptType, CaptureCompare3, 	3);
-		AUNIQUECODE_GENERATE(InterruptType, CaptureCompare4, 	4);
-		AUNIQUECODE_GENERATE(InterruptType, Update,				5);
-		AUNIQUECODE_GENERATE(InterruptType, Break, 				6);
-		AUNIQUECODE_GENERATE(InterruptType, Trigger, 			7);
-		AUNIQUECODE_GENERATE(InterruptType, Commutation, 		8);
+		static inline constexpr InterruptOption CaptureCompare1 { 1 };
+		static inline constexpr InterruptOption CaptureCompare2 { 2 };
+		static inline constexpr InterruptOption CaptureCompare3 { 3 };
+		static inline constexpr InterruptOption CaptureCompare4 { 4 };
+		static inline constexpr InterruptOption Update          { 5 };
+		static inline constexpr InterruptOption Break           { 6 };
+		static inline constexpr InterruptOption Trigger         { 7 };
+		static inline constexpr InterruptOption Commutation     { 8 };
 	};
+
 
 
 public:

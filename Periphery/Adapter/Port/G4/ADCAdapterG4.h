@@ -94,9 +94,13 @@ public:
 	}
 
 
-	virtual void AbortSampling() override { }
+	virtual void AbortSampling() override {
+		// TODO: [VHAL] [ADC] [G4] [ADD SUPPORT]
+	}
 
-	virtual void AbortConfigurationReady() override { }
+	virtual void AbortConfigurationReady() override {
+		// TODO: [VHAL] [ADC] [G4] [ADD SUPPORT]
+	}
 
 
 	virtual Status::statusType Calibration() override {
@@ -408,6 +412,7 @@ protected:
 
 
 	virtual Status::info<float> SetInjectedChannel(const InjecteChannel &channel, uint8 rank) override {
+		// TODO: [VHAL] [ADC] [G4] [ADD SUPPORT]
 		return { Status::notSupported };
 	}
 

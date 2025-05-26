@@ -61,7 +61,7 @@ protected:
 
 
 	virtual Status::statusType CalculateDividers() override {
-
+		// TODO: [VHAL] [IWDG] [G4] [ADD SUPPORT]
 		return Status::ok;
 	}
 

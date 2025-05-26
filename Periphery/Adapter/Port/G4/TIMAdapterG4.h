@@ -365,7 +365,8 @@ protected:
 
 	virtual Status::statusType OutputCompareInitialization(const std::initializer_list<OutputCompareParameters>& list) override {
 		for(auto &channel : list) {
-			LL_TIM_OC_EnablePreload(timHandle, channel.channel.Get<1>()); // TODO: only 1 ??
+			// TODO: [VHAL] [TIM] [G4] [WTF] only 1 ??
+			LL_TIM_OC_EnablePreload(timHandle, channel.channel.Get<1>());
 
 			LL_TIM_OC_InitTypeDef init = {
 				.OCMode = channel.mode.Get(),
@@ -386,13 +387,14 @@ protected:
 				return Status::error;
 			}
 
-			LL_TIM_OC_DisableFast(timHandle, channel.channel.Get<1>()); // TODO: channel 2 ??
+			// TODO: [VHAL] [TIM] [G4] [WTF] channel 2 ??
+			LL_TIM_OC_DisableFast(timHandle, channel.channel.Get<1>());
 		}
 
-		// TODO: Add Trigger to settings
+		// TODO: [VHAL] [TIM] [ADAPTER] [ADD SUPPORT] Add Trigger to settings
 		LL_TIM_SetTriggerOutput(timHandle, LL_TIM_TRGO_RESET);
 
-		// TODO: Add Master Slave Mode to settings
+		// TODO: [VHAL] [TIM] [ADAPTER] [ADD SUPPORT] Add Master Slave Mode to settings
 		LL_TIM_DisableMasterSlaveMode(timHandle);
 
 		if(timHandle == TIM1 || timHandle == TIM8) {
@@ -408,6 +410,7 @@ protected:
 
 
 	virtual Status::statusType BreakAndDeadTimeInitialization(const std::initializer_list<BreakAndDeadTimeParameters>& list) override {
+		// TODO: [VHAL] [TIM] [G4] [ADD SUPPORT]
 		return Status::notSupported;
 	}
 

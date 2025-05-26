@@ -61,21 +61,21 @@ bool System::InitDelayDWT() {
 }
 
 
-void System::DelayMs(uint32_t delay) {
+void System::DelayMs(uint32 delay) {
     if (rtosDelayMsHandle) {
         if(rtosDelayMsHandle(delay)) {
         	return;
         }
     }
-    uint32_t endTick = GetTick() + delay * ticksInOneMs;
+    uint32 endTick = GetTick() + delay * ticksInOneMs;
     while (GetTick() < endTick);
 }
 
 
-void System::DelayUs(uint32_t delay) {
+void System::DelayUs(uint32 delay) {
 #if defined(CoreDebug)
-    const uint32_t startTick = GetCoreTick();
-    const uint32_t ticks = delay * (GetCoreClock() / 1000000);
+    const uint32 startTick = GetCoreTick();
+    const uint32 ticks = delay * (GetCoreClock() / 1000000);
 
     while ((GetCoreTick() - startTick) < ticks);
 #else

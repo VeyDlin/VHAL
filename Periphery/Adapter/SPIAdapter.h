@@ -72,7 +72,7 @@ public:
 
 
 public:
-	SPIAdapter() { }
+	SPIAdapter() = default;
 	SPIAdapter(SPI_TypeDef *spi, uint32 busClockHz = 0): spiHandle(spi), inputBusClockHz(busClockHz) { }
 
 

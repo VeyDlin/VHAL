@@ -22,9 +22,9 @@ public:
 
 
 	virtual void AbortReceive() override {
-		LL_USART_DisableIT_RXNE(uartHandle); 	// Прерывание по факту приема данных
-		LL_USART_DisableIT_PE(uartHandle); 		// Прерывание по факту ошибки четности
-		LL_USART_DisableIT_ERROR(uartHandle); 	// Прерывание по факту ошибки (Frame error, noise error, overrun error)
+		LL_USART_DisableIT_RXNE(uartHandle);
+		LL_USART_DisableIT_PE(uartHandle);
+		LL_USART_DisableIT_ERROR(uartHandle);
 
 		continuousAsyncRxMode = false;
 		rxDataCounter = 0;
@@ -38,8 +38,8 @@ public:
 
 
 	virtual void AbortTransmit() override {
-		LL_USART_DisableIT_TXE(uartHandle);		// Прерывание по опустошению регистра передачи
-		LL_USART_DisableIT_TC(uartHandle);		// Прерывание по окончанию передачи
+		LL_USART_DisableIT_TXE(uartHandle);
+		LL_USART_DisableIT_TC(uartHandle);
 
 		txDataCounter = 0;
 		txDataNeed = 0;
@@ -92,7 +92,7 @@ protected:
 
 		LL_USART_Enable(uartHandle);
 
-		// Polling USART1 initialisation
+		// Polling USART initialisation
 		while((!(LL_USART_IsActiveFlag_TEACK(uartHandle))) || (!(LL_USART_IsActiveFlag_REACK(uartHandle))));
 
 		return AfterInitialization();
@@ -309,7 +309,7 @@ private:
 		}
 
 		if(continuousAsyncTxMode) {
-			abort(); // TODO: continuous
+			abort(); // TODO: [VHAL] [UART] [G4] [ADD SUPPORT] continuous
 			return;
 		}
 

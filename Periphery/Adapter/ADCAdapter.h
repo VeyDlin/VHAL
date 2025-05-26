@@ -6,7 +6,6 @@
 #define AUSED_ADC_ADAPTER
 
 
-
 class ADCAdapter: public IAdapter {
 public:
     struct TriggerSourceOption : IOption<uint32> {
@@ -88,7 +87,7 @@ public:
 
 
 public:
-	ADCAdapter() { }
+	ADCAdapter() = default;
 	ADCAdapter(ADC_TypeDef *adc):adcHandle(adc) { }
 
 
@@ -178,7 +177,7 @@ public:
 
 
 
-
+	// TODO: [VHAL] [ADC] [ADAPTER] [ADD SUPPORT] ConfigCommonSampling()
 	// TODO: virtual Status::statusType ConfigCommonSampling(CCommonSampling commonSampling, uint16 maxSamplingCycles) = 0;
 
 

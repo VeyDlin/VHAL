@@ -49,16 +49,16 @@ private:
 public:
     static void Init();
     static void TickHandler();
-    static uint32_t GetTick();
-    static uint32_t GetCoreTick();
-    static uint32_t GetCoreClock();
-    static void DelayMs(uint32_t delay);
-    static void DelayUs(uint32_t delay);
+    static uint32 GetTick();
+    static uint32 GetCoreTick();
+    static uint32 GetCoreClock();
+    static void DelayMs(uint32 delay);
+    static void DelayUs(uint32 delay);
     static void Reset();
 	static DeviceId GetDeviceId();
     static void CriticalSection(bool isEnable);
-    static void Abort(const char* message = nullptr, const char* file = nullptr, uint32_t line = 0);
-    static void CriticalError(const char* message = nullptr, const char* file = nullptr, uint32_t line = 0);
+    static void Abort(const char* message = nullptr, const char* file = nullptr, uint32 line = 0);
+    static void CriticalError(const char* message = nullptr, const char* file = nullptr, uint32 line = 0);
 
 
 private:

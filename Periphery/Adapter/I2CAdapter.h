@@ -67,11 +67,11 @@ public:
 	std::function<uint8()> onSlaveWrite;
 	std::function<void()> onSlaveEndTransfer;
 	std::function<void(Error errorType)> onError;
-	// TODO: Add CheckDevice and ScanAsync
+	// TODO: [VHAL] [I2C] [ADAPTER] [ADD] Add CheckDevice and ScanAsync
 
 
 public:
-	I2CAdapter() { }
+	I2CAdapter() = default;
 
 	I2CAdapter(I2C_TypeDef *i2c, uint32 busClockHz):i2cHandle(i2c), inputBusClockHz(busClockHz) { }
 
@@ -88,8 +88,8 @@ public:
 
 
 	virtual Status::statusType Await() {
-		// TODO: add slave listen
-		// TODO: add timeout
+		// TODO: [VHAL] [I2C] [ADAPTER] [ADD] add slave listen
+		// TODO: [VHAL] [I2C] [ADAPTER] [ADD]  add timeout
 		while(state != Status::ready && state != Status::error);
 
 		if (state == Status::ready) {
@@ -101,8 +101,9 @@ public:
 
 	Status::statusType SetSlaveLiisten(bool mode) {
 		auto status = mode ? StartSlaveListen() : StopSlaveListen();
+		// TODO: [VHAL] [I2C] [ADAPTER] [WTF] add?
 		//if(status == Status::ok) {
-		//	continuousAsyncRxMode = mode; // TODO: В юарт это есть
+		//	continuousAsyncRxMode = mode;
 		//}
 		return status;
 	}
