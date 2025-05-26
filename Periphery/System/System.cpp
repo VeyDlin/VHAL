@@ -74,10 +74,16 @@ void System::DelayMs(uint32 delay) {
 
 void System::DelayUs(uint32 delay) {
 #if defined(CoreDebug)
-    const uint32 startTick = GetCoreTick();
-    const uint32 ticks = delay * (GetCoreClock() / 1000000);
+    uint32 maxDelayTicks = 1 + (delay / 1000) + 1;
+    uint32 startSysTick = GetTick();
+    uint32 startCoreTick = GetCoreTick();
+    uint32 targetDelta = delay * (GetCoreClock() / 1000000);
 
-    while ((GetCoreTick() - startTick) < ticks);
+    while ((GetCoreTick() - startCoreTick) < targetDelta) {
+    	if ((GetTick() - startSysTick) > maxDelayTicks) {
+    		break;
+    	}
+    }
 #else
     DelayMs(delay / 1000);
 #endif
