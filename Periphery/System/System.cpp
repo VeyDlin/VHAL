@@ -7,8 +7,6 @@ volatile uint32 System::tickCounter = 0;
 float System::ticksInOneMs = 1;
 
 std::function<void(const char *message, const char *file, uint32 line)> System::criticalErrorHandle = nullptr;
-std::function<void(const char *string, size_t size)> System::writeHandle = nullptr;
-std::function<int()> System::readHandle = nullptr;
 std::function<bool(uint32 delay)> System::rtosDelayMsHandle = nullptr;
 
 Console& System::console = []() -> Console& {
@@ -135,24 +133,11 @@ void System::CriticalError(const char* message, const char* file, uint32_t line)
 // printf support
 extern "C" {
 	int _read(int file, char *ptr, int len) {
-		if (System::readHandle != nullptr) {
-			for (int i = 0; i < len; ++i) {
-				int result = System::readHandle();
-				if (result == EOF) {
-					return i > 0 ? i : EOF;
-				}
-				ptr[i] = static_cast<char>(result);
-			}
-			return len;
-		}
-		return EOF;
+		return System::console.Read(ptr, len);
 	}
 
 	int _write(int file, char *ptr, int len) {
-		if(System::writeHandle != nullptr) {
-			System::writeHandle(ptr, len);
-		}
-		return len;
+		return System::console.Write(reinterpret_cast<const char*>(ptr), len);
 	}
 }
 

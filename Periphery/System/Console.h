@@ -14,23 +14,22 @@ class Console {
 private:
     class ConsolePrint : public Print {
     public:
-        std::function<void(const std::string_view str)> writeHandle;
+        std::function<void(const char* string, size_t size)> writeHandle;
     protected:
         virtual void WriteRaw(const char* string, size_t size) override {
-            if (writeHandle != nullptr) {
-                writeHandle(std::string_view(string, size));
+            if (writeHandle) {
+                writeHandle(string, size);
             }
         }
     };
 
     ConsolePrint print;
-    std::function<void(const std::string_view str)> writeHandle;
     std::function<int()> readHandle;
     Print::Format consoleFormat = Print::Format::Dec;
 
 
 public:
-    inline void SetWriteHandler(std::function<void(const std::string_view str)> handler) {
+    inline void SetWriteHandler(std::function<void(const char* string, size_t size)> handler) {
         print.writeHandle = handler;
     }
 
@@ -86,6 +85,12 @@ public:
     inline size_t WriteLine(const char* value) {
         return WriteLine(std::string_view(value));
     }
+
+
+    inline size_t Write(const char* value, size_t size) {
+    	return print.Write(value, size);
+    }
+
 
     inline size_t Write(bool value) {
         return print.Write(value);
@@ -249,7 +254,7 @@ public:
 
 private:
     int ReadChar() {
-        if (readHandle != nullptr) {
+        if (readHandle) {
             return readHandle();
         }
         return EOF;

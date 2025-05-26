@@ -1,8 +1,7 @@
 #pragma once
 #include "IAdapter.h"
-#include "UniqueCode/IUniqueCode.h"
+#include "Utilities/IOption.h"
 #include <initializer_list>
-
 #include <System/System.h>
 
 #define AUSED_TIM_ADAPTER
@@ -13,15 +12,33 @@ class TIMAdapter: public IAdapter {
 	static constexpr uint8 maxChannels = 8;
 
 public:
-	AUNIQUECODE_STRUCT_U32(ClockDivisionMode);
-	AUNIQUECODE_STRUCT_U32(CounterMode);
-	AUNIQUECODE_STRUCT_U32(OutputCompareMode);
-	AUNIQUECODE_STRUCT_U32(OutputTriggerMode);
-	AUNIQUECODE_STRUCT_U32(OutputTriggerMode2);
+	struct ClockDivisionOption : IOption<uint32> {
+	    using IOption::IOption;
+	};
 
-	AUNIQUECODE_DOUBLE_STRUCT_U32(ChannelMode);
+	struct CounterOption : IOption<uint32> {
+	    using IOption::IOption;
+	};
 
-	AUNIQUECODE_STRUCT_U8(InterruptType);
+	struct OutputCompareOption : IOption<uint32> {
+	    using IOption::IOption;
+	};
+
+	struct OutputTriggerOption : IOption<uint32> {
+	    using IOption::IOption;
+	};
+
+	struct OutputTriggerOption2 : IOption<uint32> {
+	    using IOption::IOption;
+	};
+
+	struct ChannelOption : IOptionDouble<uint32> {
+	    using IOptionDouble::IOptionDouble;
+	};
+
+	struct InterruptOption : IOption<uint8> {
+	    using IOption::IOption;
+	};
 
 
 	enum class State { Enable, Disable };
@@ -33,19 +50,19 @@ public:
 
 
 	struct Parameters {
-		const ClockDivisionMode *division;
+		ClockDivisionOption division;
 		uint16 prescaler = 0;
 		uint32 period = 1;
-		const CounterMode *mode;
+		CounterOption mode;
 		uint16 repetitionCounter = 0;
-		const OutputTriggerMode *outputTrigger = nullptr;
-		const OutputTriggerMode2 *outputTrigger2 = nullptr;
+		OutputTriggerOption outputTrigger;
+		OutputTriggerOption2 outputTrigger2;
 		// TODO: MasterSlaveMode
 	};
 
 	struct OutputCompareParameters {
-		const ChannelMode *channel;
-		const OutputCompareMode *mode;
+		ChannelOption channel;
+		OutputCompareOption mode;
 		uint32 compare = 0;
 		ChannelSelect channelSelect = ChannelSelect::Positive;
 		struct {
@@ -78,7 +95,7 @@ public:
 
 
 	struct EnableChannelParameters {
-		const ChannelMode *channel;
+		ChannelOption channel;
 		ChannelEnableSelect channelSelect = ChannelEnableSelect::EnablePositive;
 	};
 
@@ -123,12 +140,12 @@ public:
 	}
 
 
-	const OutputCompareParameters& GetOutputCompareParameters(const ChannelMode *channel) {
+	const OutputCompareParameters& GetOutputCompareParameters(const ChannelOption channel) {
 		return outputCompareParameters[GetChannelIndex(channel)];
 	}
 
 
-	const BreakAndDeadTimeParameters& GetBreakAndDeadTimeParameters(const ChannelMode *channel) {
+	const BreakAndDeadTimeParameters& GetBreakAndDeadTimeParameters(const ChannelOption channel) {
 		return breakAndDeadTimeParameters[GetChannelIndex(channel)];
 	}
 
@@ -167,7 +184,7 @@ public:
 
 
 
-	virtual Status::statusType EnableInterrupt(const std::initializer_list<const InterruptType*>& list) {
+	virtual Status::statusType EnableInterrupt(const std::initializer_list<InterruptOption>& list) {
 		// TODO: Add save
 		for(auto &channel : list) {
 			auto status = SetInterrupt(channel, true);
@@ -180,7 +197,7 @@ public:
 
 
 
-	virtual Status::statusType DisableInterrupt(const std::initializer_list<const InterruptType*>& list) {
+	virtual Status::statusType DisableInterrupt(const std::initializer_list<InterruptOption>& list) {
 		// TODO: Add save
 		for(auto &channel : list) {
 			auto status = SetInterrupt(channel, false);
@@ -195,17 +212,17 @@ public:
 	virtual inline void EnableCounter(bool enableTimerCounter) = 0;
 	virtual inline void SetChannelsState(const std::initializer_list<EnableChannelParameters>& list) = 0;
 
-	virtual inline void SetDivision(const ClockDivisionMode *division) = 0;
+	virtual inline void SetDivision(ClockDivisionOption division) = 0;
 	virtual inline void SetPrescaler(uint32 prescaler) = 0;
 	virtual inline void SetPeriod(uint32 period) = 0;
-	virtual inline void SetCompare(const ChannelMode *channel, uint32 compare) = 0;
+	virtual inline void SetCompare(ChannelOption channel, uint32 compare) = 0;
 	virtual inline void GenerateUpdateEvent() = 0;
 
 	virtual inline void IrqHandler() = 0;
 
 	virtual uint16 GetClockDivision() = 0;
 
-	virtual uint8 GetChannelIndex(const ChannelMode *channel) = 0;
+	virtual uint8 GetChannelIndex(ChannelOption channel) = 0;
 
 
 
@@ -215,7 +232,7 @@ protected:
 	virtual Status::statusType Initialization() = 0;
 	virtual Status::statusType OutputCompareInitialization(const std::initializer_list<OutputCompareParameters>& list) = 0;
 	virtual Status::statusType BreakAndDeadTimeInitialization(const std::initializer_list<BreakAndDeadTimeParameters>& list) = 0;
-	virtual Status::statusType SetInterrupt(const InterruptType *interrupt, bool enable) = 0;
+	virtual Status::statusType SetInterrupt(InterruptOption interrupt, bool enable) = 0;
 
 
 	virtual inline void CallInputCaptureEvent(uint8 channel) {

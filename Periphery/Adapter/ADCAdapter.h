@@ -1,6 +1,6 @@
 #pragma once
 #include "IAdapter.h"
-#include "UniqueCode/IUniqueCode.h"
+#include "Utilities/IOption.h"
 #include <initializer_list>
 
 #define AUSED_ADC_ADAPTER
@@ -9,8 +9,13 @@
 
 class ADCAdapter: public IAdapter {
 public:
-	AUNIQUECODE_STRUCT_U32(CTriggerSource);
-	AUNIQUECODE_STRUCT_U32(CCommonSampling);
+    struct TriggerSourceOption : IOption<uint32> {
+    	using IOption::IOption;
+    };
+
+    struct CommonSamplingOption : IOption<uint32> {
+    	using IOption::IOption;
+    };
 
 	enum class Irq { Conversion, Injected, Watchdog, Sampling, ConfigReady };
 
@@ -29,13 +34,13 @@ public:
 
 
 	struct RegularParameters {
-		const CTriggerSource *triggerSourceCode;
+		TriggerSourceOption triggerSource;
 		ContinuousMode continuousMode = ContinuousMode::Single;
 	};
 
 
 	struct InjectedParameters {
-		const CTriggerSource *triggerSourceCode;
+		TriggerSourceOption triggerSource;
 		ContinuousMode continuousMode = ContinuousMode::Single;
 	};
 
@@ -48,7 +53,7 @@ public:
 
 	struct RegularChannelCommonSampling {
 		uint8 channel;
-		const CCommonSampling *commonSampling;
+		CommonSamplingOption commonSampling;
 	};
 
 
@@ -174,7 +179,7 @@ public:
 
 
 
-	// TODO: virtual Status::statusType ConfigCommonSampling(const CCommonSampling *commonSampling, uint16 maxSamplingCycles) = 0;
+	// TODO: virtual Status::statusType ConfigCommonSampling(CCommonSampling commonSampling, uint16 maxSamplingCycles) = 0;
 
 
 

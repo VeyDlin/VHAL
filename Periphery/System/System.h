@@ -32,8 +32,6 @@ class System {
 public:
 	static Console &console;
 	static std::function<void(const char *message, const char *file, uint32 line)> criticalErrorHandle;
-	static std::function<void(const char *string, size_t size)> writeHandle;
-	static std::function<int()> readHandle;
 	static std::function<bool(uint32 delay)> rtosDelayMsHandle;
 
 	union DeviceId {

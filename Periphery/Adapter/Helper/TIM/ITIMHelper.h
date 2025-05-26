@@ -9,7 +9,7 @@
 
 struct TimerChannel {
 	ATIM *timer;
-	const ATIM::ChannelMode *channel;
+	ATIM::ChannelOption channel;
 };
 
 
@@ -18,12 +18,12 @@ struct TimerChannel {
 class ITIMHelper {
 protected:
 	ATIM *timAdapter;
-	const ATIM::ChannelMode *timChannel;
+	ATIM::ChannelOption timChannel;
 
 
 public:
 	ITIMHelper() { }
-	ITIMHelper(ATIM& adapter, const ATIM::ChannelMode* channel) : timAdapter(&adapter), timChannel(channel)  { }
+	ITIMHelper(ATIM& adapter, ATIM::ChannelOption channel) : timAdapter(&adapter), timChannel(channel)  { }
 	ITIMHelper(TimerChannel& timerChannel) : timAdapter(timerChannel.timer), timChannel(timerChannel.channel)  { }
 
 
@@ -33,7 +33,7 @@ public:
 	}
 
 
-	inline void SetDivision(const ATIM::ClockDivisionMode *division) {
+	inline void SetDivision(ATIM::ClockDivisionOption division) {
 		timAdapter->SetDivision(division);
 	}
 
@@ -58,7 +58,7 @@ public:
     }
 
 
-	inline const ATIM::ChannelMode* GetChannel() const {
+	inline const ATIM::ChannelOption GetChannel() const {
         return timChannel;
     }
 

@@ -74,6 +74,11 @@ public:
     }
 
 
+    inline size_t Write(const char* value, size_t size) {
+    	return Write(std::string_view(value, size));
+    }
+
+
     size_t Write(bool value) {
         return Write(std::string_view(value ? "true" : "false"));
     }
