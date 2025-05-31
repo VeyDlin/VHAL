@@ -5,7 +5,7 @@
 namespace WaitCondition {
 
 	//bool (*condition)()
-	bool Wait(Function<bool()> condition, uint32 timeout) {
+	bool Wait(std::function<bool()> condition, uint32 timeout) {
 		uint32 endtime = System::GetTick() + timeout;
 		while (!condition()) {
 			if (System::GetTick() < endtime) {
@@ -17,7 +17,7 @@ namespace WaitCondition {
 
 
 
-	bool WaitDouble(Function<bool()> condition, Function<bool()> mandatoryCondition, uint32 timeout) {
+	bool WaitDouble(std::function<bool()> condition, std::function<bool()> mandatoryCondition, uint32 timeout) {
 		uint32 endtime = System::GetTick() + timeout;
 		while (!condition()) {
 			if(!mandatoryCondition()) {

@@ -77,8 +77,8 @@ protected:
 
 
 public:
-	Function<void(Irq irqType, uint8 channel)> onInterrupt;
-	Function<void(Error errorType)> onError;
+	std::function<void(Irq irqType, uint8 channel)> onInterrupt;
+	std::function<void(Error errorType)> onError;
 
 
 

@@ -55,11 +55,11 @@ public:
         return Address;
     }
 
-    static constexpr size_t GetDataTypeSize() noexcept {
+    static constexpr size_t GetDataTypeSize() {
         return sizeof(RawDataType);
     }
 
-    static constexpr uint32 GetAddress() noexcept {
+    static constexpr uint32 GetAddress() {
         return Address;
     }
 
@@ -95,6 +95,20 @@ public:
         return writeData;
     }
 
+    size_t GetUnsafe(uint8* outData) override {
+    	if(onRead) {
+    		auto readData = onRead(*reinterpret_cast<const RawDataType*>(map->GetMemoryUnsafe(Address)));
+    		auto data = reinterpret_cast<const uint8*>(&readData);
+           	std::memcpy(outData, data, DataTypeSize());
+    	} else {
+    		auto data = map->GetMemoryUnsafe(Address);
+    		std::memcpy(outData, data, DataTypeSize());
+    	}
+
+    	return DataTypeSize();
+   }
+
+
 protected:
     template <typename MemoryData = RawDataType>
     inline bool UpdateMemory(const MemoryData& value) {
@@ -103,19 +117,11 @@ protected:
 
     template <typename MemoryData>
     const MemoryData GetData() const {
-        if(onRead) {
-            System::CriticalSection(true);
-            auto readData = onRead(*reinterpret_cast<const RawDataType*>(map->GetMemoryUnsafe(Address)));
-            System::CriticalSection(false);
+    	MemoryData data;
 
-            return *reinterpret_cast<const MemoryData*>(&readData);
-        }
-
-        MemoryData data;
-
-		System::CriticalSection(true);
-        data = *reinterpret_cast<const MemoryData*>(map->GetMemoryUnsafe(Address));
-        System::CriticalSection(false);
+    	System::CriticalSection(true);
+    	GetUnsafe(reinterpret_cast<uint8*>(&data));
+    	System::CriticalSection(false);
 
         return data;
     }

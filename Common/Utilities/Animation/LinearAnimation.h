@@ -36,13 +36,13 @@ private:
 			a->steps--;
 			if (a->steps >= 0) {
 				a->valueStart += a->step;
-				if (a->onUpdateValue != nullptr) {
+				if (a->onUpdateValue) {
 					a->onUpdateValue(a->valueStart);
 				}
 			} else {
 				a->valueStart = a->valueEnd;
 
-				if (a->onUpdateValue != nullptr) {
+				if (a->onUpdateValue) {
 					a->onUpdateValue(a->valueEnd);
 				}
 
@@ -68,9 +68,9 @@ public:
 
 	LinearAnimation& Animate(float from, float to, std::chrono::milliseconds duration) {
 		if (isActive) {
-			valueEnd = to;
-			step = (valueEnd - valueStart) / steps;
-			if (onStart != nullptr) {
+	        valueEnd = to;
+	        steps = std::max(1.0f, std::fabs(valueEnd - valueStart) / step);
+			if (onStart) {
 				onStart(from);
 			}
 			return *this;
@@ -82,12 +82,14 @@ public:
 		valueStart = from;
 		valueEnd = to;
 		_duration = duration;
-		steps = static_cast<float>(std::chrono::milliseconds(_duration).count()) /
-				static_cast<float>(std::chrono::milliseconds(timer.interval).count());
+
+		steps = std::max(1.0f,
+		    static_cast<float>(_duration.count()) /
+		    static_cast<float>(timer.interval.count()));
 
 		step = (valueEnd - valueStart) / steps;
 
-		if (onStart != nullptr) {
+		if (onStart) {
 			onStart(from);
 		}
 
@@ -122,6 +124,11 @@ public:
 	}
 
 
+	std::chrono::milliseconds GetInterval() {
+		return timer.interval;
+	}
+
+
 	LinearAnimation& SetDuration(std::chrono::milliseconds val) {
 		_duration = val;
 		return *this;
@@ -137,7 +144,7 @@ public:
 	LinearAnimation& Stop() {
 		isActive = false;
 		pause = false;
-		if (onStop != nullptr) {
+		if (onStop) {
 			onStop(valueEnd);
 		}
 		return *this;

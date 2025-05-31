@@ -93,10 +93,10 @@ namespace OSAdapter {
 	template<class baseClass>
 	class ITimerHandle: public baseClass {
 	public:
-		Function<void()> onTick;
+		std::function<void()> onTick;
 
 		virtual void Execute() override {
-			if(onTick != nullptr) {
+			if(onTick) {
 				onTick();
 			}
 		}

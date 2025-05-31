@@ -20,9 +20,11 @@ protected:
 	ATIM *timAdapter;
 	const ATIM::ChannelMode *timChannel;
 
+
 public:
 	ITIMHelper() { }
-	ITIMHelper(ATIM &adapter, const ATIM::ChannelMode *channel) : timAdapter(&adapter), timChannel(channel)  { }
+	ITIMHelper(ATIM& adapter, const ATIM::ChannelMode* channel) : timAdapter(&adapter), timChannel(channel)  { }
+	ITIMHelper(TimerChannel& timerChannel) : timAdapter(timerChannel.timer), timChannel(timerChannel.channel)  { }
 
 
 	ITIMHelper& SetState(bool isEnable) {
@@ -51,6 +53,19 @@ public:
 	}
 
 
+	inline ATIM* GetAdapter() const {
+        return timAdapter;
+    }
+
+
+	inline const ATIM::ChannelMode* GetChannel() const {
+        return timChannel;
+    }
+
+
+	inline uint8 GetChannelNumber() {
+        return timAdapter->GetChannelIndex(timChannel) + 1;
+    }
 
 
 private:

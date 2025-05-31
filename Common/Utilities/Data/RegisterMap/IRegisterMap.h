@@ -13,6 +13,7 @@ protected:
     virtual size_t Size() const = 0;
     virtual void LinkRegisterData(IRegisterData* registerData) = 0;
 public:
+    virtual size_t GetUnsafe(uint32 address, uint8* outData) = 0;
     virtual bool UpdateMemory(uint32 address, const uint8* buffer, size_t length) = 0;
 
     template<typename... Args>

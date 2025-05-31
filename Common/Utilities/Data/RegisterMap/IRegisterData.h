@@ -22,4 +22,5 @@ public:
 
     virtual bool CanOnWrite() = 0;
     virtual bool CanOnRead() = 0;
+    virtual size_t GetUnsafe(uint8* outData) = 0;
 };
