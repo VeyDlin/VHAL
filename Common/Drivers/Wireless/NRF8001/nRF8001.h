@@ -814,13 +814,13 @@ protected:
 	            When the device is in the setup mode
 	            */
 	#ifdef NRF_8001_DEBUG
-	            System::console.WriteLine("Evt Device Started: Setup ");
+	            System::console << Console::debug << "Evt Device Started: Setup " << Console::hex((uint8*)&aciEvt->params.device_started, aciEvt->len - 2);
 	#endif
 	            break;
 
 	          case ACI_DEVICE_STANDBY:
 	#ifdef NRF_8001_DEBUG
-	            System::console.WriteLine("Evt Device Started: Standby");
+	            System::console << Console::debug << "Evt Device Started: Standby" << Console::endl;
 	#endif
 	            //Looking for an iPhone by sending radio advertisements
 	            //When an iPhone connects to us we will get an ACI_EVT_CONNECTED event from the nRF8001
@@ -859,23 +859,14 @@ protected:
 	          //TRANSACTION_CONTINUE and TRANSACTION_COMPLETE
 	          //all other ACI commands will have status code of ACI_STATUS_SCUCCESS for a successful command
 	#ifdef NRF_8001_DEBUG
-	          System::console.Write("ACI Command ");
-	          System::console.WriteLine((uint8)aciEvt->params.cmd_rsp.cmd_opcode, Print::Format::Hex);
-	          System::console.Write("Evt Cmd respone: Status ");
-	          System::console.WriteLine((uint8)aciEvt->params.cmd_rsp.cmd_status, Print::Format::Hex);
+	          System::console << Console::debug << "ACI Command " << Console::hex((uint8)aciEvt->params.cmd_rsp.cmd_opcode) << Console::endl;
+	          System::console << Console::debug << "Evt Cmd response: Status " << Console::hex((uint8)aciEvt->params.cmd_rsp.cmd_status) << Console::endl;
 	#endif
 	        } else {
 	          switch (aciEvt->params.cmd_rsp.cmd_opcode) {
 	            case ACI_CMD_READ_DYNAMIC_DATA: {
 	#ifdef NRF_8001_DEBUG
-	              System::console.Write("Dynamic data read sequence ");
-	              System::console.Write(aciEvt->params.cmd_rsp.params.read_dynamic_data.seq_no);
-	              System::console.Write(": ");
-	              System::console.Write(aciEvt->len - 4);
-	              System::console.Write(": ");
-
-	              System::console.WriteBuffer(aciEvt->params.cmd_rsp.params.read_dynamic_data.dynamic_data, aciEvt->len - 4);
-	              System::console.Line();
+	              System::console << Console::debug << "Dynamic data read sequence " << Console::dec(aciEvt->params.cmd_rsp.params.read_dynamic_data.seq_no) << ": " << Console::dec(aciEvt->len - 4) << ": " << Console::hex(aciEvt->params.cmd_rsp.params.read_dynamic_data.dynamic_data, aciEvt->len - 4) << Console::endl;
 	#endif
 	              if (aciEvt->params.cmd_rsp.params.read_dynamic_data.seq_no == 1) {
 	                this->_dynamicDataOffset = 0;
@@ -899,9 +890,7 @@ protected:
 
 	            case ACI_CMD_WRITE_DYNAMIC_DATA: {
 	#ifdef NRF_8001_DEBUG
-	              System::console.Write("Dynamic data write sequence ");
-	              System::console.Write(this->_dynamicDataSequenceNo);
-	              System::console.WriteLine(" complete");
+	              System::console << Console::debug << "Dynamic data write sequence " << Console::dec(this->_dynamicDataSequenceNo) << " complete" << Console::endl;
 	#endif
 	              if (aciEvt->params.cmd_rsp.cmd_status == ACI_STATUS_TRANSACTION_CONTINUE) {
 	                this->_dynamicDataSequenceNo++;
@@ -928,14 +917,9 @@ protected:
 	            case ACI_CMD_GET_DEVICE_ADDRESS: {
 	#ifdef NRF_8001_DEBUG
 	              char address[18];
-
 	              BLEUtil::addressToString(aciEvt->params.cmd_rsp.params.get_device_address.bd_addr_own, address);
-
-	              System::console.Write("Device address = ");
-	              System::console.WriteLine(address);
-
-	              System::console.Write("Device address type = ");
-	              System::console.WriteLine((uint8)aciEvt->params.cmd_rsp.params.get_device_address.bd_addr_type, Print::Format::Dec);
+	              System::console << Console::debug << "Device address = " << address << Console::endl;
+	              System::console << Console::debug << "Device address type = " << Console::dec((uint8)aciEvt->params.cmd_rsp.params.get_device_address.bd_addr_type) << Console::endl;
 	#endif
 	              if (this->_eventListener) {
 	                this->_eventListener->BLEDeviceAddressReceived(*this, aciEvt->params.cmd_rsp.params.get_device_address.bd_addr_own);
@@ -946,8 +930,7 @@ protected:
 	            case ACI_CMD_GET_BATTERY_LEVEL: {
 	              float batteryLevel = aciEvt->params.cmd_rsp.params.get_battery_level.battery_level * 0.00352;
 	#ifdef NRF_8001_DEBUG
-	              System::console.Write("Battery level = ");
-	              System::console.WriteLine(batteryLevel);
+	              System::console << Console::debug << "Battery level = " << batteryLevel << Console::endl;
 	#endif
 	              if (this->_eventListener) {
 	                this->_eventListener->BLEDeviceBatteryLevelReceived(*this, batteryLevel);
@@ -958,8 +941,7 @@ protected:
 	            case ACI_CMD_GET_TEMPERATURE: {
 	              float temperature = aciEvt->params.cmd_rsp.params.get_temperature.temperature_value / 4.0;
 	#ifdef NRF_8001_DEBUG
-	              System::console.Write("Temperature = ");
-	              System::console.WriteLine(temperature);
+	              System::console << Console::debug << "Temperature = " << temperature << Console::endl;
 	#endif
 	              if (this->_eventListener) {
 	                this->_eventListener->BLEDeviceTemperatureReceived(*this, temperature);
@@ -978,8 +960,7 @@ protected:
 	        char address[18];
 	        BLEUtil::addressToString(aciEvt->params.connected.dev_addr, address);
 
-	        System::console.Write("Evt Connected ");
-	        System::console.WriteLine(address);
+	        System::console << Console::debug << "Evt Connected " << address << Console::endl;
 	#endif
 	        this->_timingChanged = false;
 	        this->_closedPipesCleared = false;
@@ -994,7 +975,7 @@ protected:
 
 	      case ACI_EVT_PIPE_STATUS: {
 	#ifdef NRF_8001_DEBUG
-	        System::console.WriteLine("Evt Pipe Status ");
+	        System::console << Console::debug << "Evt Pipe Status " << Console::endl;
 	#endif
 	        uint64_t openPipes;
 	        uint64_t closedPipes;
@@ -1003,8 +984,8 @@ protected:
 	        memcpy(&closedPipes, aciEvt->params.pipe_status.pipes_closed_bitmap, sizeof(closedPipes));
 
 	#ifdef NRF_8001_DEBUG
-	        System::console.WriteLine((unsigned long)openPipes, Print::Format::Hex);
-	        System::console.WriteLine((unsigned long)closedPipes, Print::Format::Hex);
+	        System::console << Console::debug << Console::hex((unsigned long)openPipes) << Console::endl;
+	        System::console << Console::debug << Console::hex((unsigned long)closedPipes) << Console::endl;
 	#endif
 	        if (this->_minimumConnectionInterval >= ACI_PPCP_MIN_CONN_INTVL_MIN &&
 	            this->_maximumConnectionInterval <= ACI_PPCP_MAX_CONN_INTVL_MAX &&
@@ -1051,14 +1032,13 @@ protected:
 
 	      case ACI_EVT_TIMING:
 	#ifdef NRF_8001_DEBUG
-	        System::console.Write("Timing change received conn Interval: 0x");
-	        System::console.WriteLine(aciEvt->params.timing.conn_rf_interval, Print::Format::Hex);
+	        System::console << Console::debug << "Timing change received conn Interval: 0x" << Console::hex(aciEvt->params.timing.conn_rf_interval) << Console::endl;
 	#endif
 	        break;
 
 	      case ACI_EVT_DISCONNECTED:
 	#ifdef NRF_8001_DEBUG
-	        System::console.WriteLine("Evt Disconnected/Advertising timed out");
+	        System::console << Console::debug << "Evt Disconnected/Advertising timed out" << Console::endl;
 	#endif
 	        // all characteristics unsubscribed on disconnect
 	        for (int i = 0; i < this->_numLocalPipeInfo; i++) {
@@ -1086,8 +1066,8 @@ protected:
 
 	      case ACI_EVT_BOND_STATUS:
 	#ifdef NRF_8001_DEBUG
-	        System::console.WriteLine("Evt Bond Status");
-	        System::console.WriteLine(aciEvt->params.bond_status.status_code);
+	        System::console << Console::debug << "Evt Bond Status" << Console::endl;
+	        System::console << Console::debug << Console::dec((uint8)aciEvt->params.bond_status.status_code) << Console::endl;
 	#endif
 	        this->_storeDynamicData = (aciEvt->params.bond_status.status_code == ACI_BOND_STATUS_SUCCESS) &&
 	                                    (this->_aciState.bonded != ACI_BOND_STATUS_SUCCESS);
@@ -1105,11 +1085,8 @@ protected:
 	        uint8_t dataLen = aciEvt->len - 2;
 	        uint8_t pipe = aciEvt->params.data_received.rx_data.pipe_number;
 	#ifdef NRF_8001_DEBUG
-	        System::console.Write("Data Received, pipe = ");
-	        System::console.WriteLine(aciEvt->params.data_received.rx_data.pipe_number, Print::Format::Dec);
-
-	        System::console.WriteBuffer(aciEvt->params.data_received.rx_data.aci_data, dataLen);
-	        System::console.Line();
+	        System::console << Console::debug << "Data Received, pipe = " << Console::dec(aciEvt->params.data_received.rx_data.pipe_number) << Console::endl;
+	        System::console << Console::debug << Console::hex(aciEvt->params.data_received.rx_data.aci_data, dataLen) << Console::endl;
 	#endif
 
 	        for (int i = 0; i < this->_numLocalPipeInfo; i++) {
@@ -1151,10 +1128,7 @@ protected:
 	      case ACI_EVT_PIPE_ERROR:
 	        //See the appendix in the nRF8001 Product Specication for details on the error codes
 	#ifdef NRF_8001_DEBUG
-	        System::console.Write("ACI Evt Pipe Error: Pipe #:");
-	        System::console.Write(aciEvt->params.pipe_error.pipe_number, Print::Format::Dec);
-	        System::console.Write("  Pipe Error Code: 0x");
-	        System::console.WriteLine(aciEvt->params.pipe_error.error_code, Print::Format::Hex);
+	        System::console << Console::debug << "ACI Evt Pipe Error: Pipe #:" << Console::dec(aciEvt->params.pipe_error.pipe_number) << "  Pipe Error Code: 0x" << Console::hex(aciEvt->params.pipe_error.error_code) << Console::endl;
 	#endif
 
 	        //Increment the credit available as the data packet was not sent.
@@ -1169,13 +1143,12 @@ protected:
 
 	      case ACI_EVT_HW_ERROR:
 	#ifdef NRF_8001_DEBUG
-	        System::console.Write("HW error: ");
-	        System::console.WriteLine(aciEvt->params.hw_error.line_num, Print::Format::Dec);
+	        System::console << Console::debug << "HW error: " << Console::dec(aciEvt->params.hw_error.line_num) << Console::endl;
 
 	        for(uint8_t counter = 0; counter <= (aciEvt->len - 3); counter++) {
-	        	System::console.Write(aciEvt->params.hw_error.file_name[counter]); //uint8_t file_name[20];
+	        	System::console << (char)aciEvt->params.hw_error.file_name[counter]; //uint8_t file_name[20];
 	        }
-	        System::console.Line();
+	        System::console << Console::endl;
 	#endif
 	        this->startAdvertising();
 	        break;
@@ -1184,7 +1157,7 @@ protected:
 	        break;
 	    }
 	  } else {
-	    //System::console.WriteLine("No ACI Events available"));
+	    // System::console << Console::debug << "No ACI Events available" << Console::endl;
 	    // No event in the ACI Event queue and if there is no event in the ACI command queue the arduino can go to sleep
 	    // Arduino can go to sleep now
 	    // Wakeup from sleep from the RDYN line
@@ -1421,7 +1394,7 @@ protected:
 	  }
 
 	#ifdef NRF_8001_DEBUG
-	  System::console.WriteLine("Advertising started.");
+	  System::console << Console::debug << "Advertising started." << Console::endl;
 	#endif
 	}
 
@@ -1459,7 +1432,7 @@ private:
 	              When the device is in the setup mode
 	              */
 	#ifdef NRF_8001_DEBUG
-	              System::console.WriteLine("Evt Device Started: Setup ");
+	              System::console << Console::debug << "Evt Device Started: Setup " << Console::hex((uint8*)&aciEvt->params.device_started, aciEvt->len - 2);
 	#endif
 	              setupMode = true;
 	              break;
@@ -1492,8 +1465,7 @@ private:
 	  }
 
 	#ifdef NRF_8001_DEBUG
-	  System::console.WriteBuffer(data->buffer, data->buffer[0] + 1);
-	  System::console.Line();
+	  System::console << Console::hex(data->buffer, data->buffer[0] + 1) << Console::endl;
 	#endif
 
 	  hal_aci_tl_send(data);
@@ -1509,14 +1481,14 @@ private:
 	          switch(aciEvt->params.cmd_rsp.cmd_status) {
 	            case ACI_STATUS_TRANSACTION_CONTINUE:
 	#ifdef NRF_8001_DEBUG
-	              System::console.WriteLine("Evt Cmd Rsp: Transaction Continue ");
+	              System::console << Console::debug << "Evt Cmd Rsp: Transaction Continue " << Console::hex((uint8*)&aciEvt->params.cmd_rsp, aciEvt->len - 2);
 	#endif
 	              setupMsgSent = true;
 	              break;
 
 	            case ACI_STATUS_TRANSACTION_COMPLETE:
 	#ifdef NRF_8001_DEBUG
-	              System::console.WriteLine("Evt Cmd Rsp: Transaction Complete ");
+	              System::console << Console::debug << "Evt Cmd Rsp: Transaction Complete " << Console::endl;
 	#endif
 	              setupMsgSent = true;
 	              break;

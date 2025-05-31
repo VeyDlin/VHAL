@@ -1,4 +1,4 @@
- #pragma once
+#pragma once
 #include "../../ADCAdapter.h"
 #include <System/System.h>
 
@@ -36,9 +36,9 @@ public:
 
 
 public:
-	ADCAdapterF4() { }
+	ADCAdapterF4() = default;
 	ADCAdapterF4(ADC_TypeDef *adc):ADCAdapter(adc) { }
-
+	virtual ~ADCAdapterF4() = default;
 
 
 	virtual inline void IrqHandler() override {
@@ -226,7 +226,7 @@ protected:
 
 	virtual Status::statusType RegularInitialization(uint8 rankLength) override {
 		LL_ADC_REG_InitTypeDef init = {
-			.TriggerSource = regularParameters.triggerSourceCode->GetCode(),
+			.TriggerSource = regularParameters.triggerSource.Get(),
 			.SequencerLength = CastSequencerLength(rankLength),
 			.SequencerDiscont = LL_ADC_REG_SEQ_DISCONT_DISABLE,
 			.ContinuousMode = CastContinuousMode(regularParameters.continuousMode),

@@ -3,7 +3,7 @@
 #include <string_view>
 
 
-volatile uint32 System::tickCounter = 0;
+volatile uint64 System::tickCounter = 0;
 float System::ticksInOneMs = 1;
 
 std::function<void(const char *message, const char *file, uint32 line)> System::criticalErrorHandle = nullptr;
@@ -25,12 +25,17 @@ void System::TickHandler() {
 }
 
 
-uint32_t System::GetTick() {
+uint64 System::GetTick() {
     return tickCounter;
 }
 
 
-uint32_t System::GetCoreTick() {
+uint64 System::GetMs() {
+    return tickCounter * ticksInOneMs;
+}
+
+
+uint32 System::GetCoreTick() {
 	#if defined(CoreDebug)
 		return DWT->CYCCNT;
 	#else
@@ -39,7 +44,7 @@ uint32_t System::GetCoreTick() {
 }
 
 
-uint32_t System::GetCoreClock() {
+uint32 System::GetCoreClock() {
     return SystemCoreClock;
 }
 

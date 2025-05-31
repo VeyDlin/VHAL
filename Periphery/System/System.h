@@ -42,14 +42,15 @@ public:
 
 
 private:
-	static volatile uint32 tickCounter;
+	static volatile uint64 tickCounter;
 	static float ticksInOneMs; // TODO: Convert Tick to ms
 
 
 public:
     static void Init();
     static void TickHandler();
-    static uint32 GetTick();
+    static uint64 GetTick();
+    static uint64 GetMs();
     static uint32 GetCoreTick();
     static uint32 GetCoreClock();
     static void DelayMs(uint32 delay);

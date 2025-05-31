@@ -2,8 +2,8 @@
 #include <System/System.h>
 #include <Utilities/Data/FIFO/DynamicFifo.h> 
 #include <Utilities/Data/ByteConverter.h> 
-#include <Utilities/Data/COBS.h> 
-#include <Utilities/Data/CRC.h> 
+#include <Utilities/Serialization/COBS/COBS.h>
+#include <Utilities/Checksum/CRC/Crc.h>
 #include <functional>
 #include <cstring> 
 #include <utility>

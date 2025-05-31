@@ -10,6 +10,8 @@ public:
 	std::function<Status::statusType()> afterPeripheryInit;
 	std::function<Status::statusType()> beforePeripheryInit;
 
+public:
+	virtual ~IAdapter() = default;
 
 protected:
 	virtual Status::statusType Initialization() = 0;

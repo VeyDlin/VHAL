@@ -8,7 +8,7 @@
 class FLASHAdapter {
 public:
 	struct Parameters {
-		uint32 satartAddress;
+		uint32 startAddress;
 		uint32 endAddress;
 	};
 

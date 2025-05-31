@@ -64,7 +64,7 @@ public:
 
 
 protected:
-	ADC_TypeDef *adcHandle;
+	ADC_TypeDef *adcHandle = nullptr;
 	Parameters parameters;
 	RegularParameters regularParameters;
 	InjectedParameters injectedParameters;
@@ -89,8 +89,7 @@ public:
 public:
 	ADCAdapter() = default;
 	ADCAdapter(ADC_TypeDef *adc):adcHandle(adc) { }
-
-
+	virtual ~ADCAdapter() = default;
 
 
 

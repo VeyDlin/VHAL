@@ -160,29 +160,29 @@ public:
 		for(auto &channel : list) {
 			switch (channel.channelSelect) {
 				case ChannelEnableSelect::EnablePositive:
-					enableChannels |= channel.channel->GetCode(1);
+					enableChannels |= channel.channel.Get<1>();
 				break;
 
 				case ChannelEnableSelect::EnableNegative:
-					enableChannels |= channel.channel->GetCode(2);
+					enableChannels |= channel.channel.Get<2>();
 				break;
 
 				case ChannelEnableSelect::EnableAll:
-					enableChannels |= channel.channel->GetCode(1);
-					enableChannels |= channel.channel->GetCode(2);
+					enableChannels |= channel.channel.Get<1>();
+					enableChannels |= channel.channel.Get<2>();
 				break;
 
 				case ChannelEnableSelect::DisablePositive:
-					disableChannels |= channel.channel->GetCode(1);
+					disableChannels |= channel.channel.Get<1>();
 				break;
 
 				case ChannelEnableSelect::DisableNegative:
-					disableChannels |= channel.channel->GetCode(2);
+					disableChannels |= channel.channel.Get<2>();
 				break;
 
 				case ChannelEnableSelect::DisableAll:
-					disableChannels |= channel.channel->GetCode(1);
-					disableChannels |= channel.channel->GetCode(2);
+					disableChannels |= channel.channel.Get<1>();
+					disableChannels |= channel.channel.Get<2>();
 				break;
 			}
 		}
@@ -201,10 +201,10 @@ public:
 
 
 
-	virtual inline void SetDivision(const ClockDivisionMode *division) override {
+	virtual inline void SetDivision(ClockDivisionOption division) override {
 		if (IS_TIM_CLOCK_DIVISION_INSTANCE(timHandle)) {
 			auto CR1_REG = LL_TIM_ReadReg(timHandle, CR1);
-			MODIFY_REG(CR1_REG, TIM_CR1_CKD, division->GetCode());
+			MODIFY_REG(CR1_REG, TIM_CR1_CKD, division.Get());
 			parameters.division = division;
 		}
 	}
@@ -232,14 +232,14 @@ public:
 
 
 
-	virtual inline void SetCompare(const ChannelMode *channel, uint32 compare) override {
-		if(channel == Channel::C1()) {
+	virtual inline void SetCompare(ChannelOption channel, uint32 compare) override {
+		if(channel == Channel::C1) {
 			LL_TIM_OC_SetCompareCH1(timHandle, compare);
-		} else if(channel == Channel::C2()) {
+		} else if(channel == Channel::C2) {
 			LL_TIM_OC_SetCompareCH2(timHandle, compare);
-		} else if(channel == Channel::C3()) {
+		} else if(channel == Channel::C3) {
 			LL_TIM_OC_SetCompareCH3(timHandle, compare);
-		} else if(channel == Channel::C4()) {
+		} else if(channel == Channel::C4) {
 			LL_TIM_OC_SetCompareCH4(timHandle, compare);
 		}
 	}
@@ -257,11 +257,11 @@ public:
 
 
 	virtual uint16 GetClockDivision() override {
-		if(parameters.division == ClockDivision::D1()) {
+		if(parameters.division == ClockDivision::D1) {
 			return 1;
-		} else if(parameters.division == ClockDivision::D2()) {
+		} else if(parameters.division == ClockDivision::D2) {
 			return 2;
-		} else if(parameters.division == ClockDivision::D4()) {
+		} else if(parameters.division == ClockDivision::D4) {
 			return 4;
 		}
 
@@ -272,17 +272,17 @@ public:
 
 
 
-	virtual uint8 GetChannelIndex(const ChannelMode *channel) override {
-		if(channel == Channel::C1()) {
+	virtual uint8 GetChannelIndex(ChannelOption channel) override {
+		if(channel == Channel::C1) {
 			return 0;
 		}
-		if(channel == Channel::C2()) {
+		if(channel == Channel::C2) {
 			return 1;
 		}
-		if(channel == Channel::C3()) {
+		if(channel == Channel::C3) {
 			return 2;
 		}
-		if(channel == Channel::C4()) {
+		if(channel == Channel::C4) {
 			return 3;
 		}
 
@@ -305,9 +305,9 @@ protected:
 
 		LL_TIM_InitTypeDef init = {
 			.Prescaler = static_cast<uint16>(parameters.prescaler),
-			.CounterMode = parameters.mode->GetCode(),
+			.CounterMode = parameters.mode.Get(),
 			.Autoreload = parameters.period,
-			.ClockDivision = parameters.division->GetCode(),
+			.ClockDivision = parameters.division.Get(),
 			.RepetitionCounter = static_cast<uint8>(parameters.repetitionCounter)
 		};
 
@@ -326,10 +326,10 @@ protected:
 
 	virtual Status::statusType OutputCompareInitialization(const std::initializer_list<OutputCompareParameters>& list) override {
 		for(auto &channel : list) {
-			LL_TIM_OC_EnablePreload(timHandle, channel.channel->GetCode(1)); // TODO: only 1 ??
+			LL_TIM_OC_EnablePreload(timHandle, channel.channel.Get<1>()); // TODO: only 1 ??
 
 			LL_TIM_OC_InitTypeDef init = {
-				.OCMode = channel.mode->GetCode(),
+				.OCMode = channel.mode.Get(),
 
 				.OCState = LL_TIM_OCSTATE_DISABLE,
 				.OCNState = LL_TIM_OCSTATE_DISABLE,
@@ -342,9 +342,9 @@ protected:
 				.OCIdleState = LL_TIM_OCIDLESTATE_LOW,
 				.OCNIdleState = LL_TIM_OCIDLESTATE_LOW
 			};
-			LL_TIM_OC_DisableFast(timHandle, channel.channel->GetCode(1)); // TODO: channel 2 ??
+			LL_TIM_OC_DisableFast(timHandle, channel.channel.Get<1>()); // TODO: channel 2 ??
 
-			if(LL_TIM_OC_Init(timHandle, channel.channel->GetCode(1), &init) != ErrorStatus::SUCCESS) {
+			if(LL_TIM_OC_Init(timHandle, channel.channel.Get<1>(), &init) != ErrorStatus::SUCCESS) {
 				return Status::error;
 			}
 		}
@@ -375,50 +375,50 @@ protected:
 
 
 
-	virtual Status::statusType SetInterrupt(const InterruptType *interrupt, bool enable) {
-		if(interrupt == Interrupt::CaptureCompare1()) {
+	virtual Status::statusType SetInterrupt(InterruptOption interrupt, bool enable) {
+		if(interrupt == Interrupt::CaptureCompare1) {
 			if (enable) {
 				LL_TIM_EnableIT_CC1(timHandle);
 			} else {
 				LL_TIM_DisableIT_CC1(timHandle);
 			}
-		} else if(interrupt == Interrupt::CaptureCompare2()) {
+		} else if(interrupt == Interrupt::CaptureCompare2) {
 			if (enable) {
 				LL_TIM_EnableIT_CC2(timHandle);
 			} else {
 				LL_TIM_DisableIT_CC2(timHandle);
 			}
-		} else if(interrupt == Interrupt::CaptureCompare3()) {
+		} else if(interrupt == Interrupt::CaptureCompare3) {
 			if (enable) {
 				LL_TIM_EnableIT_CC3(timHandle);
 			} else {
 				LL_TIM_DisableIT_CC3(timHandle);
 			}
-		} else if(interrupt == Interrupt::CaptureCompare4()) {
+		} else if(interrupt == Interrupt::CaptureCompare4) {
 			if (enable) {
 				LL_TIM_EnableIT_CC4(timHandle);
 			} else {
 				LL_TIM_DisableIT_CC4(timHandle);
 			}
-		} else if(interrupt == Interrupt::Update()) {
+		} else if(interrupt == Interrupt::Update) {
 			if (enable) {
 				LL_TIM_EnableIT_UPDATE(timHandle);
 			} else {
 				LL_TIM_DisableIT_UPDATE(timHandle);
 			}
-		} else if(interrupt == Interrupt::Break()) {
+		} else if(interrupt == Interrupt::Break) {
 			if (enable) {
 				LL_TIM_EnableIT_BRK(timHandle);
 			} else {
 				LL_TIM_DisableIT_BRK(timHandle);
 			}
-		} else if(interrupt == Interrupt::Trigger()) {
+		} else if(interrupt == Interrupt::Trigger) {
 			if (enable) {
 				LL_TIM_EnableIT_TRIG(timHandle);
 			} else {
 				LL_TIM_DisableIT_TRIG(timHandle);
 			}
-		} else if(interrupt == Interrupt::Commutation()) {
+		} else if(interrupt == Interrupt::Commutation) {
 			if (enable) {
 				LL_TIM_EnableIT_COM(timHandle);
 			} else {

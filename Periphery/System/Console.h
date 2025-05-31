@@ -7,8 +7,76 @@
 #include <limits>
 #include <cmath>
 
-
 class System;
+
+
+class HexManipulator {
+private:
+    uint8* data;
+    size_t size;
+public:
+    HexManipulator(uint8* data, size_t size) : data(data), size(size) {}
+    
+    uint8* getData() const { return data; }
+    size_t getSize() const { return size; }
+};
+
+
+
+template<typename T>
+class NumberManipulator {
+private:
+    T number;
+    Print::Format format;
+public:
+    NumberManipulator(T number, Print::Format format) : number(number), format(format) {}
+    
+    T getNumber() const { return number; }
+    Print::Format getFormat() const { return format; }
+};
+
+
+
+class TimestampManipulator {
+public:
+    enum class Format {
+        HMS,        // HH:MM:SS
+        HMSM,       // HH:MM:SS:MS
+        Auto        // Automatically add days/months/years if needed
+    };
+    
+private:
+    Format format;
+    
+public:
+    TimestampManipulator(Format fmt = Format::Auto) : format(fmt) {}
+    
+    Format getFormat() const { return format; }
+};
+
+
+
+class SeparatorManipulator {
+private:
+    const char* separator;
+public:
+    SeparatorManipulator(const char* sep = "----------------------------------------") : separator(sep) {}
+    
+    const char* getSeparator() const { return separator; }
+};
+
+
+
+class IndentManipulator {
+private:
+    size_t spaces;
+public:
+    IndentManipulator(size_t spaces) : spaces(spaces) {}
+    
+    size_t getSpaces() const { return spaces; }
+};
+
+
 
 class Console {
 private:
@@ -117,6 +185,11 @@ public:
     }
 
 
+    inline size_t WriteBufferLine(uint8* buffer, size_t size) {
+        return print.WriteBufferLine(buffer, size);
+    }
+
+
     inline size_t Line() {
     	return print.Line();
     }
@@ -160,9 +233,13 @@ public:
 		size_t pos = 0;
 
 		if constexpr (std::is_integral_v<T>) {
-			return static_cast<T>(StrToInt(buffer, pos));
+			T result;
+			Print::StringToNumber(buffer, result);
+			return result;
 		} else if constexpr (std::is_floating_point_v<T>) {
-			return static_cast<T>(StrToFloat(buffer, pos));
+			T result;
+			Print::StringToFloat(buffer, result);
+			return result;
 		}
 
 		return T{};
@@ -222,14 +299,91 @@ public:
     }
 
 
+    Console& operator<<(const HexManipulator& hex) {
+        print.WriteBuffer(hex.getData(), hex.getSize());
+        return *this;
+    }
+
+
+    template<typename T>
+    Console& operator<<(const NumberManipulator<T>& num) {
+        print.Write(num.getNumber(), num.getFormat());
+        return *this;
+    }
+
+
+    Console& operator<<(const TimestampManipulator& ts) {
+        WriteTimestamp(ts.getFormat());
+        return *this;
+    }
+
+
+    Console& operator<<(const SeparatorManipulator& sep) {
+        print.WriteLine(sep.getSeparator());
+        return *this;
+    }
+
+
+    Console& operator<<(const IndentManipulator& indent) {
+        for (size_t i = 0; i < indent.getSpaces(); ++i) {
+            print.Write(" ");
+        }
+        return *this;
+    }
+
+
     static Console& endl(Console& console) {
         console.print.Line();
         return console;
     }
 
 
+    static HexManipulator hex(uint8* data, size_t size) {
+        return HexManipulator(data, size);
+    }
+
+
+    template<typename T>
+    static NumberManipulator<T> hex(T number) {
+        return NumberManipulator<T>(number, Print::Format::Hex);
+    }
+
+
+    template<typename T>
+    static NumberManipulator<T> dec(T number) {
+        return NumberManipulator<T>(number, Print::Format::Dec);
+    }
+
+
+    template<typename T>
+    static NumberManipulator<T> bin(T number) {
+        return NumberManipulator<T>(number, Print::Format::Bin);
+    }
+
+
+    template<typename T>
+    static NumberManipulator<T> oct(T number) {
+        return NumberManipulator<T>(number, Print::Format::Oct);
+    }
+
+
+    static TimestampManipulator timestamp(TimestampManipulator::Format format = TimestampManipulator::Format::HMSM) {
+        return TimestampManipulator(format);
+    }
+
+
+    static SeparatorManipulator separator(const char* sep = nullptr) {
+        return SeparatorManipulator(sep ? sep : "----------------------------------------");
+    }
+
+
+    static IndentManipulator indent(size_t spaces) {
+        return IndentManipulator(spaces);
+    }
+
+
     static Console& tick(Console& console) {
-        console.WriteTick();
+        console.Write(System::GetTick());
         return console;
     }
 
@@ -263,88 +417,89 @@ private:
 
     void WriteWithPrefixAndTick(const char* prefix, const char* message = nullptr) {
         print.Write(prefix);
-        WriteTick();
-        if(message != nullptr) {
+        print.Write(" ");
+        WriteTimestamp();
+        if(message) {
             print.WriteLine(message);
         }
     }
 
-
-    void WriteTick() {
-        auto tick = System::GetTick();
-        print.Write(" [");
-        print.Write(tick);
-        print.Write("] ");
-    }
-
-
-    static int StrToInt(const char* str, size_t& pos) {
-        int result = 0;
-        bool isNegative = false;
-        pos = 0;
-
-        while (str[pos] == ' ' || str[pos] == '\t') {
-            ++pos;
-        }
-
-        if (str[pos] == '-') {
-            isNegative = true;
-            ++pos;
-        } else if (str[pos] == '+') {
-            ++pos;
-        }
-
-        while (str[pos] >= '0' && str[pos] <= '9') {
-            int digit = str[pos] - '0';
-            if (result > (std::numeric_limits<int>::max() - digit) / 10) {
-                result = isNegative ? std::numeric_limits<int>::min() : std::numeric_limits<int>::max();
-                break;
-            }
-            result = result * 10 + digit;
-            ++pos;
-        }
-
-        return isNegative ? -result : result;
-    }
-
-
-    static double StrToFloat(const char* str, size_t& pos) {
-        double result = 0.0;
-        double fraction = 0.1;
-        bool isNegative = false;
-        bool isFractional = false;
-        pos = 0;
-
-        while (str[pos] == ' ' || str[pos] == '\t') {
-            ++pos;
-        }
-
-        if (str[pos] == '-') {
-            isNegative = true;
-            ++pos;
-        } else if (str[pos] == '+') {
-            ++pos;
-        }
-
-        while ((str[pos] >= '0' && str[pos] <= '9') || str[pos] == '.') {
-            if (str[pos] == '.') {
-                isFractional = true;
-                ++pos;
-                continue;
-            }
-
-            int digit = str[pos] - '0';
-
-            if (!isFractional) {
-                result = result * 10.0 + digit;
+    
+    void WriteTimestamp(TimestampManipulator::Format format = TimestampManipulator::Format::Auto) {
+        uint64 totalMs = System::GetMs();
+        
+        // Calculate time components
+        uint64 ms = totalMs % 1000;
+        uint64 totalSeconds = totalMs / 1000;
+        uint64 seconds = totalSeconds % 60;
+        uint64 totalMinutes = totalSeconds / 60;
+        uint64 minutes = totalMinutes % 60;
+        uint64 totalHours = totalMinutes / 60;
+        uint64 hours = totalHours % 24;
+        uint64 totalDays = totalHours / 24;
+        
+        print.Write("[");
+        
+        // For Auto format, add days/months/years if needed
+        if (format == TimestampManipulator::Format::Auto && totalDays > 0) {
+            if (totalDays >= 365) {
+                uint64 years = totalDays / 365;
+                uint64 remainingDays = totalDays % 365;
+                print.Write(years);
+                print.Write("y ");
+                if (remainingDays >= 30) {
+                    uint64 months = remainingDays / 30;
+                    remainingDays = remainingDays % 30;
+                    print.Write(months);
+                    print.Write("m ");
+                }
+                if (remainingDays > 0) {
+                    print.Write(remainingDays);
+                    print.Write("d ");
+                }
+            } else if (totalDays >= 30) {
+                uint64 months = totalDays / 30;
+                uint64 remainingDays = totalDays % 30;
+                print.Write(months);
+                print.Write("m ");
+                if (remainingDays > 0) {
+                    print.Write(remainingDays);
+                    print.Write("d ");
+                }
             } else {
-                result += digit * fraction;
-                fraction *= 0.1;
+                print.Write(totalDays);
+                print.Write("d ");
             }
-
-            ++pos;
         }
-
-        return isNegative ? -result : result;
+        
+        // Write time in HH:MM:SS or HH:MM:SS:MS format
+        char timeBuffer[20];
+        size_t len = 0;
+        
+        // Hours
+        if (hours < 10) timeBuffer[len++] = '0';
+        len += Print::NumberToString(&timeBuffer[len], sizeof(timeBuffer) - len, hours, Print::Format::Dec);
+        timeBuffer[len++] = ':';
+        
+        // Minutes
+        if (minutes < 10) timeBuffer[len++] = '0';
+        len += Print::NumberToString(&timeBuffer[len], sizeof(timeBuffer) - len, minutes, Print::Format::Dec);
+        timeBuffer[len++] = ':';
+        
+        // Seconds
+        if (seconds < 10) timeBuffer[len++] = '0';
+        len += Print::NumberToString(&timeBuffer[len], sizeof(timeBuffer) - len, seconds, Print::Format::Dec);
+        
+        // Milliseconds (if requested)
+        if (format == TimestampManipulator::Format::HMSM || format == TimestampManipulator::Format::Auto) {
+            timeBuffer[len++] = ':';
+            if (ms < 100) timeBuffer[len++] = '0';
+            if (ms < 10) timeBuffer[len++] = '0';
+            len += Print::NumberToString(&timeBuffer[len], sizeof(timeBuffer) - len, ms, Print::Format::Dec);
+        }
+        
+        timeBuffer[len] = '\0';
+        print.Write(timeBuffer);
+        print.Write("] ");
     }
 };
