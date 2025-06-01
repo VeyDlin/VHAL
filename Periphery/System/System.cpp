@@ -1,5 +1,5 @@
 #include "System.h"
-#include "Console.h"
+#include <Utilities/Console/Console.h>
 #include <string_view>
 
 
@@ -9,10 +9,22 @@ float System::ticksInOneMs = 1;
 std::function<void(const char *message, const char *file, uint32 line)> System::criticalErrorHandle = nullptr;
 std::function<bool(uint32 delay)> System::rtosDelayMsHandle = nullptr;
 
-Console& System::console = []() -> Console& {
+__attribute__((weak)) Console& System::console = []() -> Console& {
     static Console instance; 
     return instance;
 }();
+
+
+void System::SetWriteHandler(std::function<void(const char* string, size_t size)> handler) {
+	ConsoleDetector::MarkWrite();
+	console.SetWriteHandler(handler);
+}
+
+
+void System::SetReadHandler(std::function<int()> handler) {
+	ConsoleDetector::MarkRead();
+	console.SetReadHandler(handler);
+}
 
 
 void System::Init() {
@@ -122,15 +134,18 @@ void System::Abort(const char* message, const char* file, uint32_t line) {
 
 void System::CriticalError(const char* message, const char* file, uint32_t line) {
     if (criticalErrorHandle) {
-		console << Console::error << "System critical error" << Console::endl;
-        if (line != 0) {
-			console << "Line: " << line << Console::endl;
-        }
-        if (file != nullptr) {
-			console << "File: " << file << Console::endl;
-        }
-        if (message != nullptr) {
-			console << "Message: " << message << Console::endl;
+        // Only use console if write handler was set
+        if (ConsoleDetector::IsWrite()) {
+            console << Console::error << "System critical error" << Console::endl;
+            if (line != 0) {
+                console << "Line: " << line << Console::endl;
+            }
+            if (file != nullptr) {
+                console << "File: " << file << Console::endl;
+            }
+            if (message != nullptr) {
+                console << "Message: " << message << Console::endl;
+            }
         }
 
         criticalErrorHandle(const_cast<char*>(message), const_cast<char*>(file), line);
@@ -144,11 +159,19 @@ void System::CriticalError(const char* message, const char* file, uint32_t line)
 // printf support
 extern "C" {
 	int _read(int file, char *ptr, int len) {
-		return System::console.Read(ptr, len);
+		// Only use console if read handler was set
+		if (ConsoleDetector::IsRead()) {
+			return System::console.Read(ptr, len);
+		}
+		return 0;
 	}
 
 	int _write(int file, char *ptr, int len) {
-		return System::console.Write(reinterpret_cast<const char*>(ptr), len);
+		// Only use console if write handler was set
+		if (ConsoleDetector::IsWrite()) {
+			return System::console.Write(reinterpret_cast<const char*>(ptr), len);
+		}
+		return len;  // Pretend we wrote everything
 	}
 }
 

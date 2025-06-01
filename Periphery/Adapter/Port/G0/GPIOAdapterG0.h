@@ -8,14 +8,22 @@ using AGPIO = class GPIOAdapterG0;
 
 class GPIOAdapterG0 : public GPIOAdapter {
 public:
-	using GPIOAdapter::operator=;
-
-
-
 	GPIOAdapterG0() { }
 	GPIOAdapterG0(GPIO_TypeDef *gpioPort, uint8 gpioPin, bool gpioInversion = false):GPIOAdapter(gpioPort, gpioPin, gpioInversion) { }
 	GPIOAdapterG0(IO &io):GPIOAdapter(io) { }
 
+
+	static inline Status::statusType AlternateInit(AlternateParameters val) {
+		return GPIOAdapter::AlternateInitBase<AGPIO>(val);
+	}
+
+	static inline Status::statusType AlternateOpenDrainInit(AlternateParameters val)  {
+		return GPIOAdapter::AlternateOpenDrainInitBase<AGPIO>(val);
+	}
+
+	static inline Status::statusType AnalogInit(AnalogParameters val)  {
+		return GPIOAdapter::AnalogInitBase<AGPIO>(val);
+	}
 
 
 protected:
