@@ -7,6 +7,73 @@
 #include <algorithm>
 #include <optional>
 
+/*
+AES (Advanced Encryption Standard) implementation
+Supports AES-128, AES-192, and AES-256 in ECB, CBC, and CTR modes
+
+Basic encryption/decryption:
+    std::array<uint8, 16> key = {0x2b, 0x7e, 0x15, 0x16...};
+    std::array<uint8, 16> plaintext = {0x32, 0x43, 0xf6, 0xa8...};
+    std::array<uint8, 16> ciphertext{};
+    
+    AES<AESKeySize::AES128> aes(key);
+    aes.EncryptBlock(plaintext, ciphertext);
+    aes.DecryptBlock(ciphertext, plaintext);
+
+Different key sizes:
+    std::array<uint8, 16> key128 = {...};
+    std::array<uint8, 24> key192 = {...};
+    std::array<uint8, 32> key256 = {...};
+    
+    AES<AESKeySize::AES128> aes128(key128);
+    AES<AESKeySize::AES192> aes192(key192);
+    AES<AESKeySize::AES256> aes256(key256);
+
+ECB mode (Electronic Codebook):
+    std::array<uint8, 32> data = {...};  // 2 blocks
+    std::array<uint8, 32> encrypted{};
+    aes.EncryptECB(std::span(data), std::span(encrypted));
+    aes.DecryptECB(std::span(encrypted), std::span(data));
+
+CBC mode (Cipher Block Chaining):
+    std::array<uint8, 16> iv = {...};  // Initialization vector
+    std::array<uint8, 48> data = {...};  // 3 blocks
+    std::array<uint8, 48> encrypted{};
+    aes.EncryptCBC(std::span(data), std::span(encrypted), iv);
+    aes.DecryptCBC(std::span(encrypted), std::span(data), iv);
+
+CTR mode (Counter):
+    std::array<uint8, 16> nonce = {...};
+    std::array<uint8, 100> data = {...};  // Any size
+    std::array<uint8, 100> encrypted{};
+    aes.EncryptCTR(std::span(data), std::span(encrypted), nonce);
+    aes.DecryptCTR(std::span(encrypted), std::span(data), nonce);
+
+Secure communication:
+    AES<AESKeySize::AES256> cipher(sharedKey);
+    std::array<uint8, 16> iv = generateRandomIV();
+    cipher.EncryptCBC(messageData, encryptedData, iv);
+    // Send iv + encryptedData
+
+File encryption:
+    AES<AESKeySize::AES128> aes(fileKey);
+    while (readFileBlock(buffer)) {
+        aes.EncryptCBC(std::span(buffer), std::span(encrypted), iv);
+        writeEncryptedBlock(encrypted);
+    }
+
+Device authentication:
+    AES<AESKeySize::AES128> auth(deviceKey);
+    std::array<uint8, 16> challenge = {...};
+    std::array<uint8, 16> response{};
+    auth.EncryptBlock(challenge, response);
+    // Send response to server
+
+Firmware encryption:
+    AES<AESKeySize::AES256> firmware(updateKey);
+    firmware.EncryptCTR(firmwareData, encryptedFirmware, updateNonce);
+*/
+
 // AES block size is always 128 bits (16 bytes)
 inline constexpr size_t AES_BLOCK_SIZE = 16;
 

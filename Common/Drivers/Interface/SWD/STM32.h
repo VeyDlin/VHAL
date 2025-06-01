@@ -136,7 +136,7 @@ public:
 
 
 	void EraseFlash() {
-		// TODO
+		// TODO: Add EraseFlash
 	}
 
 

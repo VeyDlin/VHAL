@@ -367,8 +367,14 @@ public:
     }
 
 
-    static TimestampManipulator timestamp(TimestampManipulator::Format format = TimestampManipulator::Format::HMSM) {
+    static TimestampManipulator timestamp(TimestampManipulator::Format format) {
         return TimestampManipulator(format);
+    }
+
+
+    static Console& timestamp(Console& console) {
+    	console.WriteTimestamp();
+    	return console;
     }
 
 
