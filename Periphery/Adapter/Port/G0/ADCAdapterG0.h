@@ -553,41 +553,44 @@ private:
 
 
 
+	static constexpr uint32 sequencerLengthArray[] = {
+		LL_ADC_REG_SEQ_SCAN_DISABLE,
+		LL_ADC_REG_SEQ_SCAN_ENABLE_2RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_3RANKS,
+		LL_ADC_REG_SEQ_SCAN_ENABLE_4RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_5RANKS,
+		LL_ADC_REG_SEQ_SCAN_ENABLE_6RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_7RANKS,
+		LL_ADC_REG_SEQ_SCAN_ENABLE_8RANKS,
+	};
+
 	constexpr uint32 CastSequencerLength(uint8 val) const {
-		constexpr uint32 array[] = {
-			LL_ADC_REG_SEQ_SCAN_DISABLE,
-			LL_ADC_REG_SEQ_SCAN_ENABLE_2RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_3RANKS,
-			LL_ADC_REG_SEQ_SCAN_ENABLE_4RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_5RANKS,
-			LL_ADC_REG_SEQ_SCAN_ENABLE_6RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_7RANKS,
-			LL_ADC_REG_SEQ_SCAN_ENABLE_8RANKS,
-		};
 		SystemAssert(val <= 8 && val >= 1);
-		return array[val - 1];
+		return sequencerLengthArray[val - 1];
 	}
 
 
+
+	static constexpr uint32 rankArray[] = {
+		LL_ADC_REG_RANK_1,  LL_ADC_REG_RANK_2,  LL_ADC_REG_RANK_3,  LL_ADC_REG_RANK_4,
+		LL_ADC_REG_RANK_5,  LL_ADC_REG_RANK_6,  LL_ADC_REG_RANK_7,  LL_ADC_REG_RANK_8,
+	};
 
 	constexpr uint32 CastRank(uint8 val) const {
-		constexpr uint32 array[] = {
-			LL_ADC_REG_RANK_1,  LL_ADC_REG_RANK_2,  LL_ADC_REG_RANK_3,  LL_ADC_REG_RANK_4,
-			LL_ADC_REG_RANK_5,  LL_ADC_REG_RANK_6,  LL_ADC_REG_RANK_7,  LL_ADC_REG_RANK_8,
-		};
 		SystemAssert(val <= 8 && val >= 1);
-		return array[val - 1];
+		return rankArray[val - 1];
 	}
 
 
 
+	static constexpr uint32 channelArray[] = {
+		LL_ADC_CHANNEL_0, LL_ADC_CHANNEL_1,  LL_ADC_CHANNEL_2,  LL_ADC_CHANNEL_3,
+		LL_ADC_CHANNEL_4, LL_ADC_CHANNEL_5,  LL_ADC_CHANNEL_6,  LL_ADC_CHANNEL_7,
+		LL_ADC_CHANNEL_8, LL_ADC_CHANNEL_9,  LL_ADC_CHANNEL_10, LL_ADC_CHANNEL_11,
+		LL_ADC_CHANNEL_12, LL_ADC_CHANNEL_13, LL_ADC_CHANNEL_14, LL_ADC_CHANNEL_15,
+		LL_ADC_CHANNEL_16, LL_ADC_CHANNEL_17, LL_ADC_CHANNEL_18
+	};
+
 	constexpr uint32 CastChannel(uint8 val) const {
-		constexpr uint32 array[] = {
-			LL_ADC_CHANNEL_0, LL_ADC_CHANNEL_1,  LL_ADC_CHANNEL_2,  LL_ADC_CHANNEL_3,
-			LL_ADC_CHANNEL_4, LL_ADC_CHANNEL_5,  LL_ADC_CHANNEL_6,  LL_ADC_CHANNEL_7,
-			LL_ADC_CHANNEL_8, LL_ADC_CHANNEL_9,  LL_ADC_CHANNEL_10, LL_ADC_CHANNEL_11,
-			LL_ADC_CHANNEL_12, LL_ADC_CHANNEL_13, LL_ADC_CHANNEL_14, LL_ADC_CHANNEL_15,
-			LL_ADC_CHANNEL_16, LL_ADC_CHANNEL_17, LL_ADC_CHANNEL_18
-		};
 		SystemAssert(val <= 18 && val >= 0);
-		return array[val];
+		return channelArray[val];
 	}
 
 
