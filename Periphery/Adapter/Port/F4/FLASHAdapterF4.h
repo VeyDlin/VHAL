@@ -1,7 +1,6 @@
 #pragma once
 #include "../../FLASHAdapter.h"
-#include <System/System.h>
-#include <stm32f4xx.h>
+
 
 using AFLASH = class FLASHAdapterF4;
 
@@ -156,11 +155,11 @@ public:
 	}
 
 	virtual Status::statusType ReadOptionBytes() override {
-		return Status::notImplemented;
+		return Status::functionNotImplemented;
 	}
 
 	virtual Status::statusType WriteOptionBytes() override {
-		return Status::notImplemented;
+		return Status::functionNotImplemented;
 	}
 
 protected:
