@@ -9,21 +9,26 @@ float System::ticksInOneMs = 1;
 std::function<void(const char *message, const char *file, uint32 line)> System::criticalErrorHandle = nullptr;
 std::function<bool(uint32 delay)> System::rtosDelayMsHandle = nullptr;
 
-__attribute__((weak)) Console& System::console = []() -> Console& {
-    static Console instance; 
-    return instance;
-}();
+
+#ifdef USE_SYSTEM_CONSOLE
+	Console& System::console = []() -> Console& {
+		static Console instance;
+		return instance;
+	}();
+#endif
 
 
 void System::SetWriteHandler(std::function<void(const char* string, size_t size)> handler) {
-	ConsoleDetector::MarkWrite();
+#ifdef USE_SYSTEM_CONSOLE
 	console.SetWriteHandler(handler);
+#endif
 }
 
 
 void System::SetReadHandler(std::function<int()> handler) {
-	ConsoleDetector::MarkRead();
+#ifdef USE_SYSTEM_CONSOLE
 	console.SetReadHandler(handler);
+#endif
 }
 
 
@@ -134,8 +139,7 @@ void System::Abort(const char* message, const char* file, uint32_t line) {
 
 void System::CriticalError(const char* message, const char* file, uint32_t line) {
     if (criticalErrorHandle) {
-        // Only use console if write handler was set
-        if (ConsoleDetector::IsWrite()) {
+		#ifdef USE_SYSTEM_CONSOLE
             console << Console::error << "System critical error" << Console::endl;
             if (line != 0) {
                 console << "Line: " << line << Console::endl;
@@ -146,7 +150,7 @@ void System::CriticalError(const char* message, const char* file, uint32_t line)
             if (message != nullptr) {
                 console << "Message: " << message << Console::endl;
             }
-        }
+		#endif
 
         criticalErrorHandle(const_cast<char*>(message), const_cast<char*>(file), line);
     }
@@ -157,23 +161,25 @@ void System::CriticalError(const char* message, const char* file, uint32_t line)
 
 
 // printf support
-extern "C" {
-	int _read(int file, char *ptr, int len) {
-		// Only use console if read handler was set
-		if (ConsoleDetector::IsRead()) {
-			return System::console.Read(ptr, len);
+#ifdef USE_SYSTEM_CONSOLE
+	extern "C" {
+		int _read(int file, char *ptr, int len) {
+			// Only use console if read handler was set
+			if (ConsoleDetector::IsRead()) {
+				return System::console.Read(ptr, len);
+			}
+			return 0;
 		}
-		return 0;
-	}
 
-	int _write(int file, char *ptr, int len) {
-		// Only use console if write handler was set
-		if (ConsoleDetector::IsWrite()) {
-			return System::console.Write(reinterpret_cast<const char*>(ptr), len);
+		int _write(int file, char *ptr, int len) {
+			// Only use console if write handler was set
+			if (ConsoleDetector::IsWrite()) {
+				return System::console.Write(reinterpret_cast<const char*>(ptr), len);
+			}
+			return len;  // Pretend we wrote everything
 		}
-		return len;  // Pretend we wrote everything
 	}
-}
+#endif
 
 
 

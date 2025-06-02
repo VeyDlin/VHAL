@@ -24,24 +24,18 @@
 #endif
 
 
-class ConsoleDetector {
-	static inline bool write = false;
-	static inline bool read = false;
-public:
-	static void MarkWrite() { write = true; }
-	static void MarkRead() { read = true; }
-	static bool IsWrite() { return write; }
-	static bool IsRead() { return read; }
-};
-
-
 extern uint32 SystemCoreClock;
-class Console;
+
+#ifdef USE_SYSTEM_CONSOLE
+	class Console;
+#endif
 
 
 class System {
 public:
-	__attribute__((weak)) static Console &console;
+#ifdef USE_SYSTEM_CONSOLE
+	static Console &console;
+#endif
 	static std::function<void(const char *message, const char *file, uint32 line)> criticalErrorHandle;
 	static std::function<bool(uint32 delay)> rtosDelayMsHandle;
 
