@@ -475,7 +475,7 @@ protected:
 
 
 private:
-	uint32 CastPolarity(Polarity polarity) {
+	constexpr uint32 CastPolarity(Polarity polarity) const {
 		switch (polarity) {
 			case Polarity::High: return LL_TIM_OCPOLARITY_HIGH;
 			case Polarity::Low: return LL_TIM_OCPOLARITY_LOW;
@@ -486,7 +486,7 @@ private:
 
 
 
-	uint32 CastState(State state) {
+	constexpr uint32 CastState(State state) const {
 		switch (state) {
 			case State::Enable: return LL_TIM_OCSTATE_ENABLE;
 			case State::Disable: return LL_TIM_OCSTATE_DISABLE;
@@ -497,7 +497,7 @@ private:
 
 
 
-	uint32 CastIdleState(IdleState idleState) {
+	constexpr uint32 CastIdleState(IdleState idleState) const {
 		switch (idleState) {
 			case IdleState::High: return LL_TIM_OCIDLESTATE_HIGH;
 			case IdleState::Low: return LL_TIM_OCIDLESTATE_LOW;

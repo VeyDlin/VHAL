@@ -35,7 +35,7 @@ public:
 	virtual void Start() = 0;
 	virtual void Reset() = 0;
 
-	virtual inline uint32 GetDeadlineMs() = 0;
+	virtual inline uint32 GetDeadlineMs() const = 0;
 
 
 

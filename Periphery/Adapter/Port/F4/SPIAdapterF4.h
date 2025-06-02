@@ -468,7 +468,7 @@ protected:
 
 
 private:
-	uint32 CastTransferDirection() {
+	constexpr uint32 CastTransferDirection() const {
 		switch (parameters.direction) {
 			case Direction::Tx: return LL_SPI_HALF_DUPLEX_TX;
 			case Direction::Rx: return LL_SPI_HALF_DUPLEX_RX;
@@ -479,7 +479,7 @@ private:
 	}
 
 
-	uint32 CastMode() {
+	constexpr uint32 CastMode() const {
 		switch (parameters.mode) {
 			case Mode::Master: return LL_SPI_MODE_MASTER;
 			case Mode::Slave: return LL_SPI_MODE_SLAVE;
@@ -489,7 +489,7 @@ private:
 	}
 
 
-	uint32 CastClockPolarity() {
+	constexpr uint32 CastClockPolarity() const {
 		switch (parameters.clockPolarity) {
 			case ClockPolarity::High: return LL_SPI_POLARITY_HIGH;
 			case ClockPolarity::Low: return LL_SPI_POLARITY_LOW;
@@ -499,7 +499,7 @@ private:
 	}
 
 
-	uint32 CastClockPhase() {
+	constexpr uint32 CastClockPhase() const {
 		switch (parameters.clockPhase) {
 			case ClockPhase::Edge1: return LL_SPI_PHASE_1EDGE;
 			case ClockPhase::Edge2: return LL_SPI_PHASE_2EDGE;
@@ -509,7 +509,7 @@ private:
 	}
 
 
-	uint32 CastBitOrder() {
+	constexpr uint32 CastBitOrder() const {
 		switch (parameters.firstBit) {
 			case FirstBit::LSB: return LL_SPI_LSB_FIRST;
 			case FirstBit::MSB: return LL_SPI_MSB_FIRST;

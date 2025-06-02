@@ -317,7 +317,7 @@ protected:
 
 
 private:
-	uint32 CastResolution() {
+	constexpr uint32 CastResolution() const {
 		switch (parameters.resolution) {
 			case Resolution::B12: return LL_ADC_RESOLUTION_12B;
 			case Resolution::B10: return LL_ADC_RESOLUTION_10B;
@@ -334,7 +334,7 @@ private:
 
 
 
-	uint32 CastDataAlignment() {
+	constexpr uint32 CastDataAlignment() const {
 		switch (parameters.dataAlignment) {
 			case DataAlignment::Right: return LL_ADC_DATA_ALIGN_RIGHT;
 			case DataAlignment::Left: return LL_ADC_DATA_ALIGN_LEFT;
@@ -345,7 +345,7 @@ private:
 
 
 
-	uint32 CastSequencersScanMode() {
+	constexpr uint32 CastSequencersScanMode() const {
 		switch (parameters.scanMode) {
 			case ScanMode::Enable: return LL_ADC_SEQ_SCAN_ENABLE;
 			case ScanMode::Disable: return LL_ADC_SEQ_SCAN_DISABLE;
@@ -356,7 +356,7 @@ private:
 
 
 
-	uint32 CastContinuousMode(ContinuousMode val) {
+	constexpr uint32 CastContinuousMode(ContinuousMode val) const {
 		switch (val) {
 			case ContinuousMode::Continuous: return LL_ADC_REG_CONV_CONTINUOUS;
 			case ContinuousMode::Single: return LL_ADC_REG_CONV_SINGLE;
@@ -367,8 +367,8 @@ private:
 
 
 
-	uint32 CastSequencerLength(uint8 val) {
-		static const uint32 array[] = {
+	constexpr uint32 CastSequencerLength(uint8 val) const {
+		constexpr uint32 array[] = {
 			LL_ADC_REG_SEQ_SCAN_DISABLE,
 			LL_ADC_REG_SEQ_SCAN_ENABLE_2RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_3RANKS,
 			LL_ADC_REG_SEQ_SCAN_ENABLE_4RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_5RANKS,
@@ -385,8 +385,8 @@ private:
 
 
 
-	uint32 CastRank(uint8 val) {
-		static const uint32 array[] = {
+	constexpr uint32 CastRank(uint8 val) const {
+		constexpr uint32 array[] = {
 			LL_ADC_REG_RANK_1,  LL_ADC_REG_RANK_2,  LL_ADC_REG_RANK_3,  LL_ADC_REG_RANK_4,
 			LL_ADC_REG_RANK_5,  LL_ADC_REG_RANK_6,  LL_ADC_REG_RANK_7,  LL_ADC_REG_RANK_8,
 			LL_ADC_REG_RANK_9,  LL_ADC_REG_RANK_10, LL_ADC_REG_RANK_11, LL_ADC_REG_RANK_12,
@@ -398,8 +398,8 @@ private:
 
 
 
-	uint32 CastChannel(uint8 val) {
-		static const uint32 array[] = {
+	constexpr uint32 CastChannel(uint8 val) const {
+		constexpr uint32 array[] = {
 			LL_ADC_CHANNEL_0, LL_ADC_CHANNEL_1,  LL_ADC_CHANNEL_2,  LL_ADC_CHANNEL_3,
 			LL_ADC_CHANNEL_4, LL_ADC_CHANNEL_5,  LL_ADC_CHANNEL_6,  LL_ADC_CHANNEL_7,
 			LL_ADC_CHANNEL_8, LL_ADC_CHANNEL_9,  LL_ADC_CHANNEL_10, LL_ADC_CHANNEL_11,

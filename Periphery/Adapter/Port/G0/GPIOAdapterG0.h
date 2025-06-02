@@ -198,7 +198,7 @@ protected:
 
 
 private:
-	inline uint32 CastMode() {
+	constexpr uint32 CastMode() const {
 		switch (parameters.mode) {
 			case Mode::Output:
 			case Mode::OpenDrain:
@@ -222,7 +222,7 @@ private:
 
 
 
-	inline uint32 CastSpeed() {
+	constexpr uint32 CastSpeed() const {
 		switch (parameters.speed) {
 			case Speed::Low:
 				return LL_GPIO_SPEED_FREQ_LOW;
@@ -248,7 +248,7 @@ private:
 
 
 
-	inline uint32 CastPull() {
+	constexpr uint32 CastPull() const {
 		switch (parameters.pull) {
 			case Pull::None:
 				return LL_GPIO_PULL_NO;
@@ -270,7 +270,7 @@ private:
 
 
 
-	inline uint32 CastOutputType() {
+	constexpr uint32 CastOutputType() const {
 		switch (parameters.mode) {
 			case Mode::OpenDrain:
 				return LL_GPIO_OUTPUT_OPENDRAIN;
@@ -285,7 +285,7 @@ private:
 
 
 
-	inline bool IsNormal() {
+	constexpr bool IsNormal() const {
 		switch (parameters.mode) {
 			case Mode::Input:
 			case Mode::Output:
