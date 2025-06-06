@@ -32,7 +32,7 @@ class AESFLASHBootloader : public FLASHBootloader<RxBufferSize, AccumBufferSize>
 protected:
     AESMode aesMode;
     AES<KeySize> aes;
-    std::array<uint8, AES<>::BLOCK_SIZE> iv;  // Initialization Vector for CBC/CTR
+    AES<KeySize>::IV iv;  // Initialization Vector for CBC/CTR
     
     std::array<uint8, 512> encryptionBuffer;
     std::array<uint8, 512> decryptionBuffer;
@@ -58,7 +58,7 @@ public:
     	KeySpan&& key,
     	uint32 startAddr,
     	uint32 size,
-    	const std::array<uint8, 16>& initVector = {}
+    	const AES<KeySize>::IV& initVector = {}
     ) :	FLASHBootloader<RxBufferSize, AccumBufferSize>(comm, flash, startAddr, size),
     	aesMode(mode),
     	aes(makeKey(key)),
@@ -80,6 +80,7 @@ public:
         std::fill(decryptionBuffer.begin(), decryptionBuffer.end(), 0);
         // AES class should clear keys in its own destructor
     }
+
 
 
 protected:
@@ -315,11 +316,11 @@ private:
 
 public:
     // Methods for IV/Nonce management
-    void SetIV(const std::array<uint8, AES<>::BLOCK_SIZE>& newIV) {
+    void SetIV(const AES<KeySize>::IV& newIV) {
         iv = newIV;
     }
 
-    const std::array<uint8, AES<>::BLOCK_SIZE>& GetIV() const {
+    const AES<KeySize>::IV& GetIV() const {
         return iv;
     }
 

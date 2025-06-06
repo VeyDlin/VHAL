@@ -39,6 +39,12 @@
 template<size_t RxBufferSize = 1024, size_t AccumBufferSize = 512>
 class IBootloader {
 public:
+    // User data handler function type
+    // Parameters: operation (0=read, 1=write), dataType, data
+    // Returns: for read - data to send back, for write - success status
+    using UserDataHandler = std::function<std::span<const uint8>(uint8 operation, uint8 dataType, std::span<const uint8> data)>;
+
+
     // Bootloader commands
     enum class Command : uint8 {
         Ping = 0x01,         // Connection check
@@ -51,7 +57,8 @@ public:
         Start = 0x20,        // Start application
         Reset = 0x21,        // Reset device
         GetStatus = 0x30,    // Get current status
-        UnlockDevice = 0x40  // Remove RDP protection (requires password)
+        UnlockDevice = 0x40, // Remove RDP protection (requires password)
+        UserData = 0x50      // Read/write user data (battery, IV*, etc.)
     };
 
     // Response statuses
@@ -81,6 +88,15 @@ public:
         uint32 address;          // Write address
         uint16 realSize;         // Real data size (before padding)
         uint16 paddedSize;       // Size with padding for encryption
+    } _APacked;
+
+    // Structure for user data command
+    struct UserDataPacket {
+        uint8 operation;         // 0 = Read, 1 = Write
+        uint8 dataType;          // Data type identifier (battery=1, IV=2, etc.)
+        uint8 length;            // Data length (for write operations)
+        uint8 reserved;          // Alignment
+        std::array<uint8, 236> data; // User data
     } _APacked;
 
     // Command packet
@@ -148,6 +164,9 @@ protected:
     uint32 bytesReceived = 0;   // Number of bytes received (before decryption)
     uint32 bytesWritten = 0;    // Number of bytes actually written (after decryption)
     bool isFirstWrite = true;   // First write flag for header creation
+    
+    // User data handler
+    UserDataHandler userDataHandler;
     
 
 public:
@@ -218,6 +237,11 @@ public:
 
     virtual bool IsValidFirmware() const {
         return CheckFirmware();
+    }
+
+    // Set user data handler
+    void SetUserDataHandler(UserDataHandler handler) {
+        userDataHandler = handler;
     }
 
 
@@ -678,6 +702,10 @@ protected:
                 HandleUnlockDevice(packet);
                 break;
                 
+            case Command::UserData:
+                HandleUserData(packet);
+                break;
+                
             default:
                 SendError(packet.sequence, BootloaderStatus::InvalidCommand);
                 break;
@@ -994,6 +1022,44 @@ protected:
             // After unlock, reboot may be required
         } else {
             SendError(currentSequence, BootloaderStatus::Error);
+        }
+    }
+    
+    
+    
+    void HandleUserData(const CommandPacket& packet) {
+        // Check if handler is set
+        if (!userDataHandler) {
+            SendError(currentSequence, BootloaderStatus::InvalidCommand);
+            return;
+        }
+        
+        // Packet must contain at least operation and dataType
+        if (packet.length < 2) {
+            SendError(currentSequence, BootloaderStatus::InvalidParameters);
+            return;
+        }
+        
+        uint8 operation = packet.data[0];  // 0=read, 1=write
+        uint8 dataType = packet.data[1];   // data type identifier
+        
+        std::span<const uint8> inputData;
+        if (operation == 1 && packet.length > 2) {  // Write operation
+            inputData = std::span<const uint8>(packet.data.data() + 2, packet.length - 2);
+        }
+        
+        // Call user handler
+        auto result = userDataHandler(operation, dataType, inputData);
+        
+        if (result.empty() && operation == 0) {
+            // Read operation but no data returned - error
+            SendError(currentSequence, BootloaderStatus::Error);
+        } else if (result.size() > 240) {
+            // Response too large
+            SendError(currentSequence, BootloaderStatus::Error);
+        } else {
+            // Success - send data back (empty for write operations is OK)
+            SendResponse(BootloaderStatus::Success, result);
         }
     }
     
