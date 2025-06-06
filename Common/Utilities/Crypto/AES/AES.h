@@ -74,8 +74,6 @@ Firmware encryption:
     firmware.EncryptCTR(firmwareData, encryptedFirmware, updateNonce);
 */
 
-// AES block size is always 128 bits (16 bytes)
-inline constexpr size_t AES_BLOCK_SIZE = 16;
 
 // Key sizes
 enum class AESKeySize : size_t {
@@ -97,13 +95,11 @@ concept ByteLike = std::same_as<T, uint8> ||
                    std::same_as<T, std::byte> || 
                    std::same_as<T, char> ||
                    std::same_as<T, unsigned char>;
-
-// AES implementation using C++20 features
 template<AESKeySize KeySize = AESKeySize::AES128>
 class AES {
 public:
     static constexpr size_t KEY_SIZE = static_cast<size_t>(KeySize);
-    static constexpr size_t BLOCK_SIZE = AES_BLOCK_SIZE;
+    static constexpr size_t BLOCK_SIZE = 16; // AES block size is always 128 bits (16 bytes)
     
     // Calculate expanded key size based on key size
     static constexpr size_t EXPANDED_KEY_SIZE = []() {

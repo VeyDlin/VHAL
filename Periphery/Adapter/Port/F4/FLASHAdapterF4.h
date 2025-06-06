@@ -6,14 +6,18 @@ using AFLASH = class FLASHAdapterF4;
 
 class FLASHAdapterF4: public FLASHAdapter {
 protected:
-	static constexpr uint32_t FLASH_KEY1 = 0x45670123UL;
-	static constexpr uint32_t FLASH_KEY2 = 0xCDEF89ABUL;
+	static constexpr uint32 FLASH_KEY1 = 0x45670123UL;
+	static constexpr uint32 FLASH_KEY2 = 0xCDEF89ABUL;
+	
+	// Option Bytes keys for STM32F4
+	static constexpr uint32 OPT_KEY1 = 0x08192A3BUL;
+	static constexpr uint32 OPT_KEY2 = 0x4C5D6E7FUL;
 	
 	// Program size for STM32F4
-	static constexpr uint32_t FLASH_PSIZE_BYTE = 0x00000000UL;
-	static constexpr uint32_t FLASH_PSIZE_HALF_WORD = 0x00000100UL;
-	static constexpr uint32_t FLASH_PSIZE_WORD = 0x00000200UL;
-	static constexpr uint32_t FLASH_PSIZE_DOUBLE_WORD = 0x00000300UL;
+	static constexpr uint32 FLASH_PSIZE_BYTE = 0x00000000UL;
+	static constexpr uint32 FLASH_PSIZE_HALF_WORD = 0x00000100UL;
+	static constexpr uint32 FLASH_PSIZE_WORD = 0x00000200UL;
+	static constexpr uint32 FLASH_PSIZE_DOUBLE_WORD = 0x00000300UL;
 
 public:
 	FLASHAdapterF4() { }
@@ -154,12 +158,142 @@ public:
 		return Status::ok;
 	}
 
-	virtual Status::statusType ReadOptionBytes() override {
-		return Status::functionNotImplemented;
+	virtual Status::info<uint32> ReadOptionBytes() override {
+		Status::info<uint32> result;
+		// Option Bytes can be read directly from OPTCR register
+		// Values are already available in FLASH->OPTCR
+		result.data = FLASH->OPTCR;
+		result.type = Status::ok;
+		return result;
 	}
 
-	virtual Status::statusType WriteOptionBytes() override {
-		return Status::functionNotImplemented;
+	virtual Status::statusType WriteOptionBytes(uint32 optionBytes) override {
+		// Unlock Option Bytes
+		Status::statusType status = UnlockOptionBytes();
+		if (status != Status::ok) {
+			return status;
+		}
+
+		// Write new option bytes value
+		FLASH->OPTCR = optionBytes;
+
+		// Start programming
+		FLASH->OPTCR |= FLASH_OPTCR_OPTSTRT;
+
+		// Wait for completion
+		while (IsBusy());
+
+		// Lock Option Bytes
+		LockOptionBytes();
+
+		return GetStatus();
+	}
+
+
+	virtual bool IsReadProtected() const override {
+		uint8 rdpLevel = GetReadProtectionLevel();
+		return rdpLevel != 0xAA;  // Level 0 = no protection
+	}
+
+	virtual uint8 GetReadProtectionLevel() const override {
+		// RDP level is located in bits 8-15 of OPTCR register
+		return (FLASH->OPTCR >> 8) & 0xFF;
+	}
+
+	virtual FlashProtectionLevel GetProtectionLevel() const override {
+		uint8 rdpLevel = GetReadProtectionLevel();
+		
+		// STM32F4 specific RDP level interpretation
+		if (rdpLevel == 0xAA) {
+			return FlashProtectionLevel::Level0;
+		} else if (rdpLevel == 0xCC) {
+			return FlashProtectionLevel::Level2;
+		} else {
+			// For STM32F4: any other value means Level 1
+			return FlashProtectionLevel::Level1;
+		}
+	}
+
+	virtual Status::statusType SetReadProtectionLevel(FlashProtectionLevel level) override {
+		uint8 rdpValue;
+		
+		// Convert abstract level to STM32F4 specific values
+		switch (level) {
+			case FlashProtectionLevel::Level0:
+				rdpValue = 0xAA;
+				break;
+			case FlashProtectionLevel::Level1:
+				rdpValue = 0x55;  // Any value except 0xAA and 0xCC
+				break;
+			case FlashProtectionLevel::Level2:
+				rdpValue = 0xCC;
+				break;
+			default:
+				return Status::invalidParameter;
+		}
+
+		// Unlock Option Bytes
+		Status::statusType status = UnlockOptionBytes();
+		if (status != Status::ok) {
+			return status;
+		}
+
+		// Set new RDP level
+		uint32 optcr = FLASH->OPTCR;
+		optcr &= ~(0xFF << 8);     // Clear RDP bits
+		optcr |= (rdpValue << 8);  // Set new level
+		FLASH->OPTCR = optcr;
+
+		// Start programming
+		FLASH->OPTCR |= FLASH_OPTCR_OPTSTRT;
+
+		// Wait for completion
+		while (IsBusy());
+
+		// Lock Option Bytes
+		LockOptionBytes();
+
+		return GetStatus();
+	}
+
+	virtual Status::statusType DisableReadProtection() override {
+		// Remove RDP (set Level 0)
+		return SetReadProtectionLevel(FlashProtectionLevel::Level0);
+	}
+
+	// Additional convenience methods for RDP level checking
+	bool IsRDPLevel0() const {
+		return GetReadProtectionLevel() == 0xAA;
+	}
+
+	bool IsRDPLevel1() const {
+		uint8 level = GetReadProtectionLevel();
+		return level != 0xAA && level != 0xCC;
+	}
+
+	bool IsRDPLevel2() const {
+		return GetReadProtectionLevel() == 0xCC;
+	}
+
+	// Option Bytes methods (public implementation)
+	virtual Status::statusType UnlockOptionBytes() override {
+		if (IsOptionBytesLocked()) {
+			FLASH->OPTKEYR = OPT_KEY1;
+			FLASH->OPTKEYR = OPT_KEY2;
+			if (IsOptionBytesLocked()) {
+				return Status::error;
+			}
+		}
+		return Status::ok;
+	}
+
+	virtual Status::statusType LockOptionBytes() override {
+		FLASH->OPTCR |= FLASH_OPTCR_OPTLOCK;
+		return Status::ok;
+	}
+
+	virtual bool IsOptionBytesLocked() const override {
+		return (FLASH->OPTCR & FLASH_OPTCR_OPTLOCK) != 0;
 	}
 
 protected:

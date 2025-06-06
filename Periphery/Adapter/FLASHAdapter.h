@@ -5,8 +5,16 @@
 #define AUSED_FLASH_ADAPTER
 
 
+
 class FLASHAdapter {
 public:
+	enum class FlashProtectionLevel {
+	    Level0,     // No protection - full access (debug/programming allowed)
+	    Level1,     // Partial protection - external access blocked, code runs
+	    Level2,     // Maximum protection - permanent, cannot downgrade
+	    Unknown     // Unrecognized protection level
+	};
+
 	struct Parameters {
 		uint32 startAddress;
 		uint32 endAddress;
@@ -41,8 +49,18 @@ public:
 	virtual Status::statusType GetStatus() = 0;
 	virtual Status::statusType ClearStatusFlags() = 0;
 
-	virtual Status::statusType ReadOptionBytes() = 0;
-	virtual Status::statusType WriteOptionBytes() = 0;
+	virtual Status::info<uint32> ReadOptionBytes() = 0;
+	virtual Status::statusType WriteOptionBytes(uint32 optionBytes) = 0;
+
+	virtual bool IsReadProtected() const = 0;
+	virtual uint8 GetReadProtectionLevel() const = 0;
+	virtual FlashProtectionLevel GetProtectionLevel() const = 0;
+	virtual Status::statusType SetReadProtectionLevel(FlashProtectionLevel level) = 0;
+	virtual Status::statusType DisableReadProtection() = 0;
+
+	virtual Status::statusType UnlockOptionBytes() = 0;
+	virtual Status::statusType LockOptionBytes() = 0;
+	virtual bool IsOptionBytesLocked() const = 0;
 
 
 protected:

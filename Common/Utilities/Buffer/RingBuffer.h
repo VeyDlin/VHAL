@@ -123,6 +123,23 @@ public:
     }
 
 
+    uint16 GetFreeSpace() const {
+        return BufferSize - size;
+    }
+
+
+    Status::info<ElementType> Peek() const {
+        Status::info<ElementType> out;
+        if (IsEmpty()) {
+            out.type = Status::empty;
+            return out;
+        }
+        out.data = buffer[readIndex];
+        out.type = Status::ok;
+        return out;
+    }
+
+
     ElementType operator[](uint16 inIndex) const {
         SystemAssert(inIndex < size);
 

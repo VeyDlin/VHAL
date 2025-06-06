@@ -118,7 +118,7 @@ void System::Reset() {
 
 
 System::DeviceId System::GetDeviceId() {
-    return {LL_GetUID_Word0(), LL_GetUID_Word1(), LL_GetUID_Word2()};
+	return { LL_GetUID_Word0(), LL_GetUID_Word1(), LL_GetUID_Word2() };
 }
 
 
