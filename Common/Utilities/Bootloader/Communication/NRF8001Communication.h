@@ -6,7 +6,7 @@
 #include <Utilities/Data/ByteConverter.h>
 #include <array>
 
-
+#include <Utilities/Console/Console.h>
 // ICommunication implementation for NRF8001 BLE chip
 // PURPOSE: concrete transport implementation via Bluetooth Low Energy
 // FEATURES:
@@ -29,16 +29,18 @@ protected:
     AGPIO& reqnPin;    // Request pin (from NRF8001)
     AGPIO& rdynPin;    // Ready pin (from NRF8001)
     AGPIO& resetPin;   // Reset pin (to NRF8001)
-    
+
     BLEPeripheral ble;
+    std::optional<BLECentral> central;
     
     RingBuffer<uint8, BufferSize> txBuffer;
     
     bool connected = false;
+    bool centralInit = false;
     DataReceivedCallback dataCallback;
     
-    static constexpr size_t BLE_PACKET_SIZE = 20;  // Standard MTU for BLE
-    static constexpr uint32 POLL_INTERVAL_MS = 5;  // Poll interval 5ms
+    static constexpr size_t BLE_PACKET_SIZE = BLE_ATTRIBUTE_MAX_VALUE_LENGTH;  // Standard MTU for BLE
+    static constexpr uint32 POLL_INTERVAL_MS = 100;  // Poll interval
     
     uint32 lastPollTime = 0;
     
@@ -47,10 +49,10 @@ protected:
     BLEService bootloaderService{"00004242-0000-1000-8000-00805F9B34FB"};
     BLEDescriptor bootloaderDescriptor{"2901", "Bootloader"};
     
-    BLECharacteristic rxCharacteristic{"00004243-0000-1000-8000-00805F9B34FB", BLEWrite, 20};
+    BLECharacteristic rxCharacteristic{"00004243-0000-1000-8000-00805F9B34FB", BLEWrite, BLE_PACKET_SIZE};
     BLEDescriptor rxDescriptor{"2901", "RX"};
     
-    BLECharacteristic txCharacteristic{"00004244-0000-1000-8000-00805F9B34FB", BLERead | BLENotify, 20};
+    BLECharacteristic txCharacteristic{"00004244-0000-1000-8000-00805F9B34FB", BLENotify, BLE_PACKET_SIZE};
     BLEDescriptor txDescriptor{"2901", "TX"};
     
     const char* deviceName;
@@ -77,7 +79,7 @@ public:
 
 
     virtual Status::statusType Initialize() override {
-        setupBootloaderService();
+    	SetupBootloaderService();
         
         ble.setLocalName(deviceName);
         ble.setDeviceName(deviceName);
@@ -85,31 +87,31 @@ public:
         instance = this;
         
         ble.begin();
-        
+
         return Status::ok;
     }
 
 
 
     virtual void Process() override {
-        uint32 now = System::GetMs();
-        if (now - lastPollTime < POLL_INTERVAL_MS) {
-            return;
+        if (!central.has_value() || !*central || !central->connected()) {
+            central = ble.central();
         }
-        lastPollTime = now;
-        
-        BLECentral central = ble.central();
+
         bool wasConnected = connected;
-        connected = central && central.connected();
+        connected = *central && central->connected();
         
         if (connected && !wasConnected) {
-            onConnected();
+        	System::console << Console::separator() << Console::endl;
+        	System::console << Console::debug << "Connected" << Console::endl;
+        	OnConnected();
         } else if (!connected && wasConnected) {
-            onDisconnected();
+        	System::console << Console::debug << "Disconnected" << Console::endl;
+        	OnDisconnected();
         }
-        
+
         if (connected) {
-            processTxBuffer();
+        	ProcessTxBuffer();
         }
     }
 
@@ -156,13 +158,13 @@ public:
     }
 
 private:
-    void onConnected() {
+    void OnConnected() {
         txBuffer.Clear();
     }
     
 
 
-    void onDisconnected() {
+    void OnDisconnected() {
         txBuffer.Clear();
     }
     
@@ -170,10 +172,9 @@ private:
 
     static void RxCharacteristicWritten(BLECentral& central, BLECharacteristic& characteristic) {
         if (instance && instance->dataCallback) {
-            instance->dataCallback(std::span<const uint8>(
-                characteristic.value(),
-                characteristic.valueLength()
-            ));
+        	auto data = std::span<const uint8>(characteristic.value(), characteristic.valueLength());
+        	System::console << Console::debug << "RX: " << data << Console::endl;
+            instance->dataCallback(data);
         }
     }
     
@@ -191,11 +192,17 @@ private:
 
 
 
-    void processTxBuffer() {
+    void ProcessTxBuffer() {
         if (txBuffer.IsEmpty() || !txCharacteristic.canNotify()) {
             return;
         }
         
+        uint32 now = System::GetMs();
+        if (now - lastPollTime < POLL_INTERVAL_MS) {
+            return;
+        }
+        lastPollTime = now;
+
         std::array<uint8, BLE_PACKET_SIZE> packet;
         size_t packetSize = 0;
         
@@ -207,13 +214,14 @@ private:
         }
         
         if (packetSize > 0) {
-            txCharacteristic.setValue(packet.data(), packetSize);
+            auto tx = txCharacteristic.setValue(packet.data(), packetSize);
+            System::console << Console::debug << "TX(" << tx << "): " << Console::hex(packet.data(), packetSize) << Console::endl;
         }
     }
 
 
 
-    void setupBootloaderService() {
+    void SetupBootloaderService() {
         ble.addAttribute(bootloaderService);
         ble.addAttribute(bootloaderDescriptor);
         ble.setAdvertisedServiceUuid(bootloaderService.uuid());

@@ -114,49 +114,7 @@ protected:
     virtual bool OnStartApplication() override = 0;
     
 
-    
-    virtual Status::statusType OnFinalizeFirmware() override {
-        return FinalizeFirmware();
-    }
-
-
 protected:
-    // Firmware write finalization - set valid status
-    // USED: at the end of Write command to mark firmware as valid
-    // PURPOSE: prevent running partially written firmware
-    Status::statusType FinalizeFirmware() {
-        FirmwareHeader header;
-        uint8* headerPtr = reinterpret_cast<uint8*>(&header);
-        
-        for (size_t i = 0; i < sizeof(FirmwareHeader); i++) {
-            auto byteResult = flashAdapter.Read(
-                reinterpret_cast<uint8*>(memoryStartAddress + i)
-            );
-            if (byteResult.type != Status::ok) {
-                return Status::readError;
-            }
-            headerPtr[i] = byteResult.data;
-        }
-        
-        header.size = this->bytesWritten;
-        
-        header.crc32 = this->CalculateFirmwareCRC32();
-        
-        auto status = flashAdapter.Unlock();
-        if (status != Status::ok) return status;
-        
-        status = flashAdapter.WriteData(
-            reinterpret_cast<uint32*>(memoryStartAddress),
-            &header,
-            sizeof(FirmwareHeader)
-        );
-        
-        flashAdapter.Lock();
-        return status;
-    }
-    
-
-
     virtual uint32 GetMemoryStartAddress() const override {
         return memoryStartAddress;
     }

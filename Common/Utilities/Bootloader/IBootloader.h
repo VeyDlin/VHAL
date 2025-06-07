@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <optional>
 
+#include <Utilities/Console/Console.h>
 
 // Abstract bootloader class with base protocol logic
 // 
@@ -54,6 +55,8 @@ public:
         Read = 0x12,         // Read data from memory
         Verify = 0x13,       // Verify firmware integrity
         Finalize = 0x14,     // Finalize firmware (set valid status)
+        ResetWritePos = 0x15, // Reset write position to 0
+        ResetReadPos = 0x16,  // Reset read position to 0
         Start = 0x20,        // Start application
         Reset = 0x21,        // Reset device
         GetStatus = 0x30,    // Get current status
@@ -71,7 +74,8 @@ public:
         NotReady = 0x05,         // Device not ready
         Protected = 0x06,        // Memory protected from write/read
         CryptoError = 0x07,      // Encryption/decryption error
-        AccessDenied = 0x08      // Access denied (RDP Level 2 or other protection)
+        AccessDenied = 0x08,     // Access denied (RDP Level 2 or other protection)
+        EndOfData = 0x09         // No more data to read (for READ command)
     };
 
     // Simplified firmware header - only CRC32 and size
@@ -88,15 +92,6 @@ public:
         uint32 address;          // Write address
         uint16 realSize;         // Real data size (before padding)
         uint16 paddedSize;       // Size with padding for encryption
-    } _APacked;
-
-    // Structure for user data command
-    struct UserDataPacket {
-        uint8 operation;         // 0 = Read, 1 = Write
-        uint8 dataType;          // Data type identifier (battery=1, IV=2, etc.)
-        uint8 length;            // Data length (for write operations)
-        uint8 reserved;          // Alignment
-        std::array<uint8, 236> data; // User data
     } _APacked;
 
     // Command packet
@@ -128,7 +123,10 @@ protected:
     // Buffer for accumulating Write command data
     std::array<uint8, AccumBufferSize> accumulationBuffer;
     size_t accumulatedSize = 0;
-    uint32 currentWriteAddress = 0;
+    
+    // Stream positions for reading and writing
+    uint32 writePosition = 0;  // Current position for writing firmware data
+    uint32 readPosition = 0;   // Current position for reading firmware data
     
     // Current state
     enum class State {
@@ -168,6 +166,9 @@ protected:
     // User data handler
     UserDataHandler userDataHandler;
     
+    // Reset
+    uint64 resetTime = 0;
+
 
 public:
     IBootloader(ICommunication& comm) : communication(comm) {
@@ -188,7 +189,7 @@ public:
         if (!OnCheckBootloaderRequest()) {
             // User doesn't want to enter bootloader
             // Try to start the application
-            if (IsValidFirmware() && StartApplication()) {
+            if (StartApplication()) {
                 // Application started, should not return here
                 return Status::error;
             }
@@ -221,22 +222,21 @@ public:
         
         // Additional processing in inheritors
         OnProcess();
+
+        // Reset
+        if (resetTime != 0 && resetTime < System::GetMs()) {
+        	System::Reset();
+        }
     }
     
 
 
     virtual bool StartApplication() {
-        if (!IsValidFirmware()) {
+        if (!CheckFirmware()) {
             return false;
         }
         
         return OnStartApplication();
-    }
-    
-
-
-    virtual bool IsValidFirmware() const {
-        return CheckFirmware();
     }
 
     // Set user data handler
@@ -302,8 +302,8 @@ protected:
 
 
     // Check for valid firmware in memory
-    // USED: at startup to decide whether to run application or bootloader
-    // IMPLEMENTATION: unified logic in IBootloader, uses OnReadMemory()
+    // USED: at startup and in HandleVerify()
+    // IMPLEMENTATION: unified logic - reads header, validates size and CRC
     bool CheckFirmware() const {
         // Read firmware header
         FirmwareHeader header;
@@ -329,18 +329,7 @@ protected:
             return false;  // All bits set - erased Flash
         }
         
-        // Additional validation from inheritor
-        return OnValidateFirmware(header);
-    }
-
-
-
-    // Additional firmware validation (optional)
-    // INHERITOR MAY override to check digital signature
-    // DEFAULT: checks only CRC32 - this is sufficient
-    virtual bool OnValidateFirmware(const FirmwareHeader& header) const { 
-        // PROTECTION: check that header.size matches actually written data
-        // BUT only if firmware was written in this session (bytesWritten > 0)
+        // Check that header size matches actually written data in this session
         if (bytesWritten > 0 && header.size != bytesWritten) {
             return false;  // Header size doesn't match actually written data in this session
         }
@@ -361,13 +350,32 @@ protected:
     
 
 
-    // Firmware finalization - set valid status
-    // INHERITOR MAY override:
-    // - Write FirmwareHeader.status = validStatus
-    // - Set readiness flags
-    // - Update CRC32 if needed
-    // DEFAULT: does nothing (for compatibility)
-    virtual Status::statusType OnFinalizeFirmware() { return Status::ok; }
+    // Firmware finalization - create and write FirmwareHeader
+    // Creates header with size=bytesWritten and calculated CRC32
+    // INHERITOR MAY override for additional fields
+    virtual Status::statusType OnFinalizeFirmware() { 
+        // Only finalize if we actually wrote some data
+        if (bytesWritten == 0) {
+            return Status::error;
+        }
+        
+        // Create firmware header
+        FirmwareHeader header = {};
+        header.size = bytesWritten;
+        header.crc32 = CalculateFirmwareCRC32();
+        
+        if (header.crc32 == 0) {
+            return Status::error;  // CRC calculation failed
+        }
+        
+        // Write header to the beginning of memory
+        auto status = OnWriteMemory(
+            GetMemoryStartAddress(),
+            std::span(reinterpret_cast<const uint8*>(&header), sizeof(FirmwareHeader))
+        );
+        
+        return status;
+    }
     
 
 
@@ -570,14 +578,14 @@ protected:
 
 
     void ProcessReceivedPackets() {
-        while (TryProcessPacket()) {
-        }
+        while (TryProcessPacket());
     }
     
 
 
     bool TryProcessPacket() {
-        if (receiveBuffer.Size() < sizeof(CommandPacket)) {
+        // Check minimum header size first
+        if (receiveBuffer.Size() < 4) { // header + seq + cmd + len
             return false;
         }
         
@@ -591,7 +599,8 @@ protected:
             }
         }
         
-        if (receiveBuffer.Size() < sizeof(CommandPacket)) {
+        // Check if we still have minimum header after skipping invalid data
+        if (receiveBuffer.Size() < 4) {
             return false;
         }
         
@@ -686,6 +695,14 @@ protected:
                 HandleFinalize();
                 break;
                 
+            case Command::ResetWritePos:
+                HandleResetWritePos();
+                break;
+                
+            case Command::ResetReadPos:
+                HandleResetReadPos();
+                break;
+                
             case Command::Start:
                 HandleStart();
                 break;
@@ -778,19 +795,9 @@ protected:
             return;
         }
         
-        if (packet.length < 8) {
-            SendError(currentSequence, BootloaderStatus::InvalidParameters);
-            return;
-        }
-        
-        uint32 address = *reinterpret_cast<const uint32*>(&packet.data[0]);
-        uint32 size = *reinterpret_cast<const uint32*>(&packet.data[4]);
-        
-        // Check address range
-        if (!IsValidMemoryRange(address, size)) {
-            SendError(currentSequence, BootloaderStatus::InvalidParameters);
-            return;
-        }
+        // No parameters needed - always erase entire firmware area
+        uint32 address = GetMemoryStartAddress();
+        uint32 size = GetMemorySize();
         
         // Start asynchronous erase
         asyncOp.type = AsyncOperation::Erasing;
@@ -801,10 +808,12 @@ protected:
         asyncOp.iteration = 0;
         asyncOp.sequence = packet.sequence;
         
-        // Reset accumulators on erase
+        // Reset accumulators and positions on erase
         accumulatedSize = 0;
         bytesReceived = 0;
         bytesWritten = 0;
+        writePosition = 0;
+        readPosition = 0;
         isFirstWrite = true;  // Next write will be first
         
         state = State::Processing;
@@ -834,19 +843,13 @@ protected:
             return;
         }
         
-        // Simple format: address(4) + data
-        if (packet.length < 4) {
+        // Simple format: just data (no address/offset parameters)
+        size_t dataSize = packet.length;
+        
+        // Check for data
+        if (dataSize == 0) {
             SendError(currentSequence, BootloaderStatus::InvalidParameters);
             return;
-        }
-        
-        uint32 address = *reinterpret_cast<const uint32*>(&packet.data[0]);
-        size_t dataSize = packet.length - 4;
-        
-        // If this is first packet or new address - reset accumulator
-        if (accumulatedSize == 0 || address != currentWriteAddress + accumulatedSize) {
-            accumulatedSize = 0;
-            currentWriteAddress = address;
         }
         
         // Check that we won't overflow the buffer
@@ -856,8 +859,11 @@ protected:
         }
         
         // Copy new data to accumulator
-        std::copy(packet.data.begin() + 4, packet.data.begin() + 4 + dataSize, 
-                  accumulationBuffer.begin() + accumulatedSize);
+        std::copy(
+        	packet.data.begin(),
+			packet.data.begin() + dataSize,
+			accumulationBuffer.begin() + accumulatedSize
+		);
         accumulatedSize += dataSize;
         
         // Process accumulated data
@@ -888,33 +894,32 @@ protected:
             return;
         }
         
-        if (packet.length < 8) {
-            SendError(currentSequence, BootloaderStatus::InvalidParameters);
+        // Check if we have data to read
+        if (bytesWritten == 0) {
+            SendResponse(BootloaderStatus::EndOfData);
             return;
         }
         
-        uint32 address = *reinterpret_cast<const uint32*>(&packet.data[0]);
-        uint32 size = *reinterpret_cast<const uint32*>(&packet.data[4]);
-        
-        if (size > 240) {
-            SendError(currentSequence, BootloaderStatus::InvalidParameters);
+        // Check if read position is beyond written data
+        if (readPosition >= bytesWritten) {
+            SendResponse(BootloaderStatus::EndOfData);
             return;
         }
         
-        // Check address range
-        if (!IsValidMemoryRange(address, size)) {
-            SendError(currentSequence, BootloaderStatus::InvalidParameters);
-            return;
-        }
+        // Calculate how much data we can read
+        uint32 remainingData = bytesWritten - readPosition;
+        uint32 sizeToRead = std::min(remainingData, static_cast<uint32>(240));
+        uint32 address = GetApplicationStartAddress() + readPosition;
         
         state = State::Processing;
         
         std::array<uint8, 240> readData{};
-        std::span<uint8> dataSpan(readData.data(), size);
+        std::span<uint8> dataSpan(readData.data(), sizeToRead);
         
+        // Read decrypted data directly from Flash (no additional crypto needed)
         auto status = OnReadMemory(address, dataSpan);
         if (status == Status::ok) {
-            // Encrypt data (may change size)
+            // Data in Flash is already decrypted, encrypt for transmission
             auto encryptedData = OnEncryptData(dataSpan);
             
             // Check that encryption was successful
@@ -924,6 +929,7 @@ protected:
             // Check that encrypted data will fit in response
             else if (encryptedData.size() <= 240) {
                 SendResponse(BootloaderStatus::Success, encryptedData);
+                readPosition += sizeToRead;  // Advance read position
             } else {
                 SendError(currentSequence, BootloaderStatus::Error);
             }
@@ -937,7 +943,7 @@ protected:
 
 
     void HandleVerify() {
-        if (IsValidFirmware()) {
+        if (CheckFirmware()) {
             SendResponse(BootloaderStatus::Success);
         } else {
             SendError(currentSequence, BootloaderStatus::Error);
@@ -965,6 +971,20 @@ protected:
     
 
 
+    void HandleResetWritePos() {
+        writePosition = 0;
+        SendResponse(BootloaderStatus::Success);
+    }
+    
+
+
+    void HandleResetReadPos() {
+        readPosition = 0;
+        SendResponse(BootloaderStatus::Success);
+    }
+    
+
+
     void HandleStart() {
         if (StartApplication()) {
             SendResponse(BootloaderStatus::Success);
@@ -978,8 +998,9 @@ protected:
 
     void HandleReset() {
         SendResponse(BootloaderStatus::Success);
-        System::DelayMs(100);
-        NVIC_SystemReset();
+
+        // Reset after ms
+        resetTime = System::GetMs() + 150;
     }
     
 
@@ -993,8 +1014,10 @@ protected:
         status.state = static_cast<uint8>(state);
         status.bytesReceived = bytesReceived;
         
-        SendResponse(BootloaderStatus::Success,
-                    std::span(reinterpret_cast<const uint8*>(&status), sizeof(status)));
+        SendResponse(
+        	BootloaderStatus::Success,
+            std::span(reinterpret_cast<const uint8*>(&status), sizeof(status))
+        );
     }
     
     
@@ -1181,7 +1204,7 @@ protected:
     // Returns true if processing was successful, false on error
     bool ProcessAccumulatedData() {
         // If this is first write to start address - create header
-        if (isFirstWrite && currentWriteAddress == GetMemoryStartAddress()) {
+        if (isFirstWrite && writePosition == 0) {
             if (!CreateInitialFirmwareHeader()) {
                 state = State::Error;
                 return false;
@@ -1227,11 +1250,8 @@ protected:
                 return false;
             }
             
-            // Calculate write address (with header offset if writing to start)
-            uint32 writeAddress = currentWriteAddress + bytesWritten;
-            if (currentWriteAddress == GetMemoryStartAddress()) {
-                writeAddress += sizeof(FirmwareHeader);  // Shift after header
-            }
+            // Calculate write address from current stream position
+            uint32 writeAddress = GetApplicationStartAddress() + writePosition;
             
             // Check address validity for writing
             if (!IsValidMemoryRange(writeAddress, decryptedData.size())) {
@@ -1247,6 +1267,7 @@ protected:
             }
             
             bytesWritten += decryptedData.size();  // Real data (after decryption)
+            writePosition += decryptedData.size();  // Update position for next write
             processedBytes += bytesToProcess;
         }
         
