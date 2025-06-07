@@ -131,6 +131,12 @@ protected:
     uint32 writePosition = 0;  // Current position for writing firmware data
     uint32 readPosition = 0;   // Current position for reading firmware data
     
+    // Last operation state for retry functionality
+    uint32 lastWritePosition = 0;  // Position before last write operation
+    uint32 lastReadPosition = 0;   // Position before last read operation
+    std::array<uint8, 256> lastWriteData{};  // Last written data for retry
+    size_t lastWriteSize = 0;      // Size of last write operation
+    
     // Current state
     enum class State {
         Idle,       // Waiting for commands
@@ -869,12 +875,34 @@ protected:
             return;
         }
         
-        // Copy new data to accumulator
-        std::copy(
-        	packet.data.begin(),
-			packet.data.begin() + dataSize,
-			accumulationBuffer.begin() + accumulatedSize
-		);
+        // Handle retry logic
+        if (isRetry) {
+            // For retry, restore previous position and use saved data
+            if (lastWriteSize == 0) {
+                SendError(currentSequence, BootloaderStatus::InvalidCommand);
+                return;
+            }
+            writePosition = lastWritePosition;
+            dataSize = lastWriteSize;
+            // Clear accumulator and use saved data
+            accumulatedSize = 0;
+            std::copy(
+            	lastWriteData.begin(),
+				lastWriteData.begin() + dataSize,
+                accumulationBuffer.begin()
+			);
+        } else {
+            // Normal write - save state for future retry
+            lastWritePosition = writePosition;
+            lastWriteSize = dataSize;
+            std::copy(packet.data.begin(), packet.data.begin() + dataSize, lastWriteData.begin());
+            
+            std::copy(
+            	packet.data.begin(),
+    			packet.data.begin() + dataSize,
+    			accumulationBuffer.begin() + accumulatedSize
+    		);
+        }
         accumulatedSize += dataSize;
         
         // Process accumulated data
@@ -893,7 +921,7 @@ protected:
     
 
 
-    void HandleRead(const CommandPacket& packet) {
+    void HandleRead(const CommandPacket& packet, bool isRetry = false) {
         if (state == State::Processing) {
             SendError(currentSequence, BootloaderStatus::Busy);
             return;
@@ -917,14 +945,23 @@ protected:
             return;
         }
         
+        // Handle retry logic
+        if (isRetry) {
+            // For retry, restore previous position and re-read
+            readPosition = lastReadPosition;
+        } else {
+            // Normal read - save state for future retry
+            lastReadPosition = readPosition;
+        }
+        
         // Calculate how much data we can read
         uint32 remainingData = bytesWritten - readPosition;
-        uint32 sizeToRead = std::min(remainingData, static_cast<uint32>(240));
+        uint32 sizeToRead = std::min(remainingData, static_cast<uint32>(PackedBufferSize));
         uint32 address = GetApplicationStartAddress() + readPosition;
         
         state = State::Processing;
         
-        std::array<uint8, 240> readData{};
+        std::array<uint8, PackedBufferSize> readData{};
         std::span<uint8> dataSpan(readData.data(), sizeToRead);
         
         // Read decrypted data directly from Flash (no additional crypto needed)
@@ -938,9 +975,11 @@ protected:
                 SendError(currentSequence, BootloaderStatus::CryptoError);
             }
             // Check that encrypted data will fit in response
-            else if (encryptedData.size() <= 240) {
+            else if (encryptedData.size() <= PackedBufferSize) {
                 SendResponse(BootloaderStatus::Success, encryptedData);
-                readPosition += sizeToRead;  // Advance read position
+                if (!isRetry) {
+                    readPosition += sizeToRead;  // Advance read position only for normal reads
+                }
             } else {
                 SendError(currentSequence, BootloaderStatus::Error);
             }
