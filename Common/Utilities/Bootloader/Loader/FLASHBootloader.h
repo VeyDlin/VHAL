@@ -16,8 +16,8 @@
 // TEMPLATE PARAMETERS:
 // - RxBufferSize: receive buffer size (default 1024)
 // - AccumBufferSize: accumulation buffer size for encryption (default 512)
-template<size_t RxBufferSize = 1024, size_t AccumBufferSize = 512>
-class FLASHBootloader : public IBootloader<RxBufferSize, AccumBufferSize> {
+template<size_t RxBufferSize = 1024, size_t AccumBufferSize = 512, size_t PackedBufferSize = 240>
+class FLASHBootloader : public IBootloader<RxBufferSize, AccumBufferSize, PackedBufferSize> {
 protected:
     using FirmwareHeader = typename IBootloader<RxBufferSize, AccumBufferSize>::FirmwareHeader;
     

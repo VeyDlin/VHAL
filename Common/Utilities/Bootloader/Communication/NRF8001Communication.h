@@ -126,6 +126,7 @@ public:
             return Status::noBufferSpaceAvailable;
         }
         
+        System::console << Console::debug << "PUSH: " << data << Console::endl;
         for (uint8 byte : data) {
             txBuffer.Push(byte);
         }

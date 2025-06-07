@@ -37,7 +37,8 @@
 // TEMPLATE PARAMETERS:
 // RxBufferSize - receive data buffer size (default 1024)
 // AccumBufferSize - Write accumulation buffer size (default 512)
-template<size_t RxBufferSize = 1024, size_t AccumBufferSize = 512>
+// PackedBufferSize - TODO
+template<size_t RxBufferSize = 1024, size_t AccumBufferSize = 512, size_t PackedBufferSize = 240>
 class IBootloader {
 public:
     // User data handler function type
@@ -57,6 +58,8 @@ public:
         Finalize = 0x14,     // Finalize firmware (set valid status)
         ResetWritePos = 0x15, // Reset write position to 0
         ResetReadPos = 0x16,  // Reset read position to 0
+        RetryWrite = 0x17,   // Retry last write operation (no position change)
+        RetryRead = 0x18,    // Retry last read operation (no position change)
         Start = 0x20,        // Start application
         Reset = 0x21,        // Reset device
         GetStatus = 0x30,    // Get current status
@@ -100,7 +103,7 @@ public:
         uint8 sequence;          // Packet sequence number
         Command command;         // Command code
         uint8 length;            // Data length in packet
-        std::array<uint8, 240> data; // Command data
+        std::array<uint8, PackedBufferSize> data; // Command data
     } _APacked;
 
     // Response packet
@@ -109,7 +112,7 @@ public:
         uint8 sequence;          // Echo of sequence number
         BootloaderStatus status;           // Command execution status
         uint8 length;            // Response data length
-        std::array<uint8, 240> data; // Response data
+        std::array<uint8, PackedBufferSize> data; // Response data
     } _APacked;
 
 
@@ -680,11 +683,11 @@ protected:
                 break;
                 
             case Command::Write:
-                HandleWrite(packet);
+                HandleWrite(packet, false);
                 break;
                 
             case Command::Read:
-                HandleRead(packet);
+                HandleRead(packet, false);
                 break;
                 
             case Command::Verify:
@@ -701,6 +704,14 @@ protected:
                 
             case Command::ResetReadPos:
                 HandleResetReadPos();
+                break;
+                
+            case Command::RetryWrite:
+                HandleWrite(packet, true);
+                break;
+                
+            case Command::RetryRead:
+                HandleRead(packet, true);
                 break;
                 
             case Command::Start:
@@ -824,7 +835,7 @@ protected:
     
 
 
-    void HandleWrite(const CommandPacket& packet) {
+    void HandleWrite(const CommandPacket& packet, bool isRetry = false) {
         if (state == State::Processing) {
             SendError(currentSequence, BootloaderStatus::Busy);
             return;
@@ -1077,7 +1088,7 @@ protected:
         if (result.empty() && operation == 0) {
             // Read operation but no data returned - error
             SendError(currentSequence, BootloaderStatus::Error);
-        } else if (result.size() > 240) {
+        } else if (result.size() > PackedBufferSize) {
             // Response too large
             SendError(currentSequence, BootloaderStatus::Error);
         } else {
@@ -1086,6 +1097,7 @@ protected:
         }
     }
     
+
 
 
     void SendResponse(BootloaderStatus status, std::span<const uint8> data = {}) {
@@ -1274,9 +1286,11 @@ protected:
         // Shift unused data to beginning of buffer
         if (processedBytes < accumulatedSize) {
             size_t remainingBytes = accumulatedSize - processedBytes;
-            std::copy(accumulationBuffer.begin() + processedBytes,
-                     accumulationBuffer.begin() + accumulatedSize,
-                     accumulationBuffer.begin());
+            std::copy(
+            	accumulationBuffer.begin() + processedBytes,
+                accumulationBuffer.begin() + accumulatedSize,
+                accumulationBuffer.begin()
+			);
             accumulatedSize = remainingBytes;
         } else {
             accumulatedSize = 0;
