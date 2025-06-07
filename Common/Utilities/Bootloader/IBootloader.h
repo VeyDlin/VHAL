@@ -589,6 +589,8 @@ protected:
             return false;
         }
         
+         //System::console << Console::debug << "TryProcessPacket: buffer size=" << receiveBuffer.Size() << Console::endl;
+        
         // Look for packet header
         while (receiveBuffer.Size() > 0) {
             auto peek = receiveBuffer.Peek();
@@ -665,6 +667,7 @@ protected:
 
     void ProcessCommand(const CommandPacket& packet) {
         currentSequence = packet.sequence;
+        System::console << Console::debug << "ProcessCommand: " << Console::hex((uint8)packet.command) << Console::endl;
         
         switch (packet.command) {
             case Command::Ping:
@@ -724,6 +727,7 @@ protected:
                 break;
                 
             default:
+            	System::console << Console::error << "InvalidCommand" << Console::endl;
                 SendError(packet.sequence, BootloaderStatus::InvalidCommand);
                 break;
         }
@@ -883,6 +887,7 @@ protected:
 
 
     void HandleRead(const CommandPacket& packet) {
+        System::console << Console::debug << "HandleRead called" << Console::endl;
         if (state == State::Processing) {
             SendError(currentSequence, BootloaderStatus::Busy);
             return;
@@ -895,13 +900,16 @@ protected:
         }
         
         // Check if we have data to read
+        System::console << Console::debug << "bytesWritten=" << bytesWritten << " readPosition=" << readPosition << Console::endl;
         if (bytesWritten == 0) {
+            System::console << Console::debug << "EndOfData: no data written" << Console::endl;
             SendResponse(BootloaderStatus::EndOfData);
             return;
         }
         
         // Check if read position is beyond written data
         if (readPosition >= bytesWritten) {
+            System::console << Console::debug << "EndOfData: readPosition >= bytesWritten" << Console::endl;
             SendResponse(BootloaderStatus::EndOfData);
             return;
         }
