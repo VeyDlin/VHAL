@@ -21,7 +21,7 @@
 #define DYNAMIC_DATA_SIZE                       (DYNAMIC_DATA_MAX_CHUNK_SIZE * 6)
 
 #ifdef NRF_8001_DEBUG
-	#include <System/Console.h>
+	#include <Utilities/Console/Console.h>
 #endif
 
 class nRF8001: protected BLEDevice {

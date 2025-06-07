@@ -1,6 +1,9 @@
 #include "System.h"
 #include <Utilities/Console/Console.h>
 #include <string_view>
+#ifdef USE_SYSTEM_CONSOLE
+	#include <Utilities/Console/Console.h>
+#endif
 
 
 volatile uint64 System::tickCounter = 0;
@@ -164,19 +167,11 @@ void System::CriticalError(const char* message, const char* file, uint32_t line)
 #ifdef USE_SYSTEM_CONSOLE
 	extern "C" {
 		int _read(int file, char *ptr, int len) {
-			// Only use console if read handler was set
-			if (ConsoleDetector::IsRead()) {
-				return System::console.Read(ptr, len);
-			}
-			return 0;
+			return System::console.Read(ptr, len);
 		}
 
 		int _write(int file, char *ptr, int len) {
-			// Only use console if write handler was set
-			if (ConsoleDetector::IsWrite()) {
-				return System::console.Write(reinterpret_cast<const char*>(ptr), len);
-			}
-			return len;  // Pretend we wrote everything
+			return System::console.Write(reinterpret_cast<const char*>(ptr), len);
 		}
 	}
 #endif

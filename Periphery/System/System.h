@@ -23,12 +23,10 @@
 	#define SystemAbort(...) System::Abort()
 #endif
 
-
-extern uint32 SystemCoreClock;
-
 #ifdef USE_SYSTEM_CONSOLE
 	class Console;
 #endif
+extern uint32 SystemCoreClock;
 
 
 class System {
