@@ -7,6 +7,7 @@
 #include "Manipulator/TimestampManipulator.h"
 #include <functional>
 #include <string_view>
+#include <span>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -128,6 +129,12 @@ public:
     }
 
 
+    Console& operator<<(bool value) {
+        Write(value);
+        return *this;
+    }
+
+
     Console& operator<<(const std::string_view& value) {
         Write(value);
         return *this;
@@ -147,6 +154,18 @@ public:
 
     Console& operator<<(const HexManipulator& hex) {
         WriteBuffer(hex.getData(), hex.getSize());
+        return *this;
+    }
+
+
+    Console& operator<<(std::span<const uint8> hex) {
+        WriteBuffer(const_cast<uint8*>(hex.data()), hex.size());
+        return *this;
+    }
+
+
+    Console& operator<<(std::span<uint8> hex) {
+        WriteBuffer(hex.data(), hex.size());
         return *this;
     }
 
