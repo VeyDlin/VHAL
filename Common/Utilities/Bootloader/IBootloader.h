@@ -37,7 +37,8 @@
 // TEMPLATE PARAMETERS:
 // RxBufferSize - receive data buffer size (default 1024)
 // AccumBufferSize - Write accumulation buffer size (default 512)
-template<size_t RxBufferSize = 1024, size_t AccumBufferSize = 512>
+// PacketDataMaxSize - TODO
+template<size_t RxBufferSize = 1024, size_t AccumBufferSize = 512, size_t PacketDataMaxSize = 240>
 class IBootloader {
 public:
     // User data handler function type
@@ -100,7 +101,7 @@ public:
         uint8 sequence;          // Packet sequence number
         Command command;         // Command code
         uint8 length;            // Data length in packet
-        std::array<uint8, 240> data; // Command data
+        std::array<uint8, PacketDataMaxSize> data; // Command data
     } _APacked;
 
     // Response packet
@@ -109,7 +110,7 @@ public:
         uint8 sequence;          // Echo of sequence number
         BootloaderStatus status;           // Command execution status
         uint8 length;            // Response data length
-        std::array<uint8, 240> data; // Response data
+        std::array<uint8, PacketDataMaxSize> data; // Response data
     } _APacked;
 
 
@@ -916,12 +917,12 @@ protected:
         
         // Calculate how much data we can read
         uint32 remainingData = bytesWritten - readPosition;
-        uint32 sizeToRead = std::min(remainingData, static_cast<uint32>(240));
+        uint32 sizeToRead = std::min(remainingData, static_cast<uint32>(PacketDataMaxSize));
         uint32 address = GetApplicationStartAddress() + readPosition;
         
         state = State::Processing;
         
-        std::array<uint8, 240> readData{};
+        std::array<uint8, PacketDataMaxSize> readData{};
         std::span<uint8> dataSpan(readData.data(), sizeToRead);
         
         // Read decrypted data directly from Flash (no additional crypto needed)
@@ -935,7 +936,7 @@ protected:
                 SendError(currentSequence, BootloaderStatus::CryptoError);
             }
             // Check that encrypted data will fit in response
-            else if (encryptedData.size() <= 240) {
+            else if (encryptedData.size() <= PacketDataMaxSize) {
                 SendResponse(BootloaderStatus::Success, encryptedData);
                 readPosition += sizeToRead;  // Advance read position
             } else {
@@ -1085,7 +1086,7 @@ protected:
         if (result.empty() && operation == 0) {
             // Read operation but no data returned - error
             SendError(currentSequence, BootloaderStatus::Error);
-        } else if (result.size() > 240) {
+        } else if (result.size() > PacketDataMaxSize) {
             // Response too large
             SendError(currentSequence, BootloaderStatus::Error);
         } else {

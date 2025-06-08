@@ -27,8 +27,8 @@
 //   AESFLASHBootloader<AESKeySize::AES256> bootloader(uart, flash, 
 //                                                     AESMode::CBC, key, 
 //                                                     0x08004000, 0x7C000, iv);
-template<AESKeySize KeySize, size_t RxBufferSize = 1024, size_t AccumBufferSize = 512>
-class AESFLASHBootloader : public FLASHBootloader<RxBufferSize, AccumBufferSize> {
+template<AESKeySize KeySize, size_t RxBufferSize = 1024, size_t AccumBufferSize = 512, size_t PacketDataMaxSize = 240>
+class AESFLASHBootloader : public FLASHBootloader<RxBufferSize, AccumBufferSize, PacketDataMaxSize> {
 protected:
     AESMode aesMode;
     AES<KeySize> aes;
