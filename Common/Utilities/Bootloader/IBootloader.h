@@ -169,6 +169,9 @@ protected:
     
     // Reset
     uint64 resetTime = 0;
+    
+    // Bootloader version
+    uint64 bootloaderVersionValue = 0x00010000;
 
 
 public:
@@ -243,6 +246,12 @@ public:
     // Set user data handler
     void SetUserDataHandler(UserDataHandler handler) {
         userDataHandler = handler;
+    }
+
+
+    // Set bootloader version
+    void SetBootloaderVersion(uint64 version) {
+        bootloaderVersionValue = version;
     }
 
 
@@ -745,7 +754,7 @@ protected:
 
     void HandleGetInfo() {
         struct DeviceInfo {
-            uint32 bootloaderVersion = 0x00010000;
+            uint64 bootloaderVersion;
             uint32 maxPacketSize;
             uint32 memoryStart;
             uint32 memorySize;
@@ -754,6 +763,7 @@ protected:
             uint8 reserved[2];      // Alignment
         } info;
         
+        info.bootloaderVersion = bootloaderVersionValue;
         info.maxPacketSize = communication.GetMaxPacketSize();
         info.memoryStart = GetMemoryStartAddress();
         info.memorySize = GetMemorySize();
