@@ -440,15 +440,13 @@ private:
 
 
     void ProcessTxBuffer() {
-        static uint32 lastSendTime = 0;
         static size_t currentPacketSize = 0;
         static std::array<uint8, BLE_PACKET_SIZE> currentPacket;
+        static size_t expectedWrapperSize = 0;  // Expected size of current wrapper packet
         
         if (!txCharacteristic.canNotify()) {
             return;
         }
-        
-        uint32 now = System::GetMs();
         
         // Accumulate bytes into current packet (non-blocking)
         while (!txBuffer.IsEmpty() && currentPacketSize < BLE_PACKET_SIZE) {
@@ -457,26 +455,47 @@ private:
                 currentPacket[currentPacketSize++] = result.data;
             }
             
+            // Check if we can determine wrapper packet size
+            if (expectedWrapperSize == 0 && currentPacketSize >= 4) {
+                // Check for wrapper header: [0xCC][SEQ][TYPE][LEN]
+                if (currentPacket[0] == 0xCC) {
+                    uint8 payloadLen = currentPacket[3];
+                    if (payloadLen <= 14) {  // Valid payload length
+                        expectedWrapperSize = 4 + payloadLen + 2;  // Header + payload + CRC16
+                    }
+                }
+            }
+            
+            // Send if we have complete wrapper packet
+            if (expectedWrapperSize > 0 && currentPacketSize >= expectedWrapperSize) {
+                auto tx = txCharacteristic.setValue(currentPacket.data(), expectedWrapperSize);
+                System::console << Console::debug << "TX(" << tx << "): " << Console::hex(currentPacket.data(), expectedWrapperSize) << Console::endl;
+                
+                // Shift remaining data to beginning
+                if (currentPacketSize > expectedWrapperSize) {
+                    std::memmove(currentPacket.data(), 
+                                currentPacket.data() + expectedWrapperSize, 
+                                currentPacketSize - expectedWrapperSize);
+                    currentPacketSize -= expectedWrapperSize;
+                } else {
+                    currentPacketSize = 0;
+                }
+                expectedWrapperSize = 0;  // Reset for next packet
+                break;  // Process one packet per call
+            }
+            
             // Limit bytes processed per call to avoid blocking
-            if (currentPacketSize >= 4) {  // Process max 4 bytes per call
+            if (currentPacketSize >= 8) {  // Process max 8 bytes per call
                 break;
             }
         }
         
-        // Send packet if complete or timeout
-        bool shouldSend = false;
+        // Fallback: send if buffer is full (shouldn't happen with proper wrapper packets)
         if (currentPacketSize >= BLE_PACKET_SIZE) {
-            shouldSend = true;  // Packet full
-        } else if (currentPacketSize > 0 && (now - lastSendTime >= POLL_INTERVAL_MS)) {
-            shouldSend = true;  // Timeout with partial data
-        }
-        
-        if (shouldSend && currentPacketSize > 0) {
             auto tx = txCharacteristic.setValue(currentPacket.data(), currentPacketSize);
-            System::console << Console::debug << "TX(" << tx << "): " << Console::hex(currentPacket.data(), currentPacketSize) << Console::endl;
-            
-            lastSendTime = now;
-            currentPacketSize = 0;  // Reset for next packet
+            System::console << Console::debug << "TX(FULL): " << Console::hex(currentPacket.data(), currentPacketSize) << Console::endl;
+            currentPacketSize = 0;
+            expectedWrapperSize = 0;
         }
     }
 
