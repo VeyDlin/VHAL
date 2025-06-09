@@ -179,6 +179,7 @@ protected:
             return status;
         }
         
+        System::console << Console::debug << "[FLASH] [WRITE] [" << Console::hex(address) << "] " << data << Console::endl;
         status = flashAdapter.WriteData(
             reinterpret_cast<uint32*>(address),
             data.data(),
@@ -202,6 +203,7 @@ protected:
             data[i] = result.data;
         }
         
+        System::console << Console::debug << "[FLASH] [READ] [" << Console::hex(address) << "] " << data << Console::endl;
         return Status::ok;
     }
     

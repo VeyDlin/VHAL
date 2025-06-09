@@ -13,6 +13,7 @@ private:
     ElementType buffer[BufferSize];
     uint16 readIndex;
     uint16 size;
+    uint16 uncommittedReadCount = 0;  // How many reads are uncommitted
 
 
 private:
@@ -109,6 +110,7 @@ public:
         System::CriticalSection(true);
         readIndex = 0;
         size = 0;
+        uncommittedReadCount = 0;
         System::CriticalSection(false);
     }
 
@@ -152,5 +154,76 @@ public:
         System::CriticalSection(false);
 
         return data;
+    }
+
+
+    // Peek at multiple elements without removing them
+    // Returns actual number of elements peeked (may be less than requested)
+    uint16 PeekMultiple(ElementType* outBuffer, uint16 count, uint16 offset = 0) const {
+        System::CriticalSection(true);
+        
+        // Can't peek more than we have
+        if (offset >= size) {
+            System::CriticalSection(false);
+            return 0;
+        }
+        
+        uint16 available = size - offset;
+        uint16 toPeek = (count < available) ? count : available;
+        
+        for (uint16 i = 0; i < toPeek; i++) {
+            uint32 index = static_cast<uint32>(readIndex) + offset + i;
+            if (index >= BufferSize) {
+                index -= BufferSize;
+            }
+            outBuffer[i] = buffer[static_cast<uint16>(index)];
+        }
+        
+        System::CriticalSection(false);
+        return toPeek;
+    }
+
+
+    // Mark elements as read but don't remove them yet
+    Status::statusType MarkRead(uint16 count) {
+        System::CriticalSection(true);
+        
+        if (count > size - uncommittedReadCount) {
+            System::CriticalSection(false);
+            return Status::error;  // Can't mark more than available
+        }
+        
+        uncommittedReadCount += count;
+        
+        System::CriticalSection(false);
+        return Status::ok;
+    }
+
+
+    // Commit all marked reads - actually remove them from buffer
+    void CommitReads() {
+        System::CriticalSection(true);
+        
+        while (uncommittedReadCount > 0) {
+            readIndex = (readIndex + 1) % BufferSize;
+            size--;
+            uncommittedReadCount--;
+        }
+        
+        System::CriticalSection(false);
+    }
+
+
+    // Rollback marked reads - cancel uncommitted reads
+    void RollbackReads() {
+        System::CriticalSection(true);
+        uncommittedReadCount = 0;
+        System::CriticalSection(false);
+    }
+
+
+    // Get number of uncommitted reads
+    uint16 GetUncommittedCount() const {
+        return uncommittedReadCount;
     }
 };

@@ -677,7 +677,7 @@ protected:
 
     void ProcessCommand(const CommandPacket& packet) {
         currentSequence = packet.sequence;
-        System::console << Console::debug << "ProcessCommand: " << Console::hex((uint8)packet.command) << Console::endl;
+        System::console << Console::endl << Console::debug << "ProcessCommand: " << Console::hex((uint8)packet.command) << Console::endl;
         
         switch (packet.command) {
             case Command::Ping:
@@ -1222,9 +1222,13 @@ protected:
     // Process accumulated data
     // Returns true if processing was successful, false on error
     bool ProcessAccumulatedData() {
+        System::console << Console::debug << "ProcessAccumulatedData: accumulatedSize=" << accumulatedSize 
+                       << " writePosition=" << writePosition << " isFirstWrite=" << isFirstWrite << Console::endl;
+        
         // If this is first write to start address - create header
         if (isFirstWrite && writePosition == 0) {
             if (!CreateInitialFirmwareHeader()) {
+                System::console << Console::debug << "Failed to create initial header" << Console::endl;
                 state = State::Error;
                 return false;
             }
@@ -1234,6 +1238,9 @@ protected:
         size_t processedBytes = 0;
         
         while (processedBytes < accumulatedSize) {
+            System::console << Console::debug << "Processing loop: processedBytes=" << processedBytes 
+                           << " accumulatedSize=" << accumulatedSize << Console::endl;
+            
             // Check if there's enough data for processing
             std::span<const uint8> remainingData(
                 accumulationBuffer.data() + processedBytes,
@@ -1241,6 +1248,7 @@ protected:
             );
             
             if (!OnHasEnoughData(remainingData)) {
+                System::console << Console::debug << "Not enough data for processing" << Console::endl;
                 // Not enough data, shift remainder to beginning of buffer
                 break;
             }

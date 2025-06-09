@@ -41,7 +41,8 @@
 // IMPORTANT: Process() must be called frequently enough to not miss BLE events
 // TEMPLATE PARAMETERS:
 // - BufferSize: TX/RX buffer size (default 512)
-template<size_t BufferSize = 512>
+// - MaxWindowSize: Maximum TX window size (default 20 for ~250 byte packets)
+template<size_t BufferSize = 512, size_t MaxWindowSize = 20>
 class NRF8001Communication : public ICommunication {
 protected:
 	ASPI& spi;
@@ -52,7 +53,7 @@ protected:
     BLEPeripheral ble;
     std::optional<BLECentral> central;
     
-    RingBuffer<uint8, BufferSize> txBuffer;
+    RingBuffer<uint8, BufferSize> txBuffer;        // Buffer for original data only
     RingBuffer<uint8, BufferSize> incomingBuffer;  // Buffer for incoming bytes to process one at a time
     
     bool connected = false;
@@ -90,25 +91,33 @@ protected:
     } rxState = RxState::WaitingHeader;
     
     WrapperHeader currentHeader;
-    std::array<uint8, BLE_PACKET_SIZE> rxPacketBuffer;
+    std::array<uint8, 256> rxPacketBuffer;  // Large enough for max bootloader packet
     size_t rxBytesReceived = 0;
     
-    // Retransmission management
-    struct PendingPacket {
-        std::array<uint8, BLE_PACKET_SIZE> data;
-        size_t size = 0;
-        uint32 sentTime = 0;
-        uint8 retryCount = 0;
-        bool waitingAck = false;
+    // Retransmission management - NEW approach with commit
+    struct SequenceInfo {
+        uint16 dataSize = 0;       // Size of data for this sequence
+        uint32 sentTime = 0;       // When packet was sent
+        uint8 retryCount = 0;      // Number of retries
+        bool waitingAck = false;   // Is waiting for ACK
     };
     
-    static constexpr size_t TX_WINDOW_SIZE = 4;      // Sliding window size
     static constexpr uint32 ACK_TIMEOUT_MS = 300;    // 300ms timeout for ACK
+    static constexpr uint32 MIN_RETRY_INTERVAL_MS = 100;  // Minimum 100ms between retries
     static constexpr uint8 MAX_RETRIES = 3;          // Maximum retry attempts
     
-    std::array<PendingPacket, 256> txWindow;         // Indexed by sequence number
+    std::array<SequenceInfo, 256> sequenceInfo;      // Info about each sequence
     uint8 txWindowStart = 0;                          // First unacknowledged sequence
     uint8 txWindowEnd = 0;                            // Next sequence to send
+    uint32 lastRetryTime = 0;                         // Time of last retry attempt
+    
+    // Dynamic window size based on data size
+    static constexpr size_t CalculateMaxWindowSize(size_t maxDataSize) {
+        // Max bootloader packet size + overhead / wrapper payload size
+        return (maxDataSize + 4 + PAYLOAD_SIZE - 1) / PAYLOAD_SIZE + 2;
+    }
+    
+    static constexpr size_t TX_WINDOW_SIZE = MaxWindowSize;
     
     // Last received sequences for duplicate detection
     std::array<bool, 256> rxReceived{};              // Tracks which sequences we've seen
@@ -196,7 +205,6 @@ public:
         if (connected) {
         	ProcessRetransmissions();   // Check for timeouts and retransmit
         	ProcessPendingControls();   // Send pending ACK/NACK
-        	ProcessTxBuffer();
         	ProcessOneIncomingByte();  // Process one incoming byte per iteration
         }
     }
@@ -273,9 +281,11 @@ private:
         txWindowStart = 0;
         txWindowEnd = 0;
         rxWindowStart = 0;
-        for (auto& packet : txWindow) {
-            packet.size = 0;
-            packet.waitingAck = false;
+        for (auto& info : sequenceInfo) {
+            info.dataSize = 0;
+            info.waitingAck = false;
+            info.sentTime = 0;
+            info.retryCount = 0;
         }
         rxReceived.fill(false);
     }
@@ -293,9 +303,11 @@ private:
         txWindowStart = 0;
         txWindowEnd = 0;
         rxWindowStart = 0;
-        for (auto& packet : txWindow) {
-            packet.size = 0;
-            packet.waitingAck = false;
+        for (auto& info : sequenceInfo) {
+            info.dataSize = 0;
+            info.waitingAck = false;
+            info.sentTime = 0;
+            info.retryCount = 0;
         }
         rxReceived.fill(false);
     }
@@ -353,7 +365,7 @@ private:
                 }
                 
                 // Prevent buffer overflow
-                if (rxBytesReceived >= BLE_PACKET_SIZE) {
+                if (rxBytesReceived >= rxPacketBuffer.size()) {
                     System::console << Console::debug << "RX buffer overflow, resetting" << Console::endl;
                     rxState = RxState::WaitingHeader;
                 }
@@ -439,65 +451,6 @@ private:
 
 
 
-    void ProcessTxBuffer() {
-        static size_t currentPacketSize = 0;
-        static std::array<uint8, BLE_PACKET_SIZE> currentPacket;
-        static size_t expectedWrapperSize = 0;  // Expected size of current wrapper packet
-        
-        if (!txCharacteristic.canNotify()) {
-            return;
-        }
-        
-        // Accumulate bytes into current packet (non-blocking)
-        while (!txBuffer.IsEmpty() && currentPacketSize < BLE_PACKET_SIZE) {
-            auto result = txBuffer.Pop();
-            if (result.IsOk()) {
-                currentPacket[currentPacketSize++] = result.data;
-            }
-            
-            // Check if we can determine wrapper packet size
-            if (expectedWrapperSize == 0 && currentPacketSize >= 4) {
-                // Check for wrapper header: [0xCC][SEQ][TYPE][LEN]
-                if (currentPacket[0] == 0xCC) {
-                    uint8 payloadLen = currentPacket[3];
-                    if (payloadLen <= 14) {  // Valid payload length
-                        expectedWrapperSize = 4 + payloadLen + 2;  // Header + payload + CRC16
-                    }
-                }
-            }
-            
-            // Send if we have complete wrapper packet
-            if (expectedWrapperSize > 0 && currentPacketSize >= expectedWrapperSize) {
-                auto tx = txCharacteristic.setValue(currentPacket.data(), expectedWrapperSize);
-                System::console << Console::debug << "TX(" << tx << "): " << Console::hex(currentPacket.data(), expectedWrapperSize) << Console::endl;
-                
-                // Shift remaining data to beginning
-                if (currentPacketSize > expectedWrapperSize) {
-                    std::memmove(currentPacket.data(), 
-                                currentPacket.data() + expectedWrapperSize, 
-                                currentPacketSize - expectedWrapperSize);
-                    currentPacketSize -= expectedWrapperSize;
-                } else {
-                    currentPacketSize = 0;
-                }
-                expectedWrapperSize = 0;  // Reset for next packet
-                break;  // Process one packet per call
-            }
-            
-            // Limit bytes processed per call to avoid blocking
-            if (currentPacketSize >= 8) {  // Process max 8 bytes per call
-                break;
-            }
-        }
-        
-        // Fallback: send if buffer is full (shouldn't happen with proper wrapper packets)
-        if (currentPacketSize >= BLE_PACKET_SIZE) {
-            auto tx = txCharacteristic.setValue(currentPacket.data(), currentPacketSize);
-            System::console << Console::debug << "TX(FULL): " << Console::hex(currentPacket.data(), currentPacketSize) << Console::endl;
-            currentPacketSize = 0;
-            expectedWrapperSize = 0;
-        }
-    }
 
 
 
@@ -520,37 +473,37 @@ private:
     
     
     
-    // New methods for reliable protocol
+    // New methods for reliable protocol with commit approach
     bool QueueDataPacket(std::span<const uint8> payload) {
-        // Create wrapped packet
-        WrapperHeader header;
-        header.sequence = txSequence;
-        header.type = PacketType::Data;
-        header.length = static_cast<uint8>(payload.size());
-        
-        // Build complete packet
-        auto& pending = txWindow[txSequence];
-        pending.size = 0;
-        
-        // Add header
-        auto headerBytes = reinterpret_cast<const uint8*>(&header);
-        for (size_t i = 0; i < sizeof(header); i++) {
-            pending.data[pending.size++] = headerBytes[i];
+        // Check window size
+        uint8 windowSize = (txWindowEnd - txWindowStart) & 0xFF;
+        if (windowSize >= TX_WINDOW_SIZE) {
+            System::console << Console::debug << "TX window full: size=" << static_cast<int>(windowSize) 
+                           << " max=" << TX_WINDOW_SIZE << Console::endl;
+            return false;
         }
         
-        // Add payload
+        System::console << Console::debug << "QueueDataPacket: seq=" << static_cast<int>(txSequence) 
+                         << " size=" << payload.size() << " windowSize=" << static_cast<int>(windowSize) << Console::endl;
+        
+        // Just add payload to txBuffer, we'll create wrapper on-the-fly
         for (uint8 byte : payload) {
-            pending.data[pending.size++] = byte;
+            if (txBuffer.Push(byte) != Status::ok) {
+                System::console << Console::error << "TX buffer full: freeSpace=" << txBuffer.GetFreeSpace() 
+                               << " totalSize=" << txBuffer.MaxSize() << Console::endl;
+                return false;
+            }
         }
         
-        // Add CRC16
-        uint16 crc = Crc::Calculate(payload.data(), payload.size(), crc16Table);
-        pending.data[pending.size++] = static_cast<uint8>(crc & 0xFF);
-        pending.data[pending.size++] = static_cast<uint8>((crc >> 8) & 0xFF);
+        // Mark this sequence info
+        auto& info = sequenceInfo[txSequence];
+        info.dataSize = static_cast<uint16>(payload.size());
+        info.sentTime = 0;  // Not sent yet
+        info.retryCount = 0;
+        info.waitingAck = true;
         
-        pending.sentTime = 0;  // Not sent yet
-        pending.retryCount = 0;
-        pending.waitingAck = true;
+        System::console << Console::debug << "Queued data: seq=" << static_cast<int>(txSequence) 
+                         << " dataSize=" << info.dataSize << " bufferUsed=" << txBuffer.Size() << Console::endl;
         
         // Advance sequence
         txSequence++;
@@ -565,6 +518,11 @@ private:
         static uint8 currentCheckSeq = 0;  // Remember where we left off
         uint32 now = System::GetMs();
         
+        // Throttle retransmissions to avoid spam
+        if (now - lastRetryTime < MIN_RETRY_INTERVAL_MS) {
+            return;
+        }
+        
         // Process only ONE packet per call to avoid blocking
         uint8 windowSize = (txWindowEnd - txWindowStart) & 0xFF;
         if (windowSize == 0) {
@@ -575,31 +533,92 @@ private:
         // Start from where we left off
         uint8 seq = currentCheckSeq;
         
+        // Calculate data offset from txWindowStart - accumulate all packet sizes before current seq
+        uint16 dataOffset = 0;
+        for (uint8 s = txWindowStart; s != seq; s++) {
+            dataOffset += sequenceInfo[s].dataSize;
+        }
+        
+        // Only log once per window start change to reduce spam
+        static uint8 lastLoggedWindowStart = 255;
+        if (txWindowStart != lastLoggedWindowStart) {
+            System::console << Console::debug << "ProcessRetransmissions: checking from seq=" << static_cast<int>(seq) 
+                           << " windowStart=" << static_cast<int>(txWindowStart) 
+                           << " windowEnd=" << static_cast<int>(txWindowEnd) << Console::endl;
+            lastLoggedWindowStart = txWindowStart;
+        }
+        
         // Find next packet that needs attention
         for (uint8 i = 0; i < windowSize; i++) {
-            auto& packet = txWindow[seq];
+            auto& info = sequenceInfo[seq];
             
-            if (packet.waitingAck && packet.size > 0) {
+            if (info.waitingAck && info.dataSize > 0) {
                 // Check if needs transmission or retransmission
-                if (packet.sentTime == 0 || (now - packet.sentTime > ACK_TIMEOUT_MS)) {
-                    if (packet.retryCount >= MAX_RETRIES) {
+                if (info.sentTime == 0 || (now - info.sentTime > ACK_TIMEOUT_MS)) {
+                    if (info.retryCount >= MAX_RETRIES) {
                         System::console << Console::error << "Packet " << static_cast<int>(seq) 
                                        << " failed after " << static_cast<int>(MAX_RETRIES) << " retries" << Console::endl;
                         // Mark as failed and advance window
-                        packet.waitingAck = false;
+                        info.waitingAck = false;
                         if (seq == txWindowStart) {
                             AdvanceTxWindow();
                         }
-                    } else if (txBuffer.GetFreeSpace() >= packet.size) {
-                        // Send or resend packet
-                        for (size_t i = 0; i < packet.size; i++) {
-                            txBuffer.Push(packet.data[i]);
-                        }
-                        packet.sentTime = now;
-                        packet.retryCount++;
+                    } else {
+                        // Build wrapper packet on-the-fly from txBuffer
+                        uint8 tempBuffer[PAYLOAD_SIZE];
+                        uint16 peeked = txBuffer.PeekMultiple(tempBuffer, info.dataSize, dataOffset);
                         
-                        System::console << Console::debug << "Sent packet seq=" << static_cast<int>(seq) 
-                                       << " retry=" << static_cast<int>(packet.retryCount) << Console::endl;
+                        // Only log if this is a retry (not first send)
+                        if (info.retryCount > 0) {
+                            System::console << Console::debug << "ProcessRetransmissions: seq=" << static_cast<int>(seq) 
+                                           << " dataSize=" << info.dataSize << " dataOffset=" << dataOffset 
+                                           << " peeked=" << peeked << " bufferSize=" << txBuffer.Size() << Console::endl;
+                        }
+                        
+                        if (peeked == info.dataSize) {
+                            // Create wrapper packet in local buffer
+                            std::array<uint8, BLE_PACKET_SIZE> wrapperPacket;
+                            size_t wrapperSize = 0;
+                            
+                            // Build header
+                            WrapperHeader header;
+                            header.sequence = seq;
+                            header.type = PacketType::Data;
+                            header.length = static_cast<uint8>(info.dataSize);
+                            
+                            auto headerBytes = reinterpret_cast<const uint8*>(&header);
+                            for (size_t i = 0; i < sizeof(header); i++) {
+                                wrapperPacket[wrapperSize++] = headerBytes[i];
+                            }
+                            
+                            // Add payload
+                            for (uint16 i = 0; i < peeked; i++) {
+                                wrapperPacket[wrapperSize++] = tempBuffer[i];
+                            }
+                            
+                            // Add CRC16
+                            uint16 crc = Crc::Calculate(tempBuffer, peeked, crc16Table);
+                            wrapperPacket[wrapperSize++] = static_cast<uint8>(crc & 0xFF);
+                            wrapperPacket[wrapperSize++] = static_cast<uint8>((crc >> 8) & 0xFF);
+                            
+                            // Send directly via BLE
+                            if (txCharacteristic.canNotify()) {
+                                auto tx = txCharacteristic.setValue(wrapperPacket.data(), wrapperSize);
+                                System::console << Console::debug << "TX(" << tx << "): " << Console::hex(wrapperPacket.data(), wrapperSize) << Console::endl;
+                                
+                                info.sentTime = now;
+                                info.retryCount++;
+                                lastRetryTime = now;  // Update last retry time
+                                
+                                System::console << Console::debug << "Sent packet seq=" << static_cast<int>(seq) 
+                                               << " retry=" << static_cast<int>(info.retryCount) << Console::endl;
+                            } else {
+                                System::console << Console::debug << "Cannot notify, skipping packet" << Console::endl;
+                            }
+                        } else {
+                            System::console << Console::error << "Failed to peek data: expected=" << info.dataSize 
+                                           << " got=" << peeked << Console::endl;
+                        }
                     }
                     
                     // Process only one packet per call
@@ -608,6 +627,7 @@ private:
                 }
             }
             
+            dataOffset += info.dataSize;
             seq = (seq + 1) & 0xFF;
             if (seq == txWindowEnd) {
                 break;
@@ -675,10 +695,12 @@ private:
         System::console << Console::debug << "Received ACK for seq=" << static_cast<int>(ackedSeq) << Console::endl;
         
         // Mark packet as acknowledged
-        auto& packet = txWindow[ackedSeq];
-        if (packet.waitingAck) {
-            packet.waitingAck = false;
-            packet.size = 0;  // Free the slot
+        auto& info = sequenceInfo[ackedSeq];
+        if (info.waitingAck) {
+            info.waitingAck = false;
+            
+            // DON'T mark data as read yet - wait until window advances
+            // This simplifies offset calculation
             
             // Advance window if this was the oldest unacked packet
             if (ackedSeq == txWindowStart) {
@@ -696,9 +718,9 @@ private:
         System::console << Console::debug << "Received NACK for seq=" << static_cast<int>(nackedSeq) << Console::endl;
         
         // Force immediate retransmission
-        auto& packet = txWindow[nackedSeq];
-        if (packet.waitingAck && packet.size > 0) {
-            packet.sentTime = 0;  // Force retransmission
+        auto& info = sequenceInfo[nackedSeq];
+        if (info.waitingAck && info.dataSize > 0) {
+            info.sentTime = 0;  // Force retransmission
         }
     }
     
@@ -712,9 +734,9 @@ private:
         
         // Mark all packets from resendFrom to current for retransmission
         for (uint8 seq = resendFrom; seq != txWindowEnd; seq++) {
-            auto& packet = txWindow[seq];
-            if (packet.waitingAck && packet.size > 0) {
-                packet.sentTime = 0;  // Force retransmission
+            auto& info = sequenceInfo[seq];
+            if (info.waitingAck && info.dataSize > 0) {
+                info.sentTime = 0;  // Force retransmission
             }
         }
     }
@@ -775,7 +797,8 @@ private:
     
     
     void SendControlPacket(PacketType type, uint8 targetSequence) {
-        if (txBuffer.GetFreeSpace() < 8) {  // Min size for control packet
+        if (!txCharacteristic.canNotify()) {
+            System::console << Console::debug << "Cannot send control packet - not ready" << Console::endl;
             return;
         }
         
@@ -784,7 +807,7 @@ private:
         header.type = type;
         header.length = 1;    // Contains target sequence
         
-        // Build packet
+        // Build packet in local buffer
         std::array<uint8, 8> packet;
         size_t size = 0;
         
@@ -802,10 +825,9 @@ private:
         packet[size++] = static_cast<uint8>(crc & 0xFF);
         packet[size++] = static_cast<uint8>((crc >> 8) & 0xFF);
         
-        // Send immediately
-        for (size_t i = 0; i < size; i++) {
-            txBuffer.Push(packet[i]);
-        }
+        // Send directly via BLE
+        auto tx = txCharacteristic.setValue(packet.data(), size);
+        System::console << Console::debug << "TX CONTROL(" << tx << "): " << Console::hex(packet.data(), size) << Console::endl;
         
         System::console << Console::debug << "Sent " << (type == PacketType::Ack ? "ACK" : 
                                                        type == PacketType::Nack ? "NACK" : "RESEND_FROM")
@@ -815,19 +837,41 @@ private:
     
     
     void AdvanceTxWindow() {
+        // Calculate how many bytes to remove from beginning
+        uint16 bytesToRemove = 0;
+        uint8 oldWindowStart = txWindowStart;
+        
         // Advance start to next unacked packet
-        while (txWindowStart != txWindowEnd && !txWindow[txWindowStart].waitingAck) {
+        while (txWindowStart != txWindowEnd && !sequenceInfo[txWindowStart].waitingAck) {
+            bytesToRemove += sequenceInfo[txWindowStart].dataSize;
             txWindowStart++;
+        }
+        
+        // Remove acknowledged data from txBuffer
+        if (bytesToRemove > 0) {
+            System::console << Console::debug << "Removing " << bytesToRemove << " acknowledged bytes from txBuffer" << Console::endl;
+            for (uint16 i = 0; i < bytesToRemove; i++) {
+                auto result = txBuffer.Pop();
+                if (!result.IsOk()) {
+                    System::console << Console::error << "Failed to pop from txBuffer!" << Console::endl;
+                    break;
+                }
+            }
+        }
+        
+        // Check if all packets in window are ACKed
+        if (txWindowStart == txWindowEnd) {
+            System::console << Console::debug << "All packets ACKed, window empty" << Console::endl;
         }
     }
 };
 
 
 using NRF8001CommunicationDefault = NRF8001Communication<>;
-using NRF8001CommunicationSmall = NRF8001Communication<256>;
-using NRF8001CommunicationLarge = NRF8001Communication<1024>;
+using NRF8001CommunicationSmall = NRF8001Communication<256, 10>;
+using NRF8001CommunicationLarge = NRF8001Communication<1024, 30>;
 
-template<size_t BufferSize>
-NRF8001Communication<BufferSize>* NRF8001Communication<BufferSize>::instance = nullptr;
+template<size_t BufferSize, size_t MaxWindowSize>
+NRF8001Communication<BufferSize, MaxWindowSize>* NRF8001Communication<BufferSize, MaxWindowSize>::instance = nullptr;
 
 
