@@ -170,9 +170,7 @@ public:
     }
 
     virtual size_t GetMaxPacketSize() const override {
-        // Return the payload size StreamingProtocol can handle
-        // BLE packet size minus StreamingProtocol overhead (header + CRC)
-        return BLE_PACKET_SIZE - sizeof(typename StreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::PacketHeader) - sizeof(uint16);
+        return BLE_PACKET_SIZE;
     }
 
 private:
