@@ -27,10 +27,10 @@ protected:
     bool connected = false;
     DataReceivedCallback dataCallback;
     
-    // Buffer for accumulating fragmented messages
-    std::array<uint8, BufferSize> messageBuffer;
-    size_t messageSize = 0;
-    uint32 currentStreamId = 0xFFFFFFFF;  // Invalid stream ID
+    // TX buffer for storing data during transmission
+    std::array<uint8, 240> txDataBuffer;  // Bootloader max command size
+    size_t txDataSize = 0;
+    bool txInProgress = false;
     
     // BLE service setup
     BLEService bootloaderService{"00004242-0000-1000-8000-00805F9B34FB"};
@@ -120,15 +120,39 @@ public:
             return Status::notReady;
         }
         
+        if (txInProgress) {
+            return Status::busy;  // Предыдущая передача не завершена
+        }
+        
+        if (data.size() > txDataBuffer.size()) {
+            return Status::noBufferSpaceAvailable;
+        }
+        
         System::console << Console::debug << "TX SEND: " << data << Console::endl;
         
-        // StreamingProtocol handles fragmentation, ACK/NACK, retries automatically!
-        auto result = protocol.Send(data);
+        // Копируем данные в наш буфер
+        std::copy(data.begin(), data.end(), txDataBuffer.begin());
+        txDataSize = data.size();
+        txInProgress = true;
+        
+        // Запускаем отправку через StreamingProtocol
+        auto result = protocol.Send(std::span<const uint8>(txDataBuffer.data(), txDataSize));
+        
+        System::console << Console::debug << "StreamingProtocol.Send result: " << static_cast<int>(result.status) 
+                       << " streamId: " << result.streamId << Console::endl;
         
         if (result.status == StreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::SendStatus::Success) {
+            // StreamingProtocol принял данные, они будут отправлены асинхронно
+            // txInProgress будет сброшен в HandleStreamComplete
             return Status::ok;
+        } else if (result.status == StreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::SendStatus::Busy) {
+            // Протокол занят - сбрасываем флаг чтобы можно было повторить позже
+            txInProgress = false;
+            return Status::busy;
         } else {
-            return Status::noBufferSpaceAvailable;
+            // Ошибка - сбрасываем флаг
+            txInProgress = false;
+            return Status::error;
         }
     }
 
@@ -167,7 +191,15 @@ private:
 
     // BLE packet transmission - called by StreamingProtocol
     bool SendBLEPacket(std::span<const uint8> data) {
-        if (!connected || data.size() > BLE_PACKET_SIZE) {
+        System::console << Console::debug << "SendBLEPacket called with " << data.size() << " bytes" << Console::endl;
+        
+        if (!connected) {
+            System::console << Console::error << "SendBLEPacket: not connected!" << Console::endl;
+            return false;
+        }
+        
+        if (data.size() > BLE_PACKET_SIZE) {
+            System::console << Console::error << "SendBLEPacket: data too large! " << data.size() << " > " << BLE_PACKET_SIZE << Console::endl;
             return false;
         }
         
@@ -178,47 +210,29 @@ private:
             return true;
         }
         
+        System::console << Console::error << "SendBLEPacket: setValue failed!" << Console::endl;
         return false;
     }
 
     // Handle received data from StreamingProtocol
     bool HandleReceivedData(uint32 streamId, uint16 fragmentIndex, uint16 totalFragments, std::span<const uint8> data) {
-        System::console << Console::debug << "RX DATA: stream=" << streamId 
-                         << " frag=" << fragmentIndex << "/" << totalFragments 
-                         << " data=" << data << Console::endl;
-        
-        // Single packet (no fragmentation)
-        if (totalFragments == 1) {
+        if (data.empty()) {
+            // Пустой span = сигнал сброса состояния для bootloader
+            System::console << Console::debug << "RX RESET: Protocol error - clearing bootloader state" << Console::endl;
             if (dataCallback) {
-                dataCallback(data);
+                dataCallback(data);  // Передаем пустой span как сигнал сброса
             }
             return true;
         }
         
-        // Handle fragmentation
-        if (streamId != currentStreamId || fragmentIndex == 0) {
-            // New stream or restart
-            currentStreamId = streamId;
-            messageSize = 0;
-        }
+        System::console << Console::debug << "RX STREAM: stream=" << streamId 
+                         << " frag=" << fragmentIndex << "/" << totalFragments 
+                         << " data=" << data << Console::endl;
         
-        // Check buffer space
-        if (messageSize + data.size() > messageBuffer.size()) {
-            System::console << Console::error << "Message buffer overflow!" << Console::endl;
-            return false;
-        }
-        
-        // Accumulate fragment
-        std::copy(data.begin(), data.end(), messageBuffer.begin() + messageSize);
-        messageSize += data.size();
-        
-        // If this is the last fragment, call the callback
-        if (fragmentIndex == totalFragments - 1) {
-            if (dataCallback) {
-                dataCallback(std::span<const uint8>(messageBuffer.data(), messageSize));
-            }
-            messageSize = 0;
-            currentStreamId = 0xFFFFFFFF;
+        // Передаем каждый валидный фрагмент НЕМЕДЛЕННО в bootloader
+        // Это streaming протокол - bootloader обработает данные по мере поступления
+        if (dataCallback) {
+            dataCallback(data);
         }
         
         return true; // Always accept data
@@ -228,8 +242,28 @@ private:
     void HandleStreamComplete(uint32 streamId, StreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::StreamResult result) {
         if (result == StreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::StreamResult::Success) {
             System::console << Console::debug << "Stream " << streamId << " completed successfully" << Console::endl;
+            
+            // Проблема: и входящие и исходящие потоки имеют streamId=0 для SINGLE_DATA
+            // Решение: txInProgress устанавливается только в SendData, поэтому сбрасываем его здесь
+            // только если он был установлен (т.е. это был наш исходящий поток)
+            if (txInProgress && streamId == 0) {
+                txInProgress = false;
+                System::console << Console::debug << "TX buffer released" << Console::endl;
+            }
         } else {
-            System::console << Console::debug << "Stream " << streamId << " failed: " << static_cast<int>(result) << Console::endl;
+            System::console << Console::error << "Stream " << streamId << " failed: " << static_cast<int>(result) << Console::endl;
+            
+            // Для любой ошибки потока уведомляем bootloader о сбросе состояния
+            if (dataCallback) {
+                System::console << Console::debug << "Signaling bootloader to reset partial data state" << Console::endl;
+                dataCallback(std::span<const uint8>());
+            }
+            
+            // Освобождаем TX буфер при ошибке, если он был занят
+            if (txInProgress && streamId == 0) {
+                txInProgress = false;
+                System::console << Console::debug << "TX buffer released on error" << Console::endl;
+            }
         }
     }
 
@@ -250,11 +284,16 @@ private:
 
     void OnConnected() {
         // Reset protocol state on new connection
-        // StreamingProtocol handles this internally
+        protocol.Reset();  // ВАЖНО: сбрасываем состояние протокола при новом подключении!
+        
+        // НЕ вызываем dataCallback - не нужно сбрасывать состояние bootloader при подключении
+        txInProgress = false;  // Сбрасываем флаг передачи
     }
 
     void OnDisconnected() {
         // Protocol will timeout any pending streams automatically
+        // НЕ вызываем dataCallback - не нужно сбрасывать состояние bootloader при отключении
+        txInProgress = false;  // Сбрасываем флаг передачи
     }
 
     // Static callback for BLE characteristic written event

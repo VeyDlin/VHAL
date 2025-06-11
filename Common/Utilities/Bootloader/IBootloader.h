@@ -579,6 +579,24 @@ protected:
 
     // Process received data
     void OnDataReceived(std::span<const uint8> data) {
+        if (data.empty()) {
+            // Пустой span = сигнал сброса состояния от протокола связи
+            System::console << Console::debug << "[BOOTLOADER] Protocol error - resetting state" << Console::endl;
+
+            // Очищаем все буферы и сбрасываем состояние
+            receiveBuffer.Clear();
+            accumulatedSize = 0;
+            state = State::Idle;
+            
+            // Сбрасываем асинхронные операции
+            if (asyncOp.type != AsyncOperation::None) {
+                asyncOp.type = AsyncOperation::None;
+                System::console << Console::debug << "[BOOTLOADER] Cancelled async operation" << Console::endl;
+            }
+            
+            return;
+        }
+        
         // Add data to buffer
         for (uint8 byte : data) {
             receiveBuffer.Push(byte);
