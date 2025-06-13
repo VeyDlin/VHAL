@@ -1,13 +1,13 @@
 #pragma once
 #include "../ICommunication.h"
 #include <Drivers/Wireless/NRF8001/BLEPeripheral.h>
-#include <Drivers/Interface/User/StreamingProtocol/StreamingProtocol.h>
+#include <Drivers/Interface/User/StreamingProtocol/CompactStreamingProtocol.h>
 #include <Utilities/Console/Console.h>
 #include <Utilities/Data/ByteConverter.h>
 #include <array>
 
-// Simplified NRF8001Communication using StreamingProtocol
-// This replaces the complex custom protocol with a proven, tested implementation
+// Simplified NRF8001Communication using CompactStreamingProtocol
+// This uses the optimized protocol for BLE constraints (4-byte header vs 13-byte)
 template<size_t MaxPacketCount = 4, size_t BufferSize = 512>
 class NRF8001Communication : public ICommunication {
 protected:
@@ -21,14 +21,14 @@ protected:
     BLEPeripheral ble;
     std::optional<BLECentral> central;
     
-    // StreamingProtocol handles all the complexity!
-    StreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount> protocol;
+    // CompactStreamingProtocol handles all the complexity with optimized headers!
+    CompactStreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount> protocol;
     
     bool connected = false;
     DataReceivedCallback dataCallback;
     
     // TX buffer for storing data during transmission
-    std::array<uint8, 240> txDataBuffer;  // Bootloader max command size
+    std::array<uint8, 256> txDataBuffer;  // Bootloader max command size + response header + encryption padding
     size_t txDataSize = 0;
     bool txInProgress = false;
     
@@ -64,12 +64,12 @@ public:
                 return this->SendBLEPacket(data);
             },
             // Data received callback - pass to ICommunication callback
-            [this](uint32 streamId, uint16 fragmentIndex, uint16 totalFragments, std::span<const uint8> data) -> bool {
-                return this->HandleReceivedData(streamId, fragmentIndex, totalFragments, data);
+            [this](uint8 fragmentIndex, std::span<const uint8> data) -> bool {
+                return this->HandleReceivedData(fragmentIndex, data);
             },
             // Stream complete callback - log completion
-            [this](uint32 streamId, StreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::StreamResult result) -> void {
-                this->HandleStreamComplete(streamId, result);
+            [this](CompactStreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::StreamResult result) -> void {
+                this->HandleStreamComplete(result);
             }
         )
     { }
@@ -98,7 +98,7 @@ public:
         connected = *central && central->connected();
         
         if (connected && !wasConnected) {
-            System::console << Console::separator() << Console::endl;
+            System::console << Console::endl << Console::endl << Console::separator() << Console::endl;
             System::console << Console::debug << "Connected" << Console::endl;
             OnConnected();
         } else if (!connected && wasConnected) {
@@ -110,21 +110,24 @@ public:
             // Process incoming BLE data
             ProcessIncomingBLE();
             
-            // Let StreamingProtocol handle all the protocol logic
+            // Let CompactStreamingProtocol handle all the protocol logic
             protocol.Process();
         }
     }
 
     virtual Status::statusType SendData(std::span<const uint8> data) override {
         if (!connected) {
+        	System::console << Console::debug << "TX SEND: [NOT CONNEXTED]" << Console::endl;
             return Status::notReady;
         }
         
         if (txInProgress) {
+        	System::console << Console::debug << "TX SEND: [BUSY]" << Console::endl;
             return Status::busy;  // Предыдущая передача не завершена
         }
         
         if (data.size() > txDataBuffer.size()) {
+        	System::console << Console::debug << "TX SEND: [NO SPACE] data.size()=" << data.size() << " txDataBuffer.size()=" << txDataBuffer.size()  << Console::endl;
             return Status::noBufferSpaceAvailable;
         }
         
@@ -135,17 +138,14 @@ public:
         txDataSize = data.size();
         txInProgress = true;
         
-        // Запускаем отправку через StreamingProtocol
+        // Запускаем отправку через CompactStreamingProtocol
         auto result = protocol.Send(std::span<const uint8>(txDataBuffer.data(), txDataSize));
         
-        System::console << Console::debug << "StreamingProtocol.Send result: " << static_cast<int>(result.status) 
-                       << " streamId: " << result.streamId << Console::endl;
-        
-        if (result.status == StreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::SendStatus::Success) {
-            // StreamingProtocol принял данные, они будут отправлены асинхронно
+        if (result.status == CompactStreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::SendStatus::Success) {
+            // CompactStreamingProtocol принял данные, они будут отправлены асинхронно
             // txInProgress будет сброшен в HandleStreamComplete
             return Status::ok;
-        } else if (result.status == StreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::SendStatus::Busy) {
+        } else if (result.status == CompactStreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::SendStatus::Busy) {
             // Протокол занят - сбрасываем флаг чтобы можно было повторить позже
             txInProgress = false;
             return Status::busy;
@@ -165,8 +165,8 @@ public:
     }
 
     virtual bool IsReadyToSend() const override {
-        // Ready if connected and StreamingProtocol has buffer space
-        return connected;  // StreamingProtocol manages its own buffers
+        // Ready if connected and CompactStreamingProtocol has buffer space
+        return connected;  // CompactStreamingProtocol manages its own buffers
     }
 
     virtual size_t GetMaxPacketSize() const override {
@@ -187,45 +187,33 @@ private:
         ble.addAttribute(txDescriptor);
     }
 
-    // BLE packet transmission - called by StreamingProtocol
+    // BLE packet transmission - called by CompactStreamingProtocol
     bool SendBLEPacket(std::span<const uint8> data) {
-        System::console << Console::debug << "SendBLEPacket called with " << data.size() << " bytes" << Console::endl;
-        
         if (!connected) {
-            System::console << Console::error << "SendBLEPacket: not connected!" << Console::endl;
             return false;
         }
         
         if (data.size() > BLE_PACKET_SIZE) {
-            System::console << Console::error << "SendBLEPacket: data too large! " << data.size() << " > " << BLE_PACKET_SIZE << Console::endl;
             return false;
         }
-        
-        System::console << Console::debug << "BLE TX: " << data << Console::endl;
         
         // Send via BLE notification
         if (txCharacteristic.setValue(data.data(), data.size())) {
             return true;
         }
         
-        System::console << Console::error << "SendBLEPacket: setValue failed!" << Console::endl;
         return false;
     }
 
-    // Handle received data from StreamingProtocol
-    bool HandleReceivedData(uint32 streamId, uint16 fragmentIndex, uint16 totalFragments, std::span<const uint8> data) {
+    // Handle received data from CompactStreamingProtocol
+    bool HandleReceivedData(uint8 fragmentIndex, std::span<const uint8> data) {
         if (data.empty()) {
             // Пустой span = сигнал сброса состояния для bootloader
-            System::console << Console::debug << "RX RESET: Protocol error - clearing bootloader state" << Console::endl;
             if (dataCallback) {
                 dataCallback(data);  // Передаем пустой span как сигнал сброса
             }
             return true;
         }
-        
-        System::console << Console::debug << "RX STREAM: stream=" << streamId 
-                         << " frag=" << fragmentIndex << "/" << totalFragments 
-                         << " data=" << data << Console::endl;
         
         // Передаем каждый валидный фрагмент НЕМЕДЛЕННО в bootloader
         // Это streaming протокол - bootloader обработает данные по мере поступления
@@ -237,30 +225,22 @@ private:
     }
 
     // Handle stream completion
-    void HandleStreamComplete(uint32 streamId, StreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::StreamResult result) {
-        if (result == StreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::StreamResult::Success) {
-            System::console << Console::debug << "Stream " << streamId << " completed successfully" << Console::endl;
-            
-            // Проблема: и входящие и исходящие потоки имеют streamId=0 для SINGLE_DATA
-            // Решение: txInProgress устанавливается только в SendData, поэтому сбрасываем его здесь
-            // только если он был установлен (т.е. это был наш исходящий поток)
-            if (txInProgress && streamId == 0) {
+    void HandleStreamComplete(CompactStreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::StreamResult result) {
+        if (result == CompactStreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::StreamResult::Success) {
+            // Release TX buffer if it was in progress (outgoing stream completed)
+            if (txInProgress) {
                 txInProgress = false;
-                System::console << Console::debug << "TX buffer released" << Console::endl;
             }
         } else {
-            System::console << Console::error << "Stream " << streamId << " failed: " << static_cast<int>(result) << Console::endl;
-            
+
             // Для любой ошибки потока уведомляем bootloader о сбросе состояния
             if (dataCallback) {
-                System::console << Console::debug << "Signaling bootloader to reset partial data state" << Console::endl;
                 dataCallback(std::span<const uint8>());
             }
             
             // Освобождаем TX буфер при ошибке, если он был занят
-            if (txInProgress && streamId == 0) {
+            if (txInProgress) {
                 txInProgress = false;
-                System::console << Console::debug << "TX buffer released on error" << Console::endl;
             }
         }
     }
@@ -272,9 +252,7 @@ private:
             auto length = rxCharacteristic.valueLength();
             
             if (length > 0) {
-                System::console << Console::debug << "BLE RX: " << std::span<const uint8>(data, length) << Console::endl;
-                
-                // Pass to StreamingProtocol for processing
+                // Pass to CompactStreamingProtocol for processing
                 protocol.DataReceived(std::span<const uint8>(data, length));
             }
         }

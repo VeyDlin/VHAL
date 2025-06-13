@@ -581,7 +581,6 @@ protected:
     void OnDataReceived(std::span<const uint8> data) {
         if (data.empty()) {
             // Пустой span = сигнал сброса состояния от протокола связи
-            System::console << Console::debug << "[BOOTLOADER] Protocol error - resetting state" << Console::endl;
 
             // Очищаем все буферы и сбрасываем состояние
             receiveBuffer.Clear();
@@ -591,7 +590,6 @@ protected:
             // Сбрасываем асинхронные операции
             if (asyncOp.type != AsyncOperation::None) {
                 asyncOp.type = AsyncOperation::None;
-                System::console << Console::debug << "[BOOTLOADER] Cancelled async operation" << Console::endl;
             }
             
             return;
@@ -616,8 +614,6 @@ protected:
         if (receiveBuffer.Size() < 4) { // header + seq + cmd + len
             return false;
         }
-        
-         //System::console << Console::debug << "TryProcessPacket: buffer size=" << receiveBuffer.Size() << Console::endl;
         
         // Look for packet header
         while (receiveBuffer.Size() > 0) {
@@ -695,8 +691,7 @@ protected:
 
     void ProcessCommand(const CommandPacket& packet) {
         currentSequence = packet.sequence;
-        System::console << Console::endl << Console::debug << "ProcessCommand: " << Console::hex((uint8)packet.command) << Console::endl;
-        
+
         switch (packet.command) {
             case Command::Ping:
                 HandlePing();
@@ -755,7 +750,6 @@ protected:
                 break;
                 
             default:
-            	System::console << Console::error << "InvalidCommand" << Console::endl;
                 SendError(packet.sequence, BootloaderStatus::InvalidCommand);
                 break;
         }
@@ -916,7 +910,6 @@ protected:
 
 
     void HandleRead(const CommandPacket& packet) {
-        System::console << Console::debug << "HandleRead called" << Console::endl;
         if (state == State::Processing) {
             SendError(currentSequence, BootloaderStatus::Busy);
             return;
@@ -929,16 +922,13 @@ protected:
         }
         
         // Check if we have data to read
-        System::console << Console::debug << "bytesWritten=" << bytesWritten << " readPosition=" << readPosition << Console::endl;
         if (bytesWritten == 0) {
-            System::console << Console::debug << "EndOfData: no data written" << Console::endl;
             SendResponse(BootloaderStatus::EndOfData);
             return;
         }
         
         // Check if read position is beyond written data
         if (readPosition >= bytesWritten) {
-            System::console << Console::debug << "EndOfData: readPosition >= bytesWritten" << Console::endl;
             SendResponse(BootloaderStatus::EndOfData);
             return;
         }
@@ -1137,7 +1127,7 @@ protected:
         
         // Send entire packet
         // CRC and other checks will be added by transport layer
-        communication.SendData(std::span(
+        auto sendStatus = communication.SendData(std::span(
             reinterpret_cast<const uint8*>(&response),
             offsetof(ResponsePacket, data) + response.length
         ));
@@ -1240,9 +1230,7 @@ protected:
     // Process accumulated data
     // Returns true if processing was successful, false on error
     bool ProcessAccumulatedData() {
-        System::console << Console::debug << "ProcessAccumulatedData: accumulatedSize=" << accumulatedSize 
-                       << " writePosition=" << writePosition << " isFirstWrite=" << isFirstWrite << Console::endl;
-        
+
         // If this is first write to start address - create header
         if (isFirstWrite && writePosition == 0) {
             if (!CreateInitialFirmwareHeader()) {
@@ -1256,9 +1244,7 @@ protected:
         size_t processedBytes = 0;
         
         while (processedBytes < accumulatedSize) {
-            System::console << Console::debug << "Processing loop: processedBytes=" << processedBytes 
-                           << " accumulatedSize=" << accumulatedSize << Console::endl;
-            
+
             // Check if there's enough data for processing
             std::span<const uint8> remainingData(
                 accumulationBuffer.data() + processedBytes,
