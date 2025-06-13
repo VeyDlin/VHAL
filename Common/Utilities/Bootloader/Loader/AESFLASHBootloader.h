@@ -124,7 +124,7 @@ protected:
             return std::span<uint8>();
         }
 
-        System::console << Console::debug << "[ENCRYPT] [IN] " << data << Console::endl;
+        //System::console << Console::debug << "[ENCRYPT] [IN] " << data << Console::endl;
 
         size_t outputSize = 0;
         
@@ -152,7 +152,7 @@ protected:
         // Clear source data for security reasons
         std::fill(data.begin(), data.end(), 0);
         
-        System::console << Console::debug << "[ENCRYPT] [RESULT] " << result << Console::endl;
+        //System::console << Console::debug << "[ENCRYPT] [RESULT] " << result << Console::endl;
 
         return result;
     }
@@ -165,7 +165,7 @@ protected:
             return std::span<uint8>();
         }
 
-        System::console << Console::debug << "[DECRYPT] [IN] " << data << Console::endl;
+        //System::console << Console::debug << "[DECRYPT] [IN] " << data << Console::endl;
 
         size_t outputSize = 0;
         
@@ -193,7 +193,7 @@ protected:
         // Clear encrypted data for security reasons
         std::fill(data.begin(), data.end(), 0);
         
-        System::console << Console::debug << "[DECRYPT] [RESULT] " << result << Console::endl;
+        //System::console << Console::debug << "[DECRYPT] [RESULT] " << result << Console::endl;
 
         return result;
     }

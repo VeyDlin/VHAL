@@ -1,6 +1,7 @@
 #pragma once
 #include <System/System.h>
 #include <Utilities/Buffer/RingBuffer.h>
+#include <Utilities/Console/Console.h>
 #include <span>
 #include <array>
 #include <cstring>
@@ -8,7 +9,7 @@
 #include <functional>
 
 
-template<size_t MaxPacketSize = 20, size_t MaxConcurrentStreams = 4>
+template<size_t MaxPacketSize = 20, size_t MaxPacketCount = 4>
 class CompactStreamingProtocol {
 public:
     enum class PacketType : uint8 {
@@ -52,10 +53,12 @@ private:
     DataReceivedCallback dataReceivedCallback;
     StreamCompleteCallback streamCompleteCallback;
     
-    RingBuffer<uint8, MaxPacketSize * 4> receiveBuffer;
+    RingBuffer<uint8, MaxPacketSize * MaxPacketCount> receiveBuffer; // TODO: 4??
     
-    // Fragment tracking for incoming data (streaming)
-    uint8 lastReceivedFragment = 255; // Initialize to invalid value
+    // Fragment tracking for incoming data (streaming) with deduplication
+    uint8 lastReceivedFragment = 255; // Initialize to invalid value  
+    std::array<uint8, MAX_PAYLOAD_SIZE> lastFragmentData;
+    size_t lastFragmentSize = 0;
     
     // Fragment transmission state
     std::array<uint8, 512> txBuffer;
@@ -64,6 +67,12 @@ private:
     uint8 txCurrentFragment = 0;
     bool txInProgress = false;
     uint32 txStartTime = 0;
+    
+    // Retry state
+    uint32 txFragmentSentTime = 0;
+    uint8 txRetries = 0;
+    static constexpr uint8 MAX_RETRIES = 3;
+    static constexpr uint32 FRAGMENT_TIMEOUT_MS = 5000; // 5 seconds
 
     static uint8 CalculateCRC8(std::span<const uint8> data) {
         uint8 crc = 0xFF;
@@ -89,18 +98,52 @@ public:
     void Reset() {
         receiveBuffer.Clear();
         lastReceivedFragment = 255;
+        lastFragmentSize = 0;
         txInProgress = false;
         txCurrentFragment = 0;
         txTotalFragments = 0;
         txDataSize = 0;
+        txFragmentSentTime = 0;
+        txRetries = 0;
     }
 
     void Process() {
         // Process incoming data and timeouts
         ProcessIncoming();
+        
+        // Debug: Show that Process() is being called during transmission
+        if (txInProgress) {
+            static uint32 lastDebugTime = 0;
+            uint32 currentTime = System::GetMs();
+            if (currentTime - lastDebugTime > 1000) { // Every 1 second
+                System::console << Console::debug << "Process: txInProgress=true, fragment=" << Console::dec(txCurrentFragment) << ", retries=" << Console::dec(txRetries) << ", timeSince=" << Console::dec(txFragmentSentTime > 0 ? currentTime - txFragmentSentTime : 0) << "ms" << Console::endl;
+                lastDebugTime = currentTime;
+            }
+        }
+        
+        // Check for fragment timeout during transmission
+        if (txInProgress && txFragmentSentTime > 0) {
+            uint32 currentTime = System::GetMs();
+            if (currentTime - txFragmentSentTime > FRAGMENT_TIMEOUT_MS) {
+                // Fragment timeout - retry or fail
+                if (txRetries < MAX_RETRIES) {
+                    txRetries++;
+                    System::console << Console::debug << "TX: Fragment " << Console::dec(txCurrentFragment) << " timeout, retry " << Console::dec(txRetries) << "/" << Console::dec(MAX_RETRIES) << Console::endl;
+                    // Retry current fragment
+                    RetryCurrentFragment();
+                } else {
+                    // Max retries exceeded
+                    System::console << Console::debug << "TX: Fragment " << Console::dec(txCurrentFragment) << " max retries exceeded" << Console::endl;
+                    txInProgress = false;
+                    if (streamCompleteCallback) {
+                        streamCompleteCallback(StreamResult::Timeout);
+                    }
+                }
+            }
+        }
     }
 
-    // Send data (automatically fragments if needed)
+    // Send data (unified fragmentation logic for 1+ fragments)
     SendResult Send(std::span<const uint8> data) {
         if (data.empty()) return {SendStatus::Success, 0};
         
@@ -108,20 +151,12 @@ public:
             return {SendStatus::Busy, 0};
         }
         
-        if (data.size() <= MAX_PAYLOAD_SIZE) {
-            // Single packet
-            if (SendSinglePacket(data)) {
-                return {SendStatus::Success, 0};
-            } else {
-                return {SendStatus::Error, 0};
-            }
+        // ALL data goes through unified fragmentation logic
+        // Single packet is just fragmented transmission with 1 fragment
+        if (StartFragmentedTransmission(data)) {
+            return {SendStatus::Success, 0};
         } else {
-            // Multiple fragments - start fragmented transmission
-            if (StartFragmentedTransmission(data)) {
-                return {SendStatus::Success, 0};
-            } else {
-                return {SendStatus::Error, 0};
-            }
+            return {SendStatus::Error, 0};
         }
     }
 
@@ -134,34 +169,6 @@ public:
     }
 
 private:
-    bool SendSinglePacket(std::span<const uint8> data) {
-        uint8 packet[MaxPacketSize];
-        
-        CompactPacketHeader* header = reinterpret_cast<CompactPacketHeader*>(packet);
-        header->typeAndFlags = static_cast<uint8>(PacketType::Data); // type=0, flags=0
-        header->payloadSize = data.size();
-        header->fragmentIndex = 0; // Single packet fragment index
-        
-        if (data.size() > 0) {
-            std::memcpy(packet + HEADER_SIZE, data.data(), data.size());
-        }
-        
-        size_t dataSize = HEADER_SIZE + data.size();
-        
-        // Add CRC
-        uint8 crc = CalculateCRC8(std::span<const uint8>(packet, dataSize));
-        packet[dataSize] = crc;
-        
-        size_t totalSize = dataSize + CRC_SIZE;
-
-        bool success = transmitCallback(std::span<const uint8>(packet, totalSize));
-        
-        if (success && streamCompleteCallback) {
-            streamCompleteCallback(StreamResult::Success);
-        }
-        
-        return success;
-    }
 
 
     void ProcessIncoming() {
@@ -214,18 +221,39 @@ private:
         }
         
         // For data packets - always send ACK first
+        System::console << Console::debug << "RX: Fragment " << Console::dec(header->fragmentIndex) << " received (" << Console::dec(payload.size()) << " bytes)" << Console::endl;
         SendAck(header->fragmentIndex);
         
-        // Pass data to callback immediately (streaming approach)
-        if (dataReceivedCallback) {
-            dataReceivedCallback(header->fragmentIndex, payload);
+        // Check for duplicate fragments - prevent data corruption from retries
+        bool isDuplicate = false;
+        if (header->fragmentIndex == lastReceivedFragment && 
+            payload.size() == lastFragmentSize &&
+            payload.size() <= MAX_PAYLOAD_SIZE &&
+            std::equal(payload.begin(), payload.end(), lastFragmentData.begin())) {
+            // This is a duplicate fragment - ignore data but ACK was already sent
+            System::console << Console::debug << "RX: Duplicate fragment " << Console::dec(header->fragmentIndex) << " ignored" << Console::endl;
+            isDuplicate = true;
+        }
+        
+        if (!isDuplicate) {
+            // New fragment - save it and pass to callback
+            lastReceivedFragment = header->fragmentIndex;
+            lastFragmentSize = payload.size();
+            if (payload.size() <= MAX_PAYLOAD_SIZE) {
+                std::copy(payload.begin(), payload.end(), lastFragmentData.begin());
+            }
+            
+            // Pass data to callback (streaming approach)
+            if (dataReceivedCallback) {
+                dataReceivedCallback(header->fragmentIndex, payload);
+            }
         }
         
         // Stream completion detection can be done by:
         // 1. Empty payload (end marker)
         // 2. Timeout in upper layer
         // 3. Application-specific logic
-        if (payload.empty() && streamCompleteCallback) {
+        if (!isDuplicate && payload.empty() && streamCompleteCallback) {
             streamCompleteCallback(StreamResult::Success);
         }
     }
@@ -262,8 +290,11 @@ private:
         txDataSize = data.size();
         txCurrentFragment = 0;
         txInProgress = true;
+        txRetries = 0;
+        txFragmentSentTime = 0;
         
         // Send first fragment
+        System::console << Console::debug << "TX: Starting transmission of " << Console::dec(data.size()) << " bytes in " << Console::dec(txTotalFragments) << " fragments" << Console::endl;
         return SendNextFragment();
     }
     
@@ -292,9 +323,53 @@ private:
         size_t totalSize = dataSize + CRC_SIZE;
 
         if (!transmitCallback(std::span<const uint8>(packet, totalSize))) {
-            txInProgress = false;
+            System::console << Console::debug << "TX: Failed to send fragment " << Console::dec(txCurrentFragment) << " (transmit failed)" << Console::endl;
+            // Don't abort transmission - let timeout/retry mechanism handle this
+            txFragmentSentTime = System::GetMs(); // Still set timeout for retry
+            return false; // Return false to indicate failure, but keep txInProgress = true
+        }
+        
+        // Record send time for timeout detection
+        txFragmentSentTime = System::GetMs();
+        System::console << Console::debug << "TX: Fragment " << Console::dec(txCurrentFragment) << "/" << Console::dec(txTotalFragments - 1) << " sent (" << Console::dec(fragSize) << " bytes)" << Console::endl;
+        
+        return true;
+    }
+    
+    bool RetryCurrentFragment() {
+        if (!txInProgress || txCurrentFragment >= txTotalFragments) {
             return false;
         }
+        
+        size_t offset = txCurrentFragment * MAX_PAYLOAD_SIZE;
+        size_t fragSize = std::min(static_cast<size_t>(MAX_PAYLOAD_SIZE), txDataSize - offset);
+        
+        uint8 packet[MaxPacketSize];
+        CompactPacketHeader* header = reinterpret_cast<CompactPacketHeader*>(packet);
+        header->typeAndFlags = static_cast<uint8>(PacketType::Data);
+        header->payloadSize = fragSize;
+        header->fragmentIndex = txCurrentFragment;
+        
+        std::memcpy(packet + HEADER_SIZE, txBuffer.data() + offset, fragSize);
+        
+        size_t dataSize = HEADER_SIZE + fragSize;
+        
+        // Add CRC
+        uint8 crc = CalculateCRC8(std::span<const uint8>(packet, dataSize));
+        packet[dataSize] = crc;
+        
+        size_t totalSize = dataSize + CRC_SIZE;
+
+        if (!transmitCallback(std::span<const uint8>(packet, totalSize))) {
+            System::console << Console::debug << "TX: Retry fragment " << Console::dec(txCurrentFragment) << " failed (transmit failed)" << Console::endl;
+            // Don't abort transmission - let timeout/retry mechanism handle this
+            txFragmentSentTime = System::GetMs(); // Still set timeout for retry
+            return false; // Return false to indicate failure, but keep txInProgress = true
+        }
+        
+        // Record send time for timeout detection
+        txFragmentSentTime = System::GetMs();
+        System::console << Console::debug << "TX: Retry fragment " << Console::dec(txCurrentFragment) << " sent successfully" << Console::endl;
         
         return true;
     }
@@ -306,10 +381,17 @@ private:
         
         // Check if this ACK is for the fragment we just sent
         if (fragmentIndex == txCurrentFragment) {
+            System::console << Console::debug << "RX: ACK " << Console::dec(fragmentIndex) << " received" << Console::endl;
+            
+            // Reset retry counter for next fragment
+            txRetries = 0;
+            txFragmentSentTime = 0;
+            
             txCurrentFragment++;
             
             if (txCurrentFragment >= txTotalFragments) {
                 // All fragments sent successfully
+                System::console << Console::debug << "TX: All fragments sent successfully" << Console::endl;
                 txInProgress = false;
                 
                 if (streamCompleteCallback) {

@@ -65,6 +65,11 @@ public:
             },
             // Data received callback - pass to ICommunication callback
             [this](uint8 fragmentIndex, std::span<const uint8> data) -> bool {
+            	// TODO: мы ведь при rety росто повторно запишем данные?
+            	// возможно стоит тут ранить послейдний fragmentIndex и последний пакет std::span<const uint8> data копировать,
+            	// при новом пакеты записывать предыдущий а при Stream complete записывать последний,
+            	// при этом ничего не записывать если индекс тот же что и предыдущий в буфере,
+            	// так когда нам клиент шлет опять повторно пакет, мы не записываем записаное
                 return this->HandleReceivedData(fragmentIndex, data);
             },
             // Stream complete callback - log completion
@@ -117,21 +122,21 @@ public:
 
     virtual Status::statusType SendData(std::span<const uint8> data) override {
         if (!connected) {
-        	System::console << Console::debug << "TX SEND: [NOT CONNEXTED]" << Console::endl;
+        	System::console << Console::debug << "TX: [NOT CONNEXTED]" << Console::endl;
             return Status::notReady;
         }
         
         if (txInProgress) {
-        	System::console << Console::debug << "TX SEND: [BUSY]" << Console::endl;
+        	System::console << Console::debug << "TX: [BUSY 1]" << Console::endl;
             return Status::busy;  // Предыдущая передача не завершена
         }
         
         if (data.size() > txDataBuffer.size()) {
-        	System::console << Console::debug << "TX SEND: [NO SPACE] data.size()=" << data.size() << " txDataBuffer.size()=" << txDataBuffer.size()  << Console::endl;
+        	System::console << Console::debug << "TX: [NO SPACE] data.size()=" << data.size() << " txDataBuffer.size()=" << txDataBuffer.size()  << Console::endl;
             return Status::noBufferSpaceAvailable;
         }
         
-        System::console << Console::debug << "TX SEND: " << data << Console::endl;
+        //System::console << Console::debug << "TX: " << data << Console::endl;
         
         // Копируем данные в наш буфер
         std::copy(data.begin(), data.end(), txDataBuffer.begin());
@@ -147,11 +152,13 @@ public:
             return Status::ok;
         } else if (result.status == CompactStreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::SendStatus::Busy) {
             // Протокол занят - сбрасываем флаг чтобы можно было повторить позже
+        	System::console << Console::debug << "TX: [BUSY 2]" << Console::endl;
             txInProgress = false;
             return Status::busy;
         } else {
             // Ошибка - сбрасываем флаг
             txInProgress = false;
+            System::console << Console::debug << "TX: [ERROR] data.size()=" << Console::endl;
             return Status::error;
         }
     }
@@ -190,18 +197,29 @@ private:
     // BLE packet transmission - called by CompactStreamingProtocol
     bool SendBLEPacket(std::span<const uint8> data) {
         if (!connected) {
+            System::console << Console::debug << "SendBLE: Not connected" << Console::endl;
             return false;
         }
         
         if (data.size() > BLE_PACKET_SIZE) {
+            System::console << Console::debug << "SendBLE: Data too large (" << Console::dec(data.size()) << ")" << Console::endl;
             return false;
         }
         
+        System::console << Console::debug << "SendBLE: Attempting to send " << Console::dec(data.size()) << " bytes" << Console::endl;
+        
         // Send via BLE notification
+        static uint32 failCount = 0;
+        static uint32 successCount = 0;
+        
         if (txCharacteristic.setValue(data.data(), data.size())) {
+            successCount++;
+            System::console << Console::debug << "SendBLE: Success (total success: " << Console::dec(successCount) << ", fails: " << Console::dec(failCount) << ")" << Console::endl;
             return true;
         }
         
+        failCount++;
+        System::console << Console::debug << "SendBLE: setValue() failed (total fails: " << Console::dec(failCount) << ", success: " << Console::dec(successCount) << ")" << Console::endl;
         return false;
     }
 
@@ -253,6 +271,7 @@ private:
             
             if (length > 0) {
                 // Pass to CompactStreamingProtocol for processing
+            	//System::console << Console::debug << "RX: " << std::span<const uint8>(data, length) << Console::endl;
                 protocol.DataReceived(std::span<const uint8>(data, length));
             }
         }
