@@ -446,9 +446,7 @@ protected:
             }
         }
         
-        // Write only the header size (8 bytes) to fit within memory bounds
-        System::console << Console::debug << "Writing " << Console::dec(sizeof(FirmwareHeader)) << " bytes header" << Console::endl;
-        
+
         auto status = OnWriteMemory(
             GetFirmwareHeaderAddress(),
             std::span(reinterpret_cast<const uint8*>(&header), sizeof(FirmwareHeader))
@@ -1406,7 +1404,6 @@ protected:
             }
             
             bytesWritten += decryptedData.size();  // Real data (after decryption)
-            System::console << Console::debug << "bytesWritten += " << Console::dec(decryptedData.size()) << ", total now: " << Console::dec(bytesWritten) << Console::endl;
             writePosition += decryptedData.size();  // Update position for next write
             processedBytes += bytesToProcess;
         }

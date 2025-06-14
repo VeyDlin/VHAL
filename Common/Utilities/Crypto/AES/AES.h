@@ -281,6 +281,45 @@ public:
                 break;
         }
     }
+    
+    // PKCS7 padding utilities
+    // Add PKCS7 padding to data in buffer
+    // Returns new size after padding, or 0 on error
+    static size_t AddPKCS7Padding(std::span<uint8> buffer, size_t dataSize) noexcept {
+        if (dataSize >= buffer.size()) return 0;
+        
+        size_t paddingNeeded = BLOCK_SIZE - (dataSize % BLOCK_SIZE);
+        if (dataSize + paddingNeeded > buffer.size()) return 0;
+        
+        // Add padding bytes
+        for (size_t i = 0; i < paddingNeeded; i++) {
+            buffer[dataSize + i] = static_cast<uint8>(paddingNeeded);
+        }
+        
+        return dataSize + paddingNeeded;
+    }
+    
+    // Remove PKCS7 padding from data
+    // Returns size without padding, or original size if padding is invalid
+    static size_t RemovePKCS7Padding(std::span<uint8> data) noexcept {
+        if (data.empty()) return 0;
+        
+        uint8 paddingSize = data[data.size() - 1];
+        
+        // Validate padding size
+        if (paddingSize == 0 || paddingSize > BLOCK_SIZE || paddingSize > data.size()) {
+            return data.size(); // Invalid padding, return original size
+        }
+        
+        // Verify that all padding bytes have the same value
+        for (size_t i = data.size() - paddingSize; i < data.size(); i++) {
+            if (data[i] != paddingSize) {
+                return data.size(); // Invalid padding, return original size
+            }
+        }
+        
+        return data.size() - paddingSize;
+    }
 };
 
 // Type aliases for common key sizes

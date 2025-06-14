@@ -325,6 +325,7 @@ public:
     // Methods for IV/Nonce management
     void SetIV(const AES<KeySize>::IV& newIV) {
         iv = newIV;
+        aes.SetIV(iv);
     }
 
     const AES<KeySize>::IV& GetIV() const {
@@ -338,6 +339,7 @@ public:
     static constexpr AESKeySize GetKeySize() {
         return KeySize;
     }
+
 };
 
 
