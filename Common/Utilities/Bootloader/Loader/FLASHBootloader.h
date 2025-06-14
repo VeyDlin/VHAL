@@ -173,26 +173,12 @@ protected:
 
 
     virtual Status::statusType OnWriteMemory(uint32 address, std::span<const uint8> data) override {
-        System::console << Console::debug << "OnWriteMemory: addr=0x" << Console::hex(address) 
-                        << ", size=" << Console::dec(data.size()) << Console::endl;
-        
-        // Debug: show first 8 bytes of data being written
-        if (data.size() >= 8) {
-            System::console << Console::debug << "Write data: "
-                           << Console::hex(data[0]) << " " << Console::hex(data[1]) << " "
-                           << Console::hex(data[2]) << " " << Console::hex(data[3]) << " "
-                           << Console::hex(data[4]) << " " << Console::hex(data[5]) << " "
-                           << Console::hex(data[6]) << " " << Console::hex(data[7]) << Console::endl;
-        }
-        
         auto status = flashAdapter.Unlock();
         if (status != Status::ok) {
             return status;
         }
         
-        // ВАЖНО: проверим что data.data() не nullptr
         if (data.data() == nullptr) {
-            System::console << Console::debug << "ERROR: data.data() is nullptr!" << Console::endl;
             return Status::error;
         }
         
@@ -204,78 +190,12 @@ protected:
         
         flashAdapter.Lock();
         
-        // Simple delay to ensure Flash write completes
-        for (volatile uint32 i = 0; i < 10000; i++);
-        
-        // Verify write by reading back and show hex dump
-        if (status == Status::ok && data.size() >= 4) {
-            // Read back first 32 bytes for hex dump
-            size_t bytesToRead = std::min(data.size(), size_t(32));
-            std::array<uint8, 32> readBuffer{};
-            
-            bool readSuccess = true;
-            for (size_t i = 0; i < bytesToRead; i++) {
-                auto result = flashAdapter.Read(reinterpret_cast<uint8*>(address + i));
-                if (result.type == Status::ok) {
-                    readBuffer[i] = result.data;
-                } else {
-                    readSuccess = false;
-                    break;
-                }
-            }
-            
-            if (readSuccess) {
-                // Show hex dump of written vs read data
-                System::console << Console::debug << "Flash write verification (first " << Console::dec(bytesToRead) << " bytes):" << Console::endl;
-                System::console << Console::debug << "Written: ";
-                for (size_t i = 0; i < bytesToRead; i++) {
-                    System::console << Console::hex(data[i]) << " ";
-                }
-                System::console << Console::endl;
-                
-                System::console << Console::debug << "Read:    ";
-                for (size_t i = 0; i < bytesToRead; i++) {
-                    System::console << Console::hex(readBuffer[i]) << " ";
-                }
-                System::console << Console::endl;
-                
-                // Check if data matches
-                bool matches = true;
-                for (size_t i = 0; i < bytesToRead; i++) {
-                    if (data[i] != readBuffer[i]) {
-                        matches = false;
-                        break;
-                    }
-                }
-                
-                if (matches) {
-                    System::console << Console::debug << "✅ Flash write verification PASSED" << Console::endl;
-                } else {
-                    System::console << Console::debug << "❌ Flash write verification FAILED" << Console::endl;
-                    status = Status::error;
-                }
-            } else {
-                System::console << Console::debug << "Flash read failed during verification" << Console::endl;
-                status = Status::error;
-            }
-        }
-        
         return status;
     }
     
 
 
     virtual Status::statusType OnReadMemory(uint32 address, std::span<uint8> data) override {
-        System::console << Console::debug << "OnReadMemory: addr=0x" << Console::hex(address) 
-                        << ", size=" << Console::dec(data.size()) << Console::endl;
-        
-        // Direct memory read for debugging
-        if (data.size() >= 8) {
-            uint32* ptr = reinterpret_cast<uint32*>(address);
-            System::console << Console::debug << "Direct read: 0x" << Console::hex(*ptr) 
-                           << " 0x" << Console::hex(*(ptr+1)) << Console::endl;
-        }
-        
         for (size_t i = 0; i < data.size(); i++) {
             auto result = flashAdapter.Read(
                 reinterpret_cast<uint8*>(address + i)

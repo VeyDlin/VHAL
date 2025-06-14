@@ -1,7 +1,6 @@
 #pragma once
 #include <System/System.h>
 #include <Utilities/Buffer/RingBuffer.h>
-#include <Utilities/Console/Console.h>
 #include <span>
 #include <array>
 #include <cstring>
@@ -116,7 +115,6 @@ public:
             static uint32 lastDebugTime = 0;
             uint32 currentTime = System::GetMs();
             if (currentTime - lastDebugTime > 1000) { // Every 1 second
-                System::console << Console::debug << "Process: txInProgress=true, fragment=" << Console::dec(txCurrentFragment) << ", retries=" << Console::dec(txRetries) << ", timeSince=" << Console::dec(txFragmentSentTime > 0 ? currentTime - txFragmentSentTime : 0) << "ms" << Console::endl;
                 lastDebugTime = currentTime;
             }
         }
@@ -128,12 +126,10 @@ public:
                 // Fragment timeout - retry or fail
                 if (txRetries < MAX_RETRIES) {
                     txRetries++;
-                    System::console << Console::debug << "TX: Fragment " << Console::dec(txCurrentFragment) << " timeout, retry " << Console::dec(txRetries) << "/" << Console::dec(MAX_RETRIES) << Console::endl;
                     // Retry current fragment
                     RetryCurrentFragment();
                 } else {
                     // Max retries exceeded
-                    System::console << Console::debug << "TX: Fragment " << Console::dec(txCurrentFragment) << " max retries exceeded" << Console::endl;
                     txInProgress = false;
                     if (streamCompleteCallback) {
                         streamCompleteCallback(StreamResult::Timeout);
@@ -221,7 +217,6 @@ private:
         }
         
         // For data packets - always send ACK first
-        System::console << Console::debug << "RX: Fragment " << Console::dec(header->fragmentIndex) << " received (" << Console::dec(payload.size()) << " bytes)" << Console::endl;
         SendAck(header->fragmentIndex);
         
         // Check for duplicate fragments - prevent data corruption from retries
@@ -231,7 +226,6 @@ private:
             payload.size() <= MAX_PAYLOAD_SIZE &&
             std::equal(payload.begin(), payload.end(), lastFragmentData.begin())) {
             // This is a duplicate fragment - ignore data but ACK was already sent
-            System::console << Console::debug << "RX: Duplicate fragment " << Console::dec(header->fragmentIndex) << " ignored" << Console::endl;
             isDuplicate = true;
         }
         
@@ -294,7 +288,6 @@ private:
         txFragmentSentTime = 0;
         
         // Send first fragment
-        System::console << Console::debug << "TX: Starting transmission of " << Console::dec(data.size()) << " bytes in " << Console::dec(txTotalFragments) << " fragments" << Console::endl;
         return SendNextFragment();
     }
     
@@ -323,7 +316,6 @@ private:
         size_t totalSize = dataSize + CRC_SIZE;
 
         if (!transmitCallback(std::span<const uint8>(packet, totalSize))) {
-            System::console << Console::debug << "TX: Failed to send fragment " << Console::dec(txCurrentFragment) << " (transmit failed)" << Console::endl;
             // Don't abort transmission - let timeout/retry mechanism handle this
             txFragmentSentTime = System::GetMs(); // Still set timeout for retry
             return false; // Return false to indicate failure, but keep txInProgress = true
@@ -331,7 +323,6 @@ private:
         
         // Record send time for timeout detection
         txFragmentSentTime = System::GetMs();
-        System::console << Console::debug << "TX: Fragment " << Console::dec(txCurrentFragment) << "/" << Console::dec(txTotalFragments - 1) << " sent (" << Console::dec(fragSize) << " bytes)" << Console::endl;
         
         return true;
     }
@@ -361,7 +352,6 @@ private:
         size_t totalSize = dataSize + CRC_SIZE;
 
         if (!transmitCallback(std::span<const uint8>(packet, totalSize))) {
-            System::console << Console::debug << "TX: Retry fragment " << Console::dec(txCurrentFragment) << " failed (transmit failed)" << Console::endl;
             // Don't abort transmission - let timeout/retry mechanism handle this
             txFragmentSentTime = System::GetMs(); // Still set timeout for retry
             return false; // Return false to indicate failure, but keep txInProgress = true
@@ -369,8 +359,7 @@ private:
         
         // Record send time for timeout detection
         txFragmentSentTime = System::GetMs();
-        System::console << Console::debug << "TX: Retry fragment " << Console::dec(txCurrentFragment) << " sent successfully" << Console::endl;
-        
+
         return true;
     }
     
@@ -381,8 +370,6 @@ private:
         
         // Check if this ACK is for the fragment we just sent
         if (fragmentIndex == txCurrentFragment) {
-            System::console << Console::debug << "RX: ACK " << Console::dec(fragmentIndex) << " received" << Console::endl;
-            
             // Reset retry counter for next fragment
             txRetries = 0;
             txFragmentSentTime = 0;
@@ -391,7 +378,6 @@ private:
             
             if (txCurrentFragment >= txTotalFragments) {
                 // All fragments sent successfully
-                System::console << Console::debug << "TX: All fragments sent successfully" << Console::endl;
                 txInProgress = false;
                 
                 if (streamCompleteCallback) {

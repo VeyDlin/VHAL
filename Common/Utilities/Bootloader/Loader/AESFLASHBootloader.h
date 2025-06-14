@@ -3,7 +3,6 @@
 #include <Utilities/Crypto/AES/AES.h>
 #include <array>
 
-#include <Utilities/Console/Console.h>
 // Bootloader with AES encryption support
 // PURPOSE: decorator to add encryption to any FLASHBootloader
 // SUPPORTS: AES-128/192/256 in ECB/CBC/CTR modes

@@ -2,7 +2,6 @@
 #include "../ICommunication.h"
 #include <Drivers/Wireless/NRF8001/BLEPeripheral.h>
 #include <Drivers/Interface/User/StreamingProtocol/CompactStreamingProtocol.h>
-#include <Utilities/Console/Console.h>
 #include <Utilities/Data/ByteConverter.h>
 #include <array>
 
@@ -122,22 +121,17 @@ public:
 
     virtual Status::statusType SendData(std::span<const uint8> data) override {
         if (!connected) {
-        	System::console << Console::debug << "TX: [NOT CONNEXTED]" << Console::endl;
             return Status::notReady;
         }
         
         if (txInProgress) {
-        	System::console << Console::debug << "TX: [BUSY 1]" << Console::endl;
             return Status::busy;  // Предыдущая передача не завершена
         }
         
         if (data.size() > txDataBuffer.size()) {
-        	System::console << Console::debug << "TX: [NO SPACE] data.size()=" << data.size() << " txDataBuffer.size()=" << txDataBuffer.size()  << Console::endl;
             return Status::noBufferSpaceAvailable;
         }
-        
-        //System::console << Console::debug << "TX: " << data << Console::endl;
-        
+
         // Копируем данные в наш буфер
         std::copy(data.begin(), data.end(), txDataBuffer.begin());
         txDataSize = data.size();
@@ -151,14 +145,10 @@ public:
             // txInProgress будет сброшен в HandleStreamComplete
             return Status::ok;
         } else if (result.status == CompactStreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::SendStatus::Busy) {
-            // Протокол занят - сбрасываем флаг чтобы можно было повторить позже
-        	System::console << Console::debug << "TX: [BUSY 2]" << Console::endl;
             txInProgress = false;
             return Status::busy;
         } else {
-            // Ошибка - сбрасываем флаг
             txInProgress = false;
-            System::console << Console::debug << "TX: [ERROR] data.size()=" << Console::endl;
             return Status::error;
         }
     }
@@ -197,16 +187,12 @@ private:
     // BLE packet transmission - called by CompactStreamingProtocol
     bool SendBLEPacket(std::span<const uint8> data) {
         if (!connected) {
-            System::console << Console::debug << "SendBLE: Not connected" << Console::endl;
             return false;
         }
         
         if (data.size() > BLE_PACKET_SIZE) {
-            System::console << Console::debug << "SendBLE: Data too large (" << Console::dec(data.size()) << ")" << Console::endl;
             return false;
         }
-        
-        System::console << Console::debug << "SendBLE: Attempting to send " << Console::dec(data.size()) << " bytes" << Console::endl;
         
         // Send via BLE notification
         static uint32 failCount = 0;
@@ -214,12 +200,10 @@ private:
         
         if (txCharacteristic.setValue(data.data(), data.size())) {
             successCount++;
-            System::console << Console::debug << "SendBLE: Success (total success: " << Console::dec(successCount) << ", fails: " << Console::dec(failCount) << ")" << Console::endl;
             return true;
         }
         
         failCount++;
-        System::console << Console::debug << "SendBLE: setValue() failed (total fails: " << Console::dec(failCount) << ", success: " << Console::dec(successCount) << ")" << Console::endl;
         return false;
     }
 
@@ -271,7 +255,6 @@ private:
             
             if (length > 0) {
                 // Pass to CompactStreamingProtocol for processing
-            	//System::console << Console::debug << "RX: " << std::span<const uint8>(data, length) << Console::endl;
                 protocol.DataReceived(std::span<const uint8>(data, length));
             }
         }
