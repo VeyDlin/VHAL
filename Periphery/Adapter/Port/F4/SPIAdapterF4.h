@@ -157,6 +157,9 @@ protected:
 
 		LL_SPI_SetStandard(spiHandle, LL_SPI_PROTOCOL_MOTOROLA);
 
+		// Enable SPI once during initialization
+		LL_SPI_Enable(spiHandle);
+
 		return BeforeInitialization();
 	}
 
@@ -211,9 +214,7 @@ protected:
 		LL_SPI_EnableIT_RXNE(spiHandle);
 		LL_SPI_EnableIT_ERR(spiHandle);
 
-		if(!LL_SPI_IsEnabled(spiHandle)) {
-			LL_SPI_Enable(spiHandle);
-		}
+		// SPI is already enabled during initialization
 
 		return Status::ok;
 	}
@@ -242,9 +243,7 @@ protected:
 		uint32 tickStart = System::GetTick();
 
 
-		if(!LL_SPI_IsEnabled(spiHandle)) {
-			LL_SPI_Enable(spiHandle);
-		}
+		// SPI is already enabled during initialization
 
 
 		if (parameters.mode == Mode::Slave || size == 1) {
@@ -256,7 +255,7 @@ protected:
 		for (; txDataCounter < txDataNeed; txDataCounter++) {
 			while(!LL_SPI_IsActiveFlag_TXE(spiHandle)) {
 				if((System::GetTick() - tickStart) > timeout) {
-					LL_SPI_Disable(spiHandle);
+					// Keep SPI enabled even on timeout
 					txState = Status::ready;
 					return Status::timeout;
 				}
@@ -270,7 +269,7 @@ protected:
 			LL_SPI_ClearFlag_OVR(spiHandle);
 		}
 
-		LL_SPI_Disable(spiHandle);
+		// Keep SPI enabled between transfers
 		txState = Status::ready;
 
 		return Status::ok;
@@ -291,15 +290,13 @@ protected:
 		uint32 tickStart = System::GetTick();
 
 
-		if(!LL_SPI_IsEnabled(spiHandle)) {
-			LL_SPI_Enable(spiHandle);
-		}
+		// SPI is already enabled during initialization
 
 
 		for (rxDataCounter = 0; rxDataCounter < rxDataNeed; rxDataCounter++) {
 			while(!LL_SPI_IsActiveFlag_RXNE(spiHandle)) {
 				if((System::GetTick() - tickStart) > timeout) {
-					LL_SPI_Disable(spiHandle);
+					// Keep SPI enabled even on timeout
 					rxState = Status::ready;
 					return Status::timeout;
 				}
@@ -310,7 +307,7 @@ protected:
 		}
 
 
-		LL_SPI_Disable(spiHandle);
+		// Keep SPI enabled between transfers
 		rxState = Status::ready;
 
 		return Status::ok;
@@ -337,9 +334,7 @@ protected:
 		uint32 tickStart = System::GetTick();
 
 
-		if(!LL_SPI_IsEnabled(spiHandle)) {
-			LL_SPI_Enable(spiHandle);
-		}
+		// SPI is already enabled during initialization
 
 
 		if (parameters.mode == Mode::Slave || size == 1) {
@@ -365,7 +360,7 @@ protected:
 			}
 
 			if((System::GetTick() - tickStart) > timeout) {
-				LL_SPI_Disable(spiHandle);
+				// Keep SPI enabled even on timeout
 				txState = Status::ready;
 				rxState = Status::ready;
 				return Status::timeout;
@@ -377,7 +372,7 @@ protected:
 			LL_SPI_ClearFlag_OVR(spiHandle);
 		}
 
-		LL_SPI_Disable(spiHandle);
+		// Keep SPI enabled between transfers
 
 		txState = Status::ready;
 		rxState = Status::ready;
@@ -402,9 +397,7 @@ protected:
 		LL_SPI_EnableIT_TXE(spiHandle);
 		LL_SPI_EnableIT_ERR(spiHandle);
 
-		if(!LL_SPI_IsEnabled(spiHandle)) {
-			LL_SPI_Enable(spiHandle);
-		}
+		// SPI is already enabled during initialization
 
 		return Status::ok;
 	}
