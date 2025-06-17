@@ -31,7 +31,8 @@ class AESFLASHBootloader : public FLASHBootloader<RxBufferSize, AccumBufferSize,
 protected:
     AESMode aesMode;
     AES<KeySize> aes;
-    AES<KeySize>::IV iv;  // Initialization Vector for CBC/CTR
+    AES<KeySize>::IV iv;  // Original Initialization Vector for CBC/CTR
+    AES<KeySize>::IV currentIV;  // Current IV state for CBC chaining
     
     std::array<uint8, 512> encryptionBuffer;
     std::array<uint8, 512> decryptionBuffer;
@@ -61,7 +62,8 @@ public:
     ) :	FLASHBootloader<RxBufferSize, AccumBufferSize>(comm, flash, startAddr, size),
     	aesMode(mode),
     	aes(makeKey(key)),
-    	iv(initVector)
+    	iv(initVector),
+    	currentIV(initVector)
     {
     	// Check key size at runtime
     	if (std::span(key).size() != keySize) {
@@ -278,9 +280,14 @@ private:
         // Copy data to buffer 
         std::copy_n(data.begin(), outputSize, decryptionBuffer.begin());
         
-        // Set IV and decrypt in-place
-        aes.SetIV(iv);
+        // Use current IV (which may be updated from previous call)
+        aes.SetIV(currentIV);
         aes.DecryptCBC(std::span(decryptionBuffer.data(), outputSize));
+        
+        // Update currentIV with last ciphertext block for next call
+        if (outputSize >= AES<>::BLOCK_SIZE) {
+            std::copy_n(data.end() - AES<>::BLOCK_SIZE, AES<>::BLOCK_SIZE, currentIV.begin());
+        }
         
         return outputSize;
     }
@@ -325,6 +332,7 @@ public:
     // Methods for IV/Nonce management
     void SetIV(const AES<KeySize>::IV& newIV) {
         iv = newIV;
+        currentIV = newIV;  // Reset current IV for new stream
         aes.SetIV(iv);
     }
 

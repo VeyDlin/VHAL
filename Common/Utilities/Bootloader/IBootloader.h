@@ -207,12 +207,9 @@ public:
         }
         
         // Check if we need to enter bootloader mode
-
-    	System::console << Console::debug << "Initialize" << Console::endl;
         if (!OnCheckBootloaderRequest()) {
             // User doesn't want to enter bootloader
             // Try to start the application
-        	System::console << Console::debug << "User doesn't want to enter bootloader" << Console::endl;
             if (StartApplication()) {
                 // Application started, should not return here
                 return Status::error;
@@ -260,7 +257,6 @@ public:
             return false;
         }
         
-        System::console << Console::debug << "OnStartApplication" << Console::endl;
         return OnStartApplication();
     }
 
@@ -344,8 +340,6 @@ protected:
     // USED: at startup and in HandleVerify()
     // IMPLEMENTATION: unified logic - reads header, validates size and CRC
     bool CheckFirmware() const {
-    	System::console << Console::debug << "CheckFirmware - reading header from end at addr=0x" << Console::hex(GetFirmwareHeaderAddress()) << Console::endl;
-
         // Read firmware header from end of memory
         FirmwareHeader header;
         uint8* headerPtr = reinterpret_cast<uint8*>(&header);
@@ -357,38 +351,27 @@ protected:
         );
         
         if (status != Status::ok) {
-        	System::console << Console::debug << "OnReadMemory Error" << Console::endl;
             return false;
         }
         
-        System::console << Console::debug
-        		<< "FirmwareHeader.crc32=" << header.crc32 << "; "
-				<< "FirmwareHeader.size=" << header.size
-				<< Console::endl;
-
         // Check size - firmware can use all memory except header space at end
         if (header.size == 0 || header.size > GetMemorySize() - sizeof(FirmwareHeader)) {
-        	System::console << Console::debug << "Check size Error: size=" << Console::dec(header.size) 
-        	               << ", max=" << Console::dec(GetMemorySize() - sizeof(FirmwareHeader)) << Console::endl;
             return false;
         }
         
         // PROTECTION from typical Flash garbage
         if (header.size == 0xFFFFFFFF || header.crc32 == 0xFFFFFFFF) {
-        	System::console << Console::debug << "PROTECTION Error" << Console::endl;
             return false;  // All bits set - erased Flash
         }
 
         // ALWAYS check CRC32 - this is the only integrity check
         uint32 calculatedCrc = CalculateFirmwareCRC32();
         if (calculatedCrc == 0) {
-        	System::console << Console::debug << "CRC32 1 Error" << Console::endl;
             return false;  // CRC32 calculation error
         }
         
         // header.crc32 == 0 means header is corrupted or not finalized
         if (header.crc32 == 0 || header.crc32 != calculatedCrc) {
-        	System::console << Console::debug << "CRC32 2 Error" << Console::endl;
             return false;  // CRC32 doesn't match, corrupted or not set
         }
         
@@ -401,11 +384,8 @@ protected:
     // Creates header with size=bytesWritten and calculated CRC32
     // INHERITOR MAY override for additional fields
     virtual Status::statusType OnFinalizeFirmware() { 
-    	System::console << Console::debug << "OnFinalizeFirmware" << Console::endl;
-
         // Only finalize if we actually wrote some data
         if (bytesWritten == 0) {
-        	System::console << Console::debug << "bytesWritten error" << Console::endl;
             return Status::error;
         }
         
@@ -415,38 +395,9 @@ protected:
         header.crc32 = CalculateFirmwareCRC32();
         
         if (header.crc32 == 0) {
-        	System::console << Console::debug << "crc32 error" << Console::endl;
             return Status::error;  // CRC calculation failed
         }
         
-        System::console << Console::debug
-        		<< "FirmwareHeader.crc32=" << header.crc32 << "; "
-				<< "FirmwareHeader.size=" << header.size
-				<< Console::endl;
-
-
-        // IMPORTANT: Read header area (at end) to see if it's empty
-        std::array<uint8, 32> readBuffer{};
-        auto readStatus = OnReadMemory(GetFirmwareHeaderAddress(), std::span(readBuffer));
-        if (readStatus == Status::ok) {
-            // Check if header area (first 8 bytes) is empty
-            bool isEmpty = true;
-            for (size_t i = 0; i < 8; i++) {
-                if (readBuffer[i] != 0xFF) {
-                    isEmpty = false;
-                    break;
-                }
-            }
-            
-            if (!isEmpty) {
-                System::console << Console::debug << "Header area (first 8 bytes) not empty - Flash write will fail!" << Console::endl;
-                // This explains why Flash write returns success but doesn't actually write
-            } else {
-                System::console << Console::debug << "Header area is empty (all 0xFF)" << Console::endl;
-            }
-        }
-        
-
         auto status = OnWriteMemory(
             GetFirmwareHeaderAddress(),
             std::span(reinterpret_cast<const uint8*>(&header), sizeof(FirmwareHeader))
@@ -765,8 +716,6 @@ protected:
     void ProcessCommand(const CommandPacket& packet) {
         currentSequence = packet.sequence;
 
-        System::console << Console::debug << "[ProcessCommand] " << (uint8)packet.command << Console::endl;
-
         switch (packet.command) {
             case Command::Ping:
                 HandlePing();
@@ -968,20 +917,21 @@ protected:
             return;
         }
         
-        // Copy new data to accumulator
-        std::copy(
-        	packet.data.begin(),
-			packet.data.begin() + dataSize,
-			accumulationBuffer.begin() + accumulatedSize
-		);
-        accumulatedSize += dataSize;
-        
-        // Update SHA256 hash with raw data (before decryption) - with deduplication
+        // Deduplication: only process if this is not a duplicate packet
         if (packet.sequence != lastHashedSequence) {
+            // Copy new data to accumulator
+            std::copy(
+            	packet.data.begin(),
+    			packet.data.begin() + dataSize,
+    			accumulationBuffer.begin() + accumulatedSize
+    		);
+            accumulatedSize += dataSize;
+            
+            // Update SHA256 hash with raw data (before decryption)
             dataHasher.Update(std::span<const uint8>(packet.data.data(), dataSize));
             lastHashedSequence = packet.sequence;
         } else {
-            // This is a duplicate packet (retry) - don't hash again
+            // This is a duplicate packet (retry) - don't process data again
         }
         
         // Process accumulated data
@@ -1081,10 +1031,8 @@ protected:
         // Finalize firmware
         auto status = OnFinalizeFirmware();
         if (status == Status::ok) {
-        	System::console << Console::debug << "OnFinalizeFirmware ok" << Console::endl;
             SendResponse(BootloaderStatus::Success);
         } else {
-        	System::console << Console::debug << "OnFinalizeFirmware error" << Console::endl;
             SendError(currentSequence, BootloaderStatus::Error);
         }
     }
@@ -1286,8 +1234,6 @@ protected:
             firmwareDataSize = header.size;
         }
         
-        System::console << Console::debug << "firmwareDataSize " << firmwareDataSize << Console::endl;
-
         if (firmwareDataSize == 0) {
             return 0;  // No firmware data
         }
@@ -1330,8 +1276,8 @@ protected:
                 // Continue with previous CRC
                 currentCrc = Crc::Calculate<uint32, 32>(buffer.data(), chunkSize, Crc::CRC_32(), currentCrc);
             }
+
         }
-        
         return currentCrc;
     }
 
@@ -1394,9 +1340,6 @@ protected:
                 return false;
             }
             
-            // Write decrypted data
-            System::console << Console::debug << "OnWriteMemory: " << decryptedData << Console::endl;
-
             auto status = OnWriteMemory(writeAddress, decryptedData);
             if (status != Status::ok) {
                 state = State::Error;

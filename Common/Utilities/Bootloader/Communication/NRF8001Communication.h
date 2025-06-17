@@ -102,11 +102,8 @@ public:
         connected = *central && central->connected();
         
         if (connected && !wasConnected) {
-            System::console << Console::endl << Console::endl << Console::separator() << Console::endl;
-            System::console << Console::debug << "Connected" << Console::endl;
             OnConnected();
         } else if (!connected && wasConnected) {
-            System::console << Console::debug << "Disconnected" << Console::endl;
             OnDisconnected();
         }
 
