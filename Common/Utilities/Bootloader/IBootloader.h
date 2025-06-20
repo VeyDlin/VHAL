@@ -115,6 +115,7 @@ public:
         std::array<uint8, PacketDataMaxSize> data; // Response data
     } _APacked;
 
+    bool checkFirmware = true;
 
 protected:
     // Communication interface
@@ -253,7 +254,7 @@ public:
 
 
     virtual bool StartApplication() {
-        if (!CheckFirmware()) {
+        if (checkFirmware && !CheckFirmware()) {
             return false;
         }
         
