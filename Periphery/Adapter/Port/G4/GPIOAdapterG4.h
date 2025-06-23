@@ -8,6 +8,8 @@ using AGPIO = class GPIOAdapterG4;
 
 class GPIOAdapterG4 : public GPIOAdapter {
 public:
+	using GPIOAdapter::operator=;
+
 	GPIOAdapterG4() { }
 	GPIOAdapterG4(GPIO_TypeDef *gpioPort, uint8 gpioPin, bool gpioInversion = false):GPIOAdapter(gpioPort, gpioPin, gpioInversion) { }
 	GPIOAdapterG4(IO &io):GPIOAdapter(io) { }

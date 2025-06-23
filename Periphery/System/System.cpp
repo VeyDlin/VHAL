@@ -1,5 +1,4 @@
 #include "System.h"
-#include <Utilities/Console/Console.h>
 #include <string_view>
 #ifdef USE_SYSTEM_CONSOLE
 	#include <Utilities/Console/Console.h>
