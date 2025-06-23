@@ -193,8 +193,8 @@ For example UART is used.
 	consoleSerial.beforePeripheryInit = []() {
 		LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_USART1);
   
-		AGPIO::AlternateInit<AGPIO>({ GPIOA, 9,  7, AGPIO::Pull::Up, AGPIO::Speed::VeryHigh });
-		AGPIO::AlternateInit<AGPIO>({ GPIOA, 10, 7, AGPIO::Pull::Up, AGPIO::Speed::VeryHigh });
+		AGPIO::AlternateInit({ GPIOA, 9,  7, AGPIO::Pull::Up, AGPIO::Speed::VeryHigh });
+		AGPIO::AlternateInit({ GPIOA, 10, 7, AGPIO::Pull::Up, AGPIO::Speed::VeryHigh });
   
 		NVIC_SetPriority(USART1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 0, 0));
 		NVIC_EnableIRQ(USART1_IRQn);
