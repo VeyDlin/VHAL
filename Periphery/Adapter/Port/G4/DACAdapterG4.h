@@ -16,7 +16,7 @@ public:
 	}
 
 	virtual inline void IrqHandler() override {
-
+		// TODO: [VHAL] [DAC] [G4] [ADD SUPPORT]
 	}
 
 
@@ -77,7 +77,7 @@ protected:
 
 
 private:
-	uint32 CastChannel() {
+	constexpr uint32 CastChannel() const {
 		switch (dacChannel) {
 			case 1: return LL_DAC_CHANNEL_1;
 			case 2: return LL_DAC_CHANNEL_2;
@@ -87,7 +87,7 @@ private:
 	}
 
 
-	uint32 CastOutputBuffer() {
+	constexpr uint32 CastOutputBuffer() const {
 		switch (parameters.outputBuffer) {
 			case OutputBuffer::Enable: return LL_DAC_OUTPUT_BUFFER_ENABLE;
 			case OutputBuffer::Disable: return LL_DAC_OUTPUT_BUFFER_DISABLE;

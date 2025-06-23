@@ -10,7 +10,7 @@ template<
 >
 class I2CMutexAdapter: public AdapterClass {
 public:
-	Function<void(bool lock)> onMutex;
+	std::function<void(bool lock)> onMutex;
 
 public:
 	I2CMutexAdapter() { }
@@ -103,7 +103,7 @@ public:
 
 protected:
 	virtual void CallMutex(bool isLock) {
-		if(onMutex != nullptr) {
+		if(onMutex) {
 			onMutex(isLock);
 		}
 	}

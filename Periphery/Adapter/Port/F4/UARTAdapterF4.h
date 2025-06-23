@@ -339,7 +339,7 @@ private:
 
 
 private:
-	uint32 CastStopBits() {
+	constexpr uint32 CastStopBits() const {
 		switch (parameters.stopBits) {
 			case StopBits::B1: return LL_USART_STOPBITS_1;
 			case StopBits::B2: return LL_USART_STOPBITS_2;
@@ -352,7 +352,7 @@ private:
 
 
 
-	uint32 CastParity() {
+	constexpr uint32 CastParity() const {
 		switch (parameters.parity) {
 			case Parity::None: return LL_USART_PARITY_NONE;
 			case Parity::Even: return LL_USART_PARITY_EVEN;
@@ -366,7 +366,7 @@ private:
 
 
 
-	uint32 CastMode() {
+	constexpr uint32 CastMode() const {
 		switch (parameters.mode) {
 			case Mode::Tx: return LL_USART_DIRECTION_TX;
 			case Mode::Rx: return LL_USART_DIRECTION_RX;
@@ -380,7 +380,7 @@ private:
 
 
 
-	uint32 CastFlowControl() {
+	constexpr uint32 CastFlowControl() const {
 		switch (parameters.flowControl) {
 			case FlowControl::None: return LL_USART_HWCONTROL_NONE;
 			case FlowControl::Rts: return LL_USART_HWCONTROL_RTS;
@@ -395,7 +395,7 @@ private:
 
 
 
-	uint32 CastOverSampling() {
+	constexpr uint32 CastOverSampling() const {
 		switch (parameters.overSampling) {
 			case OverSampling::B16: return LL_USART_OVERSAMPLING_16;
 			case OverSampling::B8: return LL_USART_OVERSAMPLING_8;

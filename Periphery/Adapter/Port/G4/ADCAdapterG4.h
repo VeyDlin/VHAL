@@ -10,50 +10,79 @@ class ADCAdapterG4: public ADCAdapter {
 protected:
 	constexpr static uint32 stabilizationTime = 3;
 
+private:
+	static constexpr uint32 sequencerLengthArray[] = {
+		LL_ADC_REG_SEQ_SCAN_DISABLE,
+		LL_ADC_REG_SEQ_SCAN_ENABLE_2RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_3RANKS,
+		LL_ADC_REG_SEQ_SCAN_ENABLE_4RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_5RANKS,
+		LL_ADC_REG_SEQ_SCAN_ENABLE_6RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_7RANKS,
+		LL_ADC_REG_SEQ_SCAN_ENABLE_8RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_9RANKS,
+		LL_ADC_REG_SEQ_SCAN_ENABLE_10RANKS, LL_ADC_REG_SEQ_SCAN_ENABLE_11RANKS,
+		LL_ADC_REG_SEQ_SCAN_ENABLE_12RANKS, LL_ADC_REG_SEQ_SCAN_ENABLE_13RANKS,
+		LL_ADC_REG_SEQ_SCAN_ENABLE_14RANKS, LL_ADC_REG_SEQ_SCAN_ENABLE_15RANKS,
+		LL_ADC_REG_SEQ_SCAN_ENABLE_16RANKS,
+	};
+
+	static constexpr uint32 rankArray[] = {
+		LL_ADC_REG_RANK_1,  LL_ADC_REG_RANK_2,  LL_ADC_REG_RANK_3,  LL_ADC_REG_RANK_4,
+		LL_ADC_REG_RANK_5,  LL_ADC_REG_RANK_6,  LL_ADC_REG_RANK_7,  LL_ADC_REG_RANK_8,
+		LL_ADC_REG_RANK_9,  LL_ADC_REG_RANK_10, LL_ADC_REG_RANK_11, LL_ADC_REG_RANK_12,
+		LL_ADC_REG_RANK_13, LL_ADC_REG_RANK_14, LL_ADC_REG_RANK_15, LL_ADC_REG_RANK_16
+	};
+
+	static constexpr uint32 channelArray[] = {
+		LL_ADC_CHANNEL_0, LL_ADC_CHANNEL_1,  LL_ADC_CHANNEL_2,  LL_ADC_CHANNEL_3,
+		LL_ADC_CHANNEL_4, LL_ADC_CHANNEL_5,  LL_ADC_CHANNEL_6,  LL_ADC_CHANNEL_7,
+		LL_ADC_CHANNEL_8, LL_ADC_CHANNEL_9,  LL_ADC_CHANNEL_10, LL_ADC_CHANNEL_11,
+		LL_ADC_CHANNEL_12, LL_ADC_CHANNEL_13, LL_ADC_CHANNEL_14, LL_ADC_CHANNEL_15,
+		LL_ADC_CHANNEL_16, LL_ADC_CHANNEL_17, LL_ADC_CHANNEL_18
+	};
+
 
 public:
 	struct TriggerSource {
-	    AUNIQUECODE_GENERATE(CTriggerSource, Software,                     LL_ADC_REG_TRIG_SOFTWARE);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer1Trigger,                LL_ADC_REG_TRIG_EXT_TIM1_TRGO);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer1Trigger2,               LL_ADC_REG_TRIG_EXT_TIM1_TRGO2);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer1Channel1,               LL_ADC_REG_TRIG_EXT_TIM1_CH1);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer1Channel2,               LL_ADC_REG_TRIG_EXT_TIM1_CH2);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer1Channel3,               LL_ADC_REG_TRIG_EXT_TIM1_CH3);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer2Trigger,                LL_ADC_REG_TRIG_EXT_TIM2_TRGO);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer2Channel1,               LL_ADC_REG_TRIG_EXT_TIM2_CH1);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer2Channel2,               LL_ADC_REG_TRIG_EXT_TIM2_CH2);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer2Channel3,               LL_ADC_REG_TRIG_EXT_TIM2_CH3);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer3Trigger,                LL_ADC_REG_TRIG_EXT_TIM3_TRGO);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer3Channel1,               LL_ADC_REG_TRIG_EXT_TIM3_CH1);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer3Channel4,               LL_ADC_REG_TRIG_EXT_TIM3_CH4);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer4Trigger,                LL_ADC_REG_TRIG_EXT_TIM4_TRGO);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer4Channel1,               LL_ADC_REG_TRIG_EXT_TIM4_CH1);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer4Channel4,               LL_ADC_REG_TRIG_EXT_TIM4_CH4);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer6Trigger,                LL_ADC_REG_TRIG_EXT_TIM6_TRGO);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer7Trigger,                LL_ADC_REG_TRIG_EXT_TIM7_TRGO);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer8Trigger,                LL_ADC_REG_TRIG_EXT_TIM8_TRGO);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer8Trigger2,               LL_ADC_REG_TRIG_EXT_TIM8_TRGO2);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer8Channel1,               LL_ADC_REG_TRIG_EXT_TIM8_CH1);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer15Trigger,               LL_ADC_REG_TRIG_EXT_TIM15_TRGO);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer20Trigger,               LL_ADC_REG_TRIG_EXT_TIM20_TRGO);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer20Trigger2,              LL_ADC_REG_TRIG_EXT_TIM20_TRGO2);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer20Channel1,              LL_ADC_REG_TRIG_EXT_TIM20_CH1);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer20Channel2,              LL_ADC_REG_TRIG_EXT_TIM20_CH2);
-	    AUNIQUECODE_GENERATE(CTriggerSource, Timer20Channel3,              LL_ADC_REG_TRIG_EXT_TIM20_CH3);
-	    AUNIQUECODE_GENERATE(CTriggerSource, HrtimTrigger1,                LL_ADC_REG_TRIG_EXT_HRTIM_TRG1);
-	    AUNIQUECODE_GENERATE(CTriggerSource, HrtimTrigger2,                LL_ADC_REG_TRIG_EXT_HRTIM_TRG2);
-	    AUNIQUECODE_GENERATE(CTriggerSource, HrtimTrigger3,                LL_ADC_REG_TRIG_EXT_HRTIM_TRG3);
-	    AUNIQUECODE_GENERATE(CTriggerSource, HrtimTrigger4,                LL_ADC_REG_TRIG_EXT_HRTIM_TRG4);
-	    AUNIQUECODE_GENERATE(CTriggerSource, HrtimTrigger5,                LL_ADC_REG_TRIG_EXT_HRTIM_TRG5);
-	    AUNIQUECODE_GENERATE(CTriggerSource, HrtimTrigger6,                LL_ADC_REG_TRIG_EXT_HRTIM_TRG6);
-	    AUNIQUECODE_GENERATE(CTriggerSource, HrtimTrigger7,                LL_ADC_REG_TRIG_EXT_HRTIM_TRG7);
-	    AUNIQUECODE_GENERATE(CTriggerSource, HrtimTrigger8,                LL_ADC_REG_TRIG_EXT_HRTIM_TRG8);
-	    AUNIQUECODE_GENERATE(CTriggerSource, HrtimTrigger9,                LL_ADC_REG_TRIG_EXT_HRTIM_TRG9);
-	    AUNIQUECODE_GENERATE(CTriggerSource, HrtimTrigger10,               LL_ADC_REG_TRIG_EXT_HRTIM_TRG10);
-	    AUNIQUECODE_GENERATE(CTriggerSource, ExtiLine11,                   LL_ADC_REG_TRIG_EXT_EXTI_LINE11);
-	    AUNIQUECODE_GENERATE(CTriggerSource, ExtiLine2,                    LL_ADC_REG_TRIG_EXT_EXTI_LINE2);
-	    AUNIQUECODE_GENERATE(CTriggerSource, LptimOut,                     LL_ADC_REG_TRIG_EXT_LPTIM_OUT);
+		static inline constexpr TriggerSourceOption Software        { LL_ADC_REG_TRIG_SOFTWARE };
+		static inline constexpr TriggerSourceOption Timer1Trigger   { LL_ADC_REG_TRIG_EXT_TIM1_TRGO };
+		static inline constexpr TriggerSourceOption Timer1Trigger2  { LL_ADC_REG_TRIG_EXT_TIM1_TRGO2 };
+		static inline constexpr TriggerSourceOption Timer1Channel1  { LL_ADC_REG_TRIG_EXT_TIM1_CH1 };
+		static inline constexpr TriggerSourceOption Timer1Channel2  { LL_ADC_REG_TRIG_EXT_TIM1_CH2 };
+		static inline constexpr TriggerSourceOption Timer1Channel3  { LL_ADC_REG_TRIG_EXT_TIM1_CH3 };
+		static inline constexpr TriggerSourceOption Timer2Trigger   { LL_ADC_REG_TRIG_EXT_TIM2_TRGO };
+		static inline constexpr TriggerSourceOption Timer2Channel1  { LL_ADC_REG_TRIG_EXT_TIM2_CH1 };
+		static inline constexpr TriggerSourceOption Timer2Channel2  { LL_ADC_REG_TRIG_EXT_TIM2_CH2 };
+		static inline constexpr TriggerSourceOption Timer2Channel3  { LL_ADC_REG_TRIG_EXT_TIM2_CH3 };
+		static inline constexpr TriggerSourceOption Timer3Trigger   { LL_ADC_REG_TRIG_EXT_TIM3_TRGO };
+		static inline constexpr TriggerSourceOption Timer3Channel1  { LL_ADC_REG_TRIG_EXT_TIM3_CH1 };
+		static inline constexpr TriggerSourceOption Timer3Channel4  { LL_ADC_REG_TRIG_EXT_TIM3_CH4 };
+		static inline constexpr TriggerSourceOption Timer4Trigger   { LL_ADC_REG_TRIG_EXT_TIM4_TRGO };
+		static inline constexpr TriggerSourceOption Timer4Channel1  { LL_ADC_REG_TRIG_EXT_TIM4_CH1 };
+		static inline constexpr TriggerSourceOption Timer4Channel4  { LL_ADC_REG_TRIG_EXT_TIM4_CH4 };
+		static inline constexpr TriggerSourceOption Timer6Trigger   { LL_ADC_REG_TRIG_EXT_TIM6_TRGO };
+		static inline constexpr TriggerSourceOption Timer7Trigger   { LL_ADC_REG_TRIG_EXT_TIM7_TRGO };
+		static inline constexpr TriggerSourceOption Timer8Trigger   { LL_ADC_REG_TRIG_EXT_TIM8_TRGO };
+		static inline constexpr TriggerSourceOption Timer8Trigger2  { LL_ADC_REG_TRIG_EXT_TIM8_TRGO2 };
+		static inline constexpr TriggerSourceOption Timer8Channel1  { LL_ADC_REG_TRIG_EXT_TIM8_CH1 };
+		static inline constexpr TriggerSourceOption Timer15Trigger  { LL_ADC_REG_TRIG_EXT_TIM15_TRGO };
+		static inline constexpr TriggerSourceOption Timer20Trigger  { LL_ADC_REG_TRIG_EXT_TIM20_TRGO };
+		static inline constexpr TriggerSourceOption Timer20Trigger2 { LL_ADC_REG_TRIG_EXT_TIM20_TRGO2 };
+		static inline constexpr TriggerSourceOption Timer20Channel1 { LL_ADC_REG_TRIG_EXT_TIM20_CH1 };
+		static inline constexpr TriggerSourceOption Timer20Channel2 { LL_ADC_REG_TRIG_EXT_TIM20_CH2 };
+		static inline constexpr TriggerSourceOption Timer20Channel3 { LL_ADC_REG_TRIG_EXT_TIM20_CH3 };
+		static inline constexpr TriggerSourceOption HrtimTrigger1   { LL_ADC_REG_TRIG_EXT_HRTIM_TRG1 };
+		static inline constexpr TriggerSourceOption HrtimTrigger2   { LL_ADC_REG_TRIG_EXT_HRTIM_TRG2 };
+		static inline constexpr TriggerSourceOption HrtimTrigger3   { LL_ADC_REG_TRIG_EXT_HRTIM_TRG3 };
+		static inline constexpr TriggerSourceOption HrtimTrigger4   { LL_ADC_REG_TRIG_EXT_HRTIM_TRG4 };
+		static inline constexpr TriggerSourceOption HrtimTrigger5   { LL_ADC_REG_TRIG_EXT_HRTIM_TRG5 };
+		static inline constexpr TriggerSourceOption HrtimTrigger6   { LL_ADC_REG_TRIG_EXT_HRTIM_TRG6 };
+		static inline constexpr TriggerSourceOption HrtimTrigger7   { LL_ADC_REG_TRIG_EXT_HRTIM_TRG7 };
+		static inline constexpr TriggerSourceOption HrtimTrigger8   { LL_ADC_REG_TRIG_EXT_HRTIM_TRG8 };
+		static inline constexpr TriggerSourceOption HrtimTrigger9   { LL_ADC_REG_TRIG_EXT_HRTIM_TRG9 };
+		static inline constexpr TriggerSourceOption HrtimTrigger10  { LL_ADC_REG_TRIG_EXT_HRTIM_TRG10 };
+		static inline constexpr TriggerSourceOption ExtiLine11      { LL_ADC_REG_TRIG_EXT_EXTI_LINE11 };
+		static inline constexpr TriggerSourceOption ExtiLine2       { LL_ADC_REG_TRIG_EXT_EXTI_LINE2 };
+		static inline constexpr TriggerSourceOption LptimOut        { LL_ADC_REG_TRIG_EXT_LPTIM_OUT };
 	};
+
 
 
 
@@ -93,9 +122,13 @@ public:
 	}
 
 
-	virtual void AbortSampling() override { }
+	virtual void AbortSampling() override {
+		// TODO: [VHAL] [ADC] [G4] [ADD SUPPORT]
+	}
 
-	virtual void AbortConfigurationReady() override { }
+	virtual void AbortConfigurationReady() override {
+		// TODO: [VHAL] [ADC] [G4] [ADD SUPPORT]
+	}
 
 
 	virtual Status::statusType Calibration() override {
@@ -262,7 +295,7 @@ protected:
 
 	virtual Status::statusType RegularInitialization(uint8 rankLength) override {
 		LL_ADC_REG_InitTypeDef init = {
-			.TriggerSource = regularParameters.triggerSourceCode->GetCode(),
+			.TriggerSource = regularParameters.triggerSource.Get(),
 			.SequencerLength = CastSequencerLength(rankLength),
 			.SequencerDiscont = LL_ADC_REG_SEQ_DISCONT_DISABLE,
 			.ContinuousMode = CastContinuousMode(regularParameters.continuousMode),
@@ -285,7 +318,7 @@ protected:
 
 	virtual Status::statusType InjectedInitialization(uint8 rankLength) override {
 	    LL_ADC_INJ_InitTypeDef init = {
-	        .TriggerSource = injectedParameters.triggerSourceCode->GetCode(),
+	        .TriggerSource = injectedParameters.triggerSource.Get(),
 	        .SequencerLength = CastSequencerLength(rankLength),
 	        .SequencerDiscont = LL_ADC_INJ_SEQ_DISCONT_DISABLE,
 	        .TrigAuto = LL_ADC_INJ_TRIG_INDEPENDENT
@@ -407,6 +440,7 @@ protected:
 
 
 	virtual Status::info<float> SetInjectedChannel(const InjecteChannel &channel, uint8 rank) override {
+		// TODO: [VHAL] [ADC] [G4] [ADD SUPPORT]
 		return { Status::notSupported };
 	}
 
@@ -426,7 +460,7 @@ protected:
 
 
 private:
-	uint32 CastResolution() {
+	constexpr uint32 CastResolution() const {
 		switch (parameters.resolution) {
 			case Resolution::B12: return LL_ADC_RESOLUTION_12B;
 			case Resolution::B10: return LL_ADC_RESOLUTION_10B;
@@ -443,7 +477,7 @@ private:
 
 
 
-	uint32 CastDataAlignment() {
+	constexpr uint32 CastDataAlignment() const {
 		switch (parameters.dataAlignment) {
 			case DataAlignment::Right: return LL_ADC_DATA_ALIGN_RIGHT;
 			case DataAlignment::Left: return LL_ADC_DATA_ALIGN_LEFT;
@@ -456,7 +490,7 @@ private:
 
 
 
-	uint32 CastContinuousMode(ContinuousMode val) {
+	constexpr uint32 CastContinuousMode(ContinuousMode val) const {
 		switch (val) {
 			case ContinuousMode::Continuous: return LL_ADC_REG_CONV_CONTINUOUS;
 			case ContinuousMode::Single: return LL_ADC_REG_CONV_SINGLE;
@@ -467,47 +501,23 @@ private:
 
 
 
-	uint32 CastSequencerLength(uint8 val) {
-		static const uint32 array[] = {
-			LL_ADC_REG_SEQ_SCAN_DISABLE,
-			LL_ADC_REG_SEQ_SCAN_ENABLE_2RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_3RANKS,
-			LL_ADC_REG_SEQ_SCAN_ENABLE_4RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_5RANKS,
-			LL_ADC_REG_SEQ_SCAN_ENABLE_6RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_7RANKS,
-			LL_ADC_REG_SEQ_SCAN_ENABLE_8RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_9RANKS,
-			LL_ADC_REG_SEQ_SCAN_ENABLE_10RANKS, LL_ADC_REG_SEQ_SCAN_ENABLE_11RANKS,
-			LL_ADC_REG_SEQ_SCAN_ENABLE_12RANKS, LL_ADC_REG_SEQ_SCAN_ENABLE_13RANKS,
-			LL_ADC_REG_SEQ_SCAN_ENABLE_14RANKS, LL_ADC_REG_SEQ_SCAN_ENABLE_15RANKS,
-			LL_ADC_REG_SEQ_SCAN_ENABLE_16RANKS,
-		};
+	constexpr uint32 CastSequencerLength(uint8 val) const {
 		SystemAssert(val <= 16 && val >= 1);
-		return array[val - 1];
+		return sequencerLengthArray[val - 1];
 	}
 
 
 
-	uint32 CastRank(uint8 val) {
-		static const uint32 array[] = {
-			LL_ADC_REG_RANK_1,  LL_ADC_REG_RANK_2,  LL_ADC_REG_RANK_3,  LL_ADC_REG_RANK_4,
-			LL_ADC_REG_RANK_5,  LL_ADC_REG_RANK_6,  LL_ADC_REG_RANK_7,  LL_ADC_REG_RANK_8,
-			LL_ADC_REG_RANK_9,  LL_ADC_REG_RANK_10, LL_ADC_REG_RANK_11, LL_ADC_REG_RANK_12,
-			LL_ADC_REG_RANK_13, LL_ADC_REG_RANK_14, LL_ADC_REG_RANK_15, LL_ADC_REG_RANK_16
-		};
+	constexpr uint32 CastRank(uint8 val) const {
 		SystemAssert(val <= 16 && val >= 1);
-		return array[val - 1];
+		return rankArray[val - 1];
 	}
 
 
 
-	uint32 CastChannel(uint8 val) {
-		static const uint32 array[] = {
-			LL_ADC_CHANNEL_0, LL_ADC_CHANNEL_1,  LL_ADC_CHANNEL_2,  LL_ADC_CHANNEL_3,
-			LL_ADC_CHANNEL_4, LL_ADC_CHANNEL_5,  LL_ADC_CHANNEL_6,  LL_ADC_CHANNEL_7,
-			LL_ADC_CHANNEL_8, LL_ADC_CHANNEL_9,  LL_ADC_CHANNEL_10, LL_ADC_CHANNEL_11,
-			LL_ADC_CHANNEL_12, LL_ADC_CHANNEL_13, LL_ADC_CHANNEL_14, LL_ADC_CHANNEL_15,
-			LL_ADC_CHANNEL_16, LL_ADC_CHANNEL_17, LL_ADC_CHANNEL_18
-		};
+	constexpr uint32 CastChannel(uint8 val) const {
 		SystemAssert(val <= 18 && val >= 0);
-		return array[val];
+		return channelArray[val];
 	}
 
 

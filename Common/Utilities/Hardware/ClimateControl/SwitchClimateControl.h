@@ -1,13 +1,14 @@
 #pragma once
 #include "IClimateControl.h"
+#include <cmath>
 
 
 class SwitchClimateControl: public IClimateControl {
 public:
-	SwitchClimateControl() {
-		RTOS::CreateThread(*this);
-	}
-
+	float temperatureTolerance = 0.5f; // Temperature tolerance for HeatingCooling mode
+	
+public:
+	SwitchClimateControl() { }
 
 
 	virtual void Execute() override {
@@ -26,7 +27,6 @@ public:
 			OnHold(currentTemp);
 		}
 	}
-
 
 
 private:
@@ -49,9 +49,6 @@ private:
 	}
 
 
-
-
-
 	void OnHold(float currentTemp) {
 		if(!waitHold) {
 			return;
@@ -67,11 +64,11 @@ private:
 			break;
 
 			case ControlMode::HeatingCooling:
-				// TODO: HeatingCooling waitHold
+				waitHold = (std::abs(currentTemp - holdTemperature) > temperatureTolerance);
 			break;
 		}
 
-		if(!waitHold && onHold != nullptr) {
+		if(!waitHold && onHold) {
 			onHold();
 		}
 	}

@@ -65,12 +65,8 @@ public:
 
 
 public:
-	UARTAdapter() { }
-
-
-	UARTAdapter(USART_TypeDef *uart): uartHandle(uart)  {
-
-	}
+	UARTAdapter() = default;
+	UARTAdapter(USART_TypeDef *uart): uartHandle(uart) { }
 
 
 

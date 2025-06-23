@@ -30,44 +30,49 @@ public:
 
 
 public:
+	void Start() {
+		RTOS::CreateThread(*this);
+	}
+
+
 	void SetHoldTemperature(float temperature) {
 		holdTemperature = temperature;
 	}
+
 
 	float GetHoldTemperature() {
 		return holdTemperature;
 	}
 
 
-
 	void SetWorkMode(WorkMode mode) {
 		workMode = mode;
 	}
+
 
 	WorkMode GetWorkMode() {
 		return workMode;
 	}
 
 
-
 	void SetControlMode(ControlMode mode) {
 		controlMode = mode;
 	}
+
 
 	ControlMode GetControlMode() {
 		return controlMode;
 	}
 
 
-
 	void SetTimeStep(std::chrono::milliseconds timeStep) {
-		timeStep = timeStep;
+		this->timeStep = timeStep;
 	}
+
 
 	std::chrono::milliseconds GetTimeStep() {
 		return timeStep;
 	}
-
 
 
 	void SetManualDirty(float dirty) {
@@ -75,7 +80,6 @@ public:
 			onUpdateState(dirty);
 		}
 	}
-
 
 
 	void SetManualHold() {

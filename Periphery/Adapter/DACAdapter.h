@@ -22,8 +22,7 @@ protected:
 
 
 public:
-	DACAdapter() { }
-
+	DACAdapter() = default;
 	DACAdapter(DAC_TypeDef *dac, uint8 channel):dacHandle(dac), dacChannel(channel) { }
 
 

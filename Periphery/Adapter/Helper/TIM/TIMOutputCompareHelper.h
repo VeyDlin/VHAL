@@ -13,7 +13,7 @@ public:
 
 public:
 	TIMOutputCompareHelper() { }
-	TIMOutputCompareHelper(ATIM& adapter, const ATIM::ChannelMode* channel): ITIMHelper(adapter, channel) { }
+	TIMOutputCompareHelper(ATIM& adapter, ATIM::ChannelOption channel): ITIMHelper(adapter, channel) { }
 	TIMOutputCompareHelper(TimerChannel& timerChannel) : ITIMHelper(timerChannel)  { }
 
 

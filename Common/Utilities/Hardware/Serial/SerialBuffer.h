@@ -2,7 +2,7 @@
 #include <BSP.h>
 #include <Adapter/OSAdapter/RTOS.h>
 #include <Adapter/OSAdapter/CriticalSection.h>
-#include <Utilities/Data/Buffer/RingBuffer.h>
+#include <Utilities/Buffer/RingBuffer.h>
 
 
 template <uint16 BufferSize>

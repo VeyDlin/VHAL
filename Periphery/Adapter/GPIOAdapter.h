@@ -65,10 +65,8 @@ public:
 
 
 
-	GPIOAdapter() { }
-
+	GPIOAdapter() = default;
 	GPIOAdapter(GPIO_TypeDef *gpioPort, uint8 gpioPin, bool gpioInversion = false) : port(gpioPort), pin(1 << gpioPin), inversion(gpioInversion) { }
-
 	GPIOAdapter(IO &io) : port(io.port), pin(1 << io.pin), inversion(false) { }
 
 
@@ -167,7 +165,7 @@ public:
 
 
 	template<typename AdapterClass>
-	static inline Status::statusType AlternateInit(AlternateParameters val) {
+	static inline Status::statusType AlternateInitBase(AlternateParameters val) {
 		AdapterClass io = { val.port, val.pin };
 		io.SetAlternate(val.alternate);
 		return io.SetParameters({ Mode::Alternate, val.pull, val.speed });
@@ -178,7 +176,7 @@ public:
 
 
 	template<typename AdapterClass>
-	static inline Status::statusType AlternateOpenDrainInit(AlternateParameters val) {
+	static inline Status::statusType AlternateOpenDrainInitBase(AlternateParameters val) {
 		AdapterClass io = { val.port, val.pin };
 		io.SetAlternate(val.alternate);
 		return io.SetParameters({ Mode::AlternateOpenDrain, val.pull, val.speed });
@@ -189,7 +187,7 @@ public:
 
 
 	template<typename AdapterClass>
-	static inline Status::statusType AnalogInit(AnalogParameters val) {
+	static inline Status::statusType AnalogInitBase(AnalogParameters val) {
 		AdapterClass io = { val.port, val.pin };
 		return io.SetParameters({ Mode::Analog, val.pull });
 	}

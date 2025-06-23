@@ -15,7 +15,7 @@ public:
 	}
 	
 	virtual void Execute() override {
-		if(onEnd != nullptr) {
+		if(onEnd) {
 			onEnd();
 			this->autoReload = false;
 		}

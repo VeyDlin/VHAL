@@ -1,4 +1,4 @@
- #pragma once
+#pragma once
 #include "../../ADCAdapter.h"
 #include <System/System.h>
 
@@ -14,30 +14,31 @@ protected:
 
 public:
 	struct TriggerSource {
-		AUNIQUECODE_GENERATE(CTriggerSource, Software, 					LL_ADC_REG_TRIG_SOFTWARE);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer1Channel1, 			LL_ADC_REG_TRIG_EXT_TIM1_CH1);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer1Channel2, 			LL_ADC_REG_TRIG_EXT_TIM1_CH2);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer1Channel3, 			LL_ADC_REG_TRIG_EXT_TIM1_CH3);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer2Channel2, 			LL_ADC_REG_TRIG_EXT_TIM2_CH2);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer2Channel3, 			LL_ADC_REG_TRIG_EXT_TIM2_CH3);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer2Channel4, 			LL_ADC_REG_TRIG_EXT_TIM2_CH4);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer2Trigger, 			LL_ADC_REG_TRIG_EXT_TIM2_TRGO);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer3Channel1, 			LL_ADC_REG_TRIG_EXT_TIM3_CH1);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer3Trigger, 			LL_ADC_REG_TRIG_EXT_TIM3_TRGO);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer4Channel4, 			LL_ADC_REG_TRIG_EXT_TIM4_CH4);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer5Channel1, 			LL_ADC_REG_TRIG_EXT_TIM5_CH1);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer5Channel2, 			LL_ADC_REG_TRIG_EXT_TIM5_CH2);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer5Channel3, 			LL_ADC_REG_TRIG_EXT_TIM5_CH3);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer8Channel1, 			LL_ADC_REG_TRIG_EXT_TIM8_CH1);
-		AUNIQUECODE_GENERATE(CTriggerSource, Timer8Trigger, 			LL_ADC_REG_TRIG_EXT_TIM8_TRGO);
-		AUNIQUECODE_GENERATE(CTriggerSource, InterruptLine11, 			LL_ADC_REG_TRIG_EXT_EXTI_LINE11);
+		static inline constexpr TriggerSourceOption Software         { LL_ADC_REG_TRIG_SOFTWARE };
+		static inline constexpr TriggerSourceOption Timer1Channel1   { LL_ADC_REG_TRIG_EXT_TIM1_CH1 };
+		static inline constexpr TriggerSourceOption Timer1Channel2   { LL_ADC_REG_TRIG_EXT_TIM1_CH2 };
+		static inline constexpr TriggerSourceOption Timer1Channel3   { LL_ADC_REG_TRIG_EXT_TIM1_CH3 };
+		static inline constexpr TriggerSourceOption Timer2Channel2   { LL_ADC_REG_TRIG_EXT_TIM2_CH2 };
+		static inline constexpr TriggerSourceOption Timer2Channel3   { LL_ADC_REG_TRIG_EXT_TIM2_CH3 };
+		static inline constexpr TriggerSourceOption Timer2Channel4   { LL_ADC_REG_TRIG_EXT_TIM2_CH4 };
+		static inline constexpr TriggerSourceOption Timer2Trigger    { LL_ADC_REG_TRIG_EXT_TIM2_TRGO };
+		static inline constexpr TriggerSourceOption Timer3Channel1   { LL_ADC_REG_TRIG_EXT_TIM3_CH1 };
+		static inline constexpr TriggerSourceOption Timer3Trigger    { LL_ADC_REG_TRIG_EXT_TIM3_TRGO };
+		static inline constexpr TriggerSourceOption Timer4Channel4   { LL_ADC_REG_TRIG_EXT_TIM4_CH4 };
+		static inline constexpr TriggerSourceOption Timer5Channel1   { LL_ADC_REG_TRIG_EXT_TIM5_CH1 };
+		static inline constexpr TriggerSourceOption Timer5Channel2   { LL_ADC_REG_TRIG_EXT_TIM5_CH2 };
+		static inline constexpr TriggerSourceOption Timer5Channel3   { LL_ADC_REG_TRIG_EXT_TIM5_CH3 };
+		static inline constexpr TriggerSourceOption Timer8Channel1   { LL_ADC_REG_TRIG_EXT_TIM8_CH1 };
+		static inline constexpr TriggerSourceOption Timer8Trigger    { LL_ADC_REG_TRIG_EXT_TIM8_TRGO };
+		static inline constexpr TriggerSourceOption InterruptLine11  { LL_ADC_REG_TRIG_EXT_EXTI_LINE11 };
 	};
 
 
-public:
-	ADCAdapterF4() { }
-	ADCAdapterF4(ADC_TypeDef *adc):ADCAdapter(adc) { }
 
+public:
+	ADCAdapterF4() = default;
+	ADCAdapterF4(ADC_TypeDef *adc):ADCAdapter(adc) { }
+	virtual ~ADCAdapterF4() = default;
 
 
 	virtual inline void IrqHandler() override {
@@ -225,7 +226,7 @@ protected:
 
 	virtual Status::statusType RegularInitialization(uint8 rankLength) override {
 		LL_ADC_REG_InitTypeDef init = {
-			.TriggerSource = regularParameters.triggerSourceCode->GetCode(),
+			.TriggerSource = regularParameters.triggerSource.Get(),
 			.SequencerLength = CastSequencerLength(rankLength),
 			.SequencerDiscont = LL_ADC_REG_SEQ_DISCONT_DISABLE,
 			.ContinuousMode = CastContinuousMode(regularParameters.continuousMode),
@@ -316,7 +317,7 @@ protected:
 
 
 private:
-	uint32 CastResolution() {
+	constexpr uint32 CastResolution() const {
 		switch (parameters.resolution) {
 			case Resolution::B12: return LL_ADC_RESOLUTION_12B;
 			case Resolution::B10: return LL_ADC_RESOLUTION_10B;
@@ -333,7 +334,7 @@ private:
 
 
 
-	uint32 CastDataAlignment() {
+	constexpr uint32 CastDataAlignment() const {
 		switch (parameters.dataAlignment) {
 			case DataAlignment::Right: return LL_ADC_DATA_ALIGN_RIGHT;
 			case DataAlignment::Left: return LL_ADC_DATA_ALIGN_LEFT;
@@ -344,7 +345,7 @@ private:
 
 
 
-	uint32 CastSequencersScanMode() {
+	constexpr uint32 CastSequencersScanMode() const {
 		switch (parameters.scanMode) {
 			case ScanMode::Enable: return LL_ADC_SEQ_SCAN_ENABLE;
 			case ScanMode::Disable: return LL_ADC_SEQ_SCAN_DISABLE;
@@ -355,7 +356,7 @@ private:
 
 
 
-	uint32 CastContinuousMode(ContinuousMode val) {
+	constexpr uint32 CastContinuousMode(ContinuousMode val) const {
 		switch (val) {
 			case ContinuousMode::Continuous: return LL_ADC_REG_CONV_CONTINUOUS;
 			case ContinuousMode::Single: return LL_ADC_REG_CONV_SINGLE;
@@ -365,48 +366,50 @@ private:
 	}
 
 
+	static constexpr uint32 sequencerLengthArray[] = {
+		LL_ADC_REG_SEQ_SCAN_DISABLE,
+		LL_ADC_REG_SEQ_SCAN_ENABLE_2RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_3RANKS,
+		LL_ADC_REG_SEQ_SCAN_ENABLE_4RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_5RANKS,
+		LL_ADC_REG_SEQ_SCAN_ENABLE_6RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_7RANKS,
+		LL_ADC_REG_SEQ_SCAN_ENABLE_8RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_9RANKS,
+		LL_ADC_REG_SEQ_SCAN_ENABLE_10RANKS, LL_ADC_REG_SEQ_SCAN_ENABLE_11RANKS,
+		LL_ADC_REG_SEQ_SCAN_ENABLE_12RANKS, LL_ADC_REG_SEQ_SCAN_ENABLE_13RANKS,
+		LL_ADC_REG_SEQ_SCAN_ENABLE_14RANKS, LL_ADC_REG_SEQ_SCAN_ENABLE_15RANKS,
+		LL_ADC_REG_SEQ_SCAN_ENABLE_16RANKS,
+	};
 
-	uint32 CastSequencerLength(uint8 val) {
-		static const uint32 array[] = {
-			LL_ADC_REG_SEQ_SCAN_DISABLE,
-			LL_ADC_REG_SEQ_SCAN_ENABLE_2RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_3RANKS,
-			LL_ADC_REG_SEQ_SCAN_ENABLE_4RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_5RANKS,
-			LL_ADC_REG_SEQ_SCAN_ENABLE_6RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_7RANKS,
-			LL_ADC_REG_SEQ_SCAN_ENABLE_8RANKS,  LL_ADC_REG_SEQ_SCAN_ENABLE_9RANKS,
-			LL_ADC_REG_SEQ_SCAN_ENABLE_10RANKS, LL_ADC_REG_SEQ_SCAN_ENABLE_11RANKS,
-			LL_ADC_REG_SEQ_SCAN_ENABLE_12RANKS, LL_ADC_REG_SEQ_SCAN_ENABLE_13RANKS,
-			LL_ADC_REG_SEQ_SCAN_ENABLE_14RANKS, LL_ADC_REG_SEQ_SCAN_ENABLE_15RANKS,
-			LL_ADC_REG_SEQ_SCAN_ENABLE_16RANKS,
-		};
+	constexpr uint32 CastSequencerLength(uint8 val) const {
 		SystemAssert(val <= 16 && val >= 1);
-		return array[val - 1];
+		return sequencerLengthArray[val - 1];
 	}
 
 
 
-	uint32 CastRank(uint8 val) {
-		static const uint32 array[] = {
-			LL_ADC_REG_RANK_1,  LL_ADC_REG_RANK_2,  LL_ADC_REG_RANK_3,  LL_ADC_REG_RANK_4,
-			LL_ADC_REG_RANK_5,  LL_ADC_REG_RANK_6,  LL_ADC_REG_RANK_7,  LL_ADC_REG_RANK_8,
-			LL_ADC_REG_RANK_9,  LL_ADC_REG_RANK_10, LL_ADC_REG_RANK_11, LL_ADC_REG_RANK_12,
-			LL_ADC_REG_RANK_13, LL_ADC_REG_RANK_14, LL_ADC_REG_RANK_15, LL_ADC_REG_RANK_16
-		};
+	static constexpr uint32 rankArray[] = {
+		LL_ADC_REG_RANK_1,  LL_ADC_REG_RANK_2,  LL_ADC_REG_RANK_3,  LL_ADC_REG_RANK_4,
+		LL_ADC_REG_RANK_5,  LL_ADC_REG_RANK_6,  LL_ADC_REG_RANK_7,  LL_ADC_REG_RANK_8,
+		LL_ADC_REG_RANK_9,  LL_ADC_REG_RANK_10, LL_ADC_REG_RANK_11, LL_ADC_REG_RANK_12,
+		LL_ADC_REG_RANK_13, LL_ADC_REG_RANK_14, LL_ADC_REG_RANK_15, LL_ADC_REG_RANK_16
+	};
+
+	constexpr uint32 CastRank(uint8 val) const {
 		SystemAssert(val <= 16 && val >= 1);
-		return array[val - 1];
+		return rankArray[val - 1];
 	}
 
 
 
-	uint32 CastChannel(uint8 val) {
-		static const uint32 array[] = {
-			LL_ADC_CHANNEL_0, LL_ADC_CHANNEL_1,  LL_ADC_CHANNEL_2,  LL_ADC_CHANNEL_3,
-			LL_ADC_CHANNEL_4, LL_ADC_CHANNEL_5,  LL_ADC_CHANNEL_6,  LL_ADC_CHANNEL_7,
-			LL_ADC_CHANNEL_8, LL_ADC_CHANNEL_9,  LL_ADC_CHANNEL_10, LL_ADC_CHANNEL_11,
-			LL_ADC_CHANNEL_12, LL_ADC_CHANNEL_13, LL_ADC_CHANNEL_14, LL_ADC_CHANNEL_15,
-			LL_ADC_CHANNEL_16, LL_ADC_CHANNEL_17, LL_ADC_CHANNEL_18
-		};
+	static constexpr uint32 channelArray[] = {
+		LL_ADC_CHANNEL_0, LL_ADC_CHANNEL_1,  LL_ADC_CHANNEL_2,  LL_ADC_CHANNEL_3,
+		LL_ADC_CHANNEL_4, LL_ADC_CHANNEL_5,  LL_ADC_CHANNEL_6,  LL_ADC_CHANNEL_7,
+		LL_ADC_CHANNEL_8, LL_ADC_CHANNEL_9,  LL_ADC_CHANNEL_10, LL_ADC_CHANNEL_11,
+		LL_ADC_CHANNEL_12, LL_ADC_CHANNEL_13, LL_ADC_CHANNEL_14, LL_ADC_CHANNEL_15,
+		LL_ADC_CHANNEL_16, LL_ADC_CHANNEL_17, LL_ADC_CHANNEL_18
+	};
+
+	constexpr uint32 CastChannel(uint8 val) const {
 		SystemAssert(val <= 18 && val >= 0);
-		return array[val];
+		return channelArray[val];
 	}
 
 

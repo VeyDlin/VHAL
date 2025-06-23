@@ -22,9 +22,9 @@ public:
 
 
 	virtual void AbortReceive() override {
-		LL_USART_DisableIT_RXNE(uartHandle); 	// Прерывание по факту приема данных
-		LL_USART_DisableIT_PE(uartHandle); 		// Прерывание по факту ошибки четности
-		LL_USART_DisableIT_ERROR(uartHandle); 	// Прерывание по факту ошибки (Frame error, noise error, overrun error)
+		LL_USART_DisableIT_RXNE(uartHandle);
+		LL_USART_DisableIT_PE(uartHandle);
+		LL_USART_DisableIT_ERROR(uartHandle);
 
 		continuousAsyncRxMode = false;
 		rxDataCounter = 0;
@@ -38,8 +38,8 @@ public:
 
 
 	virtual void AbortTransmit() override {
-		LL_USART_DisableIT_TXE(uartHandle);		// Прерывание по опустошению регистра передачи
-		LL_USART_DisableIT_TC(uartHandle);		// Прерывание по окончанию передачи
+		LL_USART_DisableIT_TXE(uartHandle);
+		LL_USART_DisableIT_TC(uartHandle);
 
 		txDataCounter = 0;
 		txDataNeed = 0;
@@ -92,7 +92,7 @@ protected:
 
 		LL_USART_Enable(uartHandle);
 
-		// Polling USART1 initialisation
+		// Polling USART initialisation
 		while((!(LL_USART_IsActiveFlag_TEACK(uartHandle))) || (!(LL_USART_IsActiveFlag_REACK(uartHandle))));
 
 		return AfterInitialization();
@@ -309,7 +309,7 @@ private:
 		}
 
 		if(continuousAsyncTxMode) {
-			abort(); // TODO: continuous
+			abort(); // TODO: [VHAL] [UART] [G4] [ADD SUPPORT] continuous
 			return;
 		}
 
@@ -347,7 +347,7 @@ private:
 
 
 private:
-	uint32 CastStopBits() {
+	constexpr uint32 CastStopBits() const {
 		switch (parameters.stopBits) {
 			case StopBits::B1: return LL_USART_STOPBITS_1;
 			case StopBits::B2: return LL_USART_STOPBITS_2;
@@ -360,7 +360,7 @@ private:
 
 
 
-	uint32 CastParity() {
+	constexpr uint32 CastParity() const {
 		switch (parameters.parity) {
 			case Parity::None: return LL_USART_PARITY_NONE;
 			case Parity::Even: return LL_USART_PARITY_EVEN;
@@ -374,7 +374,7 @@ private:
 
 
 
-	uint32 CastMode() {
+	constexpr uint32 CastMode() const {
 		switch (parameters.mode) {
 			case Mode::Tx: return LL_USART_DIRECTION_TX;
 			case Mode::Rx: return LL_USART_DIRECTION_RX;
@@ -388,7 +388,7 @@ private:
 
 
 
-	uint32 CastFlowControl() {
+	constexpr uint32 CastFlowControl() const {
 		switch (parameters.flowControl) {
 			case FlowControl::None: return LL_USART_HWCONTROL_NONE;
 			case FlowControl::Rts: return LL_USART_HWCONTROL_RTS;
@@ -403,7 +403,7 @@ private:
 
 
 
-	uint32 CastOverSampling() {
+	constexpr uint32 CastOverSampling() const {
 		switch (parameters.overSampling) {
 			case OverSampling::B16: return LL_USART_OVERSAMPLING_16;
 			case OverSampling::B8: return LL_USART_OVERSAMPLING_8;
