@@ -69,9 +69,9 @@ public:
 
 
 	TIMOutputCompareHelper& SetFrequencyInfo(const FrequencyInfo& info) {
-		uint32 sourceFrequency = timAdapter->GetBusClockHz() * 1000;
-		uint32 targetFrequency = info.frequencyHz;
-		uint32 duty = info.duty;
+		float sourceFrequency = timAdapter->GetBusClockHz() * 1000;
+		float targetFrequency = info.frequencyHz;
+		float duty = info.duty;
 
 		uint32 prescaler = 0;
 		uint32 period = 0;
