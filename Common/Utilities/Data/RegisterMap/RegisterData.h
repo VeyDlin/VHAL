@@ -96,13 +96,17 @@ public:
     }
 
     size_t GetUnsafe(uint8* outData) override {
+    	auto dataMemory = map->GetMemoryUnsafe(Address);
+    	if (dataMemory == nullptr) {
+    		return 0;
+    	}
+
     	if(onRead) {
-    		auto readData = onRead(*reinterpret_cast<const RawDataType*>(map->GetMemoryUnsafe(Address)));
+    		auto readData = onRead(*reinterpret_cast<const RawDataType*>(dataMemory));
     		auto data = reinterpret_cast<const uint8*>(&readData);
            	std::memcpy(outData, data, DataTypeSize());
     	} else {
-    		auto data = map->GetMemoryUnsafe(Address);
-    		std::memcpy(outData, data, DataTypeSize());
+    		std::memcpy(outData, dataMemory, DataTypeSize());
     	}
 
     	return DataTypeSize();

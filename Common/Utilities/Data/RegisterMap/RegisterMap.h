@@ -1,6 +1,7 @@
 #pragma once
 #include <System/System.h>
 #include <cstring>
+#include <utility>
 #include "IRegisterMap.h"
 #include "RegisterData.h"
 
@@ -15,7 +16,8 @@ protected:
     uint16 mapRegisterDataCounter = 0;
 
     const uint8* GetMemoryUnsafe(uint32 address) const override {
-        return &(map[address]);
+        auto [registerData, offset] = FindRegisterData(address, 0);
+        return registerData ? &(map[offset]) : nullptr;
     }
 
     inline size_t Size() const override {
@@ -31,27 +33,29 @@ protected:
         }
     }
 
-    IRegisterData* FindRegisterData(uint32 address, size_t length) {
+    std::pair<IRegisterData*, uint32> FindRegisterData(uint32 address, size_t length) const {
+        uint32 currentOffset = 0;
+        
         for(IRegisterData* data : mapRegisterData) {
-            if(
-                data != nullptr &&
-                data->Addres() == address &&
-				(
-					length == 0 || (
-						data->DataTypeSize() == length &&
-			            address + length <= Size()
-					)
-				)
-            ) {
-                return data;
+            if(data != nullptr) {
+                if(data->Addres() == address && 
+                    (
+                        length == 0 ||
+						(data->DataTypeSize() == length &&
+						currentOffset + length <= Size())
+				    )
+				) {
+                    return {data, currentOffset};
+                }
+                currentOffset += data->DataTypeSize();
             }
         }
-        return nullptr;
+        return {nullptr, 0};
     }
 
 public:
     size_t GetUnsafe(uint32 address, uint8* outData) override {
-        auto registerData = this->FindRegisterData(address, 0);
+        auto [registerData, offset] = FindRegisterData(address, 0);
         if (registerData == nullptr) {
             return 0;
         }
@@ -68,7 +72,7 @@ public:
     }
 
     bool UpdateMemory(uint32 address, const uint8* buffer, size_t length) override {
-        auto registerData = this->FindRegisterData(address, length);
+        auto [registerData, offset] = FindRegisterData(address, length);
         if (registerData == nullptr) {
             return false;
         }
@@ -82,7 +86,7 @@ public:
         }
 
         System::CriticalSection(true);
-        std::memcpy(&map[address], buffer, length);
+        std::memcpy(&map[offset], buffer, length);
         System::CriticalSection(false);
 
         return true;
