@@ -35,7 +35,7 @@ public:
 	}
 
 
-	virtual inline uint32 GetDeadlineMs() override {
+	virtual inline constexpr uint32 GetDeadlineMs() const override {
 		return 1000000 / (inputBusClockHz / prescalerValue / reloadCounter);
 	}
 

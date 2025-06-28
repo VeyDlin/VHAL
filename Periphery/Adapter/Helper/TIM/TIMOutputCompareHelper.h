@@ -69,13 +69,13 @@ public:
 
 
 	TIMOutputCompareHelper& SetFrequencyInfo(const FrequencyInfo& info) {
-		uint32 sourceFrequency = timAdapter->GetBusClockHz() * 1000;
-		uint32 targetFrequency = info.frequencyHz;
-		uint32 duty = info.duty;
+		float sourceFrequency = timAdapter->GetBusClockHz() * 1000;
+		float targetFrequency = info.frequencyHz;
+		float duty = info.duty;
 
-		uint32 prescaler = 0;
-		uint32 period = 0;
-		uint32 pulse = 0;
+		float prescaler = 0;
+		float period = 0;
+		float pulse = 0;
 
 		if (timAdapter->GetBitness() == ATIM::Bitness::B32) {
 		    period = (sourceFrequency / (timAdapter->GetClockDivision() * targetFrequency)) - 1;
@@ -103,8 +103,8 @@ public:
 		SetPrescaler(static_cast<uint16>(prescaler));
 
 		if (timAdapter->GetBitness() == ATIM::Bitness::B32) {
-		    SetPeriod(period);
-		    SetCompare(pulse);
+		    SetPeriod(static_cast<uint32>(period));
+		    SetCompare(static_cast<uint32>(pulse));
 		} else {
 		    SetPeriod(static_cast<uint16>(period));
 		    SetCompare(static_cast<uint16>(pulse));

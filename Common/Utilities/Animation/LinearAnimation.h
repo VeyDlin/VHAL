@@ -135,6 +135,11 @@ public:
 	}
 
 
+	std::chrono::milliseconds GetDuration() {
+		return _duration;
+	}
+
+
 	LinearAnimation& Pause() {
 		pause = true;
 		return *this;

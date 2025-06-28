@@ -2,7 +2,7 @@
 #include <System/System.h>
 #include <Adapter/OSAdapter/RTOS.h>
 #include <Adapter/OSAdapter/Timer.h>
-#include <Utilities/Data/Color/Colors.h>
+#include <Utilities/Data/Colors.h>
 #include <functional>
 
 
@@ -137,6 +137,11 @@ public:
 	RgbAnimation& SetDuration(std::chrono::milliseconds val) {
 		_duration = val;
 		return *this;
+	}
+
+
+	std::chrono::milliseconds GetDuration() {
+		return _duration;
 	}
 
 

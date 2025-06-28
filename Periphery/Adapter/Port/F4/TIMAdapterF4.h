@@ -242,6 +242,7 @@ public:
 		} else if(channel == Channel::C4) {
 			LL_TIM_OC_SetCompareCH4(timHandle, compare);
 		}
+		outputCompareParameters[GetChannelIndex(channel)].compare = compare;
 	}
 
 
