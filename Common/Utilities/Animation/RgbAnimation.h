@@ -140,6 +140,11 @@ public:
 	}
 
 
+	std::chrono::milliseconds GetDuration() {
+		return _duration;
+	}
+
+
 	RgbAnimation& Pause() {
 		pause = true;
 		return *this;
