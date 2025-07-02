@@ -40,6 +40,17 @@ public:
 	    using IOption::IOption;
 	};
 
+	struct InputPrescalerOption : IOption<uint32> {
+	    using IOption::IOption;
+	};
+
+	struct InputFilterOption : IOption<uint32> {
+	    using IOption::IOption;
+	};
+
+	struct InputRemappingOption : IOption<uint32> {
+	    using IOption::IOption;
+	};
 
 	enum class State { Enable, Disable };
 	enum class Polarity { Low, High };
@@ -48,6 +59,8 @@ public:
 	enum class ChannelEnableSelect { EnablePositive, EnableNegative, EnableAll, DisablePositive, DisableNegative, DisableAll };
 	enum class Bitness { B16, B32 };
 
+	enum class InputPolarity { Rising, Falling, RisingFalling };
+	enum class InputSelection { Direct, Indirect, TRC };
 
 	struct Parameters {
 		ClockDivisionOption division;
@@ -78,7 +91,12 @@ public:
 	};
 
 	struct InputCaptureParameters {
-		// TODO: [VHAL] [TIM] [ADAPTER] [ADD SUPPORT] InputCaptureParameters
+		ChannelOption channel;
+		InputPrescalerOption prescaler;
+		InputRemappingOption remapping;
+		InputFilterOption filter;
+		InputPolarity polarity = InputPolarity::Rising;
+		InputSelection selection = InputSelection::Direct;
 	};
 
 	struct EncoderParameters {
@@ -104,6 +122,7 @@ protected:
 	TIM_TypeDef *timHandle;
 	Parameters parameters;
 	OutputCompareParameters outputCompareParameters[maxChannels];
+	InputCaptureParameters inputCaptureParameters[maxChannels];
 	BreakAndDeadTimeParameters breakAndDeadTimeParameters[maxChannels];
 
 	uint32 inputBusClockHz = 0;
@@ -145,6 +164,11 @@ public:
 	}
 
 
+	const InputCaptureParameters& GetInputCaptureParameters(const ChannelOption channel) {
+		return inputCaptureParameters[GetChannelIndex(channel)];
+	}
+
+
 	const BreakAndDeadTimeParameters& GetBreakAndDeadTimeParameters(const ChannelOption channel) {
 		return breakAndDeadTimeParameters[GetChannelIndex(channel)];
 	}
@@ -171,6 +195,15 @@ public:
 	    return OutputCompareInitialization(list);
 	}
 
+
+	virtual Status::statusType ConfigInputCaptureParameters(const std::initializer_list<InputCaptureParameters>& list) {
+		uint8 i = 0;
+		for(auto &channel : list) {
+			inputCaptureParameters[i++] = channel;
+			SystemAssert(i <= maxChannels);
+		}
+	    return InputCaptureInitialization(list);
+	}
 
 
 	virtual Status::statusType ConfigBreakAndDeadTimeParameters(const std::initializer_list<BreakAndDeadTimeParameters>& list) {
@@ -216,6 +249,8 @@ public:
 	virtual inline void SetPrescaler(uint32 prescaler) = 0;
 	virtual inline void SetPeriod(uint32 period) = 0;
 	virtual inline void SetCompare(ChannelOption channel, uint32 compare) = 0;
+	virtual inline void SetCompareMode(ChannelOption channel, OutputCompareOption mode) = 0;
+	virtual inline uint32 GetCapture(ChannelOption channel) = 0;
 	virtual inline void GenerateUpdateEvent() = 0;
 
 	virtual inline void IrqHandler() = 0;
@@ -231,6 +266,7 @@ public:
 protected:
 	virtual Status::statusType Initialization() = 0;
 	virtual Status::statusType OutputCompareInitialization(const std::initializer_list<OutputCompareParameters>& list) = 0;
+	virtual Status::statusType InputCaptureInitialization(const std::initializer_list<InputCaptureParameters>& list) = 0;
 	virtual Status::statusType BreakAndDeadTimeInitialization(const std::initializer_list<BreakAndDeadTimeParameters>& list) = 0;
 	virtual Status::statusType SetInterrupt(InterruptOption interrupt, bool enable) = 0;
 

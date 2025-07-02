@@ -53,6 +53,16 @@ public:
 	}
 
 
+	inline void SetCompareMode(ATIM::OutputCompareOption mode) {
+		timAdapter->SetCompare(timChannel, mode);
+	}
+
+
+	inline uint32 GetCapture() {
+		return timAdapter->GetCapture(timChannel);
+	}
+
+
 	inline ATIM* GetAdapter() const {
         return timAdapter;
     }
@@ -66,6 +76,51 @@ public:
 	inline uint8 GetChannelNumber() {
         return timAdapter->GetChannelIndex(timChannel) + 1;
     }
+
+
+	void SetBaseFrequency(float targetFrequency) {
+		auto [prescaler, period] = CalculateFrequency(timAdapter, targetFrequency);
+
+	    System::CriticalSection(true);
+
+	    SetPrescaler(prescaler);
+	    SetPeriod(period);
+	    timAdapter->GenerateUpdateEvent();
+
+	    System::CriticalSection(false);
+	}
+
+
+
+protected:
+	static std::pair<uint16, uint32> CalculateFrequency(ATIM *timAdapter, float targetFrequency) {
+	    float sourceFrequency = timAdapter->GetBusClockHz() * 1000;
+
+	    float prescaler = 0;
+	    float period = 0;
+
+	    if (timAdapter->GetBitness() == ATIM::Bitness::B32) {
+	        period = (sourceFrequency / (timAdapter->GetClockDivision() * targetFrequency)) - 1;
+	    } else {
+	        for (prescaler = 0; prescaler <= 0xFFFF; ++prescaler) {
+	            uint32 tmpPeriod = (sourceFrequency / (timAdapter->GetClockDivision() * (prescaler + 1) * targetFrequency)) - 1;
+	            if (tmpPeriod <= 0xFFFF) {
+	                period = tmpPeriod;
+	                break;
+	            }
+	        }
+	    }
+
+	    if (period == 0) {
+	        period = 1;
+	    }
+
+	    return {
+	    	static_cast<uint16>(prescaler),
+	    	timAdapter->GetBitness() == ATIM::Bitness::B32 ? static_cast<uint32>(period) : static_cast<uint16>(period)
+	    };
+	}
+
 
 
 private:

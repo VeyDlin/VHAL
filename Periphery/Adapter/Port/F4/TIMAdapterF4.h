@@ -249,6 +249,32 @@ public:
 
 
 
+	virtual inline void SetCompareMode(ChannelOption channel, OutputCompareOption mode) override {
+		LL_TIM_OC_SetMode(timHandle, channel.Get<1>(), mode.Get());
+	}
+
+
+
+
+
+	virtual inline uint32 GetCapture(ChannelOption channel) override {
+		if(channel == Channel::C1) {
+			return LL_TIM_IC_GetCaptureCH1(timHandle);
+		} else if(channel == Channel::C2) {
+			return LL_TIM_IC_GetCaptureCH2(timHandle);
+		} else if(channel == Channel::C3) {
+			return LL_TIM_IC_GetCaptureCH3(timHandle);
+		} else if(channel == Channel::C4) {
+			return LL_TIM_IC_GetCaptureCH4(timHandle);
+		}
+		SystemAbort();
+		return 0;
+	}
+
+
+
+
+
 	virtual inline void GenerateUpdateEvent() override {
 		LL_TIM_GenerateEvent_UPDATE(timHandle);
 	}
@@ -362,6 +388,14 @@ protected:
 
 
 		return Status::ok;
+	}
+
+
+
+
+
+	virtual Status::statusType InputCaptureInitialization(const std::initializer_list<InputCaptureParameters>& list) override {
+		return Status::notSupported;
 	}
 
 

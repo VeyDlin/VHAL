@@ -29,6 +29,29 @@ public:
 
 
 
+
+
+	virtual Status::statusType Enable() override {
+		if (LL_DAC_IsEnabled(dacHandle, CastChannel())) {
+			return Status::ok;
+		}
+
+		LL_DAC_Enable(dacHandle, CastChannel());
+		System::DelayUs(LL_DAC_DELAY_STARTUP_VOLTAGE_SETTLING_US);
+		return Status::ok;
+	}
+
+
+
+
+
+	virtual Status::statusType Disable() override {
+		if (LL_DAC_IsEnabled(dacHandle, CastChannel())) {
+			LL_DAC_Disable(dacHandle, CastChannel());
+		}
+		return Status::ok;
+	}
+
 protected:
 	virtual Status::statusType Initialization() override {
 		auto status = BeforeInitialization();

@@ -164,6 +164,8 @@ struct Status {
         terminating,                                // Terminating
         lowSignalStrength,                          // Low signal strength
         clockSyncError,                             // Clock synchronization error
+		low,										// Low
+		high										// High
     } statusType;
 
 	static inline bool IsError(statusType type) { return type != ok; }

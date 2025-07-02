@@ -161,7 +161,7 @@ protected:
 		switch (GetResolutionByte()) {
 			case 1: *(uint8 *)dataPointer = static_cast<uint8>(lastData);  break;
 			case 2: *(uint16*)dataPointer = static_cast<uint16>(lastData); break;
-			default: abort();
+			default: System::Abort();
 		}
 		dataPointer += GetResolutionByte();
 
@@ -377,7 +377,7 @@ protected:
 	        switch (GetResolutionByte()) {
 	            case 1: *(uint8*)dataPointer = static_cast<uint8>(lastData);  break;
 	            case 2: *(uint16*)dataPointer = static_cast<uint16>(lastData); break;
-	            default: abort();
+	            default: System::Abort();
 	        }
 	        dataPointer += GetResolutionByte();
 	    }
@@ -469,9 +469,9 @@ private:
 
 			case Resolution::B14:
 			case Resolution::B16:
-				abort();
+				System::Abort();
 		}
-		abort();
+		System::Abort();
 		return 0;
 	}
 
@@ -482,7 +482,7 @@ private:
 			case DataAlignment::Right: return LL_ADC_DATA_ALIGN_RIGHT;
 			case DataAlignment::Left: return LL_ADC_DATA_ALIGN_LEFT;
 		}
-		abort();
+		System::Abort();
 		return 0;
 	}
 
@@ -495,7 +495,7 @@ private:
 			case ContinuousMode::Continuous: return LL_ADC_REG_CONV_CONTINUOUS;
 			case ContinuousMode::Single: return LL_ADC_REG_CONV_SINGLE;
 		}
-		abort();
+		System::Abort();
 		return 0;
 	}
 

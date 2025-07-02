@@ -69,44 +69,21 @@ public:
 
 
 	TIMOutputCompareHelper& SetFrequencyInfo(const FrequencyInfo& info) {
-		float sourceFrequency = timAdapter->GetBusClockHz() * 1000;
-		float targetFrequency = info.frequencyHz;
-		float duty = info.duty;
+		auto [prescaler, period] = CalculateFrequency(timAdapter, info.frequencyHz);
 
-		float prescaler = 0;
-		float period = 0;
-		float pulse = 0;
-
-		if (timAdapter->GetBitness() == ATIM::Bitness::B32) {
-		    period = (sourceFrequency / (timAdapter->GetClockDivision() * targetFrequency)) - 1;
-		} else {
-		    for (prescaler = 0; prescaler <= 0xFFFF; ++prescaler) {
-		        uint32 tmpPeriod = (sourceFrequency / (timAdapter->GetClockDivision() * (prescaler + 1) * targetFrequency)) - 1;
-		        if (tmpPeriod <= 0xFFFF) {
-		            period = tmpPeriod;
-		            break;
-		        }
-		    }
-		}
-
-		if (period == 0) {
-		    period = 1;
-		}
-
-		pulse = static_cast<uint32>(((period + 1) * duty) / 100.f);
+		uint32 pulse = static_cast<uint32>(((period + 1) * info.duty) / 100.f);
 		if (pulse == 0) {
 		    pulse = 1;
 		}
 
 		System::CriticalSection(true);
 
-		SetPrescaler(static_cast<uint16>(prescaler));
+		SetPrescaler(prescaler);
+		SetPeriod(period);
 
 		if (timAdapter->GetBitness() == ATIM::Bitness::B32) {
-		    SetPeriod(static_cast<uint32>(period));
 		    SetCompare(static_cast<uint32>(pulse));
 		} else {
-		    SetPeriod(static_cast<uint16>(period));
 		    SetCompare(static_cast<uint16>(pulse));
 		}
 

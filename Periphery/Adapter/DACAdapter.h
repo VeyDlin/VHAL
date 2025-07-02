@@ -8,9 +8,13 @@
 class DACAdapter: public IAdapter {
 public:
 	enum class OutputBuffer { Enable, Disable };
+	enum class OutputConnection { External, Internal };
+	enum class OutputMode { Normal, SampleHold };
 
 	struct Parameters {
 		OutputBuffer outputBuffer = OutputBuffer::Enable;
+		OutputConnection outputConnection = OutputConnection::External;
+		OutputMode outputMode = OutputMode::Normal;
 	};
 
 

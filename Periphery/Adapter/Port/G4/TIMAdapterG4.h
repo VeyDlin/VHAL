@@ -93,6 +93,269 @@ public:
 		static inline constexpr OutputTriggerOption2 Rising5Falling6    { LL_TIM_TRGO2_OC5_RISING_OC6_FALLING };
 	};
 
+	struct InputPrescaler {
+	   static inline constexpr InputPrescalerOption Div1 { LL_TIM_ICPSC_DIV1 };
+	   static inline constexpr InputPrescalerOption Div2 { LL_TIM_ICPSC_DIV2 };
+	   static inline constexpr InputPrescalerOption Div4 { LL_TIM_ICPSC_DIV4 };
+	   static inline constexpr InputPrescalerOption Div8 { LL_TIM_ICPSC_DIV8 };
+	};
+
+	struct InputRemapping {
+	   struct Timer1Channel1 {
+	       static inline constexpr InputRemappingOption GPIO  { LL_TIM_TIM1_TI1_RMP_GPIO };
+	       static inline constexpr InputRemappingOption Comp1 { LL_TIM_TIM1_TI1_RMP_COMP1 };
+	       static inline constexpr InputRemappingOption Comp2 { LL_TIM_TIM1_TI1_RMP_COMP2 };
+	       static inline constexpr InputRemappingOption Comp3 { LL_TIM_TIM1_TI1_RMP_COMP3 };
+	       static inline constexpr InputRemappingOption Comp4 { LL_TIM_TIM1_TI1_RMP_COMP4 };
+	   };
+
+	   struct Timer2Channel1 {
+		   static inline constexpr InputRemappingOption GPIO  { LL_TIM_TIM2_TI1_RMP_GPIO };
+	       static inline constexpr InputRemappingOption Comp1 { LL_TIM_TIM2_TI1_RMP_COMP1 };
+	       static inline constexpr InputRemappingOption Comp2 { LL_TIM_TIM2_TI1_RMP_COMP2 };
+	       static inline constexpr InputRemappingOption Comp3 { LL_TIM_TIM2_TI1_RMP_COMP3 };
+	       static inline constexpr InputRemappingOption Comp4 { LL_TIM_TIM2_TI1_RMP_COMP4 };
+		   #if defined(COMP5)
+	       	   static inline constexpr InputRemappingOption Comp5 { LL_TIM_TIM2_TI1_RMP_COMP5 };
+		   #endif
+	   };
+
+	   struct Timer2Channel2 {
+	       static inline constexpr InputRemappingOption GPIO  { LL_TIM_TIM2_TI2_RMP_GPIO };
+	       static inline constexpr InputRemappingOption Comp1 { LL_TIM_TIM2_TI2_RMP_COMP1 };
+	       static inline constexpr InputRemappingOption Comp2 { LL_TIM_TIM2_TI2_RMP_COMP2 };
+	       static inline constexpr InputRemappingOption Comp3 { LL_TIM_TIM2_TI2_RMP_COMP3 };
+	       static inline constexpr InputRemappingOption Comp4 { LL_TIM_TIM2_TI2_RMP_COMP4 };
+		   #if defined(COMP6)
+	       	   static inline constexpr InputRemappingOption Comp6 { LL_TIM_TIM2_TI2_RMP_COMP6 };
+		   #endif
+	   };
+
+	   struct Timer2Channel3 {
+	       static inline constexpr InputRemappingOption GPIO  { LL_TIM_TIM2_TI3_RMP_GPIO };
+	       static inline constexpr InputRemappingOption Comp4 { LL_TIM_TIM2_TI3_RMP_COMP4 };
+	   };
+
+	   struct Timer2Channel4 {
+	       static inline constexpr InputRemappingOption GPIO  { LL_TIM_TIM2_TI4_RMP_GPIO };
+	       static inline constexpr InputRemappingOption Comp1 { LL_TIM_TIM2_TI4_RMP_COMP1 };
+	       static inline constexpr InputRemappingOption Comp2 { LL_TIM_TIM2_TI4_RMP_COMP2 };
+	   };
+
+	   // TIM3
+	   struct Timer3Channel1 {
+	       static inline constexpr InputRemappingOption GPIO  { LL_TIM_TIM3_TI1_RMP_GPIO };
+	       static inline constexpr InputRemappingOption Comp1 { LL_TIM_TIM3_TI1_RMP_COMP1 };
+	       static inline constexpr InputRemappingOption Comp2 { LL_TIM_TIM3_TI1_RMP_COMP2 };
+	       static inline constexpr InputRemappingOption Comp3 { LL_TIM_TIM3_TI1_RMP_COMP3 };
+	       static inline constexpr InputRemappingOption Comp4 { LL_TIM_TIM3_TI1_RMP_COMP4 };
+		   #if defined(COMP5)
+	       	   static inline constexpr InputRemappingOption Comp5 { LL_TIM_TIM3_TI1_RMP_COMP5 };
+		   #endif
+		   #if defined(COMP6)
+	       	   static inline constexpr InputRemappingOption Comp6 { LL_TIM_TIM3_TI1_RMP_COMP6 };
+		   #endif
+		   #if defined(COMP7)
+	       	   static inline constexpr InputRemappingOption Comp7 { LL_TIM_TIM3_TI1_RMP_COMP7 };
+		   #endif
+	   };
+
+	   struct Timer3Channel2 {
+	       static inline constexpr InputRemappingOption GPIO  { LL_TIM_TIM3_TI2_RMP_GPIO };
+	       static inline constexpr InputRemappingOption Comp1 { LL_TIM_TIM3_TI2_RMP_COMP1 };
+	       static inline constexpr InputRemappingOption Comp2 { LL_TIM_TIM3_TI2_RMP_COMP2 };
+	       static inline constexpr InputRemappingOption Comp3 { LL_TIM_TIM3_TI2_RMP_COMP3 };
+	       static inline constexpr InputRemappingOption Comp4 { LL_TIM_TIM3_TI2_RMP_COMP4 };
+		   #if defined(COMP5)
+	       	   static inline constexpr InputRemappingOption Comp5 { LL_TIM_TIM3_TI2_RMP_COMP5 };
+		   #endif
+		   #if defined(COMP6)
+	       	   static inline constexpr InputRemappingOption Comp6 { LL_TIM_TIM3_TI2_RMP_COMP6 };
+		   #endif
+		   #if defined(COMP7)
+	       	   static inline constexpr InputRemappingOption Comp7 { LL_TIM_TIM3_TI2_RMP_COMP7 };
+		   #endif
+	   };
+
+	   struct Timer3Channel3 {
+	       static inline constexpr InputRemappingOption GPIO  { LL_TIM_TIM3_TI3_RMP_GPIO };
+	       static inline constexpr InputRemappingOption Comp3 { LL_TIM_TIM3_TI3_RMP_COMP3 };
+	   };
+
+	   struct Timer4Channel1 {
+	       static inline constexpr InputRemappingOption GPIO  { LL_TIM_TIM4_TI1_RMP_GPIO };
+	       static inline constexpr InputRemappingOption Comp1 { LL_TIM_TIM4_TI1_RMP_COMP1 };
+	       static inline constexpr InputRemappingOption Comp2 { LL_TIM_TIM4_TI1_RMP_COMP2 };
+	       static inline constexpr InputRemappingOption Comp3 { LL_TIM_TIM4_TI1_RMP_COMP3 };
+	       static inline constexpr InputRemappingOption Comp4 { LL_TIM_TIM4_TI1_RMP_COMP4 };
+		   #if defined(COMP5)
+	       	   static inline constexpr InputRemappingOption Comp5 { LL_TIM_TIM4_TI1_RMP_COMP5 };
+		   #endif
+		   #if defined(COMP6)
+	       	   static inline constexpr InputRemappingOption Comp6 { LL_TIM_TIM4_TI1_RMP_COMP6 };
+		   #endif
+		   #if defined(COMP7)
+	       	   static inline constexpr InputRemappingOption Comp7 { LL_TIM_TIM4_TI1_RMP_COMP7 };
+		   #endif
+	   };
+
+	   struct Timer4Channel2 {
+	       static inline constexpr InputRemappingOption GPIO  { LL_TIM_TIM4_TI2_RMP_GPIO };
+	       static inline constexpr InputRemappingOption Comp1 { LL_TIM_TIM4_TI2_RMP_COMP1 };
+	       static inline constexpr InputRemappingOption Comp2 { LL_TIM_TIM4_TI2_RMP_COMP2 };
+	       static inline constexpr InputRemappingOption Comp3 { LL_TIM_TIM4_TI2_RMP_COMP3 };
+	       static inline constexpr InputRemappingOption Comp4 { LL_TIM_TIM4_TI2_RMP_COMP4 };
+		   #if defined(COMP5)
+	       	   static inline constexpr InputRemappingOption Comp5 { LL_TIM_TIM4_TI2_RMP_COMP5 };
+		   #endif
+		   #if defined(COMP6)
+	       	   static inline constexpr InputRemappingOption Comp6 { LL_TIM_TIM4_TI2_RMP_COMP6 };
+		   #endif
+		   #if defined(COMP7)
+	       	   static inline constexpr InputRemappingOption Comp7 { LL_TIM_TIM4_TI2_RMP_COMP7 };
+		   #endif
+	   };
+
+	   struct Timer4Channel3 {
+	       static inline constexpr InputRemappingOption GPIO  { LL_TIM_TIM4_TI3_RMP_GPIO };
+		   #if defined(COMP5)
+	       	   static inline constexpr InputRemappingOption Comp5 { LL_TIM_TIM4_TI3_RMP_COMP5 };
+		   #endif
+	   };
+
+	   struct Timer4Channel4 {
+	       static inline constexpr InputRemappingOption GPIO  { LL_TIM_TIM4_TI4_RMP_GPIO };
+		   #if defined(COMP6)
+	       	   static inline constexpr InputRemappingOption Comp6 { LL_TIM_TIM4_TI4_RMP_COMP6 };
+		   #endif
+	   };
+
+	   #if defined(TIM5)
+		   struct Timer5Channel1 {
+			   static inline constexpr InputRemappingOption GPIO   { LL_TIM_TIM5_TI1_RMP_GPIO };
+			   static inline constexpr InputRemappingOption LSI    { LL_TIM_TIM5_TI1_RMP_LSI };
+			   static inline constexpr InputRemappingOption LSE    { LL_TIM_TIM5_TI1_RMP_LSE };
+			   static inline constexpr InputRemappingOption RTCWakeup { LL_TIM_TIM5_TI1_RMP_RTC_WK };
+			   static inline constexpr InputRemappingOption Comp1  { LL_TIM_TIM5_TI1_RMP_COMP1 };
+			   static inline constexpr InputRemappingOption Comp2  { LL_TIM_TIM5_TI1_RMP_COMP2 };
+			   static inline constexpr InputRemappingOption Comp3  { LL_TIM_TIM5_TI1_RMP_COMP3 };
+			   static inline constexpr InputRemappingOption Comp4  { LL_TIM_TIM5_TI1_RMP_COMP4 };
+			   #if defined(COMP5)
+			   	   static inline constexpr InputRemappingOption Comp5  { LL_TIM_TIM5_TI1_RMP_COMP5 };
+			   #endif
+			   #if defined(COMP6)
+			   	   static inline constexpr InputRemappingOption Comp6  { LL_TIM_TIM5_TI1_RMP_COMP6 };
+			   #endif
+			   #if defined(COMP7)
+			   	   static inline constexpr InputRemappingOption Comp7  { LL_TIM_TIM5_TI1_RMP_COMP7 };
+			   #endif
+		   };
+
+		   struct Timer5Channel2 {
+			   static inline constexpr InputRemappingOption GPIO  { LL_TIM_TIM5_TI2_RMP_GPIO };
+			   static inline constexpr InputRemappingOption Comp1 { LL_TIM_TIM5_TI2_RMP_COMP1 };
+			   static inline constexpr InputRemappingOption Comp2 { LL_TIM_TIM5_TI2_RMP_COMP2 };
+			   static inline constexpr InputRemappingOption Comp3 { LL_TIM_TIM5_TI2_RMP_COMP3 };
+			   static inline constexpr InputRemappingOption Comp4 { LL_TIM_TIM5_TI2_RMP_COMP4 };
+			   #if defined(COMP5)
+			   	   static inline constexpr InputRemappingOption Comp5 { LL_TIM_TIM5_TI2_RMP_COMP5 };
+			   #endif
+			   #if defined(COMP6)
+			   	   static inline constexpr InputRemappingOption Comp6 { LL_TIM_TIM5_TI2_RMP_COMP6 };
+			   #endif
+			   #if defined(COMP7)
+			   	   static inline constexpr InputRemappingOption Comp7 { LL_TIM_TIM5_TI2_RMP_COMP7 };
+			   #endif
+		   };
+	   #endif
+
+	   struct Timer8Channel1 {
+	       static inline constexpr InputRemappingOption GPIO  { LL_TIM_TIM8_TI1_RMP_GPIO };
+	       static inline constexpr InputRemappingOption Comp1 { LL_TIM_TIM8_TI1_RMP_COMP1 };
+	       static inline constexpr InputRemappingOption Comp2 { LL_TIM_TIM8_TI1_RMP_COMP2 };
+	       static inline constexpr InputRemappingOption Comp3 { LL_TIM_TIM8_TI1_RMP_COMP3 };
+	       static inline constexpr InputRemappingOption Comp4 { LL_TIM_TIM8_TI1_RMP_COMP4 };
+	   };
+
+	   struct Timer15Channel1 {
+	       static inline constexpr InputRemappingOption GPIO  { LL_TIM_TIM15_TI1_RMP_GPIO };
+	       static inline constexpr InputRemappingOption LSE   { LL_TIM_TIM15_TI1_RMP_LSE };
+	       static inline constexpr InputRemappingOption Comp1 { LL_TIM_TIM15_TI1_RMP_COMP1 };
+	       static inline constexpr InputRemappingOption Comp2 { LL_TIM_TIM15_TI1_RMP_COMP2 };
+		   #if defined(COMP5)
+	       	   static inline constexpr InputRemappingOption Comp5 { LL_TIM_TIM15_TI1_RMP_COMP5 };
+		   #endif
+		   #if defined(COMP7)
+	       	   static inline constexpr InputRemappingOption Comp7 { LL_TIM_TIM15_TI1_RMP_COMP7 };
+		   #endif
+	   };
+
+	   struct Timer15Channel2 {
+	       static inline constexpr InputRemappingOption GPIO  { LL_TIM_TIM15_TI2_RMP_GPIO };
+	       static inline constexpr InputRemappingOption Comp2 { LL_TIM_TIM15_TI2_RMP_COMP2 };
+	       static inline constexpr InputRemappingOption Comp3 { LL_TIM_TIM15_TI2_RMP_COMP3 };
+		   #if defined(COMP6)
+	       	   static inline constexpr InputRemappingOption Comp6 { LL_TIM_TIM15_TI2_RMP_COMP6 };
+		   #endif
+		   #if defined(COMP7)
+	       	   static inline constexpr InputRemappingOption Comp7 { LL_TIM_TIM15_TI2_RMP_COMP7 };
+		   #endif
+	   };
+
+	   struct Timer16Channel1 {
+	       static inline constexpr InputRemappingOption GPIO      { LL_TIM_TIM16_TI1_RMP_GPIO };
+		   #if defined(COMP6)
+	       	   static inline constexpr InputRemappingOption Comp6     { LL_TIM_TIM16_TI1_RMP_COMP6 };
+		   #endif
+	       static inline constexpr InputRemappingOption MCO       { LL_TIM_TIM16_TI1_RMP_MCO };
+	       static inline constexpr InputRemappingOption HSEDiv32  { LL_TIM_TIM16_TI1_RMP_HSE_32 };
+	       static inline constexpr InputRemappingOption RTCWakeup { LL_TIM_TIM16_TI1_RMP_RTC_WK };
+	       static inline constexpr InputRemappingOption LSE       { LL_TIM_TIM16_TI1_RMP_LSE };
+	       static inline constexpr InputRemappingOption LSI       { LL_TIM_TIM16_TI1_RMP_LSI };
+	   };
+
+	   struct Timer17Channel1 {
+	       static inline constexpr InputRemappingOption GPIO      { LL_TIM_TIM17_TI1_RMP_GPIO };
+		   #if defined(COMP5)
+	       	   static inline constexpr InputRemappingOption Comp5     { LL_TIM_TIM17_TI1_RMP_COMP5 };
+		   #endif
+	       static inline constexpr InputRemappingOption MCO       { LL_TIM_TIM17_TI1_RMP_MCO };
+	       static inline constexpr InputRemappingOption HSEDiv32  { LL_TIM_TIM17_TI1_RMP_HSE_32 };
+	       static inline constexpr InputRemappingOption RTCWakeup { LL_TIM_TIM17_TI1_RMP_RTC_WK };
+	       static inline constexpr InputRemappingOption LSE       { LL_TIM_TIM17_TI1_RMP_LSE };
+	       static inline constexpr InputRemappingOption LSI       { LL_TIM_TIM17_TI1_RMP_LSI };
+	   };
+
+	   #if defined(TIM20)
+		   struct Timer20Channel1 {
+			   static inline constexpr InputRemappingOption GPIO  { LL_TIM_TIM20_TI1_RMP_GPIO };
+			   static inline constexpr InputRemappingOption Comp1 { LL_TIM_TIM20_TI1_RMP_COMP1 };
+			   static inline constexpr InputRemappingOption Comp2 { LL_TIM_TIM20_TI1_RMP_COMP2 };
+			   static inline constexpr InputRemappingOption Comp3 { LL_TIM_TIM20_TI1_RMP_COMP3 };
+			   static inline constexpr InputRemappingOption Comp4 { LL_TIM_TIM20_TI1_RMP_COMP4 };
+		   };
+	   #endif
+	};
+
+	struct InputFilter {
+	   static inline constexpr InputFilterOption None              { LL_TIM_IC_FILTER_FDIV1 };
+	   static inline constexpr InputFilterOption Div1Samples2      { LL_TIM_IC_FILTER_FDIV1_N2 };
+	   static inline constexpr InputFilterOption Div1Samples4      { LL_TIM_IC_FILTER_FDIV1_N4 };
+	   static inline constexpr InputFilterOption Div1Samples8      { LL_TIM_IC_FILTER_FDIV1_N8 };
+	   static inline constexpr InputFilterOption Div2Samples6      { LL_TIM_IC_FILTER_FDIV2_N6 };
+	   static inline constexpr InputFilterOption Div2Samples8      { LL_TIM_IC_FILTER_FDIV2_N8 };
+	   static inline constexpr InputFilterOption Div4Samples6      { LL_TIM_IC_FILTER_FDIV4_N6 };
+	   static inline constexpr InputFilterOption Div4Samples8      { LL_TIM_IC_FILTER_FDIV4_N8 };
+	   static inline constexpr InputFilterOption Div8Samples6      { LL_TIM_IC_FILTER_FDIV8_N6 };
+	   static inline constexpr InputFilterOption Div8Samples8      { LL_TIM_IC_FILTER_FDIV8_N8 };
+	   static inline constexpr InputFilterOption Div16Samples5     { LL_TIM_IC_FILTER_FDIV16_N5 };
+	   static inline constexpr InputFilterOption Div16Samples6     { LL_TIM_IC_FILTER_FDIV16_N6 };
+	   static inline constexpr InputFilterOption Div16Samples8     { LL_TIM_IC_FILTER_FDIV16_N8 };
+	   static inline constexpr InputFilterOption Div32Samples5     { LL_TIM_IC_FILTER_FDIV32_N5 };
+	   static inline constexpr InputFilterOption Div32Samples6     { LL_TIM_IC_FILTER_FDIV32_N6 };
+	   static inline constexpr InputFilterOption Div32Samples8     { LL_TIM_IC_FILTER_FDIV32_N8 };
+	};
+
 
 public:
 	TIMAdapterG4() { }
@@ -289,6 +552,32 @@ public:
 
 
 
+	virtual inline void SetCompareMode(ChannelOption channel, OutputCompareOption mode) override {
+		LL_TIM_OC_SetMode(timHandle, channel.Get<1>(), mode.Get());
+	}
+
+
+
+
+
+	virtual inline uint32 GetCapture(ChannelOption channel) override {
+		if(channel == Channel::C1) {
+			return LL_TIM_IC_GetCaptureCH1(timHandle);
+		} else if(channel == Channel::C2) {
+			return LL_TIM_IC_GetCaptureCH2(timHandle);
+		} else if(channel == Channel::C3) {
+			return LL_TIM_IC_GetCaptureCH3(timHandle);
+		} else if(channel == Channel::C4) {
+			return LL_TIM_IC_GetCaptureCH4(timHandle);
+		}
+		SystemAbort();
+		return 0;
+	}
+
+
+
+
+
 	virtual inline void GenerateUpdateEvent() override {
 		LL_TIM_GenerateEvent_UPDATE(timHandle);
 	}
@@ -372,16 +661,16 @@ protected:
 			LL_TIM_OC_InitTypeDef init = {
 				.OCMode = channel.mode.Get(),
 
-				.OCState = LL_TIM_OCSTATE_DISABLE,
-				.OCNState = LL_TIM_OCSTATE_DISABLE,
+				.OCState = channel.positive.state == State::Disable ? LL_TIM_OCSTATE_DISABLE : LL_TIM_OCSTATE_ENABLE,
+				.OCNState = channel.negative.state == State::Disable ? LL_TIM_OCSTATE_DISABLE : LL_TIM_OCSTATE_ENABLE,
 
 				.CompareValue = channel.compare,
 
-				.OCPolarity = LL_TIM_OCPOLARITY_HIGH,
-				.OCNPolarity = LL_TIM_OCPOLARITY_HIGH,
+				.OCPolarity = channel.positive.polarity == Polarity::Low ? LL_TIM_OCPOLARITY_LOW : LL_TIM_OCPOLARITY_HIGH,
+				.OCNPolarity = channel.negative.polarity == Polarity::Low ? LL_TIM_OCPOLARITY_LOW : LL_TIM_OCPOLARITY_HIGH,
 
-				.OCIdleState = LL_TIM_OCIDLESTATE_LOW,
-				.OCNIdleState = LL_TIM_OCIDLESTATE_LOW
+				.OCIdleState = channel.positive.idleState == IdleState::Low ? LL_TIM_OCIDLESTATE_LOW : LL_TIM_OCIDLESTATE_HIGH,
+				.OCNIdleState = channel.negative.idleState == IdleState::Low ? LL_TIM_OCIDLESTATE_LOW : LL_TIM_OCIDLESTATE_HIGH,
 			};
 
 			if(LL_TIM_OC_Init(timHandle, channel.channel.Get<1>(), &init) != ErrorStatus::SUCCESS) {
@@ -402,6 +691,21 @@ protected:
 			LL_TIM_EnableAllOutputs(timHandle);
 		}
 
+		return Status::ok;
+	}
+
+
+
+
+
+	virtual Status::statusType InputCaptureInitialization(const std::initializer_list<InputCaptureParameters>& list) override {
+		for(auto &channel : list) {
+			LL_TIM_IC_SetActiveInput(timHandle, channel.channel.Get<1>(), CastInputSelection(channel));
+			LL_TIM_IC_SetPrescaler(timHandle, channel.channel.Get<1>(), channel.prescaler.Get());
+			LL_TIM_IC_SetFilter(timHandle, channel.channel.Get<1>(), channel.filter.Get());
+			LL_TIM_IC_SetPolarity(timHandle, channel.channel.Get<1>(), CastInputPolarity(channel));
+			LL_TIM_SetRemap(timHandle, channel.remapping.Get());
+		}
 
 		return Status::ok;
 	}
@@ -471,19 +775,27 @@ protected:
 		}
 		return Status::ok;
 	}
+
+
+private:
+	constexpr uint32 CastInputSelection(const InputCaptureParameters& channel) const {
+	    switch (channel.selection) {
+			case InputSelection::Direct:   return LL_TIM_ACTIVEINPUT_DIRECTTI;
+			case InputSelection::Indirect: return LL_TIM_ACTIVEINPUT_INDIRECTTI;
+			case InputSelection::TRC:      return LL_TIM_ACTIVEINPUT_TRC;
+	    }
+	    System::Abort();
+	    return 0;
+	}
+
+
+	constexpr uint32 CastInputPolarity(const InputCaptureParameters& channel) const {
+	   switch (channel.polarity) {
+		   case InputPolarity::Rising:        return LL_TIM_IC_POLARITY_RISING;
+		   case InputPolarity::Falling:       return LL_TIM_IC_POLARITY_FALLING;
+		   case InputPolarity::RisingFalling: return LL_TIM_IC_POLARITY_BOTHEDGE;
+	   }
+	   System::Abort();
+	   return 0;
+	}
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
