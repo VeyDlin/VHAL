@@ -102,9 +102,13 @@ public:
     	}
 
     	if(onRead) {
-    		auto readData = onRead(*reinterpret_cast<const RawDataType*>(dataMemory));
-    		auto data = reinterpret_cast<const uint8*>(&readData);
-           	std::memcpy(outData, data, DataTypeSize());
+            alignas(RawDataType) RawDataType tempData;
+            std::memcpy(&tempData, dataMemory, sizeof(RawDataType));
+
+            auto readData = onRead(tempData);
+
+            auto data = reinterpret_cast<const uint8*>(&readData);
+            std::memcpy(outData, data, DataTypeSize());
     	} else {
     		std::memcpy(outData, dataMemory, DataTypeSize());
     	}
