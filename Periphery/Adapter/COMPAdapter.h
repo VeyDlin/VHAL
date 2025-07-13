@@ -77,9 +77,17 @@ public:
 		Enable();
 	}
 
-	virtual Status::info<bool> GetOutputLevel() = 0;
+	virtual bool GetOutputLevel() = 0;
 	virtual Status::statusType Enable() = 0;
 	virtual Status::statusType Disable() = 0;
+
+	virtual Status::statusType SetInputPlus(InputPlusOption inputPlus) = 0;
+	virtual Status::statusType SetInputMinus(InputMinusOption inputMinus) = 0;
+	virtual Status::statusType SetInputHysteresis(InputHysteresisOption inputHysteresis) = 0;
+	virtual Status::statusType SetOutputPolarity(OutputPolarity polarity) = 0;
+	virtual Status::statusType SetOutputBlankingSource(OutputBlankingSourceOption outputBlankingSource) = 0;
+	virtual Status::statusType SetTriggerMode(TriggerMode triggerMode) = 0;
+
 
 protected:
 	virtual Status::statusType Initialization() = 0;

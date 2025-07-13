@@ -45,12 +45,15 @@ void System::TickHandler() {
 
 
 uint64 System::GetTick() {
-    return tickCounter;
+	__disable_irq();
+	uint64 tick = tickCounter;
+    __enable_irq();
+    return tick;
 }
 
 
 uint64 System::GetMs() {
-    return tickCounter * ticksInOneMs;
+    return GetTick() * ticksInOneMs;
 }
 
 

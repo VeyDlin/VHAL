@@ -135,14 +135,14 @@ public:
 				LL_EXTI_ClearFlag_0_31(line);
 			#endif
 			if (onInterrupt) {
-				onInterrupt(GetOutputLevel().data);
+				onInterrupt(GetOutputLevel());
 			}
 	    }
 	}
 
 
 
-	virtual Status::info<bool> GetOutputLevel() override {
+	virtual bool GetOutputLevel() override {
 		return LL_COMP_ReadOutputLevel(compHandle) == LL_COMP_OUTPUT_LEVEL_HIGH;
 	};
 
@@ -179,28 +179,51 @@ public:
 
 
 
-protected:
-	virtual Status::statusType Initialization() override {
-		auto status = BeforeInitialization();
-		if(status != Status::ok) {
-			return status;
-		}
+	virtual Status::statusType SetInputPlus(InputPlusOption inputPlus) override {
+		LL_COMP_SetInputPlus(compHandle, inputPlus.Get());
+		parameters.inputPlus = inputPlus;
+		return Status::ok;
+	}
 
-		LL_COMP_InitTypeDef init = {
-			.InputPlus = parameters.inputPlus.Get(),
-			.InputMinus = parameters.inputMinus.Get(),
-			.InputHysteresis = parameters.inputHysteresis.Get(),
-			.OutputPolarity = CastOutputPolarity(),
-			.OutputBlankingSource = parameters.outputBlankingSource.Get()
-		};
 
-		SystemAssert(LL_COMP_Init(compHandle, &init) == ErrorStatus::SUCCESS);
-		System::DelayUs(LL_COMP_DELAY_VOLTAGE_SCALER_STAB_US);
 
-		// Manage EXTI settings
+	virtual Status::statusType SetInputMinus(InputMinusOption inputMinus) override {
+	    LL_COMP_SetInputMinus(compHandle, inputMinus.Get());
+	    parameters.inputMinus = inputMinus;
+	    return Status::ok;
+	}
+
+
+
+	virtual Status::statusType SetInputHysteresis(InputHysteresisOption inputHysteresis) override {
+	    LL_COMP_SetInputHysteresis(compHandle, inputHysteresis.Get());
+	    parameters.inputHysteresis = inputHysteresis;
+	    return Status::ok;
+	}
+
+
+
+	virtual Status::statusType SetOutputPolarity(OutputPolarity polarity) override {
+	    LL_COMP_SetOutputPolarity(compHandle, CastOutputPolarity());
+	    parameters.outputPolarity = polarity;
+	    return Status::ok;
+	}
+
+
+
+	virtual Status::statusType SetOutputBlankingSource(OutputBlankingSourceOption outputBlankingSource) override {
+	    LL_COMP_SetOutputBlankingSource(compHandle, outputBlankingSource.Get());
+	    parameters.outputBlankingSource = outputBlankingSource;
+	    return Status::ok;
+	}
+
+
+
+	virtual Status::statusType SetTriggerMode(TriggerMode triggerMode) override {
 		uint32 extiLine = GetExtiLine(compHandle);
-		if (parameters.triggerMode != TriggerMode::None) {
-		    const uint8 triggerFlags = static_cast<uint8>(parameters.triggerMode);
+
+		if (triggerMode != TriggerMode::None) {
+		    const uint8 triggerFlags = static_cast<uint8>(triggerMode);
 
 		    if (triggerFlags & TriggerModeFlags::Rising) {
 		        #if defined(COMP7)
@@ -320,6 +343,33 @@ protected:
 		        LL_EXTI_DisableIT_0_31(extiLine);
 		    #endif
 		}
+
+		parameters.triggerMode = triggerMode;
+
+		return Status::ok;
+	}
+
+
+
+protected:
+	virtual Status::statusType Initialization() override {
+		auto status = BeforeInitialization();
+		if(status != Status::ok) {
+			return status;
+		}
+
+		LL_COMP_InitTypeDef init = {
+			.InputPlus = parameters.inputPlus.Get(),
+			.InputMinus = parameters.inputMinus.Get(),
+			.InputHysteresis = parameters.inputHysteresis.Get(),
+			.OutputPolarity = CastOutputPolarity(),
+			.OutputBlankingSource = parameters.outputBlankingSource.Get()
+		};
+
+		SystemAssert(LL_COMP_Init(compHandle, &init) == ErrorStatus::SUCCESS);
+		System::DelayUs(LL_COMP_DELAY_VOLTAGE_SCALER_STAB_US);
+
+		SetTriggerMode(parameters.triggerMode);
 
 		return AfterInitialization();
 	}

@@ -54,7 +54,7 @@ public:
 
 
 	inline void SetCompareMode(ATIM::OutputCompareOption mode) {
-		timAdapter->SetCompare(timChannel, mode);
+		timAdapter->SetCompareMode(timChannel, mode);
 	}
 
 
