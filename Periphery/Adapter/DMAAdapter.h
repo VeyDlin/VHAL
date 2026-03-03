@@ -1,11 +1,18 @@
 #pragma once
 #include "IAdapter.h"
+#include "Utilities/IOption.h"
 
 #define AUSED_DMA_ADAPTER
 
 
 class DMAAdapter {
 public:
+	struct DMAPeripheralOption : IOption<uint32> {
+		using IOption::IOption;
+	};
+
+	enum class DataWidth : uint8 { B8 = 8, B16 = 16, B32 = 32 };
+
 	enum class Direction {
 		MemoryToPeripheral,
 		PeripheralToMemory,
@@ -19,9 +26,12 @@ public:
 	};
 
 	struct Parameters {
+		DMAPeripheralOption peripheral;
 		Direction direction;
 		AddressMode addressMode;
 		bool circularMode = false;
+		bool enableTransferCompleteIT = true;
+		DataWidth dataWidth = DataWidth::B8;
 		uint32 priority = 0;
 	};
 
@@ -29,7 +39,6 @@ public:
 protected:
 	DMA_TypeDef *dmaHandle;
 	uint32 dmaChannel;
-	uint32 dmaRequest;
 	Parameters parameters;
 
 	uint32 lastTransferSize = 0;
@@ -42,8 +51,8 @@ public:
 public:
 	DMAAdapter() = default;
 
-	DMAAdapter(DMA_TypeDef *dma, uint32 channel, uint32 request)
-		: dmaHandle(dma), dmaChannel(channel), dmaRequest(request) { }
+	DMAAdapter(DMA_TypeDef *dma, uint32 channel)
+		: dmaHandle(dma), dmaChannel(channel) { }
 
 	Status::statusType SetParameters(const Parameters &params) {
 		parameters = params;

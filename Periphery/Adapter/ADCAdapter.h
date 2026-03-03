@@ -6,6 +6,8 @@
 #define AUSED_ADC_ADAPTER
 
 
+class DMAAdapter;
+
 class ADCAdapter: public IAdapter {
 public:
     struct TriggerSourceOption : IOption<uint32> {
@@ -77,6 +79,7 @@ protected:
 	uint8 *dataPointer = nullptr;
 	uint8 *dataPointerOriginal = nullptr;
 	volatile uint16 lastData = 0;
+	DMAAdapter *dma = nullptr;
 
 
 
@@ -211,6 +214,11 @@ public:
 		AbortWatchDog();
 		AbortSampling();
 		AbortConfigurationReady();
+	}
+
+
+	virtual void SetDMA(DMAAdapter *dmaAdapter) {
+		dma = dmaAdapter;
 	}
 
 

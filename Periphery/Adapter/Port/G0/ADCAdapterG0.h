@@ -1,5 +1,6 @@
  #pragma once
 #include "../../ADCAdapter.h"
+#include "../../DMAAdapter.h"
 #include <System/System.h>
 
 
@@ -52,6 +53,10 @@ public:
 
 
 	virtual void AbortRegular() override {
+		if (dma != nullptr) {
+			dma->Stop();
+			LL_ADC_REG_SetDMATransfer(adcHandle, LL_ADC_REG_DMA_TRANSFER_NONE);
+		}
 		LL_ADC_DisableIT_EOC(adcHandle);
 		LL_ADC_DisableIT_EOS(adcHandle);
 		LL_ADC_DisableIT_OVR(adcHandle);
@@ -92,13 +97,11 @@ public:
 		}
 		state = Status::busy;
 
-
 		DisableCorrect();
 
 		if (LL_ADC_IsEnabled(adcHandle)) {
 			return Status::notAvailable;
 		}
-
 
 		auto backupLowPowerMode = LL_ADC_GetLowPowerMode(adcHandle);
 		auto backupDmaTransfer = LL_ADC_REG_GetDMATransfer(adcHandle);
@@ -108,7 +111,6 @@ public:
 
 		uint32_t calibrationFactor = 0;
 		uint32 calibrationIndex = 0;
-
 
 		for (; calibrationIndex < 8; calibrationIndex++) {
 			uint32 tickStart = System::GetTick();
@@ -138,16 +140,11 @@ public:
 		LL_ADC_SetCalibrationFactor(adcHandle, calibrationFactor);
 		LL_ADC_Disable(adcHandle);
 
-
-		// Wait for ADC effectively disabled before changing configuration
 		uint32 tickStart = System::GetTick();
-
 		while (LL_ADC_IsEnabled(adcHandle)) {
 			if ((System::GetTick() - tickStart) > timeout) {
 
-				// New check to avoid false timeout detection in case of preemption
 				if (LL_ADC_IsEnabled(adcHandle)) {
-
 					LL_ADC_SetLowPowerMode(adcHandle, backupLowPowerMode);
 					LL_ADC_REG_SetDMATransfer(adcHandle, backupDmaTransfer);
 					state = Status::ready;
@@ -359,7 +356,7 @@ protected:
 
 	virtual Status::statusType RegularInitialization(uint8 rankLength) override {
 		LL_ADC_REG_InitTypeDef init = {
-			.TriggerSource = regularParameters.triggerSourceCode->GetCode(),
+			.TriggerSource = regularParameters.triggerSource.Get(),
 			.SequencerLength = CastSequencerLength(rankLength), // rankLength
 			.SequencerDiscont = LL_ADC_REG_SEQ_DISCONT_DISABLE,
 			.ContinuousMode = CastContinuousMode(regularParameters.continuousMode),
@@ -476,6 +473,29 @@ protected:
 		LL_ADC_ClearFlag_EOC(adcHandle);
 		LL_ADC_ClearFlag_EOS(adcHandle);
 		LL_ADC_ClearFlag_OVR(adcHandle);
+
+		// DMA path
+		if (dma != nullptr) {
+			LL_ADC_REG_SetDMATransfer(adcHandle, LL_ADC_REG_DMA_TRANSFER_UNLIMITED);
+
+			dma->onTransferComplete = [this]() {
+				state = Status::ready;
+				CallInterrupt(Irq::Conversion);
+			};
+			dma->onError = [this]() {
+				state = Status::ready;
+				CallError(Error::Overrun);
+			};
+
+			auto adcDataAddr = LL_ADC_DMA_GetRegAddr(adcHandle, LL_ADC_DMA_REG_REGULAR_DATA);
+			dma->Start((uint16*)adcDataAddr, (uint16*)buffer, dataNeed);
+
+			if (LL_ADC_REG_IsTriggerSourceSWStart(adcHandle)) {
+				LL_ADC_REG_StartConversion(adcHandle);
+			}
+
+			return Status::ok;
+		}
 
 		LL_ADC_EnableIT_EOC(adcHandle);
 		// LL_ADC_EnableIT_EOS(adcHandle); // // sequence conversions
