@@ -5,6 +5,7 @@
 
 
 
+template<typename HandleType>
 class IWDGAdapter: public IAdapter {
 public:
 	struct Parameters {
@@ -14,14 +15,14 @@ public:
 
 
 protected:
-	IWDG_TypeDef *iwdgHandle;
+	HandleType *iwdgHandle;
 	Parameters parameters;
 	uint32 inputBusClockHz = 0;
 
 
 public:
 	IWDGAdapter() = default;
-	IWDGAdapter(IWDG_TypeDef *iwdg, uint32 busClockHz): iwdgHandle(iwdg), inputBusClockHz(busClockHz) { }
+	IWDGAdapter(HandleType *iwdg, uint32 busClockHz): iwdgHandle(iwdg), inputBusClockHz(busClockHz) { }
 
 
 

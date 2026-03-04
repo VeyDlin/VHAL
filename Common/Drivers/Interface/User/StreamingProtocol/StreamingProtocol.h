@@ -1,5 +1,5 @@
 #pragma once
-#include <System/System.h>
+#include <VHAL.h>
 #include <Utilities/Checksum/CRC/Crc.h>
 #include <Utilities/Buffer/RingBuffer.h>
 #include <Utilities/Console/Console.h>

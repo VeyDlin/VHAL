@@ -5,6 +5,7 @@
 
 
 
+template<typename HandleType>
 class I2CAdapter: public IAdapter {
 public:
 	enum class DutyCycle { D2, D16_9 };
@@ -36,7 +37,7 @@ public:
 
 
 protected:
-	I2C_TypeDef *i2cHandle;
+	HandleType *i2cHandle;
 	Parameters parameters;
 
 	uint32 inputBusClockHz = 0;
@@ -67,13 +68,14 @@ public:
 	std::function<uint8()> onSlaveWrite;
 	std::function<void()> onSlaveEndTransfer;
 	std::function<void(Error errorType)> onError;
+	std::function<void()> onComplete;
 	// TODO: [VHAL] [I2C] [ADAPTER] [ADD] Add CheckDevice and ScanAsync
 
 
 public:
 	I2CAdapter() = default;
 
-	I2CAdapter(I2C_TypeDef *i2c, uint32 busClockHz):i2cHandle(i2c), inputBusClockHz(busClockHz) { }
+	I2CAdapter(HandleType *i2c, uint32 busClockHz):i2cHandle(i2c), inputBusClockHz(busClockHz) { }
 
 
 	virtual Status::statusType SetParameters(Parameters val) {

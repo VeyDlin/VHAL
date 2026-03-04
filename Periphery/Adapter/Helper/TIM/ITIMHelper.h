@@ -1,5 +1,5 @@
 #pragma once
-#include <Periphery.h>
+#include <System/System.h>
 #include <Utilities/Status.h>
 #include <functional>
 #include "../../TIMAdapter.h"
@@ -23,6 +23,7 @@ protected:
 
 public:
 	ITIMHelper() { }
+	ITIMHelper(ATIM& adapter) : timAdapter(&adapter) { }
 	ITIMHelper(ATIM& adapter, ATIM::ChannelOption channel) : timAdapter(&adapter), timChannel(channel)  { }
 	ITIMHelper(TimerChannel& timerChannel) : timAdapter(timerChannel.timer), timChannel(timerChannel.channel)  { }
 
@@ -124,7 +125,7 @@ protected:
 
 
 private:
-	TIMAdapter::ChannelEnableSelect GetChannelEnableSelect(bool isEnable) {
+	ATIM::ChannelEnableSelect GetChannelEnableSelect(bool isEnable) {
 		auto select = timAdapter->GetOutputCompareParameters(timChannel).channelSelect;
 
 		if(isEnable) {
@@ -146,19 +147,3 @@ private:
 		return ATIM::ChannelEnableSelect::DisableAll;
 	}
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

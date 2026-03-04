@@ -1,12 +1,11 @@
 #pragma once
-#include <System/System.h>
+#define VHAL_RTOS
+#define VHAL_RTOS_EVENT
+#define VHAL_RTOS_MUTEX
+#include <VHAL.h>
 #include <Utilities/Data/ByteConverter.h>
 #include <Utilities/Serialization/COBS/COBS.h>
 #include <Utilities/Checksum/CRC/Crc.h>
-#include <Adapter/OSAdapter/RTOS.h>
-#include <Adapter/OSAdapter/Thread.h>
-#include <Adapter/OSAdapter/Event.h>
-#include <Adapter/OSAdapter/Mutex.h>
 #include <functional>
 #include <cstring>
 #include <utility>
@@ -40,9 +39,9 @@ private:
 
     COBS<maxEncodedSize> cobs;
 
-    OSAdapter::MailBox<uint8, maxEncodedSize> byteMail;
-    OSAdapter::MailBox<AckInfo, AckMailCount> ackMail;
-    OSAdapter::Mutex writeMutex;
+    OS::MailBox<uint8, maxEncodedSize> byteMail;
+    OS::MailBox<AckInfo, AckMailCount> ackMail;
+    OS::Mutex writeMutex;
 
     uint8 rxBuffer[maxEncodedSize];
     size_t rxBufferCounter = 0;

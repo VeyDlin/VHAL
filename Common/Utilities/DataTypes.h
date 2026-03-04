@@ -1,4 +1,5 @@
 ﻿#pragma once
+#include <cstdint>
 #include <cstddef>
 #include <cstring>
 
@@ -27,10 +28,3 @@ using uint64 = uint64_t;
 
 
 #define __FILENAME_ONLY__ (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
-
-
-
-
-
-
-

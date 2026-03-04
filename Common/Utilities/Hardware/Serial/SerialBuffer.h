@@ -1,7 +1,5 @@
 #pragma once
 #include <BSP.h>
-#include <Adapter/OSAdapter/RTOS.h>
-#include <Adapter/OSAdapter/CriticalSection.h>
 #include <Utilities/Buffer/RingBuffer.h>
 
 

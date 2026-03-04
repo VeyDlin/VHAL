@@ -5,8 +5,7 @@
 
 
 template<
-	class AdapterClass,
-	typename = typename std::enable_if<std::is_base_of<I2CAdapter, AdapterClass>::value>::type
+	class AdapterClass
 >
 class I2CMutexAdapter: public AdapterClass {
 public:
@@ -15,7 +14,8 @@ public:
 public:
 	I2CMutexAdapter() { }
 
-	I2CMutexAdapter(I2C_TypeDef *i2c, uint32 busClockHz):AdapterClass(i2c, busClockHz) { }
+	template<typename HandleT>
+	I2CMutexAdapter(HandleT *i2c, uint32 busClockHz):AdapterClass(i2c, busClockHz) { }
 
 
 	virtual Status::statusType CheckDevice(uint8 deviceAddress, uint16 repeat = 1) override {

@@ -1,5 +1,5 @@
 #include "WaitCondition.h"
-#include <System/System.h>
+#include <VHAL.h>
 
 
 namespace WaitCondition {

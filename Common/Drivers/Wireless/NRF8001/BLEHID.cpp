@@ -1,4 +1,4 @@
-#include <PortAdapters.h>
+#include <VHAL.h>
 #ifdef AUSED_SPI_ADAPTER
 
 #include "BLEHID.h"

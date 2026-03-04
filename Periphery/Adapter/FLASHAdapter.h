@@ -6,6 +6,7 @@
 
 
 
+template<typename HandleType>
 class FLASHAdapter {
 public:
 	enum class FlashProtectionLevel {
@@ -22,12 +23,12 @@ public:
 
 
 protected:
-	FLASH_TypeDef *flashHandle;
+	HandleType *flashHandle;
 	Parameters parameters;
 
 public:
 	FLASHAdapter() = default;
-	FLASHAdapter(FLASH_TypeDef *flash) : flashHandle(flash) { }
+	FLASHAdapter(HandleType *flash) : flashHandle(flash) { }
 
 	virtual Status::statusType SetParameters(const Parameters &params) {
 		parameters = params;

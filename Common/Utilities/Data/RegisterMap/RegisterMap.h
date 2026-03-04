@@ -1,5 +1,5 @@
 #pragma once
-#include <System/System.h>
+#include <VHAL.h>
 #include <cstring>
 #include <utility>
 #include "IRegisterMap.h"

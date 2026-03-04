@@ -6,8 +6,7 @@
 #define AUSED_DAC_ADAPTER
 
 
-class DMAAdapter;
-
+template<typename HandleType, typename DMAHandleType = void*>
 class DACAdapter: public IAdapter {
 public:
 	enum class OutputBuffer { Enable, Disable };
@@ -29,10 +28,10 @@ public:
 
 
 protected:
-	DAC_TypeDef *dacHandle;
+	HandleType *dacHandle;
 	Parameters parameters;
 	uint8 dacChannel = 1;
-	DMAAdapter *dma = nullptr;
+	DMAHandleType *dma = nullptr;
 
 
 
@@ -42,7 +41,7 @@ public:
 
 public:
 	DACAdapter() = default;
-	DACAdapter(DAC_TypeDef *dac, uint8 channel):dacHandle(dac), dacChannel(channel) { }
+	DACAdapter(HandleType *dac, uint8 channel):dacHandle(dac), dacChannel(channel) { }
 
 
 	virtual inline void IrqHandler() = 0;
@@ -62,7 +61,7 @@ public:
 	virtual Status::statusType Disable() = 0;
 
 
-	virtual void SetDMA(DMAAdapter *dmaAdapter) {
+	virtual void SetDMA(DMAHandleType *dmaAdapter) {
 		dma = dmaAdapter;
 	}
 

@@ -1,6 +1,7 @@
-#include <System/System.h>
-#include <Adapter/OSAdapter/RTOS.h>
-#include <Adapter/OSAdapter/Timer.h>
+#pragma once
+#define VHAL_RTOS
+#define VHAL_RTOS_TIMER
+#include <VHAL.h>
 #include <functional>
 
 

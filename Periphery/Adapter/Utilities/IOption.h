@@ -65,3 +65,48 @@ protected:
     CodeType _value1{};
     CodeType _value2{};
 };
+
+
+
+template<typename CodeType>
+struct IOptionFlag {
+    constexpr IOptionFlag() noexcept = default;
+    constexpr explicit IOptionFlag(CodeType value) noexcept
+        : value(value) { }
+
+    constexpr CodeType Get() const noexcept {
+        return value;
+    }
+
+    constexpr IOptionFlag operator|(const IOptionFlag& other) const noexcept {
+        return IOptionFlag(static_cast<CodeType>(value | other.value));
+    }
+
+    constexpr IOptionFlag& operator|=(const IOptionFlag& other) noexcept {
+        value = static_cast<CodeType>(value | other.value);
+        return *this;
+    }
+
+    constexpr IOptionFlag operator&(const IOptionFlag& other) const noexcept {
+        return IOptionFlag(static_cast<CodeType>(value & other.value));
+    }
+
+    constexpr bool Has(const IOptionFlag& flag) const noexcept {
+        return (value & flag.value) == flag.value;
+    }
+
+    constexpr bool operator==(const IOptionFlag& other) const noexcept {
+        return value == other.value;
+    }
+
+    constexpr bool operator!=(const IOptionFlag& other) const noexcept {
+        return value != other.value;
+    }
+
+    constexpr operator CodeType() const noexcept {
+        return value;
+    }
+
+protected:
+    CodeType value{};
+};

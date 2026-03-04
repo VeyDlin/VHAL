@@ -5,6 +5,7 @@
 
 
 
+template<typename PortType>
 class GPIOAdapter: public IAdapter {
 public:
 	enum class Pull { Up, Down, None };
@@ -30,7 +31,7 @@ public:
 	};
 
 	struct AlternateParameters {
-		GPIO_TypeDef *port;
+		PortType *port;
 		uint8 pin;
 		uint8 alternate = 0;
 		Pull pull = Pull::None;
@@ -38,21 +39,21 @@ public:
 	};
 
 	struct AnalogParameters {
-		GPIO_TypeDef *port;
+		PortType *port;
 		uint8 pin;
 		Pull pull = Pull::None;
 	};
 
 
 	struct IO {
-		GPIO_TypeDef *port;
+		PortType *port;
 		uint8 pin;
 	};
 
 
 protected:
-	GPIO_TypeDef *port;
-	uint16 pin;
+	PortType *port;
+	uint32 pin;
 	bool inversion;
 	Parameters parameters;
 	uint8 alternate = 0;
@@ -66,7 +67,7 @@ public:
 
 
 	GPIOAdapter() = default;
-	GPIOAdapter(GPIO_TypeDef *gpioPort, uint8 gpioPin, bool gpioInversion = false) : port(gpioPort), pin(1 << gpioPin), inversion(gpioInversion) { }
+	GPIOAdapter(PortType *gpioPort, uint8 gpioPin, bool gpioInversion = false) : port(gpioPort), pin(1 << gpioPin), inversion(gpioInversion) { }
 	GPIOAdapter(IO &io) : port(io.port), pin(1 << io.pin), inversion(false) { }
 
 
@@ -111,10 +112,10 @@ public:
 		return *this;
 	}
 
-	inline uint16 GetPin() {
+	inline uint32 GetPin() {
 		return pin;
 	}
-	GPIO_TypeDef* GetPort() {
+	PortType* GetPort() {
 		return port;
 	}
 	inline bool IsInversion() {

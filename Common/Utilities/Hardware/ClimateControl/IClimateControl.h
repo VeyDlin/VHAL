@@ -1,7 +1,6 @@
 #pragma once
-#include <System/System.h>
-#include <Adapter/OSAdapter/RTOS.h>
-#include <Adapter/OSAdapter/Thread.h>
+#define VHAL_RTOS
+#include <VHAL.h>
 #include <chrono>
 #include <functional>
 

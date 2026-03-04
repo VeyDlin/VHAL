@@ -6,8 +6,7 @@
 #define AUSED_ADC_ADAPTER
 
 
-class DMAAdapter;
-
+template<typename HandleType, typename DMAHandleType = void*>
 class ADCAdapter: public IAdapter {
 public:
     struct TriggerSourceOption : IOption<uint32> {
@@ -66,7 +65,7 @@ public:
 
 
 protected:
-	ADC_TypeDef *adcHandle = nullptr;
+	HandleType *adcHandle = nullptr;
 	Parameters parameters;
 	RegularParameters regularParameters;
 	InjectedParameters injectedParameters;
@@ -79,7 +78,7 @@ protected:
 	uint8 *dataPointer = nullptr;
 	uint8 *dataPointerOriginal = nullptr;
 	volatile uint16 lastData = 0;
-	DMAAdapter *dma = nullptr;
+	DMAHandleType *dma = nullptr;
 
 
 
@@ -91,7 +90,7 @@ public:
 
 public:
 	ADCAdapter() = default;
-	ADCAdapter(ADC_TypeDef *adc):adcHandle(adc) { }
+	ADCAdapter(HandleType *adc):adcHandle(adc) { }
 	virtual ~ADCAdapter() = default;
 
 
@@ -217,7 +216,7 @@ public:
 	}
 
 
-	virtual void SetDMA(DMAAdapter *dmaAdapter) {
+	virtual void SetDMA(DMAHandleType *dmaAdapter) {
 		dma = dmaAdapter;
 	}
 

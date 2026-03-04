@@ -1,5 +1,5 @@
 #pragma once
-#include <System/System.h>
+#include <VHAL.h>
 #include <Utilities/Buffer/RingBuffer.h>
 #include <span>
 #include <array>

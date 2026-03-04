@@ -1,5 +1,5 @@
 #pragma once
-#include <System/System.h>
+#include <VHAL.h>
 #include <Utilities/Crypto/HMAC/HMAC.h>
 #include <Utilities/Crypto/SHA/SHA256.h>
 #include <Utilities/Encoding/Base/Base64.h>

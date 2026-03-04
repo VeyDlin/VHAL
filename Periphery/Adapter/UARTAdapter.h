@@ -5,6 +5,7 @@
 
 
 
+template<typename HandleType>
 class UARTAdapter: public IAdapter {
 public:
 	enum class StopBits { B1, B2 };
@@ -32,7 +33,7 @@ public:
 
 
 protected:
-	USART_TypeDef *uartHandle;
+	HandleType *uartHandle;
 	Parameters parameters;
 
 
@@ -66,7 +67,7 @@ public:
 
 public:
 	UARTAdapter() = default;
-	UARTAdapter(USART_TypeDef *uart): uartHandle(uart) { }
+	UARTAdapter(HandleType *uart): uartHandle(uart) { }
 
 
 

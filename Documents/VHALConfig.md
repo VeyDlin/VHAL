@@ -1,0 +1,102 @@
+# VHALConfig.h
+
+BSP provides a `VHALConfig.h` file (accessible via include path) with platform and peripheral defines. VHAL automatically includes the correct headers and port adapters based on these defines.
+
+## Platform
+
+| Define | Description |
+|--------|-------------|
+| `VHAL_STM32` | STM32 platform family |
+| `VHAL_STM32_F4` | STM32F4 series |
+| `VHAL_STM32_G0` | STM32G0 series |
+| `VHAL_STM32_G4` | STM32G4 series |
+| `VHAL_ENS` | ENS platform family |
+| `VHAL_ENS_001` | ENS001 chip |
+
+## STM32 peripherals
+
+| Define | Peripheral |
+|--------|------------|
+| `VHAL_STM32_F4_UART` | UART |
+| `VHAL_STM32_F4_SPI` | SPI |
+| `VHAL_STM32_F4_I2C` | I2C |
+| `VHAL_STM32_F4_TIM` | Timer |
+| `VHAL_STM32_F4_ADC` | ADC |
+| `VHAL_STM32_F4_DAC` | DAC |
+| `VHAL_STM32_F4_IWDG` | Independent Watchdog |
+| `VHAL_STM32_F4_FLASH` | Flash |
+| `VHAL_STM32_G0_DMA` | DMA |
+| `VHAL_STM32_G0_I2C` | I2C |
+| `VHAL_STM32_G0_TIM` | Timer |
+| `VHAL_STM32_G0_ADC` | ADC |
+| `VHAL_STM32_G0_DAC` | DAC |
+| `VHAL_STM32_G0_IWDG` | Independent Watchdog |
+| `VHAL_STM32_G4_UART` | UART |
+| `VHAL_STM32_G4_TIM` | Timer |
+| `VHAL_STM32_G4_ADC` | ADC |
+| `VHAL_STM32_G4_DAC` | DAC |
+| `VHAL_STM32_G4_COMP` | Comparator |
+| `VHAL_STM32_G4_IWDG` | Independent Watchdog |
+
+Format: `VHAL_STM32_{series}_{peripheral}`
+
+## ENS001 peripherals
+
+| Define | Peripheral |
+|--------|------------|
+| `VHAL_ENS_001_UART` | UART |
+| `VHAL_ENS_001_SPI` | SPI |
+| `VHAL_ENS_001_I2C` | I2C |
+| `VHAL_ENS_001_TIM` | Timer |
+| `VHAL_ENS_001_ADC` | ADC |
+| `VHAL_ENS_001_IWDG` | Watchdog |
+| `VHAL_ENS_001_WAVEGEN` | Waveform Generator |
+| `VHAL_ENS_001_BOOST` | DC-DC Boost |
+
+## RTOS
+
+| Define | Description |
+|--------|-------------|
+| `VHAL_RTOS` | Enable RTOS support (RTOS, Thread) |
+| `VHAL_RTOS_FREERTOS` | Use FreeRTOS as RTOS backend |
+| `VHAL_RTOS_TIMER` | Enable OS Timer |
+| `VHAL_RTOS_CRITICAL_SECTION` | Enable CriticalSection |
+| `VHAL_RTOS_EVENT` | Enable Event |
+| `VHAL_RTOS_MAILBOX` | Enable Mailbox |
+| `VHAL_RTOS_MUTEX` | Enable Mutex |
+
+## Example
+
+STM32G0 with RTOS:
+```c++
+#pragma once
+
+#define VHAL_STM32
+#define VHAL_STM32_G0
+
+#define VHAL_STM32_G0_ADC
+#define VHAL_STM32_G0_I2C
+#define VHAL_STM32_G0_DAC
+#define VHAL_STM32_G0_TIM
+#define VHAL_STM32_G0_DMA
+#define VHAL_STM32_G0_IWDG
+
+#define VHAL_RTOS
+#define VHAL_RTOS_FREERTOS
+```
+
+ENS001:
+```c++
+#pragma once
+
+#define VHAL_ENS
+#define VHAL_ENS_001
+
+#define VHAL_ENS_001_UART
+#define VHAL_ENS_001_I2C
+#define VHAL_ENS_001_ADC
+#define VHAL_ENS_001_WAVEGEN
+#define VHAL_ENS_001_BOOST
+```
+
+For STM32, also provide `stm32_assert.h` if `USE_FULL_ASSERT` is defined.

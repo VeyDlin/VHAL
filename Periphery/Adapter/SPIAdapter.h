@@ -6,6 +6,7 @@
 
 
 
+template<typename HandleType>
 class SPIAdapter: public IAdapter {
 public:
 
@@ -37,7 +38,7 @@ public:
 
 
 protected:
-	SPI_TypeDef *spiHandle;
+	HandleType *spiHandle;
 
 
 	uint32 inputBusClockHz = 0;
@@ -73,7 +74,7 @@ public:
 
 public:
 	SPIAdapter() = default;
-	SPIAdapter(SPI_TypeDef *spi, uint32 busClockHz = 0): spiHandle(spi), inputBusClockHz(busClockHz) { }
+	SPIAdapter(HandleType *spi, uint32 busClockHz = 0): spiHandle(spi), inputBusClockHz(busClockHz) { }
 
 
 

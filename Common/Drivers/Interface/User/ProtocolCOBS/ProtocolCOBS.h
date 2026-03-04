@@ -1,5 +1,5 @@
 #pragma once
-#include <System/System.h>
+#include <VHAL.h>
 #include <Utilities/Buffer/DynamicFifo.h>
 #include <Utilities/Data/ByteConverter.h> 
 #include <Utilities/Serialization/COBS/COBS.h>

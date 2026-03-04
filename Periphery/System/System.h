@@ -1,5 +1,4 @@
 #pragma once
-#include <Periphery.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Status.h>
 #include <functional>
@@ -23,15 +22,15 @@
 	#define SystemAbort(...) System::Abort()
 #endif
 
-#ifdef USE_SYSTEM_CONSOLE
+#ifdef VHAL_SYSTEM_CONSOLE
 	class Console;
 #endif
-extern uint32 SystemCoreClock;
+extern "C" uint32 SystemCoreClock;
 
 
 class System {
 public:
-#ifdef USE_SYSTEM_CONSOLE
+#ifdef VHAL_SYSTEM_CONSOLE
 	static Console &console;
 #endif
 	static std::function<void(const char *message, const char *file, uint32 line)> criticalErrorHandle;

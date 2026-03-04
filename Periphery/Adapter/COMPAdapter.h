@@ -6,6 +6,7 @@
 
 
 
+template<typename HandleType>
 class COMPAdapter: public IAdapter {
 public:
 	struct TriggerModeFlags {
@@ -55,7 +56,7 @@ public:
 
 
 protected:
-	COMP_TypeDef* compHandle;
+	HandleType* compHandle;
 	Parameters parameters;
 
 
@@ -65,7 +66,7 @@ public:
 
 public:
 	COMPAdapter() = default;
-	COMPAdapter(COMP_TypeDef *comp):compHandle(comp) { }
+	COMPAdapter(HandleType *comp):compHandle(comp) { }
 
 
 	virtual inline void IrqHandler() = 0;

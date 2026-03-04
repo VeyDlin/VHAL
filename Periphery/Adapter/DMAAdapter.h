@@ -5,6 +5,7 @@
 #define AUSED_DMA_ADAPTER
 
 
+template<typename HandleType>
 class DMAAdapter {
 public:
 	struct DMAPeripheralOption : IOption<uint32> {
@@ -37,7 +38,7 @@ public:
 
 
 protected:
-	DMA_TypeDef *dmaHandle;
+	HandleType *dmaHandle;
 	uint32 dmaChannel;
 	Parameters parameters;
 
@@ -51,7 +52,7 @@ public:
 public:
 	DMAAdapter() = default;
 
-	DMAAdapter(DMA_TypeDef *dma, uint32 channel)
+	DMAAdapter(HandleType *dma, uint32 channel)
 		: dmaHandle(dma), dmaChannel(channel) { }
 
 	Status::statusType SetParameters(const Parameters &params) {

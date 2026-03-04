@@ -6,7 +6,7 @@
 using ASI2C = class SoftwareI2C;
 
 
-class SoftwareI2C : public I2CAdapter {
+class SoftwareI2C : public I2CAdapter<void> {
 private:
 	enum class Line:uint8 { High = 1, Low = 0 };
 
@@ -20,7 +20,7 @@ private:
 
 public:
 	SoftwareI2C() {}
-	SoftwareI2C(I2C_TypeDef *i2c, uint32 busClockHz):I2CAdapter(i2c, busClockHz) { }
+	SoftwareI2C(void *i2c, uint32 busClockHz):I2CAdapter(i2c, busClockHz) { }
 
 
 

@@ -8,6 +8,7 @@
 
 
 
+template<typename HandleType>
 class TIMAdapter: public IAdapter {
 	static constexpr uint8 maxChannels = 8;
 
@@ -119,7 +120,7 @@ public:
 
 
 protected:
-	TIM_TypeDef *timHandle;
+	HandleType *timHandle;
 	Parameters parameters;
 	OutputCompareParameters outputCompareParameters[maxChannels];
 	InputCaptureParameters inputCaptureParameters[maxChannels];
@@ -141,7 +142,7 @@ public:
 
 public:
 	TIMAdapter() = default;
-	TIMAdapter(TIM_TypeDef *tim, uint32 busClockHz, Bitness bit = Bitness::B16): timHandle(tim), inputBusClockHz(busClockHz), bitness(bit) { }
+	TIMAdapter(HandleType *tim, uint32 busClockHz, Bitness bit = Bitness::B16): timHandle(tim), inputBusClockHz(busClockHz), bitness(bit) { }
 
 
 
