@@ -1,8 +1,7 @@
 #pragma once
 #include "IAdapter.h"
 
-#define AUSED_I2C_ADAPTER
-
+#define VHAL_I2C_ADAPTER
 
 
 template<typename HandleType>

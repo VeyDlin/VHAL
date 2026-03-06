@@ -1,8 +1,7 @@
 #pragma once
 #include "IAdapter.h"
 
-#define AUSED_UART_ADAPTER
-
+#define VHAL_UART_ADAPTER
 
 
 template<typename HandleType>
@@ -13,7 +12,6 @@ public:
 	enum class Mode { Tx, Rx, TxRx };
 	enum class FlowControl { None, Rts, Cts, RtsCts };
 	enum class OverSampling { B8, B16 };
-
 
 	enum class Irq { Tx, Rx };
 
@@ -29,16 +27,11 @@ public:
 	};
 
 
-
-
-
 protected:
 	HandleType *uartHandle;
 	Parameters parameters;
 
-
 	uint32 timeout = 1000;
-
 
 	bool continuousAsyncRxMode = false;
 	Status::statusType rxState = Status::ready;
@@ -47,14 +40,11 @@ protected:
 	uint8 *rxDataPointer = nullptr;
 	uint8 lastRxData = 0;
 
-
 	bool continuousAsyncTxMode = false;
 	Status::statusType txState = Status::ready;
 	uint16 txDataNeed = 0;
 	uint16 txDataCounter = 0;
 	uint8 *txDataPointer = nullptr;
-
-
 
 
 public:

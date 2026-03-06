@@ -1,6 +1,6 @@
 #pragma once
 
-#include <BSP.h>
+#include <VHAL.h>
 #include "BLEDeviceLimits.h"
 #include "BLEDescriptor.h"
 #include "BLELocalAttribute.h"

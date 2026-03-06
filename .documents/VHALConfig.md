@@ -12,6 +12,7 @@ BSP provides a `VHALConfig.h` file (accessible via include path) with platform a
 | `VHAL_STM32_G4` | STM32G4 series |
 | `VHAL_ENS` | ENS platform family |
 | `VHAL_ENS_001` | ENS001 chip |
+| `VHAL_ESP32` | ESP32 platform family (all chips: ESP32, S2, S3, C3, C6, P4) |
 
 ## STM32 peripherals
 
@@ -53,6 +54,21 @@ Format: `VHAL_STM32_{series}_{peripheral}`
 | `VHAL_ENS_001_WAVEGEN` | Waveform Generator |
 | `VHAL_ENS_001_BOOST` | DC-DC Boost |
 
+## ESP32 peripherals
+
+| Define | Peripheral |
+|--------|------------|
+| `VHAL_ESP32_UART` | UART |
+| `VHAL_ESP32_SPI` | SPI |
+| `VHAL_ESP32_I2C` | I2C |
+| `VHAL_ESP32_ADC` | ADC |
+| `VHAL_ESP32_DAC` | DAC (ESP32, ESP32-S2 only) |
+| `VHAL_ESP32_GPTIMER` | General Purpose Timer |
+| `VHAL_ESP32_LEDC` | LEDC PWM |
+| `VHAL_ESP32_MCPWM` | Motor Control PWM |
+
+Format: `VHAL_ESP32_{peripheral}`
+
 ## RTOS
 
 | Define | Description |
@@ -64,6 +80,12 @@ Format: `VHAL_STM32_{series}_{peripheral}`
 | `VHAL_RTOS_EVENT` | Enable Event |
 | `VHAL_RTOS_MAILBOX` | Enable Mailbox |
 | `VHAL_RTOS_MUTEX` | Enable Mutex |
+
+## Runtime
+
+| Define | Description |
+|--------|-------------|
+| `VHAL_RUNTIME` | Enable built-in C++ runtime stubs (new/delete, syscalls, sbrk). Use for bare-metal platforms without their own runtime. Platforms like ESP-IDF provide their own runtime and do not need this. |
 
 ## Example
 
@@ -99,4 +121,15 @@ ENS001:
 #define VHAL_ENS_001_BOOST
 ```
 
+ESP32 with RTOS:
+```c++
+#pragma once
+
+#define VHAL_ESP32
+
+#define VHAL_RTOS
+#define VHAL_RTOS_FREERTOS
+```
+
 For STM32, also provide `stm32_assert.h` if `USE_FULL_ASSERT` is defined.
+For STM32/ENS bare-metal projects, add `VHAL_RUNTIME` to include built-in C++ runtime stubs.

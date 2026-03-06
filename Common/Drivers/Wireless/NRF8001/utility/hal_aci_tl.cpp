@@ -1,7 +1,7 @@
 #include <VHAL.h>
-#ifdef AUSED_SPI_ADAPTER
+#ifdef VHAL_SPI_ADAPTER
 
-#include <BSP.h>
+#include <VHAL.h>
 #include "hal_platform.h"
 #include "hal_aci_tl.h"
 #include "aci_queue.h"

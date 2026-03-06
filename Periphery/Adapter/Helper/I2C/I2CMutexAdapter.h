@@ -1,7 +1,5 @@
 #pragma once
-#include "../../I2CAdapter.h"
-
-
+#include <Adapter/I2CAdapter.h>
 
 
 template<

@@ -1,5 +1,5 @@
 #include <VHAL.h>
-#ifdef AUSED_SPI_ADAPTER
+#ifdef VHAL_SPI_ADAPTER
 
 #include "BLEPeripheral.h"
 #include "BLECentral.h"

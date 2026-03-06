@@ -2,7 +2,6 @@
 #include "ITIMHelper.h"
 
 
-
 class TIMOutputCompareHelper: public ITIMHelper {
 public:
 	struct FrequencyInfo {

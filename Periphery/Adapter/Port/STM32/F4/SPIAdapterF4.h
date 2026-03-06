@@ -1,5 +1,4 @@
 #pragma once
-#include <System/System.h>
 #include <Adapter/SPIAdapter.h>
 
 
@@ -160,7 +159,7 @@ protected:
 		// Enable SPI once during initialization
 		LL_SPI_Enable(spiHandle);
 
-		return BeforeInitialization();
+		return AfterInitialization();
 	}
 
 

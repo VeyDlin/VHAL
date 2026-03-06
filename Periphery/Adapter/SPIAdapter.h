@@ -2,8 +2,7 @@
 #include "IAdapter.h"
 #include "GPIOAdapter.h"
 
-#define AUSED_SPI_ADAPTER
-
+#define VHAL_SPI_ADAPTER
 
 
 template<typename HandleType>

@@ -1,18 +1,11 @@
 #pragma once
-#include <System/System.h>
-#include <Utilities/Status.h>
-#include <functional>
-#include "../../TIMAdapter.h"
-
-
+#include <Adapter/TIMAdapter.h>
 
 
 struct TimerChannel {
 	ATIM *timer;
 	ATIM::ChannelOption channel;
 };
-
-
 
 
 class ITIMHelper {

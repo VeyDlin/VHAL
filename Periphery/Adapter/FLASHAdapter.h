@@ -1,13 +1,11 @@
 #pragma once
-#include <System/System.h>
+#include "IAdapter.h"
 
-
-#define AUSED_FLASH_ADAPTER
-
+#define VHAL_FLASH_ADAPTER
 
 
 template<typename HandleType>
-class FLASHAdapter {
+class FLASHAdapter : public IAdapter {
 public:
 	enum class FlashProtectionLevel {
 	    Level0,     // No protection - full access (debug/programming allowed)

@@ -2,7 +2,22 @@
 
 #if defined(VHAL_ENS)
 
-bool System::InitDelayDWT() {
+
+void System::Reset() {
+    NVIC_SystemReset();
+}
+
+
+void System::CriticalSection(bool isEnable) {
+    if (isEnable) {
+        __disable_irq();
+    } else {
+        __enable_irq();
+    }
+}
+
+
+bool System::InitDelayUs() {
 	// Cortex-M0 does not have DWT
 	return false;
 }
@@ -33,6 +48,11 @@ System::DeviceId System::GetDeviceId() {
 	id.words[1] = mtpInfo[1];
 	id.words[2] = mtpInfo[2];
 	return id;
+}
+
+
+bool System::IsInterrupt() {
+	return __get_IPSR() != 0;
 }
 
 #endif

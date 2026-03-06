@@ -1,5 +1,5 @@
 #pragma once
-#include <BSP.h>
+#include <VHAL.h>
 
 #include "BLEDeviceLimits.h"
 #include "BLECharacteristic.h"

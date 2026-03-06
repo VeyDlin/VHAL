@@ -1,6 +1,7 @@
 #pragma once
 #include <Adapter/IAdapter.h>
-#include <Adapter/Utilities/IOption.h>
+
+#define VHAL_BOOST_ADAPTER
 
 
 template<typename HandleType>

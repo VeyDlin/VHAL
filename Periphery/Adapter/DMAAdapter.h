@@ -1,12 +1,11 @@
 #pragma once
 #include "IAdapter.h"
-#include "Utilities/IOption.h"
 
-#define AUSED_DMA_ADAPTER
+#define VHAL_DMA_ADAPTER
 
 
 template<typename HandleType>
-class DMAAdapter {
+class DMAAdapter : public IAdapter {
 public:
 	struct DMAPeripheralOption : IOption<uint32> {
 		using IOption::IOption;

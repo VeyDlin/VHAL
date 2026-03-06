@@ -1,6 +1,6 @@
 #pragma once
 
-#include <BSP.h>
+#include <VHAL.h>
 
 #include "BLEFixedLengthCharacteristic.h"
 

@@ -17,9 +17,11 @@ using namespace std::chrono_literals;
 
 
 namespace OS {
+#if defined(__ARM_ARCH)
 	extern "C" void vPortSVCHandler(void);
 	extern "C" void xPortPendSVHandler(void);
 	extern "C" void xPortSysTickHandler(void);
+#endif
 
 	enum class ThreadPriority : std::uint8_t {
 		clear = 0,
@@ -60,7 +62,7 @@ namespace OS {
 		static constexpr TicksPerSecond notWait = static_cast<TicksPerSecond>(0);
 
 		static inline bool wInHandlerMode() {
-			return __get_IPSR() != 0;
+			return System::IsInterrupt();
 		}
 
 
@@ -112,17 +114,25 @@ namespace OS {
 
 
 		inline static void wHandleSvcInterrupt() {
+#if defined(__ARM_ARCH)
 			vPortSVCHandler();
+#else
+			SystemAbort();
+#endif
 		}
 
 
 		inline static void wHandleSysTickInterrupt() {
+#if defined(__ARM_ARCH)
 #if (INCLUDE_xTaskGetSchedulerState == 1 )
 			if (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED) {
 #endif
 				xPortSysTickHandler();
 #if (INCLUDE_xTaskGetSchedulerState == 1 )
 			}
+#endif
+#else
+			SystemAbort();
 #endif
 		}
 
@@ -133,12 +143,12 @@ namespace OS {
 
 
 		inline static void wEnterCriticalSection() {
-			taskENTER_CRITICAL();
+			System::CriticalSection(true);
 		}
 
 
 		inline static void wLeaveCriticalSection() {
-			taskEXIT_CRITICAL();
+			System::CriticalSection(false);
 		}
 
 

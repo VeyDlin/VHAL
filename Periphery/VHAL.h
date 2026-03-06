@@ -9,8 +9,11 @@
 #elif defined(VHAL_ENS)
     #include <Adapter/Port/ENS/Platform.h>
 	#include <Adapter/Port/ENS/Adapter.h>
+#elif defined(VHAL_ESP32)
+    #include <Adapter/Port/ESP32/Platform.h>
+	#include <Adapter/Port/ESP32/Adapter.h>
 #else
-	#error "VHAL: Define VHAL_STM32 or VHAL_ENS in your VHALConfig.h"
+	#error "VHAL: Define VHAL_STM32, VHAL_ENS, or VHAL_ESP32 in your VHALConfig.h"
 #endif
 
 

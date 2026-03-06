@@ -1,5 +1,5 @@
 #pragma once
-#include <BSP.h>
+#include <VHAL.h>
 #include "BLEBondStore.h"
 #include "BLECentral.h"
 #include "BLEConstantCharacteristic.h"

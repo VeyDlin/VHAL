@@ -1,4 +1,6 @@
-﻿#include <cstdlib>
+﻿#if defined(VHAL_RUNTIME)
+
+#include <cstdlib>
 #include <stdlib.h>
 #include <errno.h>
 #include <stdio.h>
@@ -9,7 +11,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <stdint.h>
-
 
 
 /*
@@ -60,9 +61,6 @@ void operator delete(void *p){
 void operator delete[](void *p){
 	free(p);
 }
-
-
-
 
 
 extern "C" {
@@ -199,3 +197,5 @@ extern "C" {
 		return -1;
 	}
 }
+
+#endif

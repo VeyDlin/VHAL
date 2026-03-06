@@ -72,8 +72,9 @@ public:
     static void CriticalSection(bool isEnable);
     static void Abort(const char* message = nullptr, const char* file = nullptr, uint32 line = 0);
     static void CriticalError(const char* message = nullptr, const char* file = nullptr, uint32 line = 0);
+    static bool IsInterrupt();
 
 
 private:
-	static bool InitDelayDWT();
+	static bool InitDelayUs();
 };

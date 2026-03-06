@@ -298,7 +298,12 @@ public:
 
 protected:
 	virtual Status::statusType Initialization() override {
-		return Status::ok;
+		auto status = BeforeInitialization();
+		if (status != Status::ok) {
+			return status;
+		}
+
+		return AfterInitialization();
 	}
 
 	bool IsFlashArea(uint32 address, uint32 size) {

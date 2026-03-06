@@ -1,9 +1,7 @@
 #pragma once
 #include "IAdapter.h"
-#include "Utilities/IOption.h"
-#include <initializer_list>
 
-#define AUSED_ADC_ADAPTER
+#define VHAL_UART_ADAPTER
 
 
 template<typename HandleType, typename DMAHandleType = void*>

@@ -1,5 +1,5 @@
 #pragma once
-#include <BSP.h>
+#include <VHAL.h>
 #include "ICommunication.h"
 #include <Utilities/Buffer/RingBuffer.h>
 #include <Utilities/DataTypes.h>

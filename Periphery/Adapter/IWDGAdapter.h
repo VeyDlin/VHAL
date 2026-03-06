@@ -1,8 +1,7 @@
 #pragma once
 #include "IAdapter.h"
 
-#define AUSED_IWDG_ADAPTER
-
+#define VHAL_IWDG_ADAPTER
 
 
 template<typename HandleType>

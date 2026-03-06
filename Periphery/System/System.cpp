@@ -35,7 +35,7 @@ void System::SetReadHandler(std::function<int()> handler) {
 
 
 void System::Init() {
-    InitDelayDWT();
+    InitDelayUs();
 }
 
 
@@ -45,9 +45,9 @@ void System::TickHandler() {
 
 
 uint64 System::GetTick() {
-	__disable_irq();
+    CriticalSection(true);
 	uint64 tick = tickCounter;
-    __enable_irq();
+    CriticalSection(false);
     return tick;
 }
 
@@ -70,20 +70,6 @@ void System::DelayMs(uint32 delay) {
     }
     uint32 endTick = GetTick() + delay * ticksInOneMs;
     while (GetTick() < endTick);
-}
-
-
-void System::Reset() {
-    NVIC_SystemReset();
-}
-
-
-void System::CriticalSection(bool isEnable) {
-    if (isEnable) {
-        __disable_irq();
-    } else {
-        __enable_irq();
-    }
 }
 
 

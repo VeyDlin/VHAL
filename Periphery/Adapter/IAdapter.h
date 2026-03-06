@@ -1,8 +1,9 @@
 #pragma once
 #include <System/System.h>
+#include <Adapter/Utilities/IOption.h>
+#include <initializer_list>
 #include <functional>
 #include <cassert>
-
 
 
 class IAdapter {

@@ -356,18 +356,3 @@ private:
 		return parameters.mode == Mode::Analog;
 	}
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

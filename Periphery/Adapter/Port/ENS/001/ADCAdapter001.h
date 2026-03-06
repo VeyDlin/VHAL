@@ -1,5 +1,4 @@
 #pragma once
-#include <System/System.h>
 #include <Adapter/ADCAdapter.h>
 
 

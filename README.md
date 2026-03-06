@@ -100,5 +100,5 @@ public:
 
 ## Documentation
 
-- [VHALConfig](Documents/VHALConfig.md) — Platform, peripheral and RTOS defines
-- [STM32 Project Setup](Documents/STM32_ProjectSetup.md) — Creating a project in CubeIDE/CubeMX and configuring BSP
+- [VHALConfig](.documents/VHALConfig.md) — Platform, peripheral and RTOS defines
+- [STM32 Project Setup](.documents/STM32_ProjectSetup.md) — Creating a project in CubeIDE/CubeMX and configuring BSP

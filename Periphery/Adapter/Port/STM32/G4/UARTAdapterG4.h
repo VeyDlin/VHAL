@@ -1,7 +1,5 @@
 #pragma once
-#include <System/System.h>
 #include <Adapter/UARTAdapter.h>
-#include <cassert>
 
 
 

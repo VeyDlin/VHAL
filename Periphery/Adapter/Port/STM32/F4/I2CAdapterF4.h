@@ -1,5 +1,4 @@
 #pragma once
-#include <System/System.h>
 #include <Utilities/WaitCondition/WaitCondition.h>
 #include <Adapter/I2CAdapter.h>
 

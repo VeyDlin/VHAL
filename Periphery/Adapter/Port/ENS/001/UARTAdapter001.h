@@ -1,6 +1,5 @@
 #pragma once
 #include <Adapter/UARTAdapter.h>
-#include <System/System.h>
 
 
 using AUART = class UARTAdapter001;

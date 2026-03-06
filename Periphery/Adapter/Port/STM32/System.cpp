@@ -2,6 +2,21 @@
 
 #if defined(VHAL_STM32)
 
+
+void System::Reset() {
+    NVIC_SystemReset();
+}
+
+
+void System::CriticalSection(bool isEnable) {
+    if (isEnable) {
+        __disable_irq();
+    } else {
+        __enable_irq();
+    }
+}
+
+
 uint32 System::GetCoreTick() {
 	#if defined(CoreDebug)
 		return DWT->CYCCNT;
@@ -11,7 +26,7 @@ uint32 System::GetCoreTick() {
 }
 
 
-bool System::InitDelayDWT() {
+bool System::InitDelayUs() {
 	#if defined(CoreDebug)
 		CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
 		DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
@@ -54,6 +69,11 @@ System::DeviceId System::GetDeviceId() {
 			LL_GetUID_Word2()
 		}
 	};
+}
+
+
+bool System::IsInterrupt() {
+	return __get_IPSR() != 0;
 }
 
 #endif

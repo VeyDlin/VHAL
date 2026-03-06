@@ -1,5 +1,4 @@
 #pragma once
-#include <System/System.h>
 #include <Adapter/DMAAdapter.h>
 
 using ADMA = class DMAAdapterG0;
@@ -133,6 +132,11 @@ public:
 
 
 	virtual Status::statusType Initialization() override {
+		auto status = BeforeInitialization();
+		if (status != Status::ok) {
+			return status;
+		}
+
 		LL_DMA_SetPeriphRequest(dmaHandle, LLChannel(), parameters.peripheral.Get());
 		LL_DMA_SetDataTransferDirection(dmaHandle, LLChannel(), CastDirection());
 		LL_DMA_SetChannelPriorityLevel(dmaHandle, LLChannel(), CastPriority());
@@ -141,7 +145,8 @@ public:
 		LL_DMA_SetMemoryIncMode(dmaHandle, LLChannel(), CastMemoryIncMode());
 		LL_DMA_SetPeriphSize(dmaHandle, LLChannel(), CastPeriphDataWidth());
 		LL_DMA_SetMemorySize(dmaHandle, LLChannel(), CastMemoryDataWidth());
-		return Status::ok;
+
+		return AfterInitialization();
 	}
 
 

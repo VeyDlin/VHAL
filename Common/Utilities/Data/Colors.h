@@ -1,5 +1,6 @@
 #pragma once
 #include <VHAL.h>
+#include <cmath>
 
 
 namespace Colors {
@@ -27,9 +28,38 @@ namespace Colors {
 			g += static_cast<Type>(rgb.g);
 			b += static_cast<Type>(rgb.b);
 		}
-		
+
 		bool Compare(IRgb<Type> &rgb) {
 			return rgb.r == r && rgb.g == g && rgb.b == b;
+		}
+
+		IRgb operator+(const IRgb& other) const {
+			return IRgb(r + other.r, g + other.g, b + other.b);
+		}
+
+		IRgb operator-(const IRgb& other) const {
+			return IRgb(r - other.r, g - other.g, b - other.b);
+		}
+
+		IRgb operator*(float scalar) const {
+			return IRgb(
+				static_cast<Type>(r * scalar),
+				static_cast<Type>(g * scalar),
+				static_cast<Type>(b * scalar)
+			);
+		}
+
+		float Magnitude() const {
+			float fr = static_cast<float>(r);
+			float fg = static_cast<float>(g);
+			float fb = static_cast<float>(b);
+			return std::sqrt(fr * fr + fg * fg + fb * fb);
+		}
+
+		IRgb Normalized() const {
+			float mag = Magnitude();
+			if (mag < 0.0001f) return IRgb{};
+			return *this * (1.0f / mag);
 		}
 	};
 
@@ -41,6 +71,18 @@ namespace Colors {
 
 		template<typename InType>
 		FRgb(IRgb<InType> &rgb): IRgb::IRgb(rgb) { }
+
+		FRgb operator+(const FRgb& other) const {
+			return FRgb(r + other.r, g + other.g, b + other.b);
+		}
+
+		FRgb operator-(const FRgb& other) const {
+			return FRgb(r - other.r, g - other.g, b - other.b);
+		}
+
+		FRgb operator*(float scalar) const {
+			return FRgb(r * scalar, g * scalar, b * scalar);
+		}
 
 		static FRgb Black() 	{ static const FRgb c = { 0, 0, 0 }; return c; }
 		static FRgb Red() 		{ static const FRgb c = { 1, 0, 0 }; return c; }

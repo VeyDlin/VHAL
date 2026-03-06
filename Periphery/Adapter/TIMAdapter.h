@@ -1,11 +1,7 @@
 #pragma once
 #include "IAdapter.h"
-#include "Utilities/IOption.h"
-#include <initializer_list>
-#include <System/System.h>
 
-#define AUSED_TIM_ADAPTER
-
+#define VHAL_TIM_ADAPTER
 
 
 template<typename HandleType>

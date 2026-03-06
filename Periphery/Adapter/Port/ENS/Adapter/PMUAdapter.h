@@ -1,6 +1,7 @@
 #pragma once
 #include <Adapter/IAdapter.h>
-#include <Adapter/Utilities/IOption.h>
+
+#define VHAL_PMU_ADAPTER
 
 
 template<typename HandleType>

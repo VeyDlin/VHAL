@@ -1,13 +1,15 @@
 #pragma once
 #include "IAdapter.h"
+#include <type_traits>
 
-#define AUSED_GPIO_ADAPTER
+#define VHAL_GPIO_ADAPTER
 
 
-
-template<typename PortType>
+template<typename PortType = void>
 class GPIOAdapter: public IAdapter {
 public:
+	static constexpr bool hasPort = !std::is_void_v<PortType>;
+
 	enum class Pull { Up, Down, None };
 	enum class Speed { Low, Medium, High, VeryHigh };
 	enum class Mode {
@@ -67,8 +69,15 @@ public:
 
 
 	GPIOAdapter() = default;
-	GPIOAdapter(PortType *gpioPort, uint8 gpioPin, bool gpioInversion = false) : port(gpioPort), pin(1 << gpioPin), inversion(gpioInversion) { }
-	GPIOAdapter(IO &io) : port(io.port), pin(1 << io.pin), inversion(false) { }
+
+	GPIOAdapter(PortType *gpioPort, uint8 gpioPin, bool gpioInversion = false) 
+		: port(gpioPort), pin(hasPort ? (1u << gpioPin) : gpioPin), inversion(gpioInversion) { }
+
+	GPIOAdapter(IO &io) 
+		: port(io.port), pin(hasPort ? (1u << io.pin) : io.pin), inversion(false) { }
+
+	GPIOAdapter(uint8 gpioPin, bool gpioInversion = false) requires (!hasPort) 
+		: port(nullptr), pin(gpioPin), inversion(gpioInversion) { }
 
 
 
@@ -115,7 +124,7 @@ public:
 	inline uint32 GetPin() {
 		return pin;
 	}
-	PortType* GetPort() {
+	PortType* GetPort() requires (hasPort) {
 		return port;
 	}
 	inline bool IsInversion() {

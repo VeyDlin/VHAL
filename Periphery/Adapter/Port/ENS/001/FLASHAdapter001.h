@@ -1,5 +1,4 @@
 #pragma once
-#include <System/System.h>
 #include <Adapter/FLASHAdapter.h>
 
 
@@ -191,8 +190,14 @@ public:
 
 protected:
 	Status::statusType Initialization() override {
+		auto status = BeforeInitialization();
+		if (status != Status::ok) {
+			return status;
+		}
+
 		flashHandle->MTP_CR = GetCrClockValue();
-		return Status::ok;
+
+		return AfterInitialization();
 	}
 
 private:

@@ -1,5 +1,5 @@
 #include <VHAL.h>
-#ifdef AUSED_SPI_ADAPTER
+#ifdef VHAL_SPI_ADAPTER
 
 #include "hal_platform.h"
 #include "aci.h"
