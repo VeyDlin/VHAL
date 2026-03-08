@@ -31,6 +31,17 @@ public:
 	}
 
 
+protected:
+	void OnAnimationStart() override {
+		timer.Start();
+	}
+
+	void OnAnimationStop() override {
+		timer.Stop();
+	}
+
+
+public:
 	AnimationRTOS& SetFps(uint8_t val) {
 		timer.interval = std::chrono::milliseconds(1000 / val);
 		return *this;

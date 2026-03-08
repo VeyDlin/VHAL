@@ -106,6 +106,7 @@ public:
 		if (status != ResultStatus::ok) {
 			return status;
 		}
+		ClearFlag_DmaUnderrun();
 		EnableDMARequest();
 		EnableTrigger();
 		EnableIT_DmaUnderrun();
@@ -164,6 +165,15 @@ protected:
 			LL_DAC_DisableIT_DMAUDR1(dacHandle);
 		} else {
 			LL_DAC_DisableIT_DMAUDR2(dacHandle);
+		}
+	}
+
+
+	inline void ClearFlag_DmaUnderrun() {
+		if (dacChannel == 1) {
+			LL_DAC_ClearFlag_DMAUDR1(dacHandle);
+		} else {
+			LL_DAC_ClearFlag_DMAUDR2(dacHandle);
 		}
 	}
 

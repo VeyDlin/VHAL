@@ -41,12 +41,12 @@ Priorities are numeric values. Higher number = higher priority = runs first when
 | Priority | Value | Use case |
 |----------|-------|----------|
 | `idle` | 1 | Background maintenance, logging |
-| `low` | 10 | Non-time-critical processing |
-| `belowNormal` | 20 | Low-priority I/O |
-| `normal` | 30 | Default for most application tasks |
-| `aboveNormal` | 80 | Time-sensitive communication |
-| `high` | 90 | Fast-response tasks (motor control, safety) |
-| `realtime` | 255 | Hard-realtime (watchdog, emergency stop) |
+| `low` | 2 | Non-time-critical processing |
+| `belowNormal` | 3 | Low-priority I/O |
+| `normal` | 4 | Default for most application tasks |
+| `aboveNormal` | 5 | Time-sensitive communication |
+| `high` | 6 | Fast-response tasks (motor control, safety) |
+| `realtime` | configMAX_PRIORITIES - 1 | Hard-realtime (watchdog, emergency stop) |
 
 Use `realtime` sparingly — a thread at this priority that doesn't yield will starve all other threads.
 

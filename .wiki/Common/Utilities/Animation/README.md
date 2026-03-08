@@ -141,6 +141,8 @@ void TimerISR() {
 
 `AnimationRTOS` wraps `Animation` with an automatic RTOS timer thread — no manual `Update()` calls needed.
 
+The internal timer thread is **started automatically** when an animation begins (`Tween`, `TweenSpeed`, `SetTarget`) and **stopped automatically** when the animation finishes or is explicitly stopped. When idle, the timer thread is suspended and consumes no CPU time.
+
 ```cpp
 #include <Utilities/Animation/AnimationRTOS.h>
 
@@ -151,12 +153,22 @@ AnimationRTOS<float, 256> anim;
 anim.SetFps(60);                        // 60 FPS (~17ms interval)
 anim.SetInterval(std::chrono::milliseconds(10));  // or explicit interval
 
-// Use like regular Animation
+// Use like regular Animation — timer starts/stops automatically
 anim.onUpdateValue = [](float val) { SetBrightness(val); };
 anim.Tween(1.0f, 500ms);
 
 // Block until animation completes
 anim.WaitEnd();
+```
+
+### Lifecycle
+
+```
+AnimationRTOS created → timer thread created (suspended)
+    ↓
+Tween()/TweenSpeed()/SetTarget() called → timer.Start() → thread resumes, calls Update() periodically
+    ↓
+Animation finishes or Stop() called → timer.Stop() → thread suspended again
 ```
 
 ## Custom Types

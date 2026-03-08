@@ -8,11 +8,11 @@ struct VHALVersion {
 	uint16 patch = 0;
 
 	static constexpr VHALVersion Current() {
-		return { 0, 1, 0 };
+		return { 0, 1, 1 };
 	}
 
 	static constexpr const char* String() {
-		return "0.1.0";
+		return "0.1.1";
 	}
 
 	constexpr uint32 UInt32() const {

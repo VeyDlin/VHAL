@@ -527,7 +527,7 @@ protected:
 		LL_ADC_SetSamplingTimeCommonChannels(adcHandle, LL_ADC_SAMPLINGTIME_COMMON_1, samplingTime);
 		LL_ADC_SetChannelSamplingTime(adcHandle, CastChannel(channel.channel), LL_ADC_SAMPLINGTIME_COMMON_1);
 
-		return { ResultStatus::ok, outSamplingTimeNs };
+		return Ok<uint32>(outSamplingTimeNs);
 	}
 
 

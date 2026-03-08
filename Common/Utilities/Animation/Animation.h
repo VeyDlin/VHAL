@@ -81,8 +81,11 @@ public:
 		target = newTarget;
 
 		if (activeMode != Mode::Spring) {
-			if (activeMode == Mode::None && onStart) {
-				onStart(value);
+			if (activeMode == Mode::None) {
+				OnAnimationStart();
+				if (onStart) {
+					onStart(value);
+				}
 			}
 			activeMode = Mode::Spring;
 			springVelocity = 0.0f;
@@ -118,8 +121,13 @@ public:
 		paused = false;
 		springVelocity = 0.0f;
 
-		if (wasActive && onStop) {
-			onStop(value);
+		if (wasActive) {
+			if (onStop) {
+				onStop(value);
+			}
+			if (activeMode == Mode::None) {
+				OnAnimationStop();
+			}
 		}
 	}
 
@@ -175,6 +183,9 @@ public:
 private:
 	// ==================== Internal ====================
 
+	virtual void OnAnimationStart() {}
+	virtual void OnAnimationStop() {}
+
 	static constexpr bool IsScalar() {
 		return std::is_arithmetic_v<T> || IQType<T>;
 	}
@@ -188,8 +199,11 @@ private:
 		startTick = 0;
 		springVelocity = 0.0f;
 
-		if (activeMode == Mode::None && onStart) {
-			onStart(from);
+		if (activeMode == Mode::None) {
+			OnAnimationStart();
+			if (onStart) {
+				onStart(from);
+			}
 		}
 
 		activeMode = Mode::Tween;
@@ -272,6 +286,9 @@ private:
 
 		if (onStop) {
 			onStop(value);
+		}
+		if (activeMode == Mode::None) {
+			OnAnimationStop();
 		}
 	}
 

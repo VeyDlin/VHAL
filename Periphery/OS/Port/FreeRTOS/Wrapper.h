@@ -26,12 +26,12 @@ namespace OS {
 	enum class ThreadPriority : std::uint8_t {
 		clear = 0,
 		idle = 1,
-		low = 10,
-		belowNormal = 20,
-		normal = 30,
-		aboveNormal = 80,
-		high = 90,
-		realtime = 255
+		low = 2,
+		belowNormal = 3,
+		normal = 4,
+		aboveNormal = 5,
+		high = 6,
+		realtime = configMAX_PRIORITIES - 1
 	};
 
 	using tTaskContext = StaticTask_t;
