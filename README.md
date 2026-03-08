@@ -8,6 +8,9 @@ Supported platforms: **STM32**, **ESP32**, **ENS001**
 
 VHAL is not a code generator. It is a set of portable C++ abstractions — adapters, utilities, and an OS layer — that you compose into real-time applications with full control over hardware.
 
+## Documentation
+[WIKI](https://veydlin.github.io/VHAL/)
+
 ## Why VHAL
 
 - **Portable peripheral adapters** — a common API for UART, SPI, I2C, ADC, TIM, GPIO, DMA, DAC, and more. Switch MCU families without rewriting application code.
