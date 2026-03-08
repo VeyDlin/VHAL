@@ -82,158 +82,158 @@ public:
 
     // ========== Gauge readings ==========
 
-    Status::info<uint8> GetStateOfCharge() {
+    Result<uint8> GetStateOfCharge() {
         auto read = ReadRegister8(Address::StateOfCharge);
-        StatusAssert(read.type);
-        return read.data;
+        if (read.IsErr()) return read.Error();
+        return read.Value();
     }
 
 
-    Status::info<uint8> GetMaxError() {
+    Result<uint8> GetMaxError() {
         auto read = ReadRegister8(Address::MaxError);
-        StatusAssert(read.type);
-        return read.data;
+        if (read.IsErr()) return read.Error();
+        return read.Value();
     }
 
 
-    Status::info<VoltageMeasurement> GetVoltage() {
+    Result<VoltageMeasurement> GetVoltage() {
         auto read = ReadRegister16(Address::Voltage);
-        StatusAssert(read.type);
-        return VoltageMeasurement{ read.data };
+        if (read.IsErr()) return read.Error();
+        return VoltageMeasurement{ read.Value() };
     }
 
 
-    Status::info<CurrentMeasurement> GetCurrent() {
+    Result<CurrentMeasurement> GetCurrent() {
         auto read = ReadRegister16(Address::Current);
-        StatusAssert(read.type);
-        return CurrentMeasurement{ static_cast<int16>(read.data) };
+        if (read.IsErr()) return read.Error();
+        return CurrentMeasurement{ static_cast<int16>(read.Value()) };
     }
 
 
-    Status::info<CurrentMeasurement> GetAverageCurrent() {
+    Result<CurrentMeasurement> GetAverageCurrent() {
         auto read = ReadRegister16(Address::AverageCurrent);
-        StatusAssert(read.type);
-        return CurrentMeasurement{ static_cast<int16>(read.data) };
+        if (read.IsErr()) return read.Error();
+        return CurrentMeasurement{ static_cast<int16>(read.Value()) };
     }
 
 
-    Status::info<TemperatureMeasurement> GetTemperature() {
+    Result<TemperatureMeasurement> GetTemperature() {
         auto read = ReadRegister16(Address::Temperature);
-        StatusAssert(read.type);
-        return TemperatureMeasurement{ read.data };
+        if (read.IsErr()) return read.Error();
+        return TemperatureMeasurement{ read.Value() };
     }
 
 
-    Status::info<TemperatureMeasurement> GetInternalTemperature() {
+    Result<TemperatureMeasurement> GetInternalTemperature() {
         auto read = ReadRegister16(Address::InternalTemperature);
-        StatusAssert(read.type);
-        return TemperatureMeasurement{ read.data };
+        if (read.IsErr()) return read.Error();
+        return TemperatureMeasurement{ read.Value() };
     }
 
 
-    Status::info<CapacityMeasurement> GetRemainingCapacity() {
+    Result<CapacityMeasurement> GetRemainingCapacity() {
         auto read = ReadRegister16(Address::RemainingCapacity);
-        StatusAssert(read.type);
-        return CapacityMeasurement{ read.data };
+        if (read.IsErr()) return read.Error();
+        return CapacityMeasurement{ read.Value() };
     }
 
 
-    Status::info<CapacityMeasurement> GetFullChargeCapacity() {
+    Result<CapacityMeasurement> GetFullChargeCapacity() {
         auto read = ReadRegister16(Address::FullChargeCapacity);
-        StatusAssert(read.type);
-        return CapacityMeasurement{ read.data };
+        if (read.IsErr()) return read.Error();
+        return CapacityMeasurement{ read.Value() };
     }
 
 
-    Status::info<CapacityMeasurement> GetDesignCapacity() {
+    Result<CapacityMeasurement> GetDesignCapacity() {
         auto read = ReadRegister16(Address::DesignCapacity);
-        StatusAssert(read.type);
-        return CapacityMeasurement{ read.data };
+        if (read.IsErr()) return read.Error();
+        return CapacityMeasurement{ read.Value() };
     }
 
 
-    Status::info<TimeMeasurement> GetTimeToEmpty() {
+    Result<TimeMeasurement> GetTimeToEmpty() {
         auto read = ReadRegister16(Address::AverageTimeToEmpty);
-        StatusAssert(read.type);
-        return TimeMeasurement{ read.data };
+        if (read.IsErr()) return read.Error();
+        return TimeMeasurement{ read.Value() };
     }
 
 
-    Status::info<TimeMeasurement> GetTimeToFull() {
+    Result<TimeMeasurement> GetTimeToFull() {
         auto read = ReadRegister16(Address::AverageTimeToFull);
-        StatusAssert(read.type);
-        return TimeMeasurement{ read.data };
+        if (read.IsErr()) return read.Error();
+        return TimeMeasurement{ read.Value() };
     }
 
 
-    Status::info<uint16> GetStateOfHealth() {
+    Result<uint16> GetStateOfHealth() {
         auto read = ReadRegister16(Address::StateOfHealth);
-        StatusAssert(read.type);
-        return static_cast<uint16>(read.data & 0xFF); // low byte = %
+        if (read.IsErr()) return read.Error();
+        return static_cast<uint16>(read.Value() & 0xFF); // low byte = %
     }
 
 
-    Status::info<uint16> GetCycleCount() {
+    Result<uint16> GetCycleCount() {
         return ReadRegister16(Address::CycleCount);
     }
 
 
-    Status::info<VoltageMeasurement> GetChargeVoltage() {
+    Result<VoltageMeasurement> GetChargeVoltage() {
         auto read = ReadRegister16(Address::ChargeVoltage);
-        StatusAssert(read.type);
-        return VoltageMeasurement{ read.data };
+        if (read.IsErr()) return read.Error();
+        return VoltageMeasurement{ read.Value() };
     }
 
 
-    Status::info<CurrentMeasurement> GetChargeCurrent() {
+    Result<CurrentMeasurement> GetChargeCurrent() {
         auto read = ReadRegister16(Address::ChargeCurrent);
-        StatusAssert(read.type);
-        return CurrentMeasurement{ static_cast<int16>(read.data) };
+        if (read.IsErr()) return read.Error();
+        return CurrentMeasurement{ static_cast<int16>(read.Value()) };
     }
 
 
-    Status::info<GaugeData> ReadAll() {
+    Result<GaugeData> ReadAll() {
         GaugeData data{};
 
         auto soc = ReadRegister8(Address::StateOfCharge);
-        StatusAssert(soc.type);
-        data.soc = soc.data;
+        if (soc.IsErr()) return soc.Error();
+        data.soc = soc.Value();
 
         auto volt = ReadRegister16(Address::Voltage);
-        StatusAssert(volt.type);
-        data.voltage.mv = volt.data;
+        if (volt.IsErr()) return volt.Error();
+        data.voltage.mv = volt.Value();
 
         auto cur = ReadRegister16(Address::Current);
-        StatusAssert(cur.type);
-        data.current.ma = static_cast<int16>(cur.data);
+        if (cur.IsErr()) return cur.Error();
+        data.current.ma = static_cast<int16>(cur.Value());
 
         auto avgCur = ReadRegister16(Address::AverageCurrent);
-        StatusAssert(avgCur.type);
-        data.averageCurrent.ma = static_cast<int16>(avgCur.data);
+        if (avgCur.IsErr()) return avgCur.Error();
+        data.averageCurrent.ma = static_cast<int16>(avgCur.Value());
 
         auto temp = ReadRegister16(Address::Temperature);
-        StatusAssert(temp.type);
-        data.temperature.deciK = temp.data;
+        if (temp.IsErr()) return temp.Error();
+        data.temperature.deciK = temp.Value();
 
         auto rem = ReadRegister16(Address::RemainingCapacity);
-        StatusAssert(rem.type);
-        data.remaining.mah = rem.data;
+        if (rem.IsErr()) return rem.Error();
+        data.remaining.mah = rem.Value();
 
         auto fcc = ReadRegister16(Address::FullChargeCapacity);
-        StatusAssert(fcc.type);
-        data.fullCharge.mah = fcc.data;
+        if (fcc.IsErr()) return fcc.Error();
+        data.fullCharge.mah = fcc.Value();
 
         auto tte = ReadRegister16(Address::AverageTimeToEmpty);
-        StatusAssert(tte.type);
-        data.timeToEmpty.minutes = tte.data;
+        if (tte.IsErr()) return tte.Error();
+        data.timeToEmpty.minutes = tte.Value();
 
         auto ttf = ReadRegister16(Address::AverageTimeToFull);
-        StatusAssert(ttf.type);
-        data.timeToFull.minutes = ttf.data;
+        if (ttf.IsErr()) return ttf.Error();
+        data.timeToFull.minutes = ttf.Value();
 
         auto soh = ReadRegister16(Address::StateOfHealth);
-        StatusAssert(soh.type);
-        data.soh = static_cast<uint8>(soh.data & 0xFF);
+        if (soh.IsErr()) return soh.Error();
+        data.soh = static_cast<uint8>(soh.Value() & 0xFF);
 
         return data;
     }
@@ -242,33 +242,33 @@ public:
 
     // ========== Flags ==========
 
-    Status::info<uint16> GetFlags() {
+    Result<uint16> GetFlags() {
         return ReadRegister16(Address::Flags);
     }
 
 
-    Status::info<uint16> GetFlagsB() {
+    Result<uint16> GetFlagsB() {
         return ReadRegister16(Address::FlagsB);
     }
 
 
-    Status::info<FlagsStatus> GetFlagsDecoded() {
+    Result<FlagsStatus> GetFlagsDecoded() {
         auto read = ReadRegister16(Address::Flags);
-        StatusAssert(read.type);
+        if (read.IsErr()) return read.Error();
 
         FlagsStatus flags{};
-        flags.overTempCharge   = read.data & FlagsBit::OTC;
-        flags.overTempDischarge = read.data & FlagsBit::OTD;
-        flags.batteryHigh      = read.data & FlagsBit::BATHI;
-        flags.batteryLow       = read.data & FlagsBit::BATLOW;
-        flags.chargeInhibit    = read.data & FlagsBit::CHG_INH;
-        flags.fullCharge       = read.data & FlagsBit::FC;
-        flags.allowCharging    = read.data & FlagsBit::CHG;
-        flags.ocvTaken         = read.data & FlagsBit::OCVTAKEN;
-        flags.conditionFlag    = read.data & FlagsBit::CF;
-        flags.soc1             = read.data & FlagsBit::SOC1;
-        flags.socFinal         = read.data & FlagsBit::SOCF;
-        flags.discharging      = read.data & FlagsBit::DSG;
+        flags.overTempCharge   = read.Value() & FlagsBit::OTC;
+        flags.overTempDischarge = read.Value() & FlagsBit::OTD;
+        flags.batteryHigh      = read.Value() & FlagsBit::BATHI;
+        flags.batteryLow       = read.Value() & FlagsBit::BATLOW;
+        flags.chargeInhibit    = read.Value() & FlagsBit::CHG_INH;
+        flags.fullCharge       = read.Value() & FlagsBit::FC;
+        flags.allowCharging    = read.Value() & FlagsBit::CHG;
+        flags.ocvTaken         = read.Value() & FlagsBit::OCVTAKEN;
+        flags.conditionFlag    = read.Value() & FlagsBit::CF;
+        flags.soc1             = read.Value() & FlagsBit::SOC1;
+        flags.socFinal         = read.Value() & FlagsBit::SOCF;
+        flags.discharging      = read.Value() & FlagsBit::DSG;
         return flags;
     }
 
@@ -276,119 +276,128 @@ public:
 
     // ========== Control commands ==========
 
-    Status::info<uint16> GetControlStatus() {
+    Result<uint16> GetControlStatus() {
         return SendControlCommand(ControlCmd::ControlStatus);
     }
 
 
-    Status::info<uint16> GetDeviceType() {
+    Result<uint16> GetDeviceType() {
         return SendControlCommand(ControlCmd::DeviceType);
     }
 
 
-    Status::info<uint16> GetFWVersion() {
+    Result<uint16> GetFWVersion() {
         return SendControlCommand(ControlCmd::FWVersion);
     }
 
 
-    Status::info<uint16> GetHWVersion() {
+    Result<uint16> GetHWVersion() {
         return SendControlCommand(ControlCmd::HWVersion);
     }
 
 
-    Status::info<uint16> GetChemID() {
+    Result<uint16> GetChemID() {
         return SendControlCommand(ControlCmd::ChemID);
     }
 
 
-    Status::info<uint16> GetDFVersion() {
+    Result<uint16> GetDFVersion() {
         return SendControlCommand(ControlCmd::DFVersion);
     }
 
 
-    Status::statusType EnableIT() {
+    ResultStatus EnableIT() {
         auto result = SendControlCommand(ControlCmd::ITEnable);
-        return result.type;
+        if (result.IsErr()) return result.Error();
+        return ResultStatus::ok;
     }
 
 
-    Status::statusType ResetDevice() {
+    ResultStatus ResetDevice() {
         auto result = SendControlCommand(ControlCmd::Reset);
-        return result.type;
+        if (result.IsErr()) return result.Error();
+        return ResultStatus::ok;
     }
 
 
-    Status::statusType Seal() {
+    ResultStatus Seal() {
         auto result = SendControlCommand(ControlCmd::Sealed);
-        return result.type;
+        if (result.IsErr()) return result.Error();
+        return ResultStatus::ok;
     }
 
 
-    Status::statusType Unseal() {
+    ResultStatus Unseal() {
         auto s1 = SendControlCommand(UnsealKey::First);
-        StatusAssert(s1.type);
+        if (s1.IsErr()) return s1.Error();
         auto s2 = SendControlCommand(UnsealKey::Second);
-        return s2.type;
+        if (s2.IsErr()) return s2.Error();
+        return ResultStatus::ok;
     }
 
 
-    Status::info<bool> IsSealed() {
+    Result<bool> IsSealed() {
         auto status = GetControlStatus();
-        StatusAssert(status.type);
-        return (status.data & ControlStatusBit::SS) != 0;
+        if (status.IsErr()) return status.Error();
+        return (status.Value() & ControlStatusBit::SS) != 0;
     }
 
 
-    Status::info<bool> IsPresent() {
+    Result<bool> IsPresent() {
         auto type = GetDeviceType();
-        StatusAssert(type.type);
-        return type.data == DeviceInfo::ExpectedDeviceType;
+        if (type.IsErr()) return type.Error();
+        return type.Value() == DeviceInfo::ExpectedDeviceType;
     }
 
 
 
     // ========== Calibration ==========
 
-    Status::statusType EnterCalibration() {
+    ResultStatus EnterCalibration() {
         auto unseal = Unseal();
         StatusAssert(unseal);
 
         auto calEn = SendControlCommand(ControlCmd::CalEnable);
-        StatusAssert(calEn.type);
+        if (calEn.IsErr()) return calEn.Error();
 
         auto enterCal = SendControlCommand(ControlCmd::EnterCal);
-        return enterCal.type;
+        if (enterCal.IsErr()) return enterCal.Error();
+        return ResultStatus::ok;
     }
 
 
-    Status::statusType ExitCalibration() {
+    ResultStatus ExitCalibration() {
         auto exitCal = SendControlCommand(ControlCmd::ExitCal);
-        return exitCal.type;
+        if (exitCal.IsErr()) return exitCal.Error();
+        return ResultStatus::ok;
     }
 
 
-    Status::statusType CalibrateCC() {
+    ResultStatus CalibrateCC() {
         auto result = SendControlCommand(ControlCmd::CCOffset);
-        return result.type;
+        if (result.IsErr()) return result.Error();
+        return ResultStatus::ok;
     }
 
 
-    Status::statusType CalibrateCCSave() {
+    ResultStatus CalibrateCCSave() {
         auto result = SendControlCommand(ControlCmd::CCOffsetSave);
-        return result.type;
+        if (result.IsErr()) return result.Error();
+        return ResultStatus::ok;
     }
 
 
-    Status::statusType CalibrateBoard() {
+    ResultStatus CalibrateBoard() {
         auto result = SendControlCommand(ControlCmd::BoardOffset);
-        return result.type;
+        if (result.IsErr()) return result.Error();
+        return ResultStatus::ok;
     }
 
 
 
     // ========== Flash configuration ==========
 
-    Status::statusType ReadFlashBlock(uint8 subclass, uint8 offset) {
+    ResultStatus ReadFlashBlock(uint8 subclass, uint8 offset) {
         auto s1 = WriteRegister(Address::BlockDataControl, 0x00);
         StatusAssert(s1);
 
@@ -402,7 +411,7 @@ public:
     }
 
 
-    Status::statusType WriteFlashBlock(uint8 subclass, uint8 offset) {
+    ResultStatus WriteFlashBlock(uint8 subclass, uint8 offset) {
         auto s1 = WriteRegister(Address::BlockDataControl, 0x00);
         StatusAssert(s1);
 
@@ -416,7 +425,7 @@ public:
     }
 
 
-    Status::statusType CommitFlashBlock() {
+    ResultStatus CommitFlashBlock() {
         uint8 checksum = 0;
         for (int i = 0; i < 32; i++) {
             checksum += flashBlock[i];
@@ -470,7 +479,7 @@ public:
 
     // ========== Flash high-level configuration ==========
 
-    Status::statusType UpdateDesignCapacity(uint16 capacityMAh) {
+    ResultStatus UpdateDesignCapacity(uint16 capacityMAh) {
         auto unseal = Unseal();
         StatusAssert(unseal);
 
@@ -487,7 +496,7 @@ public:
     }
 
 
-    Status::statusType UpdateDesignEnergy(uint16 energyMWh) {
+    ResultStatus UpdateDesignEnergy(uint16 energyMWh) {
         auto unseal = Unseal();
         StatusAssert(unseal);
 
@@ -503,7 +512,7 @@ public:
     }
 
 
-    Status::statusType UpdateSeriesCells(uint8 cells) {
+    ResultStatus UpdateSeriesCells(uint8 cells) {
         auto unseal = Unseal();
         StatusAssert(unseal);
 
@@ -519,7 +528,7 @@ public:
     }
 
 
-    Status::statusType UpdatePackConfiguration(uint16 config) {
+    ResultStatus UpdatePackConfiguration(uint16 config) {
         auto unseal = Unseal();
         StatusAssert(unseal);
 
@@ -535,7 +544,7 @@ public:
     }
 
 
-    Status::statusType UpdateQMax(uint16 qmax) {
+    ResultStatus UpdateQMax(uint16 qmax) {
         auto unseal = Unseal();
         StatusAssert(unseal);
 
@@ -551,7 +560,7 @@ public:
     }
 
 
-    Status::info<uint16> ReadVoltageDivider() {
+    Result<uint16> ReadVoltageDivider() {
         auto unseal = Unseal();
         StatusAssert(unseal);
 
@@ -562,7 +571,7 @@ public:
     }
 
 
-    Status::statusType UpdateVoltageDivider(uint16 divider) {
+    ResultStatus UpdateVoltageDivider(uint16 divider) {
         auto unseal = Unseal();
         StatusAssert(unseal);
 
@@ -578,7 +587,7 @@ public:
     }
 
 
-    Status::statusType UpdateCurrentGain(float senseResistorOhms) {
+    ResultStatus UpdateCurrentGain(float senseResistorOhms) {
         auto unseal = Unseal();
         StatusAssert(unseal);
 
@@ -598,7 +607,7 @@ public:
     }
 
 
-    Status::info<float> ReadSenseResistor() {
+    Result<float> ReadSenseResistor() {
         auto unseal = Unseal();
         StatusAssert(unseal);
 
@@ -656,28 +665,27 @@ public:
 public:
     // ========== I2C ==========
 
-    Status::statusType WriteRegister(uint8 reg, uint8 val) {
+    ResultStatus WriteRegister(uint8 reg, uint8 val) {
         if (i2c == nullptr) {
-            return Status::invalidParameter;
+            return ResultStatus::invalidParameter;
         }
         return i2c->WriteByteArray(DeviceInfo::SlaveAddress, reg, 1, &val, 1);
     }
 
 
-    Status::info<uint8> ReadRegister8(uint8 reg) {
+    Result<uint8> ReadRegister8(uint8 reg) {
         if (i2c == nullptr) {
-            return Status::invalidParameter;
+            return ResultStatus::invalidParameter;
         }
-        Status::info<uint8> read;
-        read.type = i2c->ReadByteArray(DeviceInfo::SlaveAddress, reg, 1, &read.data, 1);
-        return read;
+        uint8 data;
+        return Result<uint8>::Capture(i2c->ReadByteArray(DeviceInfo::SlaveAddress, reg, 1, &data, 1), data);
     }
 
 
     // BQ34Z100 uses LSB-first 16-bit registers
-    Status::info<uint16> ReadRegister16(uint8 reg) {
+    Result<uint16> ReadRegister16(uint8 reg) {
         if (i2c == nullptr) {
-            return Status::invalidParameter;
+            return ResultStatus::invalidParameter;
         }
         uint8 buf[2] = {};
         auto status = i2c->ReadByteArray(DeviceInfo::SlaveAddress, reg, 1, buf, 2);
@@ -685,9 +693,9 @@ public:
     }
 
 
-    Status::info<uint16> SendControlCommand(uint16 cmd) {
+    Result<uint16> SendControlCommand(uint16 cmd) {
         if (i2c == nullptr) {
-            return Status::invalidParameter;
+            return ResultStatus::invalidParameter;
         }
         uint8 buf[2] = {
             static_cast<uint8>(cmd & 0xFF),

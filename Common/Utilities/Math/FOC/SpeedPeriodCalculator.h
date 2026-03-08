@@ -1,16 +1,16 @@
-﻿#pragma once
+#pragma once
 #include <VHAL.h>
 
 
-
+template<typename T = float>
 class SpeedPeriodCalculator {
 private:
-	float newTimeStamp = 0;  		// New 'Timestamp' corresponding to a capture event
-    float oldTimeStamp = 0;  		// Old 'Timestamp' corresponding to a capture event
+	T newTimeStamp = 0;  		// New 'Timestamp' corresponding to a capture event
+    T oldTimeStamp = 0;  		// Old 'Timestamp' corresponding to a capture event
 
     struct {
-		float timeStamp = 0; 	   	// Current 'Timestamp' corresponding to a capture event
-		float eventPeriod = 0;    	// Event Period
+		T timeStamp = 0; 	   	// Current 'Timestamp' corresponding to a capture event
+		T eventPeriod = 0;    	// Event Period
     } in;
 
 
@@ -18,23 +18,23 @@ public:
     enum class InputSelect { TimeStamp , EventPeriod };
 
     struct {
-        float speedScaler = 260;    // Scaler converting 1/N cycles to a speed
-        float baseRpm = 1800;       // Scaler converting GLOBAL_Q speed to rpm speed
+        T speedScaler = 260;    // Scaler converting 1/N cycles to a speed
+        T baseRpm = 1800;       // Scaler converting GLOBAL_Q speed to rpm speed
     	InputSelect inputSelect = InputSelect::TimeStamp;    // Input selection between TimeStamp (InputSelect=0) and EventPeriod (InputSelect=1)
-        float maximumOutput = 0x7FFF;
+        T maximumOutput = 0x7FFF;
     } parameters;
 
 
     struct Out {
-    	float speed = 0;         	// speed in per-unit
-    	float speedRpm = 0;      	// speed in r.p.m.
+    	T speed = 0;         	// speed in per-unit
+    	T speedRpm = 0;      	// speed in r.p.m.
     } out;
 
 
 
     SpeedPeriodCalculator() {}
 
-    SpeedPeriodCalculator(float speedScaler, float baseRpm, float maximumOutput, InputSelect inputSelect = InputSelect::TimeStamp) {
+    SpeedPeriodCalculator(T speedScaler, T baseRpm, T maximumOutput, InputSelect inputSelect = InputSelect::TimeStamp) {
     	parameters.speedScaler = speedScaler;
     	parameters.baseRpm = baseRpm;
     	parameters.inputSelect = inputSelect;
@@ -49,20 +49,20 @@ public:
     }
 
 
-    SpeedPeriodCalculator& Set(float timeStamp, float eventPeriod) {
+    SpeedPeriodCalculator& Set(T timeStamp, T eventPeriod) {
     	in.timeStamp = timeStamp;
     	in.eventPeriod = eventPeriod;
     	return *this;
     }
 
 
-    SpeedPeriodCalculator& SetTimeStamp(float timeStamp) {
+    SpeedPeriodCalculator& SetTimeStamp(T timeStamp) {
     	in.timeStamp = timeStamp;
     	return *this;
     }
 
 
-    SpeedPeriodCalculator& SetEventPeriod(float eventPeriod) {
+    SpeedPeriodCalculator& SetEventPeriod(T eventPeriod) {
     	in.eventPeriod = eventPeriod;
     	return *this;
     }
@@ -90,5 +90,3 @@ public:
     	return out;
     }
 };
-
-

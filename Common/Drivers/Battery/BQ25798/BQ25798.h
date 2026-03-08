@@ -110,71 +110,71 @@ public:
 
     // ========== Charging control ==========
 
-    Status::statusType EnableCharging(bool enable) {
+    ResultStatus EnableCharging(bool enable) {
         return UpdateRegisterBits(Address::ChargerCtrl0, Mask::EnChg, enable ? Mask::EnChg : 0);
     }
 
 
-    Status::info<bool> IsChargingEnabled() {
+    Result<bool> IsChargingEnabled() {
         return CheckBitRegister(Address::ChargerCtrl0, Mask::EnChg);
     }
 
 
-    Status::statusType SetChargeVoltage(float voltage) {
+    ResultStatus SetChargeVoltage(float voltage) {
         uint16 regValue = ConfigConstants::ChargeVoltage.Encode(voltage);
         return WriteRegister16(Address::ChargeVoltageLimit, regValue);
     }
 
 
-    Status::info<float> GetChargeVoltage() {
+    Result<float> GetChargeVoltage() {
         auto read = ReadRegister16(Address::ChargeVoltageLimit);
-        StatusAssert(read.type);
-        return ConfigConstants::ChargeVoltage.Decode(read.data & 0x07FF);
+        if (read.IsErr()) return read.Error();
+        return ConfigConstants::ChargeVoltage.Decode(read.Value() & 0x07FF);
     }
 
 
-    Status::statusType SetChargeCurrent(float current) {
+    ResultStatus SetChargeCurrent(float current) {
         uint16 regValue = ConfigConstants::ChargeCurrent.Encode(current);
         return WriteRegister16(Address::ChargeCurrentLimit, regValue);
     }
 
 
-    Status::info<float> GetChargeCurrent() {
+    Result<float> GetChargeCurrent() {
         auto read = ReadRegister16(Address::ChargeCurrentLimit);
-        StatusAssert(read.type);
-        return ConfigConstants::ChargeCurrent.Decode(read.data & 0x01FF);
+        if (read.IsErr()) return read.Error();
+        return ConfigConstants::ChargeCurrent.Decode(read.Value() & 0x01FF);
     }
 
 
-    Status::statusType SetTerminationCurrent(float current) {
+    ResultStatus SetTerminationCurrent(float current) {
         uint8 regValue = static_cast<uint8>(ConfigConstants::TermCurrent.Encode(current));
         return UpdateRegisterBits(Address::TerminationControl, Mask::Iterm, regValue << Shift::Iterm);
     }
 
 
-    Status::statusType EnableTermination(bool enable) {
+    ResultStatus EnableTermination(bool enable) {
         return UpdateRegisterBits(Address::ChargerCtrl0, Mask::EnTerm, enable ? Mask::EnTerm : 0);
     }
 
 
-    Status::statusType SetPrechargeCurrent(float current) {
+    ResultStatus SetPrechargeCurrent(float current) {
         uint8 regValue = static_cast<uint8>(ConfigConstants::PrechargeCurrent.Encode(current));
         return UpdateRegisterBits(Address::PrechargeControl, Mask::Iprechg, regValue << Shift::Iprechg);
     }
 
 
-    Status::statusType SetPrechargeThreshold(VbatLowV threshold) {
+    ResultStatus SetPrechargeThreshold(VbatLowV threshold) {
         return UpdateRegisterBits(Address::PrechargeControl, Mask::VbatLowV, static_cast<uint8>(threshold) << Shift::VbatLowV);
     }
 
 
-    Status::statusType SetRechargeOffset(float voltage) {
+    ResultStatus SetRechargeOffset(float voltage) {
         uint8 regValue = static_cast<uint8>(ConfigConstants::RechargeOffset.Encode(voltage));
         return UpdateRegisterBits(Address::RechargeControl, Mask::Vrechg, regValue << Shift::Vrechg);
     }
 
 
-    Status::statusType SetCellCount(CellCount cells) {
+    ResultStatus SetCellCount(CellCount cells) {
         return UpdateRegisterBits(Address::RechargeControl, Mask::CellCount, static_cast<uint8>(cells) << Shift::CellCount);
     }
 
@@ -182,32 +182,32 @@ public:
 
     // ========== Input limits ==========
 
-    Status::statusType SetInputVoltageLimit(float voltage) {
+    ResultStatus SetInputVoltageLimit(float voltage) {
         uint8 regValue = static_cast<uint8>(ConfigConstants::InputVoltage.Encode(voltage));
         return WriteRegister(Address::InputVoltageLimit, regValue);
     }
 
 
-    Status::statusType SetInputCurrentLimit(float current) {
+    ResultStatus SetInputCurrentLimit(float current) {
         uint16 regValue = ConfigConstants::InputCurrent.Encode(current);
         return WriteRegister16(Address::InputCurrentLimit, regValue);
     }
 
 
-    Status::info<float> GetInputCurrentLimit() {
+    Result<float> GetInputCurrentLimit() {
         auto read = ReadRegister16(Address::InputCurrentLimit);
-        StatusAssert(read.type);
-        return ConfigConstants::InputCurrent.Decode(read.data & 0x01FF);
+        if (read.IsErr()) return read.Error();
+        return ConfigConstants::InputCurrent.Decode(read.Value() & 0x01FF);
     }
 
 
-    Status::statusType SetMinSystemVoltage(float voltage) {
+    ResultStatus SetMinSystemVoltage(float voltage) {
         uint8 regValue = static_cast<uint8>(ConfigConstants::MinSystemV.Encode(voltage));
         return UpdateRegisterBits(Address::MinSystemVoltage, Mask::MinSysV, regValue);
     }
 
 
-    Status::statusType SetVacOvp(VacOvp threshold) {
+    ResultStatus SetVacOvp(VacOvp threshold) {
         return UpdateRegisterBits(Address::ChargerCtrl1, Mask::VacOvp, static_cast<uint8>(threshold) << Shift::VacOvp);
     }
 
@@ -215,12 +215,12 @@ public:
 
     // ========== Power path ==========
 
-    Status::statusType SetHighImpedanceMode(bool enable) {
+    ResultStatus SetHighImpedanceMode(bool enable) {
         return UpdateRegisterBits(Address::ChargerCtrl0, Mask::EnHiz, enable ? Mask::EnHiz : 0);
     }
 
 
-    Status::info<bool> IsInHighImpedanceMode() {
+    Result<bool> IsInHighImpedanceMode() {
         return CheckBitRegister(Address::ChargerCtrl0, Mask::EnHiz);
     }
 
@@ -228,18 +228,18 @@ public:
 
     // ========== OTG mode ==========
 
-    Status::statusType EnableOtg(bool enable) {
+    ResultStatus EnableOtg(bool enable) {
         return UpdateRegisterBits(Address::ChargerCtrl3, Mask::EnOtg, enable ? Mask::EnOtg : 0);
     }
 
 
-    Status::statusType SetOtgVoltage(float voltage) {
+    ResultStatus SetOtgVoltage(float voltage) {
         uint16 regValue = ConfigConstants::OtgVoltage.Encode(voltage);
         return WriteRegister16(Address::OtgVoltage, regValue);
     }
 
 
-    Status::statusType SetOtgCurrentLimit(float current) {
+    ResultStatus SetOtgCurrentLimit(float current) {
         uint8 regValue = static_cast<uint8>(ConfigConstants::OtgCurrent.Encode(current));
         return UpdateRegisterBits(Address::OtgRegulation, Mask::Iotg, regValue << Shift::Iotg);
     }
@@ -248,22 +248,22 @@ public:
 
     // ========== Timers & watchdog ==========
 
-    Status::statusType SetWatchdog(WatchdogTimer timer) {
+    ResultStatus SetWatchdog(WatchdogTimer timer) {
         return UpdateRegisterBits(Address::ChargerCtrl1, Mask::Watchdog, static_cast<uint8>(timer) << Shift::Watchdog);
     }
 
 
-    Status::statusType KickWatchdog() {
+    ResultStatus KickWatchdog() {
         return UpdateRegisterBits(Address::ChargerCtrl1, Mask::WdRst, Mask::WdRst);
     }
 
 
-    Status::statusType EnableSafetyTimer(bool enable) {
+    ResultStatus EnableSafetyTimer(bool enable) {
         return UpdateRegisterBits(Address::TimerControl, Mask::EnChgTmr, enable ? Mask::EnChgTmr : 0);
     }
 
 
-    Status::statusType SetSafetyTimer(FastChargeTimer timer) {
+    ResultStatus SetSafetyTimer(FastChargeTimer timer) {
         return UpdateRegisterBits(Address::TimerControl, Mask::ChgTmr, static_cast<uint8>(timer) << Shift::ChgTmr);
     }
 
@@ -271,22 +271,22 @@ public:
 
     // ========== Special modes ==========
 
-    Status::statusType SetShipMode(ShipMode mode) {
+    ResultStatus SetShipMode(ShipMode mode) {
         return UpdateRegisterBits(Address::ChargerCtrl2, Mask::SdrvCtrl, static_cast<uint8>(mode) << Shift::SdrvCtrl);
     }
 
 
-    Status::statusType EnableBackupMode(bool enable) {
+    ResultStatus EnableBackupMode(bool enable) {
         return UpdateRegisterBits(Address::ChargerCtrl0, Mask::EnBackup, enable ? Mask::EnBackup : 0);
     }
 
 
-    Status::statusType EnableIco(bool enable) {
+    ResultStatus EnableIco(bool enable) {
         return UpdateRegisterBits(Address::ChargerCtrl0, Mask::EnIco, enable ? Mask::EnIco : 0);
     }
 
 
-    Status::statusType Reset() {
+    ResultStatus Reset() {
         return UpdateRegisterBits(Address::TerminationControl, Mask::RegRst, Mask::RegRst);
     }
 
@@ -294,7 +294,7 @@ public:
 
     // ========== ADC ==========
 
-    Status::statusType EnableAdc(bool enable, bool continuous = true) {
+    ResultStatus EnableAdc(bool enable, bool continuous = true) {
         uint8 val = 0;
         if (enable) {
             val |= Mask::AdcEn;
@@ -306,111 +306,111 @@ public:
     }
 
 
-    Status::info<AdcResult> ReadAdc() {
+    Result<AdcResult> ReadAdc() {
         AdcResult result{};
 
         auto ibus = ReadRegister16(Address::IbusAdc);
-        StatusAssert(ibus.type);
-        result.ibus.ma = static_cast<int16>(ibus.data);
+        if (ibus.IsErr()) return ibus.Error();
+        result.ibus.ma = static_cast<int16>(ibus.Value());
 
         auto ibat = ReadRegister16(Address::IbatAdc);
-        StatusAssert(ibat.type);
-        result.ibat.ma = static_cast<int16>(ibat.data);
+        if (ibat.IsErr()) return ibat.Error();
+        result.ibat.ma = static_cast<int16>(ibat.Value());
 
         auto vbus = ReadRegister16(Address::VbusAdc);
-        StatusAssert(vbus.type);
-        result.vbus.mv = vbus.data;
+        if (vbus.IsErr()) return vbus.Error();
+        result.vbus.mv = vbus.Value();
 
         auto vac1 = ReadRegister16(Address::Vac1Adc);
-        StatusAssert(vac1.type);
-        result.vac1.mv = vac1.data;
+        if (vac1.IsErr()) return vac1.Error();
+        result.vac1.mv = vac1.Value();
 
         auto vac2 = ReadRegister16(Address::Vac2Adc);
-        StatusAssert(vac2.type);
-        result.vac2.mv = vac2.data;
+        if (vac2.IsErr()) return vac2.Error();
+        result.vac2.mv = vac2.Value();
 
         auto vbat = ReadRegister16(Address::VbatAdc);
-        StatusAssert(vbat.type);
-        result.vbat.mv = vbat.data;
+        if (vbat.IsErr()) return vbat.Error();
+        result.vbat.mv = vbat.Value();
 
         auto vsys = ReadRegister16(Address::VsysAdc);
-        StatusAssert(vsys.type);
-        result.vsys.mv = vsys.data;
+        if (vsys.IsErr()) return vsys.Error();
+        result.vsys.mv = vsys.Value();
 
         auto tdie = ReadRegister16(Address::TdieAdc);
-        StatusAssert(tdie.type);
-        result.tdie.raw = static_cast<int16>(tdie.data);
+        if (tdie.IsErr()) return tdie.Error();
+        result.tdie.raw = static_cast<int16>(tdie.Value());
 
         return result;
     }
 
 
-    Status::info<VoltageMeasurement> ReadVbus() {
+    Result<VoltageMeasurement> ReadVbus() {
         auto read = ReadRegister16(Address::VbusAdc);
-        StatusAssert(read.type);
-        return VoltageMeasurement{ read.data };
+        if (read.IsErr()) return read.Error();
+        return VoltageMeasurement{ read.Value() };
     }
 
 
-    Status::info<VoltageMeasurement> ReadVbat() {
+    Result<VoltageMeasurement> ReadVbat() {
         auto read = ReadRegister16(Address::VbatAdc);
-        StatusAssert(read.type);
-        return VoltageMeasurement{ read.data };
+        if (read.IsErr()) return read.Error();
+        return VoltageMeasurement{ read.Value() };
     }
 
 
-    Status::info<CurrentMeasurement> ReadIbat() {
+    Result<CurrentMeasurement> ReadIbat() {
         auto read = ReadRegister16(Address::IbatAdc);
-        StatusAssert(read.type);
-        return CurrentMeasurement{ static_cast<int16>(read.data) };
+        if (read.IsErr()) return read.Error();
+        return CurrentMeasurement{ static_cast<int16>(read.Value()) };
     }
 
 
 
     // ========== Status and faults ==========
 
-    Status::info<ChargingStatus> GetChargingStatus() {
+    Result<ChargingStatus> GetChargingStatus() {
         auto read = ReadRegister(Address::ChargerStatus1);
-        StatusAssert(read.type);
-        return static_cast<ChargingStatus>((read.data & Mask::ChgStat) >> Shift::ChgStat);
+        if (read.IsErr()) return read.Error();
+        return static_cast<ChargingStatus>((read.Value() & Mask::ChgStat) >> Shift::ChgStat);
     }
 
 
-    Status::info<PowerStatus> GetPowerStatus() {
+    Result<PowerStatus> GetPowerStatus() {
         auto read = ReadRegister(Address::ChargerStatus0);
-        StatusAssert(read.type);
+        if (read.IsErr()) return read.Error();
 
         PowerStatus status{};
-        status.vbusPresent = read.data & Mask::VbusPresent;
-        status.powerGood = read.data & Mask::PgStat;
-        status.vindpmActive = read.data & Mask::VindpmStat;
-        status.iindpmActive = read.data & Mask::IindpmStat;
-        status.watchdogFault = read.data & Mask::WdStat;
+        status.vbusPresent = read.Value() & Mask::VbusPresent;
+        status.powerGood = read.Value() & Mask::PgStat;
+        status.vindpmActive = read.Value() & Mask::VindpmStat;
+        status.iindpmActive = read.Value() & Mask::IindpmStat;
+        status.watchdogFault = read.Value() & Mask::WdStat;
         return status;
     }
 
 
-    Status::info<FaultStatus> GetFaultStatus() {
+    Result<FaultStatus> GetFaultStatus() {
         auto f0 = ReadRegister(Address::FaultStatus0);
-        StatusAssert(f0.type);
+        if (f0.IsErr()) return f0.Error();
 
         auto f1 = ReadRegister(Address::FaultStatus1);
-        StatusAssert(f1.type);
+        if (f1.IsErr()) return f1.Error();
 
         FaultStatus status{};
-        status.vbusOvp = f0.data & Mask::VbusOvp;
-        status.vbatOvp = f0.data & Mask::VbatOvp;
-        status.ibusOcp = f0.data & Mask::IbusOcp;
-        status.ibatOcp = f0.data & Mask::IbatOcp;
-        status.convOcp = f0.data & Mask::ConvOcp;
-        status.vac1Ovp = f0.data & Mask::Vac1Ovp;
-        status.vac2Ovp = f0.data & Mask::Vac2Ovp;
+        status.vbusOvp = f0.Value() & Mask::VbusOvp;
+        status.vbatOvp = f0.Value() & Mask::VbatOvp;
+        status.ibusOcp = f0.Value() & Mask::IbusOcp;
+        status.ibatOcp = f0.Value() & Mask::IbatOcp;
+        status.convOcp = f0.Value() & Mask::ConvOcp;
+        status.vac1Ovp = f0.Value() & Mask::Vac1Ovp;
+        status.vac2Ovp = f0.Value() & Mask::Vac2Ovp;
 
-        status.vsysOvp = f1.data & Mask::VsysOvp;
-        status.vsysShort = f1.data & Mask::VsysShort;
-        status.otgUvp = f1.data & Mask::OtgUvp;
-        status.otgOvp = f1.data & Mask::OtgOvp;
-        status.thermalShutdown = f1.data & Mask::Tshut;
+        status.vsysOvp = f1.Value() & Mask::VsysOvp;
+        status.vsysShort = f1.Value() & Mask::VsysShort;
+        status.otgUvp = f1.Value() & Mask::OtgUvp;
+        status.otgOvp = f1.Value() & Mask::OtgOvp;
+        status.thermalShutdown = f1.Value() & Mask::Tshut;
         return status;
     }
 
@@ -418,24 +418,24 @@ public:
 
     // ========== Info ==========
 
-    Status::info<uint8> GetPartNumber() {
+    Result<uint8> GetPartNumber() {
         auto read = ReadRegister(Address::PartInformation);
-        StatusAssert(read.type);
-        return (read.data & Mask::PartNum) >> Shift::PartNum;
+        if (read.IsErr()) return read.Error();
+        return (read.Value() & Mask::PartNum) >> Shift::PartNum;
     }
 
 
-    Status::info<uint8> GetDeviceRevision() {
+    Result<uint8> GetDeviceRevision() {
         auto read = ReadRegister(Address::PartInformation);
-        StatusAssert(read.type);
-        return (read.data & Mask::DevRev) >> Shift::DevRev;
+        if (read.IsErr()) return read.Error();
+        return (read.Value() & Mask::DevRev) >> Shift::DevRev;
     }
 
 
-    Status::info<bool> IsPresent() {
+    Result<bool> IsPresent() {
         auto part = GetPartNumber();
-        StatusAssert(part.type);
-        return part.data == DeviceInfo::PartNumExpected;
+        if (part.IsErr()) return part.Error();
+        return part.Value() == DeviceInfo::PartNumExpected;
     }
 
 
@@ -443,27 +443,26 @@ public:
 public:
     // ========== I2C ==========
 
-    Status::statusType WriteRegister(uint8 reg, uint8 val) {
+    ResultStatus WriteRegister(uint8 reg, uint8 val) {
         if (i2c == nullptr) {
-            return Status::invalidParameter;
+            return ResultStatus::invalidParameter;
         }
         return i2c->WriteByteArray(DeviceInfo::SlaveAddress, reg, 1, &val, 1);
     }
 
 
-    Status::info<uint8> ReadRegister(uint8 reg) {
+    Result<uint8> ReadRegister(uint8 reg) {
         if (i2c == nullptr) {
-            return Status::invalidParameter;
+            return ResultStatus::invalidParameter;
         }
-        Status::info<uint8> read;
-        read.type = i2c->ReadByteArray(DeviceInfo::SlaveAddress, reg, 1, &read.data, 1);
-        return read;
+        uint8 data;
+        return Result<uint8>::Capture(i2c->ReadByteArray(DeviceInfo::SlaveAddress, reg, 1, &data, 1), data);
     }
 
 
-    Status::statusType WriteRegister16(uint8 reg, uint16 val) {
+    ResultStatus WriteRegister16(uint8 reg, uint16 val) {
         if (i2c == nullptr) {
-            return Status::invalidParameter;
+            return ResultStatus::invalidParameter;
         }
         uint8 buf[2] = {
             static_cast<uint8>(val >> 8),
@@ -473,9 +472,9 @@ public:
     }
 
 
-    Status::info<uint16> ReadRegister16(uint8 reg) {
+    Result<uint16> ReadRegister16(uint8 reg) {
         if (i2c == nullptr) {
-            return Status::invalidParameter;
+            return ResultStatus::invalidParameter;
         }
         uint8 buf[2] = {};
         auto status = i2c->ReadByteArray(DeviceInfo::SlaveAddress, reg, 1, buf, 2);
@@ -483,19 +482,19 @@ public:
     }
 
 
-    Status::statusType UpdateRegisterBits(uint8 reg, uint8 mask, uint8 data) {
+    ResultStatus UpdateRegisterBits(uint8 reg, uint8 mask, uint8 data) {
         auto read = ReadRegister(reg);
-        if (read.IsError()) {
-            return read.type;
+        if (read.IsErr()) {
+            return read.Error();
         }
-        read.data = (read.data & ~mask) | (data & mask);
-        return WriteRegister(reg, read.data);
+        uint8 val = (read.Value() & ~mask) | (data & mask);
+        return WriteRegister(reg, val);
     }
 
 
-    Status::info<bool> CheckBitRegister(uint8 reg, uint8 mask) {
+    Result<bool> CheckBitRegister(uint8 reg, uint8 mask) {
         auto read = ReadRegister(reg);
-        StatusAssert(read.type);
-        return read.data & mask;
+        if (read.IsErr()) return read.Error();
+        return (bool)(read.Value() & mask);
     }
 };

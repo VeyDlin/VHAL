@@ -6,7 +6,7 @@
 
 
 volatile uint64 System::tickCounter = 0;
-float System::ticksInOneMs = 1;
+uint32 System::msPerTick = 1;
 
 std::function<void(const char *message, const char *file, uint32 line)> System::criticalErrorHandle = nullptr;
 std::function<bool(uint32 delay)> System::rtosDelayMsHandle = nullptr;
@@ -53,7 +53,7 @@ uint64 System::GetTick() {
 
 
 uint64 System::GetMs() {
-    return GetTick() * ticksInOneMs;
+    return GetTick() * msPerTick;
 }
 
 
@@ -68,7 +68,7 @@ void System::DelayMs(uint32 delay) {
         	return;
         }
     }
-    uint32 endTick = GetTick() + delay * ticksInOneMs;
+    uint32 endTick = GetTick() + delay / msPerTick;
     while (GetTick() < endTick);
 }
 

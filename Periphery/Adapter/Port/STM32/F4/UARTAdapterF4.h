@@ -28,7 +28,7 @@ public:
 		rxDataCounter = 0;
 		rxDataNeed = 0;
 		rxDataPointer = nullptr;
-		rxState = Status::ready;
+		rxState = ResultStatus::ready;
 	}
 
 
@@ -42,7 +42,7 @@ public:
 		txDataCounter = 0;
 		txDataNeed = 0;
 		txDataPointer = nullptr;
-		txState = Status::ready;
+		txState = ResultStatus::ready;
 	}
 
 
@@ -64,9 +64,9 @@ public:
 
 
 protected:
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -92,12 +92,12 @@ protected:
 
 
 
-	virtual inline Status::statusType WriteByteArray(uint8* buffer, uint32 size) override {
-		if (txState != Status::ready) {
-			return Status::busy;
+	virtual inline ResultStatus WriteByteArray(uint8* buffer, uint32 size) override {
+		if (txState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		txState = Status::busy;
+		txState = ResultStatus::busy;
 		txDataNeed = size;
 		txDataPointer = buffer;
 		uint32 tickStart = System::GetTick();
@@ -105,8 +105,8 @@ protected:
 		for (txDataCounter = 0; txDataCounter < txDataNeed; txDataCounter++) {
 			while(!LL_USART_IsActiveFlag_TXE(uartHandle)) {
 				if((System::GetTick() - tickStart) > timeout) {
-					txState = Status::ready;
-					return Status::timeout;
+					txState = ResultStatus::ready;
+					return ResultStatus::timeout;
 				}
 			}
 
@@ -115,25 +115,25 @@ protected:
 
 		while(!LL_USART_IsActiveFlag_TC(uartHandle)) {
 			if((System::GetTick() - tickStart) > timeout) {
-				txState = Status::ready;
-				return Status::timeout;
+				txState = ResultStatus::ready;
+				return ResultStatus::timeout;
 			}
 		}
 
-		txState = Status::ready;
-		return Status::ok;
+		txState = ResultStatus::ready;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual inline Status::statusType ReadByteArray(uint8 *buffer, uint32 size) override {
-		if (rxState != Status::ready) {
-			return Status::busy;
+	virtual inline ResultStatus ReadByteArray(uint8 *buffer, uint32 size) override {
+		if (rxState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		rxState = Status::busy;
+		rxState = ResultStatus::busy;
 		rxDataNeed = size;
 		rxDataPointer = buffer;
 		uint32 tickStart = System::GetTick();
@@ -141,8 +141,8 @@ protected:
 		for (rxDataCounter = 0; rxDataCounter < rxDataNeed; rxDataCounter++) {
 			while(!LL_USART_IsActiveFlag_RXNE(uartHandle)) {
 				if((System::GetTick() - tickStart) > timeout) {
-					rxState = Status::ready;
-					return Status::timeout;
+					rxState = ResultStatus::ready;
+					return ResultStatus::timeout;
 				}
 			}
 
@@ -151,39 +151,39 @@ protected:
 			*rxDataPointer++ = lastRxData;
 		}
 
-		rxState = Status::ready;
-		return Status::ok;
+		rxState = ResultStatus::ready;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual inline Status::statusType WriteByteArrayAsync(uint8* buffer, uint32 size) override {
-		if (txState != Status::ready) {
-			return Status::busy;
+	virtual inline ResultStatus WriteByteArrayAsync(uint8* buffer, uint32 size) override {
+		if (txState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		txState = Status::busy;
+		txState = ResultStatus::busy;
 		txDataPointer = buffer;
 		txDataNeed = size;
 		txDataCounter = 0;
 
 		LL_USART_EnableIT_TXE(uartHandle);	// Прерывание по опустошению регистра передачи
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual inline Status::statusType ReadByteArrayAsync(uint8* buffer, uint32 size) override {
-		if (rxState != Status::ready) {
-			return Status::busy;
+	virtual inline ResultStatus ReadByteArrayAsync(uint8* buffer, uint32 size) override {
+		if (rxState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		rxState = Status::busy;
+		rxState = ResultStatus::busy;
 		rxDataPointer = buffer;
 		rxDataNeed = size;
 		rxDataCounter = 0;
@@ -192,46 +192,46 @@ protected:
 		LL_USART_EnableIT_RXNE(uartHandle);		// Прерывание по факту приема данных
 		LL_USART_EnableIT_ERROR(uartHandle);	// Прерывание по факту ошибки (Frame error, noise error, overrun error)
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual Status::statusType StartContinuousAsyncRxMode() override {
+	virtual ResultStatus StartContinuousAsyncRxMode() override {
 		if(continuousAsyncRxMode) {
-			return Status::notAvailable;
+			return ResultStatus::notAvailable;
 		}
 
-		if (rxState != Status::ready) {
-			return Status::busy;
+		if (rxState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		rxState = Status::busy;
+		rxState = ResultStatus::busy;
 
 		LL_USART_EnableIT_PE(uartHandle);		// Прерывание по факту ошибки четности
 		LL_USART_EnableIT_RXNE(uartHandle);		// Прерывание по факту приема данных
 		LL_USART_EnableIT_ERROR(uartHandle);	// Прерывание по факту ошибки (Frame error, noise error, overrun error)
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual Status::statusType StopContinuousAsyncRxMode() override {
+	virtual ResultStatus StopContinuousAsyncRxMode() override {
 		if(!continuousAsyncRxMode) {
-			return Status::notAvailable;
+			return ResultStatus::notAvailable;
 		}
 
 		LL_USART_DisableIT_PE(uartHandle); 		// Прерывание по факту ошибки четности
 		LL_USART_DisableIT_RXNE(uartHandle); 	// Прерывание по факту приема данных
 		LL_USART_DisableIT_ERROR(uartHandle); 	// Прерывание по факту ошибки (Frame error, noise error, overrun error)
-		rxState = Status::ready;
+		rxState = ResultStatus::ready;
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
@@ -284,7 +284,7 @@ private:
 		LL_USART_DisableIT_RXNE(uartHandle); 	// Прерывание по факту приема данных
 		LL_USART_DisableIT_ERROR(uartHandle); 	// Прерывание по факту ошибки (Frame error, noise error, overrun error)
 
-		rxState = Status::ready;
+		rxState = ResultStatus::ready;
 
 		CallInterrupt(Irq::Rx);
 	}
@@ -299,7 +299,7 @@ private:
 		}
 
 		if(continuousAsyncTxMode) {
-			abort(); // TODO: continuous
+			SystemAbort(); // TODO: continuous
 			return;
 		}
 
@@ -325,7 +325,7 @@ private:
 		LL_USART_ClearFlag_TC(uartHandle); 		// Прерывание по окончанию передачи
 		LL_USART_DisableIT_TC(uartHandle);		// Прерывание по окончанию передачи
 
-		txState = Status::ready;
+		txState = ResultStatus::ready;
 
 		CallInterrupt(Irq::Tx);
 	}
@@ -342,7 +342,7 @@ private:
 			case StopBits::B1: return LL_USART_STOPBITS_1;
 			case StopBits::B2: return LL_USART_STOPBITS_2;
 			default:
-				abort();
+				SystemAbort();
 				return 0;
 			break;
 		}
@@ -356,7 +356,7 @@ private:
 			case Parity::Even: return LL_USART_PARITY_EVEN;
 			case Parity::Odd: return LL_USART_PARITY_ODD;
 			default:
-				abort();
+				SystemAbort();
 				return 0;
 			break;
 		}
@@ -370,7 +370,7 @@ private:
 			case Mode::Rx: return LL_USART_DIRECTION_RX;
 			case Mode::TxRx: return LL_USART_DIRECTION_TX_RX;
 			default:
-				abort();
+				SystemAbort();
 				return 0;
 			break;
 		}
@@ -385,7 +385,7 @@ private:
 			case FlowControl::Cts: return LL_USART_HWCONTROL_CTS;
 			case FlowControl::RtsCts: return LL_USART_HWCONTROL_RTS_CTS;
 			default:
-				abort();
+				SystemAbort();
 				return 0;
 			break;
 		}
@@ -398,7 +398,7 @@ private:
 			case OverSampling::B16: return LL_USART_OVERSAMPLING_16;
 			case OverSampling::B8: return LL_USART_OVERSAMPLING_8;
 			default:
-				abort();
+				SystemAbort();
 				return 0;
 			break;
 		}

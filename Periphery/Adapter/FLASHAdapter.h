@@ -28,40 +28,40 @@ public:
 	FLASHAdapter() = default;
 	FLASHAdapter(HandleType *flash) : flashHandle(flash) { }
 
-	virtual Status::statusType SetParameters(const Parameters &params) {
+	virtual ResultStatus SetParameters(const Parameters &params) {
 		parameters = params;
 		return Initialization();
 	}
 
-	virtual Status::statusType Unlock(uint32 key1, uint32 key2) = 0;
-	virtual Status::statusType Lock() = 0;
+	virtual ResultStatus Unlock(uint32 key1, uint32 key2) = 0;
+	virtual ResultStatus Lock() = 0;
 
-	virtual Status::info<uint8> Read(uint8 *address) = 0;
+	virtual Result<uint8> Read(uint8 *address) = 0;
 
-	virtual Status::statusType WriteData(uint32 *address, const void *data, size_t size) = 0;
-	virtual Status::statusType Write(uint16 *address, uint16 data) = 0;
+	virtual ResultStatus WriteData(uint32 *address, const void *data, size_t size) = 0;
+	virtual ResultStatus Write(uint16 *address, uint16 data) = 0;
 
-	virtual Status::statusType PageErase(uint8 *address) = 0;
-	virtual Status::statusType SectorErase(uint32 sectorNumber) = 0;
-	virtual Status::statusType MassErase() = 0;
+	virtual ResultStatus PageErase(uint8 *address) = 0;
+	virtual ResultStatus SectorErase(uint32 sectorNumber) = 0;
+	virtual ResultStatus MassErase() = 0;
 
-	virtual Status::statusType GetStatus() = 0;
-	virtual Status::statusType ClearStatusFlags() = 0;
+	virtual ResultStatus GetStatus() = 0;
+	virtual ResultStatus ClearStatusFlags() = 0;
 
-	virtual Status::info<uint32> ReadOptionBytes() = 0;
-	virtual Status::statusType WriteOptionBytes(uint32 optionBytes) = 0;
+	virtual Result<uint32> ReadOptionBytes() = 0;
+	virtual ResultStatus WriteOptionBytes(uint32 optionBytes) = 0;
 
 	virtual bool IsReadProtected() const = 0;
 	virtual uint8 GetReadProtectionLevel() const = 0;
 	virtual FlashProtectionLevel GetProtectionLevel() const = 0;
-	virtual Status::statusType SetReadProtectionLevel(FlashProtectionLevel level) = 0;
-	virtual Status::statusType DisableReadProtection() = 0;
+	virtual ResultStatus SetReadProtectionLevel(FlashProtectionLevel level) = 0;
+	virtual ResultStatus DisableReadProtection() = 0;
 
-	virtual Status::statusType UnlockOptionBytes() = 0;
-	virtual Status::statusType LockOptionBytes() = 0;
+	virtual ResultStatus UnlockOptionBytes() = 0;
+	virtual ResultStatus LockOptionBytes() = 0;
 	virtual bool IsOptionBytesLocked() const = 0;
 
 
 protected:
-	virtual Status::statusType Initialization() = 0;
+	virtual ResultStatus Initialization() = 0;
 };

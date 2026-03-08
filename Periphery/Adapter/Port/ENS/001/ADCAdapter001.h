@@ -68,7 +68,7 @@ public:
 
 			dataCounter = 0;
 			dataPointer = dataPointerOriginal;
-			state = Status::ready;
+			state = ResultStatus::ready;
 
 			CallInterrupt(Irq::Conversion);
 		}
@@ -80,34 +80,34 @@ public:
 		adcHandle->ADC_IER &= ~(1 << 0); // Disable EOC interrupt
 		adcHandle->ADC_IER &= ~(1 << 1); // Disable OVERRUN interrupt
 		adcHandle->ADC_CTRL &= ~(1 << 8); // Clear ADC_START
-		state = Status::ready;
+		state = ResultStatus::ready;
 	}
 
 
 	virtual void AbortInjected() override {
-		state = Status::ready;
+		state = ResultStatus::ready;
 	}
 
 
 	virtual void AbortWatchDog() override {
-		state = Status::ready;
+		state = ResultStatus::ready;
 	}
 
 
 	virtual void AbortSampling() override {
-		state = Status::ready;
+		state = ResultStatus::ready;
 	}
 
 
 	virtual void AbortConfigurationReady() override {
-		state = Status::ready;
+		state = ResultStatus::ready;
 	}
 
 
 
-	virtual Status::statusType Calibration() override {
+	virtual ResultStatus Calibration() override {
 		// ENS001 ADC has no calibration
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
@@ -119,11 +119,11 @@ private:
 
 
 protected:
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		OnEnableClock();
 
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -154,29 +154,29 @@ protected:
 
 
 
-	virtual Status::statusType RegularInitialization(uint8 rankLength) override {
+	virtual ResultStatus RegularInitialization(uint8 rankLength) override {
 		// ENS001 ADC supports only single channel at a time
 		if (rankLength > 1) {
-			return Status::notSupported;
+			return ResultStatus::notSupported;
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
-	virtual Status::statusType InjectedInitialization(uint8 rankLength) override {
-		return Status::notSupported;
+	virtual ResultStatus InjectedInitialization(uint8 rankLength) override {
+		return ResultStatus::notSupported;
 	}
 
 
 
-	virtual Status::statusType ReadByteArray(uint8 *buffer, uint16 size) override {
-		if (state != Status::ready) {
-			return Status::busy;
+	virtual ResultStatus ReadByteArray(uint8 *buffer, uint16 size) override {
+		if (state != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		state = Status::busy;
+		state = ResultStatus::busy;
 		dataNeed = size / GetResolutionByte();
 		dataCounter = 0;
 		dataPointer = buffer;
@@ -198,8 +198,8 @@ protected:
 			// Poll for EOC
 			while (!(adcHandle->ADC_SR & (1 << 0))) { // EOC_FLAG
 				if ((System::GetTick() - tickStart) > timeout) {
-					state = Status::ready;
-					return Status::timeout;
+					state = ResultStatus::ready;
+					return ResultStatus::timeout;
 				}
 			}
 
@@ -217,18 +217,18 @@ protected:
 			adcHandle->ADC_INT_CLR = (1 << 0);
 		}
 
-		state = Status::ready;
-		return Status::ok;
+		state = ResultStatus::ready;
+		return ResultStatus::ok;
 	}
 
 
 
-	virtual Status::statusType ReadByteArrayAsync(uint8 *buffer, uint16 size) override {
-		if (state != Status::ready) {
-			return Status::busy;
+	virtual ResultStatus ReadByteArrayAsync(uint8 *buffer, uint16 size) override {
+		if (state != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		state = Status::busy;
+		state = ResultStatus::busy;
 		dataNeed = size / GetResolutionByte();
 		dataCounter = 0;
 		dataPointer = buffer;
@@ -250,38 +250,38 @@ protected:
 		// Start conversion
 		adcHandle->ADC_CTRL |= (1 << 8); // ADC_START
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
-	virtual Status::info<float> SetRegularChannel(const RegularChannel &channel, uint8 rank) override {
+	virtual Result<uint32> SetRegularChannel(const RegularChannel &channel, uint8 rank) override {
 		// ENS001 ADC only supports channels 0-7
 		if (channel.channel > 7) {
-			return { Status::notSupported };
+			return ResultStatus::notSupported;
 		}
 
 		selectedChannel = channel.channel;
 
-		// Map maxSamplingCycles to hardware register: 0=2clk, 1=3clk, 2=4clk, 3=5clk
-		if (channel.maxSamplingCycles >= 5) {
+		// Map maxSamplingTimeNs to hardware register: 0=2clk, 1=3clk, 2=4clk, 3=5clk
+		if (channel.maxSamplingTimeNs >= 5) {
 			samplingTimeReg = 3;
-		} else if (channel.maxSamplingCycles >= 4) {
+		} else if (channel.maxSamplingTimeNs >= 4) {
 			samplingTimeReg = 2;
-		} else if (channel.maxSamplingCycles >= 3) {
+		} else if (channel.maxSamplingTimeNs >= 3) {
 			samplingTimeReg = 1;
 		} else {
 			samplingTimeReg = 0;
 		}
 		adcHandle->ADC_SAMP_TIME = samplingTimeReg & 0x03;
 
-		return { Status::ok, 0.0f };
+		return 0;
 	}
 
 
 
-	virtual Status::info<float> SetInjectedChannel(const InjecteChannel &channel, uint8 rank) override {
-		return { Status::notSupported };
+	virtual Result<uint32> SetInjectedChannel(const InjecteChannel &channel, uint8 rank) override {
+		return ResultStatus::notSupported;
 	}
 
 };

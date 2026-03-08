@@ -24,7 +24,7 @@ public:
 		rxDataCounter = 0;
 		rxDataNeed = 0;
 		rxDataPointer = nullptr;
-		rxState = Status::ready;
+		rxState = ResultStatus::ready;
 	}
 
 
@@ -41,7 +41,7 @@ public:
 		txDataCounter = 0;
 		txDataNeed = 0;
 		txDataPointer = nullptr;
-		txState = Status::ready;
+		txState = ResultStatus::ready;
 	}
 
 
@@ -100,14 +100,14 @@ private:
 			return;
 		}
 
-		if(txState == Status::ready) {
+		if(txState == ResultStatus::ready) {
 			// Disable error interrupts (OVERRUN + UNDERRUN)
 			spiHandle->IER &= ~((1 << 3) | (1 << 4));
 		}
 		// Disable RX interrupt
 		spiHandle->IER &= ~(1 << 0);
 
-		rxState = Status::ready;
+		rxState = ResultStatus::ready;
 
 		CallInterrupt(Irq::Rx);
 	}
@@ -125,7 +125,7 @@ private:
 		}
 
 		if(continuousAsyncTxMode) {
-			abort(); // TODO: continuous
+			SystemAbort(); // TODO: continuous
 			return;
 		}
 
@@ -136,14 +136,14 @@ private:
 			return;
 		}
 
-		if(rxState == Status::ready) {
+		if(rxState == ResultStatus::ready) {
 			// Disable error interrupts (OVERRUN + UNDERRUN)
 			spiHandle->IER &= ~((1 << 3) | (1 << 4));
 		}
 		// Disable TX interrupt
 		spiHandle->IER &= ~(1 << 1);
 
-		txState = Status::ready;
+		txState = ResultStatus::ready;
 
 		CallInterrupt(Irq::Tx);
 	}
@@ -154,11 +154,11 @@ private:
 
 
 protected:
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		OnEnableClock();
 
 		auto status = BeforeInitialization();
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -268,12 +268,12 @@ protected:
 
 
 
-	virtual Status::statusType StartContinuousAsyncRxMode() override {
-		if (rxState != Status::ready) {
-			return Status::busy;
+	virtual ResultStatus StartContinuousAsyncRxMode() override {
+		if (rxState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		rxState = Status::busy;
+		rxState = ResultStatus::busy;
 		continuousAsyncRxMode = true;
 		rxDataNeed = 0;
 		rxDataPointer = 0;
@@ -282,37 +282,37 @@ protected:
 		// Enable RX and error interrupts (OVERRUN + UNDERRUN)
 		spiHandle->IER |= (1 << 0) | (1 << 3) | (1 << 4);
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual Status::statusType StopContinuousAsyncRxMode() override {
+	virtual ResultStatus StopContinuousAsyncRxMode() override {
 		if(!continuousAsyncRxMode) {
-			return Status::notAvailable;
+			return ResultStatus::notAvailable;
 		}
 
 		// Disable RX and error interrupts
 		spiHandle->IER &= ~((1 << 0) | (1 << 3) | (1 << 4));
 
 		continuousAsyncRxMode = false;
-		rxState = Status::ready;
+		rxState = ResultStatus::ready;
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	inline virtual Status::statusType WriteByteArray(uint8 *buffer, uint32 size) override {
-		if (txState != Status::ready) {
-			return Status::busy;
+	inline virtual ResultStatus WriteByteArray(uint8 *buffer, uint32 size) override {
+		if (txState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		txState = Status::busy;
+		txState = ResultStatus::busy;
 		txDataNeed = size;
 		txDataPointer = buffer;
 		txDataCounter = 0;
@@ -329,8 +329,8 @@ protected:
 			// Wait for TX FIFO empty (FSR bit 0)
 			while(!(spiHandle->FSR & (1 << 0))) {
 				if((System::GetTick() - tickStart) > timeout) {
-					txState = Status::ready;
-					return Status::timeout;
+					txState = ResultStatus::ready;
+					return ResultStatus::timeout;
 				}
 			}
 
@@ -340,8 +340,8 @@ protected:
 		// Wait for SPI not busy (FSR bit 4)
 		while(spiHandle->FSR & (1 << 4)) {
 			if((System::GetTick() - tickStart) > timeout) {
-				txState = Status::ready;
-				return Status::timeout;
+				txState = ResultStatus::ready;
+				return ResultStatus::timeout;
 			}
 		}
 
@@ -354,21 +354,21 @@ protected:
 			}
 		}
 
-		txState = Status::ready;
+		txState = ResultStatus::ready;
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	inline virtual Status::statusType ReadByteArray(uint8 *buffer, uint32 size) override {
-		if (rxState != Status::ready) {
-			return Status::busy;
+	inline virtual ResultStatus ReadByteArray(uint8 *buffer, uint32 size) override {
+		if (rxState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		rxState = Status::busy;
+		rxState = ResultStatus::busy;
 		rxDataNeed = size;
 		rxDataPointer = buffer;
 		uint32 tickStart = System::GetTick();
@@ -378,8 +378,8 @@ protected:
 			// Send dummy byte to generate clock
 			while(!(spiHandle->FSR & (1 << 0))) {
 				if((System::GetTick() - tickStart) > timeout) {
-					rxState = Status::ready;
-					return Status::timeout;
+					rxState = ResultStatus::ready;
+					return ResultStatus::timeout;
 				}
 			}
 			spiHandle->THR = 0xFF;
@@ -387,8 +387,8 @@ protected:
 			// Wait for SPI not busy (FSR bit 4)
 			while(spiHandle->FSR & (1 << 4)) {
 				if((System::GetTick() - tickStart) > timeout) {
-					rxState = Status::ready;
-					return Status::timeout;
+					rxState = ResultStatus::ready;
+					return ResultStatus::timeout;
 				}
 			}
 
@@ -397,26 +397,26 @@ protected:
 		}
 
 
-		rxState = Status::ready;
+		rxState = ResultStatus::ready;
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	inline virtual Status::statusType WriteReadByteArray(uint8 *txBuffer, uint8 *rxBuffer, uint32 size) override {
-		if (txState != Status::ready || rxState != Status::ready) {
-			return Status::busy;
+	inline virtual ResultStatus WriteReadByteArray(uint8 *txBuffer, uint8 *rxBuffer, uint32 size) override {
+		if (txState != ResultStatus::ready || rxState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		txState = Status::busy;
+		txState = ResultStatus::busy;
 		txDataNeed = size;
 		txDataPointer = txBuffer;
 		txDataCounter = 0;
 
-		rxState = Status::busy;
+		rxState = ResultStatus::busy;
 		rxDataNeed = size;
 		rxDataPointer = rxBuffer;
 		rxDataCounter = 0;
@@ -448,29 +448,29 @@ protected:
 			}
 
 			if((System::GetTick() - tickStart) > timeout) {
-				txState = Status::ready;
-				rxState = Status::ready;
-				return Status::timeout;
+				txState = ResultStatus::ready;
+				rxState = ResultStatus::ready;
+				return ResultStatus::timeout;
 			}
 		}
 
 
-		txState = Status::ready;
-		rxState = Status::ready;
+		txState = ResultStatus::ready;
+		rxState = ResultStatus::ready;
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	inline virtual Status::statusType WriteByteArrayAsync(uint8 *buffer, uint32 size) override {
-		if (txState != Status::ready) {
-			return Status::busy;
+	inline virtual ResultStatus WriteByteArrayAsync(uint8 *buffer, uint32 size) override {
+		if (txState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		txState = Status::busy;
+		txState = ResultStatus::busy;
 		txDataNeed = size;
 		txDataPointer = buffer;
 		txDataCounter = 0;
@@ -478,19 +478,19 @@ protected:
 		// Enable TX and error interrupts (OVERRUN + UNDERRUN)
 		spiHandle->IER |= (1 << 1) | (1 << 3) | (1 << 4);
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	inline virtual Status::statusType ReadByteArrayAsync(uint8 *buffer, uint32 size) override {
-		if (rxState != Status::ready) {
-			return Status::busy;
+	inline virtual ResultStatus ReadByteArrayAsync(uint8 *buffer, uint32 size) override {
+		if (rxState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		rxState = Status::busy;
+		rxState = ResultStatus::busy;
 		rxDataNeed = size;
 		rxDataPointer = buffer;
 		rxDataCounter = 0;
@@ -498,24 +498,24 @@ protected:
 		// Enable RX and error interrupts (OVERRUN + UNDERRUN)
 		spiHandle->IER |= (1 << 0) | (1 << 3) | (1 << 4);
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	inline virtual Status::statusType WriteReadByteArrayAsync(uint8 *txBuffer, uint8 *rxBuffer, uint32 size) override {
-		if (txState != Status::ready || rxState != Status::ready) {
-			return Status::busy;
+	inline virtual ResultStatus WriteReadByteArrayAsync(uint8 *txBuffer, uint8 *rxBuffer, uint32 size) override {
+		if (txState != ResultStatus::ready || rxState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		txState = Status::busy;
+		txState = ResultStatus::busy;
 		txDataNeed = size;
 		txDataPointer = txBuffer;
 		txDataCounter = 0;
 
-		rxState = Status::busy;
+		rxState = ResultStatus::busy;
 		rxDataNeed = size;
 		rxDataPointer = rxBuffer;
 		rxDataCounter = 0;
@@ -523,7 +523,7 @@ protected:
 		// Enable TX, RX, and error interrupts (OVERRUN + UNDERRUN)
 		spiHandle->IER |= (1 << 0) | (1 << 1) | (1 << 3) | (1 << 4);
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 

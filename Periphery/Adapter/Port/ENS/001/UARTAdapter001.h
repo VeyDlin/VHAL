@@ -11,7 +11,7 @@ private:
 public:
 	UARTAdapter001() { }
 
-	UARTAdapter001(CMSDK_UART_TypeDef *uart, uint32 busClockHz = 0):UARTAdapter(uart), inputBusClockHz(busClockHz) {
+	UARTAdapter001(CMSDK_UART_TypeDef *uart, uint32 busClockHz):UARTAdapter(uart), inputBusClockHz(busClockHz) {
 
 	}
 
@@ -27,7 +27,7 @@ public:
 		rxDataCounter = 0;
 		rxDataNeed = 0;
 		rxDataPointer = nullptr;
-		rxState = Status::ready;
+		rxState = ResultStatus::ready;
 	}
 
 
@@ -40,7 +40,7 @@ public:
 		txDataCounter = 0;
 		txDataNeed = 0;
 		txDataPointer = nullptr;
-		txState = Status::ready;
+		txState = ResultStatus::ready;
 	}
 
 
@@ -60,16 +60,16 @@ public:
 
 
 protected:
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		OnEnableClock();
 
 		auto status = BeforeInitialization();
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			return status;
 		}
 
 		// Calculate baud rate divisor accounting for oversampling mode
-		uint32 pclk = inputBusClockHz ? inputBusClockHz : SystemCoreClock;
+		uint32 pclk = inputBusClockHz;
 
 		// Check oversampling mode from MDR
 		uint32 divisorMultiplier = (uartHandle->MDR & 0x01) ? 13 : 16;
@@ -108,12 +108,12 @@ protected:
 
 
 
-	virtual inline Status::statusType WriteByteArray(uint8* buffer, uint32 size) override {
-		if (txState != Status::ready) {
-			return Status::busy;
+	virtual inline ResultStatus WriteByteArray(uint8* buffer, uint32 size) override {
+		if (txState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		txState = Status::busy;
+		txState = ResultStatus::busy;
 		txDataNeed = size;
 		txDataPointer = buffer;
 		uint32 tickStart = System::GetTick();
@@ -122,8 +122,8 @@ protected:
 			// Wait for THR empty (LSR bit 5)
 			while(!(uartHandle->LSR & (1 << 5))) {
 				if((System::GetTick() - tickStart) > timeout) {
-					txState = Status::ready;
-					return Status::timeout;
+					txState = ResultStatus::ready;
+					return ResultStatus::timeout;
 				}
 			}
 
@@ -133,25 +133,25 @@ protected:
 		// Wait for transmitter empty (LSR bit 6)
 		while(!(uartHandle->LSR & (1 << 6))) {
 			if((System::GetTick() - tickStart) > timeout) {
-				txState = Status::ready;
-				return Status::timeout;
+				txState = ResultStatus::ready;
+				return ResultStatus::timeout;
 			}
 		}
 
-		txState = Status::ready;
-		return Status::ok;
+		txState = ResultStatus::ready;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual inline Status::statusType ReadByteArray(uint8 *buffer, uint32 size) override {
-		if (rxState != Status::ready) {
-			return Status::busy;
+	virtual inline ResultStatus ReadByteArray(uint8 *buffer, uint32 size) override {
+		if (rxState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		rxState = Status::busy;
+		rxState = ResultStatus::busy;
 		rxDataNeed = size;
 		rxDataPointer = buffer;
 		uint32 tickStart = System::GetTick();
@@ -160,8 +160,8 @@ protected:
 			// Wait for data ready (LSR bit 0)
 			while(!(uartHandle->LSR & (1 << 0))) {
 				if((System::GetTick() - tickStart) > timeout) {
-					rxState = Status::ready;
-					return Status::timeout;
+					rxState = ResultStatus::ready;
+					return ResultStatus::timeout;
 				}
 			}
 
@@ -170,20 +170,20 @@ protected:
 			*rxDataPointer++ = lastRxData;
 		}
 
-		rxState = Status::ready;
-		return Status::ok;
+		rxState = ResultStatus::ready;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual inline Status::statusType WriteByteArrayAsync(uint8* buffer, uint32 size) override {
-		if (txState != Status::ready) {
-			return Status::busy;
+	virtual inline ResultStatus WriteByteArrayAsync(uint8* buffer, uint32 size) override {
+		if (txState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		txState = Status::busy;
+		txState = ResultStatus::busy;
 		txDataPointer = buffer;
 		txDataNeed = size;
 		txDataCounter = 0;
@@ -191,19 +191,19 @@ protected:
 		// Enable THR empty interrupt (IER bit 1)
 		uartHandle->IER |= (1 << 1);
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual inline Status::statusType ReadByteArrayAsync(uint8* buffer, uint32 size) override {
-		if (rxState != Status::ready) {
-			return Status::busy;
+	virtual inline ResultStatus ReadByteArrayAsync(uint8* buffer, uint32 size) override {
+		if (rxState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		rxState = Status::busy;
+		rxState = ResultStatus::busy;
 		rxDataPointer = buffer;
 		rxDataNeed = size;
 		rxDataCounter = 0;
@@ -211,45 +211,45 @@ protected:
 		// Enable RX data available interrupt (IER bit 0) and RX line status interrupt (IER bit 2)
 		uartHandle->IER |= (1 << 0) | (1 << 2);
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual Status::statusType StartContinuousAsyncRxMode() override {
+	virtual ResultStatus StartContinuousAsyncRxMode() override {
 		if(continuousAsyncRxMode) {
-			return Status::notAvailable;
+			return ResultStatus::notAvailable;
 		}
 
-		if (rxState != Status::ready) {
-			return Status::busy;
+		if (rxState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		rxState = Status::busy;
+		rxState = ResultStatus::busy;
 		continuousAsyncRxMode = true;
 
 		// Enable RX data available interrupt (IER bit 0) and RX line status interrupt (IER bit 2)
 		uartHandle->IER |= (1 << 0) | (1 << 2);
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual Status::statusType StopContinuousAsyncRxMode() override {
+	virtual ResultStatus StopContinuousAsyncRxMode() override {
 		if(!continuousAsyncRxMode) {
-			return Status::notAvailable;
+			return ResultStatus::notAvailable;
 		}
 
 		// Disable RX data available interrupt (IER bit 0) and RX line status interrupt (IER bit 2)
 		uartHandle->IER &= ~((1 << 0) | (1 << 2));
-		rxState = Status::ready;
+		rxState = ResultStatus::ready;
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
@@ -328,7 +328,7 @@ private:
 		// Disable RX data available interrupt (IER bit 0) and RX line status interrupt (IER bit 2)
 		uartHandle->IER &= ~((1 << 0) | (1 << 2));
 
-		rxState = Status::ready;
+		rxState = ResultStatus::ready;
 
 		CallInterrupt(Irq::Rx);
 	}
@@ -357,7 +357,7 @@ private:
 		// Disable THR empty interrupt (IER bit 1)
 		uartHandle->IER &= ~(1 << 1);
 
-		txState = Status::ready;
+		txState = ResultStatus::ready;
 
 		CallInterrupt(Irq::Tx);
 	}

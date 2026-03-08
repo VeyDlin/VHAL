@@ -60,17 +60,17 @@ private:
 
 
 protected:
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		OnEnableClock();
 
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
 		// Calculate load value from deadline
 		status = CalculateDividers();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -91,12 +91,7 @@ protected:
 
 
 
-	virtual Status::statusType CalculateDividers() override {
-		// WDT is clocked by PCLK (APB clock), fall back to SystemCoreClock
-		if (inputBusClockHz == 0) {
-			inputBusClockHz = SystemCoreClock;
-		}
-
+	virtual ResultStatus CalculateDividers() override {
 		// LOAD = (deadlineMs * busClockHz) / 1000
 		uint64 val = (uint64)parameters.minDeadlineMs * inputBusClockHz / 1000;
 
@@ -107,7 +102,7 @@ protected:
 
 		loadValue = (uint32)val;
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 };

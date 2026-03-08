@@ -63,8 +63,8 @@ protected:
 
 public:
 	std::function<void(bool state)> onInterrupt;
-	std::function<Status::statusType()> interruptPeripheryInit;
-	std::function<Status::statusType()> eventPeripheryInit;
+	std::function<ResultStatus()> interruptPeripheryInit;
+	std::function<ResultStatus()> eventPeripheryInit;
 
 
 
@@ -156,7 +156,7 @@ public:
 
 
 
-	virtual Status::statusType SetParameters(Parameters val) {
+	virtual ResultStatus SetParameters(Parameters val) {
 		parameters = val;
 		return Initialization();
 	}
@@ -175,7 +175,7 @@ public:
 
 
 	template<typename AdapterClass>
-	static inline Status::statusType AlternateInitBase(AlternateParameters val) {
+	static inline ResultStatus AlternateInitBase(AlternateParameters val) {
 		AdapterClass io = { val.port, val.pin };
 		io.SetAlternate(val.alternate);
 		return io.SetParameters({ Mode::Alternate, val.pull, val.speed });
@@ -186,7 +186,7 @@ public:
 
 
 	template<typename AdapterClass>
-	static inline Status::statusType AlternateOpenDrainInitBase(AlternateParameters val) {
+	static inline ResultStatus AlternateOpenDrainInitBase(AlternateParameters val) {
 		AdapterClass io = { val.port, val.pin };
 		io.SetAlternate(val.alternate);
 		return io.SetParameters({ Mode::AlternateOpenDrain, val.pull, val.speed });
@@ -197,7 +197,7 @@ public:
 
 
 	template<typename AdapterClass>
-	static inline Status::statusType AnalogInitBase(AnalogParameters val) {
+	static inline ResultStatus AnalogInitBase(AnalogParameters val) {
 		AdapterClass io = { val.port, val.pin };
 		return io.SetParameters({ Mode::Analog, val.pull });
 	}
@@ -205,7 +205,7 @@ public:
 
 
 protected:
-	virtual Status::statusType Initialization() = 0;
+	virtual ResultStatus Initialization() = 0;
 
 
 	virtual bool GetPinState() = 0;
@@ -213,22 +213,22 @@ protected:
 	virtual void TogglePinState() = 0;
 
 
-	inline virtual Status::statusType InterruptInitialization() {
+	inline virtual ResultStatus InterruptInitialization() {
 		if(interruptPeripheryInit != nullptr) {
 			return interruptPeripheryInit();
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
-	inline virtual Status::statusType EventInitialization() {
+	inline virtual ResultStatus EventInitialization() {
 		if(eventPeripheryInit != nullptr) {
 			return eventPeripheryInit();
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 };
 

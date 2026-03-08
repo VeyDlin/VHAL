@@ -142,7 +142,7 @@ public:
 
 
 
-	virtual Status::statusType SetParameters(Parameters val) {
+	virtual ResultStatus SetParameters(Parameters val) {
 		parameters = val;
 		return Initialization();
 	}
@@ -183,7 +183,7 @@ public:
 
 
 
-	virtual Status::statusType ConfigOutputCompareParameters(const std::initializer_list<OutputCompareParameters>& list) {
+	virtual ResultStatus ConfigOutputCompareParameters(const std::initializer_list<OutputCompareParameters>& list) {
 		uint8 i = 0;
 		for(auto &channel : list) {
 			outputCompareParameters[i++] = channel;
@@ -193,7 +193,7 @@ public:
 	}
 
 
-	virtual Status::statusType ConfigInputCaptureParameters(const std::initializer_list<InputCaptureParameters>& list) {
+	virtual ResultStatus ConfigInputCaptureParameters(const std::initializer_list<InputCaptureParameters>& list) {
 		uint8 i = 0;
 		for(auto &channel : list) {
 			inputCaptureParameters[i++] = channel;
@@ -203,7 +203,7 @@ public:
 	}
 
 
-	virtual Status::statusType ConfigBreakAndDeadTimeParameters(const std::initializer_list<BreakAndDeadTimeParameters>& list) {
+	virtual ResultStatus ConfigBreakAndDeadTimeParameters(const std::initializer_list<BreakAndDeadTimeParameters>& list) {
 		uint8 i = 0;
 		for(auto &channel : list) {
 			breakAndDeadTimeParameters[i++] = channel;
@@ -214,28 +214,28 @@ public:
 
 
 
-	virtual Status::statusType EnableInterrupt(const std::initializer_list<InterruptOption>& list) {
+	virtual ResultStatus EnableInterrupt(const std::initializer_list<InterruptOption>& list) {
 		// TODO: [VHAL] [TIM] [ADAPTER] [ADD] Add save
 		for(auto &channel : list) {
 			auto status = SetInterrupt(channel, true);
-			if(status != Status::ok) {
+			if(status != ResultStatus::ok) {
 				return status;
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
-	virtual Status::statusType DisableInterrupt(const std::initializer_list<InterruptOption>& list) {
+	virtual ResultStatus DisableInterrupt(const std::initializer_list<InterruptOption>& list) {
 		// TODO: [VHAL] [TIM] [ADAPTER] [ADD] Add save
 		for(auto &channel : list) {
 			auto status = SetInterrupt(channel, false);
-			if(status != Status::ok) {
+			if(status != ResultStatus::ok) {
 				return status;
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
@@ -261,11 +261,11 @@ public:
 
 
 protected:
-	virtual Status::statusType Initialization() = 0;
-	virtual Status::statusType OutputCompareInitialization(const std::initializer_list<OutputCompareParameters>& list) = 0;
-	virtual Status::statusType InputCaptureInitialization(const std::initializer_list<InputCaptureParameters>& list) = 0;
-	virtual Status::statusType BreakAndDeadTimeInitialization(const std::initializer_list<BreakAndDeadTimeParameters>& list) = 0;
-	virtual Status::statusType SetInterrupt(InterruptOption interrupt, bool enable) = 0;
+	virtual ResultStatus Initialization() = 0;
+	virtual ResultStatus OutputCompareInitialization(const std::initializer_list<OutputCompareParameters>& list) = 0;
+	virtual ResultStatus InputCaptureInitialization(const std::initializer_list<InputCaptureParameters>& list) = 0;
+	virtual ResultStatus BreakAndDeadTimeInitialization(const std::initializer_list<BreakAndDeadTimeParameters>& list) = 0;
+	virtual ResultStatus SetInterrupt(InterruptOption interrupt, bool enable) = 0;
 
 
 	virtual inline void CallInputCaptureEvent(uint8 channel) {

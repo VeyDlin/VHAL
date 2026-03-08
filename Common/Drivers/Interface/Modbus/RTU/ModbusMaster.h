@@ -1,5 +1,4 @@
 #pragma once
-
 #include <VHAL.h>
 #include <array>
 #include <span>
@@ -90,6 +89,7 @@ public:
 	    BufferTooSmall
 	};
 
+
 private:
     static constexpr size_t MAX_FRAME_SIZE = 256;
     static constexpr uint16 CRC_INIT = 0xFFFF;
@@ -101,45 +101,6 @@ private:
     std::function<size_t(std::span<uint8>)> receiveCallback;
     std::function<uint32()> getTickCallback;
     
-    uint16 CalculateCrc(std::span<const uint8> data) const {
-        uint16 crc = CRC_INIT;
-        for (uint8 byte : data) {
-            crc ^= byte;
-            for (int i = 0; i < 8; ++i) {
-                crc = (crc & 1) ? ((crc >> 1) ^ 0xA001) : (crc >> 1);
-            }
-        }
-        return crc;
-    }
-    
-    bool ValidateResponse(std::span<const uint8> response, uint8 expectedFunction) const {
-        if (response.size() < 3) return false;
-        if (response[0] != slaveId) return false;
-        if ((response[1] & 0x7F) != expectedFunction) return false;
-        
-        // Check CRC
-        uint16 receivedCrc = (response[response.size() - 1] << 8) | response[response.size() - 2];
-        uint16 calculatedCrc = CalculateCrc(response.subspan(0, response.size() - 2));
-        return receivedCrc == calculatedCrc;
-    }
-    
-    ModbusError SendRequest(std::span<const uint8> request, std::span<uint8> response, size_t& responseLength) {
-        if (!sendCallback || !receiveCallback) {
-            return ModbusError::InvalidResponse;
-        }
-        
-        sendCallback(request);
-        
-        uint32 startTime = getTickCallback();
-        while ((getTickCallback() - startTime) < timeoutMs) {
-            responseLength = receiveCallback(response);
-            if (responseLength > 0) {
-                return ModbusError::Success;
-            }
-        }
-        
-        return ModbusError::Timeout;
-    }
 
 public:
     explicit ModbusMaster(uint8 slaveId, uint32 timeoutMs = DEFAULT_TIMEOUT_MS) 
@@ -147,26 +108,32 @@ public:
         getTickCallback = []() -> uint32 { return System::GetTick(); };
     }
     
+
     void SetSendCallback(std::function<void(std::span<const uint8>)> callback) {
         sendCallback = callback;
     }
     
+
     void SetReceiveCallback(std::function<size_t(std::span<uint8>)> callback) {
         receiveCallback = callback;
     }
     
+
     void SetTickCallback(std::function<uint32()> callback) {
         getTickCallback = callback;
     }
     
+
     void SetTimeout(uint32 timeoutMs) {
         this->timeoutMs = timeoutMs;
     }
     
+
     void SetSlaveId(uint8 slaveId) {
         this->slaveId = slaveId;
     }
     
+
     ModbusError ReadCoils(uint16 startAddress, std::span<bool> coils) {
         if (coils.size() > 2000) return ModbusError::BufferTooSmall;
         
@@ -201,6 +168,7 @@ public:
         return ModbusError::Success;
     }
     
+
     ModbusError ReadDiscreteInputs(uint16 startAddress, std::span<bool> inputs) {
         if (inputs.size() > 2000) return ModbusError::BufferTooSmall;
         
@@ -235,6 +203,7 @@ public:
         return ModbusError::Success;
     }
     
+
     ModbusError ReadHoldingRegisters(uint16 startAddress, std::span<uint16> registers) {
         if (registers.size() > 125) return ModbusError::BufferTooSmall;
         
@@ -269,6 +238,7 @@ public:
         return ModbusError::Success;
     }
     
+
     ModbusError ReadInputRegisters(uint16 startAddress, std::span<uint16> registers) {
         if (registers.size() > 125) return ModbusError::BufferTooSmall;
         
@@ -303,6 +273,7 @@ public:
         return ModbusError::Success;
     }
     
+
     ModbusError WriteSingleCoil(uint16 address, bool value) {
         std::array<uint8, 8> request{};
         request[0] = slaveId;
@@ -330,6 +301,7 @@ public:
         return ModbusError::Success;
     }
     
+
     ModbusError WriteSingleRegister(uint16 address, uint16 value) {
         std::array<uint8, 8> request{};
         request[0] = slaveId;
@@ -357,6 +329,7 @@ public:
         return ModbusError::Success;
     }
     
+
     ModbusError WriteMultipleCoils(uint16 startAddress, std::span<const bool> coils) {
         if (coils.size() > 1968) return ModbusError::BufferTooSmall;
         
@@ -398,6 +371,7 @@ public:
         return ModbusError::Success;
     }
     
+
     ModbusError WriteMultipleRegisters(uint16 startAddress, std::span<const uint16> registers) {
         if (registers.size() > 123) return ModbusError::BufferTooSmall;
         
@@ -435,5 +409,49 @@ public:
         if (response[1] & 0x80) return ModbusError::ExceptionResponse;
         
         return ModbusError::Success;
+    }
+
+
+private:
+    uint16 CalculateCrc(std::span<const uint8> data) const {
+        uint16 crc = CRC_INIT;
+        for (uint8 byte : data) {
+            crc ^= byte;
+            for (int i = 0; i < 8; ++i) {
+                crc = (crc & 1) ? ((crc >> 1) ^ 0xA001) : (crc >> 1);
+            }
+        }
+        return crc;
+    }
+    
+    
+    bool ValidateResponse(std::span<const uint8> response, uint8 expectedFunction) const {
+        if (response.size() < 3) return false;
+        if (response[0] != slaveId) return false;
+        if ((response[1] & 0x7F) != expectedFunction) return false;
+        
+        // Check CRC
+        uint16 receivedCrc = (response[response.size() - 1] << 8) | response[response.size() - 2];
+        uint16 calculatedCrc = CalculateCrc(response.subspan(0, response.size() - 2));
+        return receivedCrc == calculatedCrc;
+    }
+    
+
+    ModbusError SendRequest(std::span<const uint8> request, std::span<uint8> response, size_t& responseLength) {
+        if (!sendCallback || !receiveCallback) {
+            return ModbusError::InvalidResponse;
+        }
+        
+        sendCallback(request);
+        
+        uint32 startTime = getTickCallback();
+        while ((getTickCallback() - startTime) < timeoutMs) {
+            responseLength = receiveCallback(response);
+            if (responseLength > 0) {
+                return ModbusError::Success;
+            }
+        }
+        
+        return ModbusError::Timeout;
     }
 };

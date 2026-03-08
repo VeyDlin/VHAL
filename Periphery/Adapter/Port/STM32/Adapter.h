@@ -45,6 +45,10 @@
 
 	#include <Adapter/Port/STM32/G0/GPIOAdapterG0.h>
 
+	#ifdef VHAL_STM32_G0_UART
+		#include <Adapter/Port/STM32/G0/UARTAdapterG0.h>
+	#endif
+
 	#ifdef VHAL_STM32_G0_DMA
 		#include <Adapter/Port/STM32/G0/DMAAdapterG0.h>
 	#endif

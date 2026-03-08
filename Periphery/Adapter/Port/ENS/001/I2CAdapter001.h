@@ -73,29 +73,29 @@ public:
 		// Disable interrupts and generate STOP
 		i2cHandle->I2C_CR2 &= ~((1 << 7) | (1 << 6) | (1 << 8));
 		i2cHandle->I2C_CR1 |= (1 << 4); // STOP
-		state = Status::error;
+		state = ResultStatus::error;
 	}
 
 
 
 public:
-	virtual Status::statusType CheckDevice(uint8 deviceAddress, uint16 repeat) override {
-		return Status::notSupported;
+	virtual ResultStatus CheckDevice(uint8 deviceAddress, uint16 repeat) override {
+		return ResultStatus::notSupported;
 	}
 
 
-	virtual Status::statusType CheckDeviceAsync(uint8 deviceAddress, uint16 repeat) override {
-		return Status::notSupported;
+	virtual ResultStatus CheckDeviceAsync(uint8 deviceAddress, uint16 repeat) override {
+		return ResultStatus::notSupported;
 	}
 
 
-	virtual Status::info<uint8> Scan(uint8 *listBuffer, uint8 size) override {
-		return { Status::notSupported };
+	virtual Result<uint8> Scan(uint8 *listBuffer, uint8 size) override {
+		return ResultStatus::notSupported;
 	}
 
 
-	virtual Status::info<uint8> ScanAsync(uint8 *listBuffer, uint8 size) override {
-		return { Status::notSupported };
+	virtual Result<uint8> ScanAsync(uint8 *listBuffer, uint8 size) override {
+		return ResultStatus::notSupported;
 	}
 
 
@@ -112,7 +112,7 @@ private:
 	inline void AsyncComplete() {
 		// Disable all I2C interrupts
 		i2cHandle->I2C_CR2 &= ~((1 << 7) | (1 << 6) | (1 << 8));
-		state = Status::ready;
+		state = ResultStatus::ready;
 
 		if (onComplete) {
 			onComplete();
@@ -124,7 +124,7 @@ private:
 		i2cHandle->I2C_CR1 |= (1 << 4); // STOP
 		// Disable all I2C interrupts
 		i2cHandle->I2C_CR2 &= ~((1 << 7) | (1 << 6) | (1 << 8));
-		state = Status::error;
+		state = ResultStatus::error;
 	}
 
 
@@ -230,107 +230,107 @@ private:
 
 
 	// Wait for a specific STS bit to be set, with timeout
-	inline Status::statusType WaitFlag(uint32 flag) {
+	inline ResultStatus WaitFlag(uint32 flag) {
 		uint32 tickStart = System::GetTick();
 		while (!(i2cHandle->I2C_STS & flag)) {
 			if ((System::GetTick() - tickStart) > timeout) {
-				return Status::timeout;
+				return ResultStatus::timeout;
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 	// Wait for a specific STS bit to be cleared, with timeout
-	inline Status::statusType WaitFlagClear(uint32 flag) {
+	inline ResultStatus WaitFlagClear(uint32 flag) {
 		uint32 tickStart = System::GetTick();
 		while (i2cHandle->I2C_STS & flag) {
 			if ((System::GetTick() - tickStart) > timeout) {
-				return Status::timeout;
+				return ResultStatus::timeout;
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 	// Check for error flags in STS register
-	inline Status::statusType CheckErrors() {
+	inline ResultStatus CheckErrors() {
 		uint32 sts = i2cHandle->I2C_STS;
 
 		if (sts & (1 << 10)) { // ACK_FAIL
 			i2cHandle->I2C_STS_CLR = (1 << 10);
 			i2cHandle->I2C_CR1 |= (1 << 4); // STOP
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		if (sts & (1 << 8)) { // BUS_ERR
 			i2cHandle->I2C_STS_CLR = (1 << 8);
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		if (sts & (1 << 9)) { // ARB_LOST
 			i2cHandle->I2C_STS_CLR = (1 << 9);
-			return Status::error;
+			return ResultStatus::error;
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 	// Wait for TXE flag with error checking
-	inline Status::statusType WaitTXE() {
+	inline ResultStatus WaitTXE() {
 		uint32 tickStart = System::GetTick();
 		while (!(i2cHandle->I2C_STS & (1 << 6))) { // TXE
-			if (CheckErrors() != Status::ok) {
-				return Status::error;
+			if (CheckErrors() != ResultStatus::ok) {
+				return ResultStatus::error;
 			}
 			if ((System::GetTick() - tickStart) > timeout) {
-				return Status::timeout;
+				return ResultStatus::timeout;
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 	// Wait for RXNE flag with error checking
-	inline Status::statusType WaitRXNE() {
+	inline ResultStatus WaitRXNE() {
 		uint32 tickStart = System::GetTick();
 		while (!(i2cHandle->I2C_STS & (1 << 5))) { // RXNE
-			if (CheckErrors() != Status::ok) {
-				return Status::error;
+			if (CheckErrors() != ResultStatus::ok) {
+				return ResultStatus::error;
 			}
 			if ((System::GetTick() - tickStart) > timeout) {
-				return Status::timeout;
+				return ResultStatus::timeout;
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 	// Wait for BTF (Byte Transfer Finished) flag
-	inline Status::statusType WaitBTF() {
+	inline ResultStatus WaitBTF() {
 		uint32 tickStart = System::GetTick();
 		while (!(i2cHandle->I2C_STS & (1 << 2))) { // BTF
-			if (CheckErrors() != Status::ok) {
-				return Status::error;
+			if (CheckErrors() != ResultStatus::ok) {
+				return ResultStatus::error;
 			}
 			if ((System::GetTick() - tickStart) > timeout) {
-				return Status::timeout;
+				return ResultStatus::timeout;
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 	// Wait for bus not busy
-	inline Status::statusType WaitBusNotBusy() {
+	inline ResultStatus WaitBusNotBusy() {
 		uint32 tickStart = System::GetTick();
 		while (i2cHandle->I2C_STS & (1 << 13)) { // BUSY
 			if ((System::GetTick() - tickStart) > timeout) {
-				return Status::timeout;
+				return ResultStatus::timeout;
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
@@ -353,11 +353,11 @@ private:
 
 
 protected:
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		OnEnableClock();
 
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -397,10 +397,10 @@ protected:
 
 
 public:
-	virtual Status::statusType WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *writeData, uint32 dataSize) override {
+	virtual ResultStatus WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *writeData, uint32 dataSize) override {
 		// Wait for bus not busy
-		if (WaitBusNotBusy() != Status::ok) {
-			return Status::busy;
+		if (WaitBusNotBusy() != ResultStatus::ok) {
+			return ResultStatus::busy;
 		}
 
 		// Ensure peripheral is enabled
@@ -413,40 +413,40 @@ public:
 
 		// Generate START
 		i2cHandle->I2C_CR1 |= (1 << 3); // START
-		if (WaitFlag(1 << 0) != Status::ok) { // STARTBIT
-			return Status::error;
+		if (WaitFlag(1 << 0) != ResultStatus::ok) { // STARTBIT
+			return ResultStatus::error;
 		}
 
 		// Send device address + Write (bit 0 = 0)
 		i2cHandle->I2C_DR = (device << 1) & ~1U;
-		if (WaitFlag(1 << 1) != Status::ok) { // ADDR
+		if (WaitFlag(1 << 1) != ResultStatus::ok) { // ADDR
 			i2cHandle->I2C_CR1 |= (1 << 4); // STOP
-			return Status::error;
+			return ResultStatus::error;
 		}
 		// Clear ADDR by reading STS
 		(void)i2cHandle->I2C_STS;
 
 		// Send register address bytes
 		if (addressSize >= 2) {
-			if (WaitTXE() != Status::ok) {
+			if (WaitTXE() != ResultStatus::ok) {
 				i2cHandle->I2C_CR1 |= (1 << 4); // STOP
-				return Status::error;
+				return ResultStatus::error;
 			}
 			i2cHandle->I2C_DR = (address >> 8) & 0xFF;
 		}
 		if (addressSize >= 1) {
-			if (WaitTXE() != Status::ok) {
+			if (WaitTXE() != ResultStatus::ok) {
 				i2cHandle->I2C_CR1 |= (1 << 4); // STOP
-				return Status::error;
+				return ResultStatus::error;
 			}
 			i2cHandle->I2C_DR = address & 0xFF;
 		}
 
 		// Send data bytes
 		while (dataSize > 0) {
-			if (WaitTXE() != Status::ok) {
+			if (WaitTXE() != ResultStatus::ok) {
 				i2cHandle->I2C_CR1 |= (1 << 4); // STOP
-				return Status::error;
+				return ResultStatus::error;
 			}
 			i2cHandle->I2C_DR = *writeData;
 			writeData++;
@@ -461,23 +461,23 @@ public:
 		}
 
 		// Wait for BTF before STOP
-		if (WaitBTF() != Status::ok) {
+		if (WaitBTF() != ResultStatus::ok) {
 			i2cHandle->I2C_CR1 |= (1 << 4); // STOP
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		// Generate STOP
 		i2cHandle->I2C_CR1 |= (1 << 4); // STOP
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
-	virtual Status::statusType ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *readData, uint32 dataSize) override {
+	virtual ResultStatus ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *readData, uint32 dataSize) override {
 		// Wait for bus not busy
-		if (WaitBusNotBusy() != Status::ok) {
-			return Status::busy;
+		if (WaitBusNotBusy() != ResultStatus::ok) {
+			return ResultStatus::busy;
 		}
 
 		// Ensure peripheral is enabled
@@ -490,52 +490,52 @@ public:
 
 		// Generate START
 		i2cHandle->I2C_CR1 |= (1 << 3); // START
-		if (WaitFlag(1 << 0) != Status::ok) { // STARTBIT
-			return Status::error;
+		if (WaitFlag(1 << 0) != ResultStatus::ok) { // STARTBIT
+			return ResultStatus::error;
 		}
 
 		// Send device address + Write (for register address phase)
 		i2cHandle->I2C_DR = (device << 1) & ~1U;
-		if (WaitFlag(1 << 1) != Status::ok) { // ADDR
+		if (WaitFlag(1 << 1) != ResultStatus::ok) { // ADDR
 			i2cHandle->I2C_CR1 |= (1 << 4); // STOP
-			return Status::error;
+			return ResultStatus::error;
 		}
 		// Clear ADDR
 		(void)i2cHandle->I2C_STS;
 
 		// Send register address bytes
 		if (addressSize >= 2) {
-			if (WaitTXE() != Status::ok) {
+			if (WaitTXE() != ResultStatus::ok) {
 				i2cHandle->I2C_CR1 |= (1 << 4); // STOP
-				return Status::error;
+				return ResultStatus::error;
 			}
 			i2cHandle->I2C_DR = (address >> 8) & 0xFF;
 		}
 		if (addressSize >= 1) {
-			if (WaitTXE() != Status::ok) {
+			if (WaitTXE() != ResultStatus::ok) {
 				i2cHandle->I2C_CR1 |= (1 << 4); // STOP
-				return Status::error;
+				return ResultStatus::error;
 			}
 			i2cHandle->I2C_DR = address & 0xFF;
 		}
 
 		// Wait for BTF before RESTART (byte must finish transmitting)
-		if (WaitBTF() != Status::ok) {
+		if (WaitBTF() != ResultStatus::ok) {
 			i2cHandle->I2C_CR1 |= (1 << 4); // STOP
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		// Generate RESTART
 		i2cHandle->I2C_CR1 |= (1 << 3); // START (repeated)
-		if (WaitFlag(1 << 0) != Status::ok) { // STARTBIT
-			return Status::error;
+		if (WaitFlag(1 << 0) != ResultStatus::ok) { // STARTBIT
+			return ResultStatus::error;
 		}
 
 		// Send device address + Read (bit 0 = 1)
 		i2cHandle->I2C_DR = (device << 1) | 1U;
-		if (WaitFlag(1 << 1) != Status::ok) { // ADDR
+		if (WaitFlag(1 << 1) != ResultStatus::ok) { // ADDR
 			i2cHandle->I2C_CR1 |= (1 << 4); // STOP
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		if (dataSize == 0) {
@@ -561,15 +561,15 @@ public:
 		while (count > 0) {
 			if (count <= 3) {
 				if (count == 1) {
-					if (WaitRXNE() != Status::ok) {
-						return Status::error;
+					if (WaitRXNE() != ResultStatus::ok) {
+						return ResultStatus::error;
 					}
 					*readData = (uint8)i2cHandle->I2C_DR;
 					readData++;
 					count--;
 				} else if (count == 2) {
-					if (WaitBTF() != Status::ok) {
-						return Status::error;
+					if (WaitBTF() != ResultStatus::ok) {
+						return ResultStatus::error;
 					}
 					i2cHandle->I2C_CR1 |= (1 << 4); // STOP
 					*readData = (uint8)i2cHandle->I2C_DR;
@@ -579,15 +579,15 @@ public:
 					readData++;
 					count--;
 				} else { // count == 3
-					if (WaitBTF() != Status::ok) {
-						return Status::error;
+					if (WaitBTF() != ResultStatus::ok) {
+						return ResultStatus::error;
 					}
 					i2cHandle->I2C_CR1 &= ~(1 << 5); // Clear ACK
 					*readData = (uint8)i2cHandle->I2C_DR;
 					readData++;
 					count--;
-					if (WaitBTF() != Status::ok) {
-						return Status::error;
+					if (WaitBTF() != ResultStatus::ok) {
+						return ResultStatus::error;
 					}
 					i2cHandle->I2C_CR1 |= (1 << 4); // STOP
 					*readData = (uint8)i2cHandle->I2C_DR;
@@ -598,8 +598,8 @@ public:
 					count--;
 				}
 			} else {
-				if (WaitRXNE() != Status::ok) {
-					return Status::error;
+				if (WaitRXNE() != ResultStatus::ok) {
+					return ResultStatus::error;
 				}
 				*readData = (uint8)i2cHandle->I2C_DR;
 				readData++;
@@ -614,17 +614,17 @@ public:
 			}
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
-	virtual Status::statusType WriteByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8 *writeData, uint32 dataSize) override {
-		if (state != Status::ready) {
-			return Status::busy;
+	virtual ResultStatus WriteByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8 *writeData, uint32 dataSize) override {
+		if (state != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		state = Status::busy;
+		state = ResultStatus::busy;
 		asyncDirection = AsyncDirection::Transmit;
 		asyncPhase = AsyncPhase::Start;
 
@@ -644,16 +644,16 @@ public:
 		i2cHandle->I2C_CR1 |= (1 << 5); // ACK
 		i2cHandle->I2C_CR1 |= (1 << 3); // START
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	virtual Status::statusType ReadByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8 *readData, uint32 dataSize) override {
-		if (state != Status::ready) {
-			return Status::busy;
+	virtual ResultStatus ReadByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8 *readData, uint32 dataSize) override {
+		if (state != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		state = Status::busy;
+		state = ResultStatus::busy;
 		asyncDirection = AsyncDirection::Receive;
 		asyncPhase = AsyncPhase::Start;
 
@@ -673,7 +673,7 @@ public:
 		i2cHandle->I2C_CR1 |= (1 << 5); // ACK
 		i2cHandle->I2C_CR1 |= (1 << 3); // START
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 };

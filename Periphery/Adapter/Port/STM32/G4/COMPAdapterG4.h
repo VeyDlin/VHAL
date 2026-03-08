@@ -146,9 +146,9 @@ public:
 
 
 
-	virtual Status::statusType Enable() override {
+	virtual ResultStatus Enable() override {
 		if (LL_COMP_IsEnabled(compHandle)) {
-			return Status::ok;
+			return ResultStatus::ok;
 		}
 
 		LL_COMP_Enable(compHandle);
@@ -164,60 +164,60 @@ public:
 	        System::DelayUs(LL_COMP_DELAY_STARTUP_US);
 	    }
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	virtual Status::statusType Disable() override {
+	virtual ResultStatus Disable() override {
 		if (LL_COMP_IsEnabled(compHandle)) {
 			LL_COMP_Disable(compHandle);
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
-	virtual Status::statusType SetInputPlus(InputPlusOption inputPlus) override {
+	virtual ResultStatus SetInputPlus(InputPlusOption inputPlus) override {
 		LL_COMP_SetInputPlus(compHandle, inputPlus.Get());
 		parameters.inputPlus = inputPlus;
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
-	virtual Status::statusType SetInputMinus(InputMinusOption inputMinus) override {
+	virtual ResultStatus SetInputMinus(InputMinusOption inputMinus) override {
 	    LL_COMP_SetInputMinus(compHandle, inputMinus.Get());
 	    parameters.inputMinus = inputMinus;
-	    return Status::ok;
+	    return ResultStatus::ok;
 	}
 
 
 
-	virtual Status::statusType SetInputHysteresis(InputHysteresisOption inputHysteresis) override {
+	virtual ResultStatus SetInputHysteresis(InputHysteresisOption inputHysteresis) override {
 	    LL_COMP_SetInputHysteresis(compHandle, inputHysteresis.Get());
 	    parameters.inputHysteresis = inputHysteresis;
-	    return Status::ok;
+	    return ResultStatus::ok;
 	}
 
 
 
-	virtual Status::statusType SetOutputPolarity(OutputPolarity polarity) override {
+	virtual ResultStatus SetOutputPolarity(OutputPolarity polarity) override {
 	    LL_COMP_SetOutputPolarity(compHandle, CastOutputPolarity());
 	    parameters.outputPolarity = polarity;
-	    return Status::ok;
+	    return ResultStatus::ok;
 	}
 
 
 
-	virtual Status::statusType SetOutputBlankingSource(OutputBlankingSourceOption outputBlankingSource) override {
+	virtual ResultStatus SetOutputBlankingSource(OutputBlankingSourceOption outputBlankingSource) override {
 	    LL_COMP_SetOutputBlankingSource(compHandle, outputBlankingSource.Get());
 	    parameters.outputBlankingSource = outputBlankingSource;
-	    return Status::ok;
+	    return ResultStatus::ok;
 	}
 
 
 
-	virtual Status::statusType SetTriggerMode(TriggerMode triggerMode) override {
+	virtual ResultStatus SetTriggerMode(TriggerMode triggerMode) override {
 		uint32 extiLine = GetExtiLine(compHandle);
 
 		if (triggerMode != TriggerMode::None) {
@@ -344,15 +344,15 @@ public:
 
 		parameters.triggerMode = triggerMode;
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 protected:
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			return status;
 		}
 

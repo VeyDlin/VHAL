@@ -1,5 +1,6 @@
 #pragma once
 #include <Adapter/TIMAdapter.h>
+#include <Utilities/Math/IQMath/IQ.h>
 
 
 struct TimerChannel {
@@ -8,7 +9,9 @@ struct TimerChannel {
 };
 
 
+template <RealType Type = float>
 class ITIMHelper {
+
 protected:
 	ATIM *timAdapter;
 	ATIM::ChannelOption timChannel;
@@ -72,7 +75,7 @@ public:
     }
 
 
-	void SetBaseFrequency(float targetFrequency) {
+	void SetBaseFrequency(Type targetFrequency) {
 		auto [prescaler, period] = CalculateFrequency(timAdapter, targetFrequency);
 
 	    System::CriticalSection(true);
@@ -87,17 +90,17 @@ public:
 
 
 protected:
-	static std::pair<uint16, uint32> CalculateFrequency(ATIM *timAdapter, float targetFrequency) {
-	    float sourceFrequency = timAdapter->GetBusClockHz() * 1000;
+	static std::pair<uint16, uint32> CalculateFrequency(ATIM *timAdapter, Type targetFrequency) {
+	    Type sourceFrequency = Type(static_cast<int>(timAdapter->GetBusClockHz())) * Type(1000);
 
-	    float prescaler = 0;
-	    float period = 0;
+	    uint32 prescaler = 0;
+	    uint32 period = 0;
 
 	    if (timAdapter->GetBitness() == ATIM::Bitness::B32) {
-	        period = (sourceFrequency / (timAdapter->GetClockDivision() * targetFrequency)) - 1;
+	        period = static_cast<uint32>(sourceFrequency / (Type(static_cast<int>(timAdapter->GetClockDivision())) * targetFrequency)) - 1;
 	    } else {
 	        for (prescaler = 0; prescaler <= 0xFFFF; ++prescaler) {
-	            uint32 tmpPeriod = (sourceFrequency / (timAdapter->GetClockDivision() * (prescaler + 1) * targetFrequency)) - 1;
+	            uint32 tmpPeriod = static_cast<uint32>(sourceFrequency / (Type(static_cast<int>(timAdapter->GetClockDivision())) * Type(static_cast<int>(prescaler + 1)) * targetFrequency)) - 1;
 	            if (tmpPeriod <= 0xFFFF) {
 	                period = tmpPeriod;
 	                break;
@@ -111,7 +114,7 @@ protected:
 
 	    return {
 	    	static_cast<uint16>(prescaler),
-	    	timAdapter->GetBitness() == ATIM::Bitness::B32 ? static_cast<uint32>(period) : static_cast<uint16>(period)
+	    	timAdapter->GetBitness() == ATIM::Bitness::B32 ? period : static_cast<uint32>(static_cast<uint16>(period))
 	    };
 	}
 

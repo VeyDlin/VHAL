@@ -49,27 +49,27 @@ public:
 
 
 public:
-	virtual Status::statusType StartSlaveListen() {
-		return Status::notSupported;
+	virtual ResultStatus StartSlaveListen() {
+		return ResultStatus::notSupported;
 	}
 
 
-	virtual Status::statusType StopSlaveListen() {
-		return Status::notSupported;
+	virtual ResultStatus StopSlaveListen() {
+		return ResultStatus::notSupported;
 	}
 
 
 
 
 
-	virtual Status::statusType CheckDevice(uint8 device, uint16 repeat) override {
+	virtual ResultStatus CheckDevice(uint8 device, uint16 repeat) override {
 		uint8_t I2C_Repeat;
 		uint32_t I2C_Time;
 		bool Tmp1, Tmp2;
 
 		// Ждём сброса флага BUSY
 		I2C_Time = System::GetTick();
-		if (_isBusyFlag(SET) != Status::ok) return Status::busy;
+		if (_isBusyFlag(SET) != ResultStatus::ok) return ResultStatus::busy;
 
 		// Включаем передатчик
 		if ((i2cHandle->CR1 & I2C_CR1_PE) != I2C_CR1_PE) i2cHandle->CR1 |= I2C_CR1_PE;
@@ -82,7 +82,7 @@ public:
 			i2cHandle->CR1 |= I2C_CR1_START;
 
 			I2C_Time = System::GetTick();
-			if (_isSB_Flag(RESET) != Status::ok) return Status::error;
+			if (_isSB_Flag(RESET) != ResultStatus::ok) return ResultStatus::error;
 
 			// Выплёвываем адрес со сброшенным битом RD
 			i2cHandle->DR = (uint8_t) (device << 1) & ~1U;
@@ -110,9 +110,9 @@ public:
 				I2C_Time = System::GetTick();
 				while (i2cHandle->SR2 & I2C_SR2_BUSY) {
 					// Если флаг BUSY установлен, а время вышло, это ошибка
-					if (System::GetTick() > (I2C_Time + timeout)) return Status::busy;
+					if (System::GetTick() > (I2C_Time + timeout)) return ResultStatus::busy;
 				}
-				return Status::ok;
+				return ResultStatus::ok;
 			} else {
 				// Флага ADDR не было, посылаем STOP
 				i2cHandle->CR1 |= I2C_CR1_STOP;
@@ -123,43 +123,43 @@ public:
 				I2C_Time = System::GetTick();
 				while (i2cHandle->SR2 & I2C_SR2_BUSY) {
 					// Если флаг BUSY установлен, а время вышло, это ошибка
-					if (System::GetTick() > (I2C_Time + timeout)) return Status::busy;
+					if (System::GetTick() > (I2C_Time + timeout)) return ResultStatus::busy;
 				}
 			}
 
 			I2C_Repeat++;
 		} while (I2C_Repeat < repeat);
-		return Status::error;
+		return ResultStatus::error;
 	}
 
 
 
 
 
-	virtual Status::statusType CheckDeviceAsync(uint8 deviceAddress, uint16 repeat) override {
-		return Status::notSupported;
+	virtual ResultStatus CheckDeviceAsync(uint8 deviceAddress, uint16 repeat) override {
+		return ResultStatus::notSupported;
 	}
 
 
 
-	virtual Status::info<uint8> Scan(uint8 *listBuffer, uint8 size) override {
+	virtual Result<uint8> Scan(uint8 *listBuffer, uint8 size) override {
 		uint8 count = 0;
 		for (uint8 i = 0; i < 127 && i <= size; i++) {
-			if (CheckDevice(i, 1) == Status::ok) {
+			if (CheckDevice(i, 1) == ResultStatus::ok) {
 				*listBuffer = i;
 				listBuffer++;
 				count++;
 			}
 		}
-		return { Status::ok, count };
+		return { ResultStatus::ok, count };
 	}
 
 
 
 
 
-	virtual Status::info<uint8> ScanAsync(uint8 *listBuffer, uint8 size) override {
-		return { Status::notSupported };
+	virtual Result<uint8> ScanAsync(uint8 *listBuffer, uint8 size) override {
+		return { ResultStatus::notSupported };
 	}
 
 
@@ -283,9 +283,9 @@ private:
 
 
 protected:
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -317,9 +317,9 @@ protected:
 
 
 public:
-	virtual Status::statusType WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *writeData, uint32 dataSize) override {
+	virtual ResultStatus WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *writeData, uint32 dataSize) override {
 
-		if (_isBusyFlag(SET) != I2C_OK) return Status::busy;
+		if (_isBusyFlag(SET) != I2C_OK) return ResultStatus::busy;
 
 		if ((i2cHandle->CR1 & I2C_CR1_PE) != I2C_CR1_PE) i2cHandle->CR1 |= I2C_CR1_PE;
 
@@ -328,9 +328,9 @@ public:
 		auto status = _RequestMemoryWrite(device, address, addressSize);
 
 		while (dataSize > 0) {
-			if (_isTXE_Flag() == Status::error) {
+			if (_isTXE_Flag() == ResultStatus::error) {
 				i2cHandle->CR1 |= I2C_CR1_STOP;
-				return Status::error;
+				return ResultStatus::error;
 			}
 			i2cHandle->DR = (uint8_t) *writeData;
 			writeData++;
@@ -344,29 +344,29 @@ public:
 		}
 
 		status = _isBTF_Flag_TimeOut();
-		if (status != Status::ok) {
-			if (status == Status::error) i2cHandle->CR1 |= I2C_CR1_STOP;
-			return Status::error;
+		if (status != ResultStatus::ok) {
+			if (status == ResultStatus::error) i2cHandle->CR1 |= I2C_CR1_STOP;
+			return ResultStatus::error;
 		}
 		i2cHandle->CR1 |= I2C_CR1_STOP;
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual Status::statusType ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *readData, uint32 dataSize) override {
+	virtual ResultStatus ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *readData, uint32 dataSize) override {
 		uint16_t Count = dataSize;
 
-		if (_isBusyFlag(SET) != Status::ok) return Status::busy;
+		if (_isBusyFlag(SET) != ResultStatus::ok) return ResultStatus::busy;
 
 		if ((i2cHandle->CR1 & I2C_CR1_PE) != I2C_CR1_PE) i2cHandle->CR1 |= I2C_CR1_PE;
 
 		i2cHandle->CR1 &= ~I2C_CR1_POS;
 
 		auto status = _RequestMemoryRead(device, address, addressSize);
-		if (status != Status::ok) return status;
+		if (status != ResultStatus::ok) return status;
 
 		if (dataSize == 0) {
 			(void) (i2cHandle->SR1);
@@ -397,13 +397,13 @@ public:
 			if (Count <= 3) {
 
 				if (Count == 1) {
-					if (_isRXNE_Flag() != Status::ok) return Status::error;
+					if (_isRXNE_Flag() != ResultStatus::ok) return ResultStatus::error;
 					*readData = (uint8_t) i2cHandle->DR;
 					readData++;
 					dataSize--;
 					Count--;
 				} else if (Count == 2) {
-					if (_isBTF_Flag(RESET) != Status::ok) return Status::error;
+					if (_isBTF_Flag(RESET) != ResultStatus::ok) return ResultStatus::error;
 					i2cHandle->CR1 |= I2C_CR1_STOP;
 					*readData = (uint8_t) i2cHandle->DR;
 					readData++;
@@ -414,13 +414,13 @@ public:
 					dataSize--;
 					Count--;
 				} else { // Три байта
-					if (_isBTF_Flag(RESET) != Status::ok) return Status::error;
+					if (_isBTF_Flag(RESET) != ResultStatus::ok) return ResultStatus::error;
 					i2cHandle->CR1 &= ~I2C_CR1_ACK;
 					*readData = (uint8_t) i2cHandle->DR;
 					readData++;
 					dataSize--;
 					Count--;
-					if (_isBTF_Flag(RESET) != Status::ok) return Status::error;
+					if (_isBTF_Flag(RESET) != ResultStatus::ok) return ResultStatus::error;
 					i2cHandle->CR1 |= I2C_CR1_STOP;
 					*readData = (uint8_t) i2cHandle->DR;
 					readData++;
@@ -432,7 +432,7 @@ public:
 					Count--;
 				}
 			} else {
-				if (_isRXNE_Flag() != Status::ok) return Status::error;
+				if (_isRXNE_Flag() != ResultStatus::ok) return ResultStatus::error;
 				*readData = (uint8_t) i2cHandle->DR;
 				readData++;
 				dataSize--;
@@ -445,19 +445,19 @@ public:
 				}
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual Status::statusType WriteByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
-		if (state != Status::ready) {
-			return Status::busy;
+	virtual ResultStatus WriteByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
+		if (state != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		state = Status::busy;
+		state = ResultStatus::busy;
 		deviceAddress = device;
 		registerAddress = address;
 		registerAddressSize = addressSize;
@@ -479,19 +479,19 @@ public:
 		LL_I2C_EnableIT_BUF(i2cHandle);
 		LL_I2C_EnableIT_ERR(i2cHandle);
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual Status::statusType ReadByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
-		if (state != Status::ready) {
-			return Status::busy;
+	virtual ResultStatus ReadByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
+		if (state != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		state = Status::busy;
+		state = ResultStatus::busy;
 		deviceAddress = device;
 		registerAddress = address;
 		registerAddressSize = addressSize;
@@ -514,7 +514,7 @@ public:
 		LL_I2C_EnableIT_BUF(i2cHandle);
 		LL_I2C_EnableIT_ERR(i2cHandle);
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
@@ -522,7 +522,7 @@ public:
 private:
 
 
-	Status::statusType _SendSlaveAddress(uint8_t DevAddress) {
+	ResultStatus _SendSlaveAddress(uint8_t DevAddress) {
 		uint32_t I2C_Time;
 
 		i2cHandle->CR1 |= I2C_CR1_ACK;
@@ -532,7 +532,7 @@ private:
 		I2C_Time = System::GetTick();
 		while (!(i2cHandle->SR1 & I2C_SR1_SB)) {
 			if (System::GetTick() > (I2C_Time + timeout)) {
-				if (i2cHandle->CR1 & I2C_CR1_START) return Status::error;
+				if (i2cHandle->CR1 & I2C_CR1_START) return ResultStatus::error;
 			}
 		}
 
@@ -551,9 +551,9 @@ private:
 
 			I2C_Time = System::GetTick();
 			while (i2cHandle->SR2 & I2C_SR2_BUSY) {
-				if (System::GetTick() > (I2C_Time + timeout)) return Status::timeout;
+				if (System::GetTick() > (I2C_Time + timeout)) return ResultStatus::timeout;
 			}
-			return Status::ok;
+			return ResultStatus::ok;
 		} else {
 			i2cHandle->CR1 |= I2C_CR1_STOP;
 
@@ -562,32 +562,32 @@ private:
 
 			I2C_Time = System::GetTick();
 			while (i2cHandle->SR2 & I2C_SR2_BUSY) {
-				if (System::GetTick() > (I2C_Time + timeout)) return Status::timeout;
+				if (System::GetTick() > (I2C_Time + timeout)) return ResultStatus::timeout;
 			}
-			return Status::error;
+			return ResultStatus::error;
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	Status::statusType _RequestDataRead(uint8_t DevAddress) {
-		Status::statusType Status;
+	ResultStatus _RequestDataRead(uint8_t DevAddress) {
+		ResultStatus Status;
 
 		i2cHandle->CR1 |= I2C_CR1_ACK;
 
 		i2cHandle->CR1 |= I2C_CR1_START;
 
 		if (_isSB_Flag(RESET)) {
-			if ((i2cHandle->CR1 & I2C_CR1_START) == I2C_CR1_START) return Status::timeout;
+			if ((i2cHandle->CR1 & I2C_CR1_START) == I2C_CR1_START) return ResultStatus::timeout;
 		}
 
 		i2cHandle->DR = (uint8_t) (DevAddress << 1) & ~1U;
 
 		Status = _isAddressAF_Flag();
-		if (Status != Status::ok) return Status;
+		if (Status != ResultStatus::ok) return Status;
 
 		(void) i2cHandle->SR1;
 		(void) i2cHandle->SR2;
@@ -595,54 +595,54 @@ private:
 		i2cHandle->CR1 |= I2C_CR1_START;
 
 		if (_isSB_Flag(RESET)) {
-			if ((i2cHandle->CR1 & I2C_CR1_START) == I2C_CR1_START) return Status::timeout;
+			if ((i2cHandle->CR1 & I2C_CR1_START) == I2C_CR1_START) return ResultStatus::timeout;
 		}
 
 		i2cHandle->DR = (uint8_t) (DevAddress << 1) | 1U;
 
 		Status = _isAddressAF_Flag();
-		if (Status != Status::ok) return Status;
+		if (Status != ResultStatus::ok) return Status;
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	Status::statusType _RequestDataWrite(uint8_t DevAddress) {
-		Status::statusType Status;
+	ResultStatus _RequestDataWrite(uint8_t DevAddress) {
+		ResultStatus Status;
 
 		i2cHandle->CR1 |= I2C_CR1_START;
 
 		if (_isSB_Flag(RESET) != I2C_OK) {
 			if ((i2cHandle->CR1 & I2C_CR1_START) == I2C_CR1_START) {
-				return Status::error;
+				return ResultStatus::error;
 			}
-			return Status::timeout;
+			return ResultStatus::timeout;
 		}
 
 		i2cHandle->DR = (DevAddress << 1) & ~1U;
 
 		Status = _isAddressAF_Flag();
-		if (Status != Status::ok) return Status;
+		if (Status != ResultStatus::ok) return Status;
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	Status::statusType _RequestMemoryRead(uint8_t DevAddress, uint16_t MemAddress, uint8_t MemAddSise) {
-		Status::statusType Status;
+	ResultStatus _RequestMemoryRead(uint8_t DevAddress, uint16_t MemAddress, uint8_t MemAddSise) {
+		ResultStatus Status;
 
 		i2cHandle->CR1 |= I2C_CR1_ACK;
 
 		i2cHandle->CR1 |= I2C_CR1_START;
 
 		if (_isSB_Flag(RESET)) {
-			if ((i2cHandle->CR1 & I2C_CR1_START) == I2C_CR1_START) return Status::timeout;
+			if ((i2cHandle->CR1 & I2C_CR1_START) == I2C_CR1_START) return ResultStatus::timeout;
 		}
 
 
@@ -650,13 +650,13 @@ private:
 
 
 		Status = _isAddressAF_Flag();
-		if (Status != Status::ok) return Status;
+		if (Status != ResultStatus::ok) return Status;
 
 		(void) i2cHandle->SR1;
 		(void) i2cHandle->SR2;
 
 		Status = _isTXE_Flag();
-		if (Status != Status::ok) {
+		if (Status != ResultStatus::ok) {
 			if (Status == I2C_AF_ERROR) i2cHandle->CR1 |= I2C_CR1_STOP;
 			return Status;
 		}
@@ -667,60 +667,60 @@ private:
 			i2cHandle->DR = (MemAddress >> 8) & 0xFF;
 
 			Status = _isTXE_Flag();
-			if (Status != Status::ok) {
-				if (Status == Status::error) i2cHandle->CR1 |= I2C_CR1_STOP;
+			if (Status != ResultStatus::ok) {
+				if (Status == ResultStatus::error) i2cHandle->CR1 |= I2C_CR1_STOP;
 				return Status;
 			}
 
 			i2cHandle->DR = MemAddress & 0xFF;
 
 			Status = _isTXE_Flag();
-			if (Status != Status::ok) {
-				if (Status == Status::error) i2cHandle->CR1 |= I2C_CR1_STOP;
+			if (Status != ResultStatus::ok) {
+				if (Status == ResultStatus::error) i2cHandle->CR1 |= I2C_CR1_STOP;
 				return Status;
 			}
 
 			i2cHandle->CR1 |= I2C_CR1_START;
 
 			if (_isSB_Flag(RESET)) {
-				if ((i2cHandle->CR1 & I2C_CR1_START) == I2C_CR1_START) return Status::error;
+				if ((i2cHandle->CR1 & I2C_CR1_START) == I2C_CR1_START) return ResultStatus::error;
 			}
 
 			i2cHandle->DR = (uint8_t) (DevAddress << 1) | 1U;
 
 			Status = _isAddressAF_Flag();
-			if (Status != Status::ok) return Status;
+			if (Status != ResultStatus::ok) return Status;
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	Status::statusType _RequestMemoryWrite(uint8_t DevAddress, uint16_t MemAddress, uint8_t MemAddSise) {
-		Status::statusType Status;
+	ResultStatus _RequestMemoryWrite(uint8_t DevAddress, uint16_t MemAddress, uint8_t MemAddSise) {
+		ResultStatus Status;
 
 		i2cHandle->CR1 |= I2C_CR1_START;
 
-		if (_isSB_Flag(RESET) != Status::ok) {
+		if (_isSB_Flag(RESET) != ResultStatus::ok) {
 			if ((i2cHandle->CR1 & I2C_CR1_START) == I2C_CR1_START) {
-				return Status::error;
+				return ResultStatus::error;
 			}
-			return Status::timeout;
+			return ResultStatus::timeout;
 		}
 
 		i2cHandle->DR = (DevAddress << 1) & ~1U;
 
 		Status = _isAddressAF_Flag();
-		if (Status != Status::ok) return Status;
+		if (Status != ResultStatus::ok) return Status;
 
 		(void) i2cHandle->SR1;
 		(void) i2cHandle->SR2;
 
 		Status = _isTXE_Flag();
-		if (Status != Status::ok) {
-			if (Status == Status::error) i2cHandle->CR1 |= I2C_CR1_STOP;
+		if (Status != ResultStatus::ok) {
+			if (Status == ResultStatus::error) i2cHandle->CR1 |= I2C_CR1_STOP;
 			return Status;
 		}
 
@@ -730,137 +730,137 @@ private:
 			i2cHandle->DR = (MemAddress >> 8) & 0xFF;
 
 			Status = _isTXE_Flag();
-			if (Status != Status::ok) {
-				if (Status == Status::error) i2cHandle->CR1 |= I2C_CR1_STOP;
+			if (Status != ResultStatus::ok) {
+				if (Status == ResultStatus::error) i2cHandle->CR1 |= I2C_CR1_STOP;
 				return Status;
 			}
 
 			i2cHandle->DR = MemAddress & 0xFF;
 
 			Status = _isTXE_Flag();
-			if (Status != Status::ok) {
-				if (Status == Status::error) i2cHandle->CR1 |= I2C_CR1_STOP;
+			if (Status != ResultStatus::ok) {
+				if (Status == ResultStatus::error) i2cHandle->CR1 |= I2C_CR1_STOP;
 				return Status;
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	Status::statusType _isBusyFlag(bool FlagSet) {
+	ResultStatus _isBusyFlag(bool FlagSet) {
 		uint32_t TickStart = System::GetTick();
 		while (((i2cHandle->SR2 & I2C_SR2_BUSY) >> I2C_SR2_BUSY_Pos) == FlagSet) {
 			if ((System::GetTick() - TickStart) > timeout) {
-				return Status::timeout;
+				return ResultStatus::timeout;
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	Status::statusType _isSB_Flag(bool FlagSet) {
+	ResultStatus _isSB_Flag(bool FlagSet) {
 		uint32_t TickStart = System::GetTick();
 		while (((i2cHandle->SR1 & I2C_SR1_SB) >> I2C_SR1_SB_Pos) == FlagSet) {
 			if ((System::GetTick() - TickStart) > timeout) {
-				return Status::timeout;
+				return ResultStatus::timeout;
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	Status::statusType _isAddressAF_Flag() {
+	ResultStatus _isAddressAF_Flag() {
 		uint32_t TickStart = System::GetTick();
 		while (((i2cHandle->SR1 & I2C_SR1_ADDR) >> I2C_SR1_ADDR_Pos) == RESET) {
 			if (((i2cHandle->SR1 & I2C_SR1_AF) >> I2C_SR1_AF_Pos) == SET) {
 				i2cHandle->CR1 |= I2C_CR1_STOP;
 				i2cHandle->SR1 &= ~I2C_SR1_AF;
-				return Status::error;
+				return ResultStatus::error;
 			}
 
 			if ((System::GetTick() - TickStart) > timeout) {
-				return Status::timeout;
+				return ResultStatus::timeout;
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	Status::statusType _isTXE_Flag() {
+	ResultStatus _isTXE_Flag() {
 		uint32_t TickStart = System::GetTick();
 		while (((i2cHandle->SR1 & I2C_SR1_TXE) >> I2C_SR1_TXE_Pos) == RESET) {
 			if (((i2cHandle->SR1 & I2C_SR1_AF) >> I2C_SR1_AF_Pos) == SET) {
 				i2cHandle->SR1 &= ~I2C_SR1_AF;
-				return Status::error;
+				return ResultStatus::error;
 			}
 
 			if ((System::GetTick() - TickStart) > timeout) {
-				return Status::timeout;
+				return ResultStatus::timeout;
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	Status::statusType _isRXNE_Flag() {
+	ResultStatus _isRXNE_Flag() {
 		uint32_t TickStart = System::GetTick();
 		while (((i2cHandle->SR1 & I2C_SR1_RXNE) >> I2C_SR1_RXNE_Pos) == RESET) {
 			if (((i2cHandle->SR1 & I2C_SR1_STOPF) >> I2C_SR1_STOPF_Pos) == SET) {
 				i2cHandle->SR1 &= ~I2C_SR1_STOPF;
-				return Status::error;
+				return ResultStatus::error;
 			}
 
 			if ((System::GetTick() - TickStart) > timeout) {
-				return Status::timeout;
+				return ResultStatus::timeout;
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	Status::statusType _isBTF_Flag(bool FlagSet) {
+	ResultStatus _isBTF_Flag(bool FlagSet) {
 		uint32_t TickStart = System::GetTick();
 		while (((i2cHandle->SR1 & I2C_SR1_BTF) >> I2C_SR1_BTF_Pos) == FlagSet) {
 			if ((System::GetTick() - TickStart) > timeout) {
-				return Status::timeout;
+				return ResultStatus::timeout;
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	Status::statusType _isBTF_Flag_TimeOut() {
+	ResultStatus _isBTF_Flag_TimeOut() {
 		uint32_t TickStart = System::GetTick();
 		while (((i2cHandle->SR1 & I2C_SR1_BTF) >> I2C_SR1_BTF_Pos) == RESET) {
 			if (((i2cHandle->SR1 & I2C_SR1_AF) >> I2C_SR1_AF_Pos) != I2C_OK)
-				return Status::error;
+				return ResultStatus::error;
 
 			if ((System::GetTick() - TickStart) > timeout) {
-				return Status::timeout;
+				return ResultStatus::timeout;
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 };
 

@@ -36,6 +36,11 @@ namespace OS {
 		}
 
 
+		static inline void HandlePendSvInterrupt() {
+			RtosWrapper::wHandlePendSvInterrupt();
+		}
+
+
 		static inline void HandleSvcInterrupt() {
 			RtosWrapper::wHandleSvcInterrupt();
 		}

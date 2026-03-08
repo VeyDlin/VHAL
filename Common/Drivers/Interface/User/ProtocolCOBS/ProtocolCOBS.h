@@ -15,7 +15,7 @@ template <size_t MaxPacketSize = 256, size_t HeapSize = 512>
 class ProtocolCOBS {
 public:
     std::function<void()> onMail = nullptr;
-    std::function<Status::statusType(uint8* buffer, uint32 size)> sendMessage = nullptr;
+    std::function<ResultStatus(uint8* buffer, uint32 size)> sendMessage = nullptr;
     static constexpr size_t maxEncodedSize = MaxPacketSize + MaxPacketSize / 254 + 3;
 
 protected:
@@ -60,38 +60,38 @@ public:
     }
 
 
-    virtual Status::statusType SendPacket(uint16 address, const uint8* data, size_t length) {
+    virtual ResultStatus SendPacket(uint16 address, const uint8* data, size_t length) {
         if (length > MaxPacketSize) {
-            return Status::dataCorrupted; 
+            return ResultStatus::dataCorrupted;
         }
 
         uint8 encodedBuffer[maxEncodedSize];
 
         auto packet = EncodePacket(address, data, length, &encodedBuffer, maxEncodedSize);
-        if(packet.IsError()) {
-            return packet.type;
+        if(packet.IsErr()) {
+            return packet.Error();
         }
 
-        return serial.WriteByteArray(encodedBuffer, packet.data);
+        return serial.WriteByteArray(encodedBuffer, packet.Value());
     }
 
 
-    virtual Status::type<std::pair<uint16, uint16>> Pop(uint8* data) {
+    virtual Result<std::pair<uint16, uint16>> Pop(uint8* data) {
         uint8 mailBuffer[maxEncodedSize];
         auto mailSize = mail.Pop<uint8>(mailBuffer);
 
         if(mailSize == 0) {
-            return Status::empty;
+            return ResultStatus::empty;
         }
 
         uint8 decodedBuffer[MaxPacketSize];
-        
+
         return DecodePacket(data, &mailBuffer, maxEncodedSize, &decodedBuffer, MaxPacketSize);
     }
 
 
 protected:
-    Status::info<size_t> EncodePacket(uint16 address, const uint8* data, size_t length, uint8* encodedBuffer, size_t encodedBufferSize) {
+    Result<size_t> EncodePacket(uint16 address, const uint8* data, size_t length, uint8* encodedBuffer, size_t encodedBufferSize) {
         // address
         memcpy(encodedBuffer, &address, sizeof(address));
 
@@ -112,36 +112,36 @@ protected:
     }
 
 
-    Status::type<std::pair<uint16, uint16>> DecodePacket(uint8* data, const uint8* mailBuffer, size_t mailSize, uint8* decodedBuffer, size_t decodedBufferSize) {
+    Result<std::pair<uint16, uint16>> DecodePacket(uint8* data, const uint8* mailBuffer, size_t mailSize, uint8* decodedBuffer, size_t decodedBufferSize) {
         auto decode = cobs.Decode(mailBuffer, mailSize, decodedBuffer, decodedBufferSize);
         if (!decode.IsOk()) {
-            return decode.type;
+            return decode.Error();
         }
 
-        if (decode.data < 6) {
-            return Status::dataCorrupted; 
+        if (decode.Value() < 6) {
+            return ResultStatus::dataCorrupted;
         }
- 
+
         uint16 address = ByteConverter::GetType<uint16>(decodedBuffer[0]);
         uint16 size = ByteConverter::GetType<uint16>(decodedBuffer[2]);
 
-        if(decode.data != size + 6) {
-            return Status::dataCorrupted;
+        if(decode.Value() != size + 6) {
+            return ResultStatus::dataCorrupted;
         }
 
-        auto crc = ByteConverter::GetType<uint16>(decodedBuffer[decode.data - 2]);
-        if(Crc::Calculate(decodedBuffer, decode.data - 2, Crc::CRC_16_USB()) != crc) {
-            return Status::crcError;
+        auto crc = ByteConverter::GetType<uint16>(decodedBuffer[decode.Value() - 2]);
+        if(Crc::Calculate(decodedBuffer, decode.Value() - 2, Crc::CRC_16_USB()) != crc) {
+            return ResultStatus::crcError;
 
         }
 
         memcpy(&data, decodedBuffer[4], size);
 
-        return { address, size };
+        return std::pair<uint16, uint16>{ address, size };
     }
 
 
-    Status::statusType SendMessage(uint8* buffer, uint32 size) {
+    ResultStatus SendMessage(uint8* buffer, uint32 size) {
         if(sendMessage != nullptr) {
             return sendMessage(uint8* buffer, uint32 size);
         }

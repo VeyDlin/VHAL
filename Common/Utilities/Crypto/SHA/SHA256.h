@@ -5,50 +5,6 @@
 #include <string_view>
 #include <algorithm>
 
-/*
-SHA-256 cryptographic hash function implementation
-Produces a 256-bit (32-byte) hash from input data
-
-Simple hashing:
-    SHA256 hasher;
-    hasher.Update("Hello World");
-    auto hash = hasher.Finalize();
-
-Binary data:
-    std::array<uint8, 1000> data = {...};
-    SHA256 hasher;
-    hasher.Update(std::span(data));
-    auto hash = hasher.Finalize();
-
-Multiple updates:
-    SHA256 hasher;
-    hasher.Update("Part 1");
-    hasher.Update("Part 2");
-    hasher.Update("Part 3");
-    auto finalHash = hasher.Finalize();
-
-Password hashing:
-    SHA256 hasher;
-    hasher.Update("password123");
-    hasher.Update("salt_value");
-    auto passwordHash = hasher.Finalize();
-
-File integrity check:
-    SHA256 hasher;
-    while (readFileChunk(buffer)) {
-        hasher.Update(std::span(buffer));
-    }
-    auto fileHash = hasher.Finalize();
-
-Reset and reuse:
-    SHA256 hasher;
-    hasher.Update("First message");
-    auto hash1 = hasher.Finalize();
-    hasher.Reset();
-    hasher.Update("Second message");
-    auto hash2 = hasher.Finalize();
-*/
-
 class SHA256 {
 private:
     static constexpr std::array<uint32, 64> K = {

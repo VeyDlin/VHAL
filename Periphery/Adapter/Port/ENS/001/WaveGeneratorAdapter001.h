@@ -99,11 +99,11 @@ private:
 
 
 protected:
-	Status::statusType Initialization() {
+	ResultStatus Initialization() {
 		OnEnableClock();
 
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 

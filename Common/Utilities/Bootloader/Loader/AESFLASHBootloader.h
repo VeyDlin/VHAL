@@ -3,29 +3,7 @@
 #include <Utilities/Crypto/AES/AES.h>
 #include <array>
 
-// Bootloader with AES encryption support
-// PURPOSE: decorator to add encryption to any FLASHBootloader
-// SUPPORTS: AES-128/192/256 in ECB/CBC/CTR modes
-// SECURITY:
-// - Returns empty span on encryption/decryption error
-// - Automatically clears sensitive data in destructor
-// - Key must be stored in protected memory area
-// PROVIDES:
-// - Automatic encryption/decryption of data during write/read
-// - Block data processing for ECB/CBC modes
-// - Stream processing for CTR mode
-// INHERITOR MUST IMPLEMENT (from FLASHBootloader):
-// - OnCheckBootloaderRequest() - bootloader entry logic
-// - OnStartApplication() - platform-specific application launch  
-// - OnEraseIteration() - iterative memory erase (sectors/pages)
-// USAGE:
-// - Inherit from this class instead of FLASHBootloader
-// - Data is automatically encrypted on write and decrypted on read
-// EXAMPLE:
-//   uint8 key[32] = {...}; // AES-256 key
-//   AESFLASHBootloader<AESKeySize::AES256> bootloader(uart, flash, 
-//                                                     AESMode::CBC, key, 
-//                                                     0x08004000, 0x7C000, iv);
+// Bootloader with AES encryption support (AES-128/192/256, ECB/CBC/CTR)
 template<AESKeySize KeySize, size_t RxBufferSize = 1024, size_t AccumBufferSize = 512, size_t PacketDataMaxSize = 240>
 class AESFLASHBootloader : public FLASHBootloader<RxBufferSize, AccumBufferSize, PacketDataMaxSize> {
 protected:

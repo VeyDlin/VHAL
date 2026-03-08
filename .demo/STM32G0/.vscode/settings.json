@@ -1,0 +1,15 @@
+{
+    "files.exclude": {
+        "build": true,
+        ".vscode": true,
+    },
+    "explorer.fileNesting.enabled": true,
+    "explorer.fileNesting.patterns": {
+        "main.cpp": "CMakeLists.txt, arm-none-eabi.cmake, CMakePresets.json, *ld, .git, .gitattributes, .gitmodules, .gitignore, build, README.md, LICENSE",
+    },
+    "cmake.configureOnOpen": true,
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/build/Debug/compile_commands.json",
+    "workbench.editorAssociations": {
+        "*.md": "vscode.markdown.preview.editor"
+    }
+}

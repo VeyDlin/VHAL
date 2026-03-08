@@ -30,7 +30,7 @@ public:
 		}
 
 
-		if (state == Status::listen) {
+		if (state == ResultStatus::listen) {
 			// Disable all interrupts, except interrupts related to LISTEN state
 			LL_I2C_DisableIT_TX(i2cHandle);
 			LL_I2C_DisableIT_RX(i2cHandle);
@@ -42,7 +42,7 @@ public:
 			LL_I2C_DisableIT_STOP(i2cHandle);
 			LL_I2C_DisableIT_TX(i2cHandle);
 			LL_I2C_DisableIT_RX(i2cHandle);
-			state = Status::ready;
+			state = ResultStatus::ready;
 		}
 
 
@@ -75,18 +75,18 @@ public:
 
 
 public:
-	virtual Status::statusType StartSlaveListen() {
+	virtual ResultStatus StartSlaveListen() {
 		LL_I2C_SetOwnAddress1(i2cHandle, parameters.slaveAddress, LL_I2C_OWNADDRESS1_7BIT); // TODO: Добавить LL_I2C_OWNADDRESS1_7BIT
 		LL_I2C_EnableOwnAddress1(i2cHandle);
 		LL_I2C_EnableIT_ADDR(i2cHandle);
 		LL_I2C_EnableIT_NACK(i2cHandle);
 		LL_I2C_EnableIT_ERR(i2cHandle);
 		LL_I2C_EnableIT_STOP(i2cHandle);
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	virtual Status::statusType StopSlaveListen() {
+	virtual ResultStatus StopSlaveListen() {
 		LL_I2C_DisableOwnAddress1(i2cHandle);
 		LL_I2C_DisableIT_ADDR(i2cHandle);
 		LL_I2C_DisableIT_NACK(i2cHandle);
@@ -94,27 +94,27 @@ public:
 		LL_I2C_DisableIT_STOP(i2cHandle);
 		LL_I2C_DisableIT_TX(i2cHandle);
 		LL_I2C_DisableIT_RX(i2cHandle);
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	virtual Status::statusType CheckDevice(uint8 deviceAddress, uint16 repeat) override {
-		return Status::notSupported;
+	virtual ResultStatus CheckDevice(uint8 deviceAddress, uint16 repeat) override {
+		return ResultStatus::notSupported;
 	}
 
 
-	virtual Status::statusType CheckDeviceAsync(uint8 deviceAddress, uint16 repeat) override {
-		return Status::notSupported;
+	virtual ResultStatus CheckDeviceAsync(uint8 deviceAddress, uint16 repeat) override {
+		return ResultStatus::notSupported;
 	}
 
 
-	virtual Status::info<uint8> Scan(uint8 *listBuffer, uint8 size) override {
-		return { Status::notSupported };
+	virtual Result<uint8> Scan(uint8 *listBuffer, uint8 size) override {
+		return { ResultStatus::notSupported };
 	}
 
 
-	virtual Status::info<uint8> ScanAsync(uint8 *listBuffer, uint8 size) override {
-		return { Status::notSupported };
+	virtual Result<uint8> ScanAsync(uint8 *listBuffer, uint8 size) override {
+		return { ResultStatus::notSupported };
 	}
 
 
@@ -195,9 +195,9 @@ private:
 
 
 protected:
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -234,20 +234,20 @@ protected:
 
 
 public:
-	virtual Status::statusType WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
-		return Status::notSupported;
+	virtual ResultStatus WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
+		return ResultStatus::notSupported;
 	}
 
-	virtual Status::statusType ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
-		return Status::notSupported;
+	virtual ResultStatus ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
+		return ResultStatus::notSupported;
 	}
 
-	virtual Status::statusType WriteByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
-		return Status::notSupported;
+	virtual ResultStatus WriteByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
+		return ResultStatus::notSupported;
 	}
 
-	virtual Status::statusType ReadByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
-		return Status::notSupported;
+	virtual ResultStatus ReadByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
+		return ResultStatus::notSupported;
 	}
 
 };

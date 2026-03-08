@@ -6,35 +6,6 @@
 #include <string_view>
 #include <algorithm>
 
-/*
-HMAC-SHA256 implementation for message authentication
-Used to verify message integrity and authenticity with a secret key
-
-Basic usage:
-    const char* secret = "my-secret-key";
-    const char* message = "Hello World";
-    auto hmac = HMAC<32>::Compute(secret, message);
-
-Binary data:
-    std::array<uint8, 16> key = {0x01, 0x02, 0x03...};
-    std::array<uint8, 100> data = {...};
-    auto signature = HMAC<32>::Compute(std::span(key), std::span(data));
-
-JWT token signing:
-    const char* headerPayload = "eyJhbGc...";
-    const char* jwtSecret = "your-jwt-secret";
-    auto jwtSignature = HMAC<32>::Compute(jwtSecret, headerPayload);
-
-API signature verification:
-    const char* apiKey = "api-secret";
-    const char* requestBody = "{\"user\":\"john\"}";
-    auto requestSignature = HMAC<32>::Compute(apiKey, requestBody);
-    
-Different hash sizes:
-    auto hmac256 = HMAC<32>::Compute(key, message);  // SHA-256 (32 bytes)
-    auto hmac224 = HMAC<28>::Compute(key, message);  // SHA-224 (28 bytes)
-*/
-
 template<size_t HashSize = 32>
 class HMAC {
 private:

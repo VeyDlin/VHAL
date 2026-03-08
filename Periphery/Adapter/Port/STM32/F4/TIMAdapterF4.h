@@ -320,12 +320,12 @@ public:
 
 
 protected:
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		SystemAssert(parameters.prescaler <= 0xFFFF);
 		SystemAssert(parameters.repetitionCounter <= 0xFF);
 
 		auto status = BeforeInitialization();
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -339,7 +339,7 @@ protected:
 		};
 
 		if(LL_TIM_Init(timHandle, &init) != ErrorStatus::SUCCESS) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		LL_TIM_DisableARRPreload(timHandle);
@@ -351,7 +351,7 @@ protected:
 
 
 
-	virtual Status::statusType OutputCompareInitialization(const std::initializer_list<OutputCompareParameters>& list) override {
+	virtual ResultStatus OutputCompareInitialization(const std::initializer_list<OutputCompareParameters>& list) override {
 		for(auto &channel : list) {
 			LL_TIM_OC_EnablePreload(timHandle, channel.channel.Get<1>()); // TODO: only 1 ??
 
@@ -372,7 +372,7 @@ protected:
 			LL_TIM_OC_DisableFast(timHandle, channel.channel.Get<1>()); // TODO: channel 2 ??
 
 			if(LL_TIM_OC_Init(timHandle, channel.channel.Get<1>(), &init) != ErrorStatus::SUCCESS) {
-				return Status::error;
+				return ResultStatus::error;
 			}
 		}
 
@@ -387,30 +387,30 @@ protected:
 		}
 
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual Status::statusType InputCaptureInitialization(const std::initializer_list<InputCaptureParameters>& list) override {
-		return Status::notSupported;
+	virtual ResultStatus InputCaptureInitialization(const std::initializer_list<InputCaptureParameters>& list) override {
+		return ResultStatus::notSupported;
 	}
 
 
 
 
 
-	virtual Status::statusType BreakAndDeadTimeInitialization(const std::initializer_list<BreakAndDeadTimeParameters>& list) override {
-		return Status::notSupported;
+	virtual ResultStatus BreakAndDeadTimeInitialization(const std::initializer_list<BreakAndDeadTimeParameters>& list) override {
+		return ResultStatus::notSupported;
 	}
 
 
 
 
 
-	virtual Status::statusType SetInterrupt(InterruptOption interrupt, bool enable) {
+	virtual ResultStatus SetInterrupt(InterruptOption interrupt, bool enable) {
 		if(interrupt == Interrupt::CaptureCompare1) {
 			if (enable) {
 				LL_TIM_EnableIT_CC1(timHandle);
@@ -460,7 +460,7 @@ protected:
 				LL_TIM_DisableIT_COM(timHandle);
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 };
 

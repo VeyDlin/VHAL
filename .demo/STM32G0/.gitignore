@@ -1,0 +1,13 @@
+# eclipse specific git ignore
+.metadata/
+RemoteSystemsTempFiles/
+.settings/
+Debug/
+Release/
+*.launch
+
+# STM32 git ignore
+*.mxproject
+
+# Visual Studio and Visual Studio Code
+.vs/

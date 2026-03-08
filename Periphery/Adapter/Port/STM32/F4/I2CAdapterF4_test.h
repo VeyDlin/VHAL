@@ -304,29 +304,29 @@ public:
 
 
 public:
-	virtual Status::statusType StartSlaveListen() {
-		return Status::notSupported;
+	virtual ResultStatus StartSlaveListen() {
+		return ResultStatus::notSupported;
 	}
 
 
-	virtual Status::statusType StopSlaveListen() {
-		return Status::notSupported;
-	}
-
-
-
-
-
-	virtual Status::statusType CheckDevice(uint8 deviceAddress, uint16 repeat) override {
-		return Status::notSupported;
+	virtual ResultStatus StopSlaveListen() {
+		return ResultStatus::notSupported;
 	}
 
 
 
 
 
-	virtual Status::statusType CheckDeviceAsync(uint8 deviceAddress, uint16 repeat) override {
-		return Status::notSupported;
+	virtual ResultStatus CheckDevice(uint8 deviceAddress, uint16 repeat) override {
+		return ResultStatus::notSupported;
+	}
+
+
+
+
+
+	virtual ResultStatus CheckDeviceAsync(uint8 deviceAddress, uint16 repeat) override {
+		return ResultStatus::notSupported;
 	}
 
 
@@ -336,7 +336,7 @@ public:
 	virtual uint8 Scan(uint8 *listBuffer, uint8 size) override {
 		uint8 count = 0;
 		for (uint8 i = 0; i < 127 && i <= size; i++) {
-			if (CheckDevice(i, 1) == Status::ok) {
+			if (CheckDevice(i, 1) == ResultStatus::ok) {
 				*listBuffer = i;
 				listBuffer++;
 				count++;
@@ -353,7 +353,7 @@ public:
         uint8 count = 0;
         for (uint8 i = 0; i < 127 && i <= size; i++) {
             CheckDeviceAsync(i, 1);
-            if (Await() == Status::ok) {
+            if (Await() == ResultStatus::ok) {
                 *listBuffer = i;
                 listBuffer++;
                 count++;
@@ -366,7 +366,7 @@ public:
 
 
 
-    virtual Status::statusType Await() override {
+    virtual ResultStatus Await() override {
         auto statusAwait = I2CAdapter::Await();
         while (LL_I2C_IsActiveFlag_BUSY(i2cHandle)); // TODO: add timeout
         return statusAwait;
@@ -375,9 +375,9 @@ public:
 
 
 protected:
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -409,31 +409,31 @@ protected:
 
 
 public:
-	virtual Status::statusType WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *writeData, uint32 dataSize) override {
-		return Status::notSupported;
+	virtual ResultStatus WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *writeData, uint32 dataSize) override {
+		return ResultStatus::notSupported;
 	}
 
-	virtual Status::statusType ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
-		return Status::notSupported;
+	virtual ResultStatus ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
+		return ResultStatus::notSupported;
 	}
 
-	virtual Status::statusType WriteByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
+	virtual ResultStatus WriteByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
 		return WriteReadStartAsync(device, address, addressSize, writeData, dataSize, nullptr, 0);
 	}
 
-	virtual Status::statusType ReadByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
+	virtual ResultStatus ReadByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
 		return WriteReadStartAsync(device, address, addressSize, nullptr, 0, readData, dataSize);
 	}
 
 
 
 private:
-    Status::statusType WriteReadStartAsync(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 writeDataSize, uint8* readData, uint32 readDataSize) {
-        if (state != Status::ready && state != Status::error) {
-            return Status::busy;
+    ResultStatus WriteReadStartAsync(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 writeDataSize, uint8* readData, uint32 readDataSize) {
+        if (state != ResultStatus::ready && state != ResultStatus::error) {
+            return ResultStatus::busy;
         }
         
-        state = Status::busy;
+        state = ResultStatus::busy;
 
         deviceAddress = device;
         registerAddress = address;
@@ -460,7 +460,7 @@ private:
         LL_I2C_AcknowledgeNextData(i2cHandle, LL_I2C_ACK);
         LL_I2C_GenerateStartCondition(i2cHandle);
 
-        return Status::ok;
+        return ResultStatus::ok;
     }
 
 
@@ -468,12 +468,12 @@ private:
     void IrqTransferCompleted(StateI2C endState) {
         switch (endState) {
             case I2CAdapterF4::StateI2C::Error:
-                state = Status::error;
+                state = ResultStatus::error;
             break;
 
             case I2CAdapterF4::StateI2C::Idle:
             default:
-                state = Status::ready;
+                state = ResultStatus::ready;
             break;
         }
 

@@ -20,7 +20,7 @@ public:
 	}
 
 
-	Status::statusType Clear() {
+	ResultStatus Clear() {
 		return fifo.Clear();
 	}
 
@@ -35,7 +35,7 @@ public:
 	}
 
 
-	Status::info<uint8> Pop() {
-		return fifo.Pop<uint8>();
+	Result<uint8> Pop() {
+		return fifo.Pop();
 	}
 };

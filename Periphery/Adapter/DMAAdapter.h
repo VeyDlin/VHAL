@@ -54,21 +54,21 @@ public:
 	DMAAdapter(HandleType *dma, uint32 channel)
 		: dmaHandle(dma), dmaChannel(channel) { }
 
-	Status::statusType SetParameters(const Parameters &params) {
+	ResultStatus SetParameters(const Parameters &params) {
 		parameters = params;
 		return Initialization();
 	}
 
 	virtual void IrqHandler() = 0;
 
-	virtual Status::statusType GetStatus() = 0;
+	virtual ResultStatus GetStatus() = 0;
 
 	virtual uint32 GetLastTransferSize() const {
 		return lastTransferSize;
 	}
 
 	template <typename T>
-	Status::statusType Start(const T* from, T* to, uint32 count) {
+	ResultStatus Start(const T* from, T* to, uint32 count) {
 		return StartTransfer(
 			reinterpret_cast<const uint8*>(from),
 			reinterpret_cast<uint8*>(to),
@@ -76,11 +76,11 @@ public:
 		);
 	}
 
-	virtual Status::statusType Stop() = 0;
+	virtual ResultStatus Stop() = 0;
 
 protected:
-	virtual Status::statusType StartTransfer(const uint8* from, uint8* to, uint32 size) = 0;
-	virtual Status::statusType Initialization() = 0;
+	virtual ResultStatus StartTransfer(const uint8* from, uint8* to, uint32 size) = 0;
+	virtual ResultStatus Initialization() = 0;
 
 	inline void CallTransferComplete() {
 		if (onTransferComplete) {

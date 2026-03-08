@@ -12,33 +12,6 @@
 #include <Utilities/Console/Console.h>
 
 // Abstract bootloader class with base protocol logic
-// 
-// ARCHITECTURE:
-// IBootloader manages the entire process and protocol
-// Inheritors implement only platform-specific operations
-//
-// IBootloader RESPONSIBILITIES:
-// - Protocol command parsing and validation
-// - State management (Idle, Processing, Error)
-// - Automatic Busy response when occupied
-// - Asynchronous operation management (partial erase)
-// - Data buffering for Write commands
-// - Encryption/decryption through virtual methods
-//
-// INHERITOR RESPONSIBILITIES:
-// - Implement OnCheckBootloaderRequest() - bootloader entry condition
-// - Implement OnStartApplication() - main application launch
-// - Implement GetFirmwareMagic() and GetFirmwareValidStatus() - firmware validation parameters
-// - Implement OnEraseIteration() - erase one memory quantum
-// - Implement OnWriteMemory() - write data to memory
-// - Implement OnReadMemory() - read data from memory
-// - Optional: OnEncryptData/OnDecryptData for encryption
-// - Optional: OnUnlockDevice for protection removal
-//
-// TEMPLATE PARAMETERS:
-// RxBufferSize - receive data buffer size (default 1024)
-// AccumBufferSize - Write accumulation buffer size (default 512)
-// PacketDataMaxSize - TODO
 template<size_t RxBufferSize = 1024, size_t AccumBufferSize = 512, size_t PacketDataMaxSize = 240>
 class IBootloader {
 public:
@@ -200,10 +173,10 @@ public:
     
 
 
-    virtual Status::statusType Initialize() {
+    virtual ResultStatus Initialize() {
         // Early initialization hook (e.g. for Flash init before checking firmware)
         auto earlyStatus = OnBeforeInitialize();
-        if (earlyStatus != Status::ok) {
+        if (earlyStatus != ResultStatus::ok) {
             return earlyStatus;
         }
         
@@ -213,19 +186,19 @@ public:
             // Try to start the application
             if (StartApplication()) {
                 // Application started, should not return here
-                return Status::error;
+                return ResultStatus::error;
             }
             // If application didn't start, continue with bootloader
         }
         
         // Check access protection level
         auto accessStatus = OnCheckAccessLevel();
-        if (accessStatus != Status::ok) {
+        if (accessStatus != ResultStatus::ok) {
             return accessStatus;
         }
         
         auto status = communication.Initialize();
-        if (status != Status::ok) {
+        if (status != ResultStatus::ok) {
             return status;
         }
         
@@ -276,70 +249,31 @@ public:
 protected:
     // Hooks for inheritors
     
-    // Early initialization before any checks
-    // INHERITOR MAY:
-    // - Initialize Flash adapter before firmware checks
-    // - Initialize critical hardware
-    // - Setup clocks, power, etc.
-    // DEFAULT: no operation
-    virtual Status::statusType OnBeforeInitialize() { return Status::ok; }
-    
-    // Additional initialization
-    // Access level check (RDP, Flash protection)
-    // INHERITOR MUST:
-    // - Check RDP protection level
-    // - Return Status::accessError if Level 2 (permanent protection)
-    // - Optionally warn about Level 1 (limited access)
-    // DEFAULT: allows access (for compatibility)
-    virtual Status::statusType OnCheckAccessLevel() { return Status::ok; }
+    virtual ResultStatus OnBeforeInitialize() { return ResultStatus::ok; }
+
+    virtual ResultStatus OnCheckAccessLevel() { return ResultStatus::ok; }
     
 
 
-    // Additional initialization after checks
-    // INHERITOR MAY:
-    // - Initialize additional hardware
-    // - Configure watchdog
-    // - Check power supply voltage
-    virtual Status::statusType OnInitialize() { return Status::ok; }
+    virtual ResultStatus OnInitialize() { return ResultStatus::ok; }
     
 
 
-    // Additional processing in main loop
-    // INHERITOR MAY:
-    // - Update watchdog
-    // - Check timeouts
-    // - Handle LED indication
-    // IMPORTANT: don't override if not needed - base class already calls ProcessAsyncOperation()
-    virtual void OnProcess() { 
+    virtual void OnProcess() {
         // Process asynchronous operations
         ProcessAsyncOperation();
     }
     
 
 
-    // Get current protection level (optional)
-    // INHERITOR MAY:
-    // - Return current RDP protection level for display in GetInfo
-    // DEFAULT: not implemented
     virtual std::optional<uint8> GetProtectionLevel() const { return std::nullopt; }
     
 
 
-    // Start main application
-    // INHERITOR MUST:
-    // - Check application entry point validity
-    // - Deinitialize bootloader peripherals
-    // - Configure VTOR to application address
-    // - Set Stack Pointer
-    // - Transfer control to application
-    // - Return false (should not return here)
     virtual bool OnStartApplication() = 0;
     
 
 
-    // Check for valid firmware in memory
-    // USED: at startup and in HandleVerify()
-    // IMPLEMENTATION: unified logic - reads header, validates size and CRC
     bool CheckFirmware() const {
         // Read firmware header from end of memory
         FirmwareHeader header;
@@ -351,7 +285,7 @@ protected:
             std::span<uint8>(headerPtr, sizeof(FirmwareHeader))
         );
         
-        if (status != Status::ok) {
+        if (status != ResultStatus::ok) {
             return false;
         }
         
@@ -381,13 +315,10 @@ protected:
     
 
 
-    // Firmware finalization - create and write FirmwareHeader
-    // Creates header with size=bytesWritten and calculated CRC32
-    // INHERITOR MAY override for additional fields
-    virtual Status::statusType OnFinalizeFirmware() { 
+    virtual ResultStatus OnFinalizeFirmware() {
         // Only finalize if we actually wrote some data
         if (bytesWritten == 0) {
-            return Status::error;
+            return ResultStatus::error;
         }
         
         // Create firmware header
@@ -396,7 +327,7 @@ protected:
         header.crc32 = CalculateFirmwareCRC32();
         
         if (header.crc32 == 0) {
-            return Status::error;  // CRC calculation failed
+            return ResultStatus::error;  // CRC calculation failed
         }
         
         auto status = OnWriteMemory(
@@ -409,31 +340,14 @@ protected:
     
 
 
-    // Check if bootloader mode is requested
-    // INHERITOR MUST check:
-    // - Button state (if present)
-    // - Special flag in RAM (set by application)
-    // - Watchdog reset cause
-    // - Other device-specific conditions
-    // RETURNS:
-    // - true: enter bootloader mode
-    // - false: try to start application
     virtual bool OnCheckBootloaderRequest() const = 0;
     
 
 
-    // Memory parameters
-    // INHERITOR MUST return:
-    // - Start address where application can be located (usually after bootloader)
-    // - For STM32: typically 0x08008000 or 0x08010000
-    // - For ESP32: address in external Flash
     virtual uint32 GetMemoryStartAddress() const = 0;
     
 
 
-    // INHERITOR MUST return:
-    // - Maximum application size in bytes
-    // - Consider that part of Flash is occupied by bootloader
     virtual uint32 GetMemorySize() const = 0;
     
 
@@ -457,11 +371,6 @@ protected:
     
     
 
-    // Memory protection check (RDP - Read Protection)
-    // INHERITOR MAY override if supports protection:
-    // - For STM32: check RDP level through Option Bytes
-    // - For ESP32: check eFuse bits
-    // - Default assumes no protection
     virtual bool IsMemoryProtected() const { return false; }
     
 
@@ -489,115 +398,47 @@ protected:
     
 
 
-    // Hooks for data handling and encryption
-    
-    // Check if there's enough data for processing
-    // USED: when accumulating Write command data
-    // INHERITOR MAY override for:
-    // - AES ECB/CBC: check that data >= 16 bytes (block size)
-    // - Other block ciphers: check block size multiplicity
-    // - Default: any amount of data is sufficient
     virtual bool OnHasEnoughData(std::span<const uint8> buffer) const {
         return buffer.size() > 0;
     }
     
 
 
-    // How many bytes to take from buffer for processing
-    // USED: to determine portion size for decryption
-    // INHERITOR MAY return:
-    // - For AES ECB/CBC: size multiple of 16 (whole blocks)
-    // - For stream ciphers: any size
-    // - Default: all available data
     virtual size_t OnGetRequiredBytes(std::span<const uint8> buffer) const {
         return buffer.size();
     }
     
 
 
-    // Data encryption (may change size)
-    // USED: for Read command to encrypt response
-    // INHERITOR MUST:
-    // - Encrypt data in-place or in own buffer
-    // - Return span with encrypted data
-    // - Return empty span on encryption error
-    // - Buffer must remain valid until sent
-    // EXAMPLES:
-    // - AES: use internal buffer, return span to it
-    // - XOR: encrypt in-place, return original span
-    virtual std::span<uint8> OnEncryptData(std::span<uint8> data) { 
+    virtual std::span<uint8> OnEncryptData(std::span<uint8> data) {
         return data;  // Default without encryption
     }
     
 
 
-    // Data decryption (may change size)
-    // USED: for Write command to decrypt data
-    // INHERITOR MUST:
-    // - Decrypt data in-place or in own buffer
-    // - Return span with decrypted data
-    // - Return empty span on decryption error
-    // - Buffer must remain valid until written
-    // IMPORTANT: size may change (remove padding)
-    virtual std::span<uint8> OnDecryptData(std::span<uint8> data) { 
+    virtual std::span<uint8> OnDecryptData(std::span<uint8> data) {
         return data;  // Default without encryption
     }
     
 
 
-    // Hooks for data read/write
-    
-    // Write data to memory
-    // INHERITOR MUST:
-    // - Check that address is aligned if required (usually by 4 bytes)
-    // - Unlock Flash before writing
-    // - Write data (consider that Flash is written in words)
-    // - Lock Flash after writing
-    // - Return Status::ok only if ALL data written successfully
-    // IMPORTANT: data is already decrypted (if encryption was used)
-    virtual Status::statusType OnWriteMemory(uint32 address, std::span<const uint8> data) = 0;
+    virtual ResultStatus OnWriteMemory(uint32 address, std::span<const uint8> data) = 0;
     
 
 
-    // Read data from memory
-    // INHERITOR MUST:
-    // - Read exactly data.size() bytes starting from address
-    // - Fill data buffer with read data
-    // - Return Status::ok if read successfully
-    // IMPORTANT: data will be encrypted after (if encryption is enabled)
-    virtual Status::statusType OnReadMemory(uint32 address, std::span<uint8> data) = 0;
+    virtual ResultStatus OnReadMemory(uint32 address, std::span<uint8> data) = 0;
     
 
 
-    // Iterative erase - one quantum of work
-    // PURPOSE: allow partial memory erase to not block the system
-    //
-    // PARAMETERS:
-    // address - current address from which to start erasing
-    // endAddress - final address to erase to
-    // iteration - iteration number (0, 1, 2...) - inheritor may use or ignore
-    // bytesErased - [out] INHERITOR MUST write here how many bytes were erased this iteration
-    //
-    // INHERITOR MUST:
-    // - Erase PART of memory (e.g. one sector)
-    // - Set bytesErased = number of erased bytes
-    // - Return Status::ok if erased part (not all yet)
-    // - Return Status::complete if erased everything up to endAddress
-    // - Return Status::error on error
-    //
-    // EXAMPLES:
-    // - Fast Flash: erase all at once, return complete
-    // - STM32: erase one sector, return ok or complete
-    // - BLE optimization: erase while < 20ms elapsed
-    virtual Status::statusType OnEraseIteration(uint32 address, uint32 endAddress, uint32 iteration, uint32& bytesErased) = 0;
+    virtual ResultStatus OnEraseIteration(uint32 address, uint32 endAddress, uint32 iteration, uint32& bytesErased) = 0;
 
 
     
     // Hook for device unlocking (RDP removal)
     // password - password to check unlock rights
-    virtual Status::statusType OnUnlockDevice(std::span<const uint8> password) {
+    virtual ResultStatus OnUnlockDevice(std::span<const uint8> password) {
         // Not supported by default
-        return Status::notSupported;
+        return ResultStatus::notSupported;
     }
     
 
@@ -643,7 +484,7 @@ protected:
         // Look for packet header
         while (receiveBuffer.Size() > 0) {
             auto peek = receiveBuffer.Peek();
-            if (peek.IsOk() && peek.data != 0xAA) {
+            if (peek.IsOk() && peek.Value() != 0xAA) {
                 receiveBuffer.Pop();
             } else {
                 break;
@@ -695,7 +536,7 @@ protected:
         for (size_t i = 0; i < totalSize; i++) {
             auto result = receiveBuffer.Pop();
             if (result.IsOk()) {
-                reinterpret_cast<uint8*>(&packet)[i] = result.data;
+                reinterpret_cast<uint8*>(&packet)[i] = result.Value();
             } else {
                 return false;
             }
@@ -811,7 +652,7 @@ protected:
         
         // Check access level and protection
         auto accessStatus = OnCheckAccessLevel();
-        info.accessDenied = (accessStatus == Status::accessError) ? 1 : 0;
+        info.accessDenied = (accessStatus == ResultStatus::accessError) ? 1 : 0;
         
         // Map protection level to numeric value
         if (auto level = GetProtectionLevel(); level.has_value()) {
@@ -840,7 +681,7 @@ protected:
         
         // Check access level (RDP Level 2 blocks Flash operations)
         auto accessStatus = OnCheckAccessLevel();
-        if (accessStatus == Status::accessError) {
+        if (accessStatus == ResultStatus::accessError) {
             SendError(currentSequence, BootloaderStatus::AccessDenied);
             return;
         }
@@ -892,7 +733,7 @@ protected:
         
         // Check access level (RDP Level 2 blocks Flash operations)
         auto accessStatus = OnCheckAccessLevel();
-        if (accessStatus == Status::accessError) {
+        if (accessStatus == ResultStatus::accessError) {
             SendError(currentSequence, BootloaderStatus::AccessDenied);
             return;
         }
@@ -987,7 +828,7 @@ protected:
         
         // Read decrypted data directly from Flash (no additional crypto needed)
         auto status = OnReadMemory(address, dataSpan);
-        if (status == Status::ok) {
+        if (status == ResultStatus::ok) {
             // Data in Flash is already decrypted, encrypt for transmission
             auto encryptedData = OnEncryptData(dataSpan);
             
@@ -1024,14 +865,14 @@ protected:
     void HandleFinalize() {
         // Check access
         auto accessStatus = OnCheckAccessLevel();
-        if (accessStatus == Status::accessError) {
+        if (accessStatus == ResultStatus::accessError) {
             SendError(currentSequence, BootloaderStatus::AccessDenied);
             return;
         }
         
         // Finalize firmware
         auto status = OnFinalizeFirmware();
-        if (status == Status::ok) {
+        if (status == ResultStatus::ok) {
             SendResponse(BootloaderStatus::Success);
         } else {
             SendError(currentSequence, BootloaderStatus::Error);
@@ -1124,7 +965,7 @@ protected:
         std::span<const uint8> password(packet.data.data(), packet.length);
         auto status = OnUnlockDevice(password);
         
-        if (status == Status::ok) {
+        if (status == ResultStatus::ok) {
             SendResponse(BootloaderStatus::Success);
             // After unlock, reboot may be required
         } else {
@@ -1206,7 +1047,7 @@ protected:
         
         // Write header to beginning of memory
         auto status = OnWriteMemory(GetMemoryStartAddress(), std::span<const uint8>(reinterpret_cast<const uint8*>(&header), sizeof(header)));
-        return status == Status::ok;
+        return status == ResultStatus::ok;
     }
 
 
@@ -1228,7 +1069,7 @@ protected:
                 std::span<uint8>(headerPtr, sizeof(FirmwareHeader))
             );
 
-            if (status != Status::ok) {
+            if (status != ResultStatus::ok) {
                 return 0;  // Header read error
             }
 
@@ -1265,7 +1106,7 @@ protected:
                 readAddress, chunkSpan
             );
             
-            if (readStatus != Status::ok) {
+            if (readStatus != ResultStatus::ok) {
                 return 0;  // Read error
             }
             
@@ -1342,7 +1183,7 @@ protected:
             }
             
             auto status = OnWriteMemory(writeAddress, decryptedData);
-            if (status != Status::ok) {
+            if (status != ResultStatus::ok) {
                 state = State::Error;
                 return false;
             }
@@ -1401,7 +1242,7 @@ protected:
 			bytesErased
 		);
         
-        if (status == Status::error) {
+        if (status == ResultStatus::error) {
             // Erase error
             asyncOp.type = AsyncOperation::None;
             state = State::Idle;
@@ -1414,7 +1255,7 @@ protected:
         asyncOp.iteration++;
         
         // Check completion
-        if (status == Status::ok || asyncOp.processed >= asyncOp.size) {
+        if (status == ResultStatus::ok || asyncOp.processed >= asyncOp.size) {
             // Erase completed
             asyncOp.type = AsyncOperation::None;
             state = State::Idle;

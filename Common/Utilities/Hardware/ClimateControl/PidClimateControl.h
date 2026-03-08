@@ -3,129 +3,132 @@
 #include <Math/PID/PidController.h>
 
 
-class PidClimateControl: public IClimateControl {
+template <RealType Type = float>
+class PidClimateControl: public IClimateControl<Type> {
+	using Base = IClimateControl<Type>;
+	using typename Base::WorkMode;
+	using typename Base::ControlMode;
+	using Base::timeStep;
+	using Base::onUpdateState;
+	using Base::workMode;
+	using Base::controlMode;
+	using Base::holdTemperature;
+	using Base::waitHold;
+	using Base::onHold;
+
 public:
-    static constexpr float temperatureTolerance = 0.5f; // Temperature tolerance for hold detection
+    static constexpr Type temperatureTolerance = Type(0.5f);
 
 
 private:
-    PidController<float> pidController;
+    PidController<Type> pidController;
 
 
 public:
     PidClimateControl() {
-        // Default PID coefficients for temperature control
-        pidController.SetCoefficients({1.0f, 0.1f, 0.05f}); // P, I, D
-        pidController.SetOuput({1.0f, -1.0f, false}); // Output range: -1 to 1
-        pidController.SetIntegratorLimit({true, 0.5f, -0.5f}); // Prevent integral windup
+        pidController.SetCoefficients({Type(1.0f), Type(0.1f), Type(0.05f)});
+        pidController.SetOuput({Type(1.0f), Type(-1.0f), false});
+        pidController.SetIntegratorLimit({true, Type(0.5f), Type(-0.5f)});
     }
-    
 
-    void SetPidCoefficients(float p, float i, float d) {
+
+    void SetPidCoefficients(Type p, Type i, Type d) {
         pidController.SetCoefficients({p, i, d});
     }
-    
 
-    void SetOutputLimits(float min, float max) {
+
+    void SetOutputLimits(Type min, Type max) {
         pidController.SetOuput({max, min, false});
     }
-    
 
-    void SetIntegratorLimit(bool enable, float limit) {
+
+    void SetIntegratorLimit(bool enable, Type limit) {
         pidController.SetIntegratorLimit({enable, limit, -limit});
     }
-    
 
-    void SetStabilizationDetection(float errorTolerance, uint32 timeMs) {
+
+    void SetStabilizationDetection(Type errorTolerance, uint32 timeMs) {
         pidController.SetStabilizedEvent({
             .enable = true,
             .errorMax = errorTolerance,
             .errorMin = -errorTolerance,
-            .timeMs = timeMs,
-            .onStabilized = [this](PidController<float>& pid) {
+            .timeMs = Type(static_cast<int>(timeMs)),
+            .onStabilized = [this](PidController<Type>& pid) {
                 if (!waitHold && onHold) {
                     onHold();
                 }
             }
         });
     }
-    
+
 
     virtual void Execute() override {
         while(true) {
-            Sleep(timeStep);
-            
+            this->Sleep(timeStep);
+
             if(onUpdateState == nullptr || workMode != WorkMode::Auto) {
                 continue;
             }
-            
-            // Get current temperature
-            float currentTemp = onUpdateState(0); // Get current temp with no change
-            
-            // Update PID controller
+
+            Type currentTemp = onUpdateState(Type(0));
+
             pidController.SetReference(holdTemperature);
-            pidController.SetFeedback(currentTemp, 1000 / timeStep.count()); // Convert ms to Hz
+            pidController.SetFeedback(currentTemp, 1000 / timeStep.count());
             pidController.Resolve();
-            
-            // Get PID output
-            float pidOutput = pidController.Get();
-            
-            // Apply control mode constraints
-            float controlOutput = ApplyControlMode(pidOutput);
-            
-            // Apply output
-            if (controlOutput != 0) {
+
+            Type pidOutput = pidController.Get();
+            Type controlOutput = ApplyControlMode(pidOutput);
+
+            if (controlOutput != Type(0)) {
                 onUpdateState(controlOutput);
             }
-            
-            // Check if we've reached hold temperature
+
             OnHold(currentTemp);
         }
     }
-    
+
 
 private:
-    float ApplyControlMode(float pidOutput) {
+    Type ApplyControlMode(Type pidOutput) {
+        using std::max;
+        using std::min;
         switch (controlMode) {
             case ControlMode::Heating:
-                // Only allow positive output (heating)
-                return std::max(0.0f, pidOutput);
-                
+                return max(Type(0), pidOutput);
+
             case ControlMode::Cooling:
-                // Only allow negative output (cooling)
-                return std::min(0.0f, pidOutput);
-                
+                return min(Type(0), pidOutput);
+
             case ControlMode::HeatingCooling:
-                // Allow both positive and negative output
                 return pidOutput;
         }
-        
-        return 0;
-    }
-    
 
-    void OnHold(float currentTemp) {
+        return Type(0);
+    }
+
+
+    void OnHold(Type currentTemp) {
         if(!waitHold) {
             return;
         }
-        
+
         bool wasWaitingHold = waitHold;
-        
+
+        using std::abs;
         switch (controlMode) {
             case ControlMode::Heating:
                 waitHold = currentTemp < (holdTemperature - temperatureTolerance);
                 break;
-                
+
             case ControlMode::Cooling:
                 waitHold = currentTemp > (holdTemperature + temperatureTolerance);
                 break;
-                
+
             case ControlMode::HeatingCooling:
-                waitHold = (std::abs(currentTemp - holdTemperature) > temperatureTolerance);
+                waitHold = (abs(currentTemp - holdTemperature) > temperatureTolerance);
                 break;
         }
-        
-        // Trigger callback when temperature first reaches target
+
         if(wasWaitingHold && !waitHold && onHold) {
             onHold();
         }

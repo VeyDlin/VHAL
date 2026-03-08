@@ -139,11 +139,11 @@ private:
 
 
 protected:
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		OnEnableClock();
 
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -164,34 +164,34 @@ protected:
 
 
 
-	virtual Status::statusType OutputCompareInitialization(const std::initializer_list<OutputCompareParameters>& list) override {
-		return Status::notSupported;
+	virtual ResultStatus OutputCompareInitialization(const std::initializer_list<OutputCompareParameters>& list) override {
+		return ResultStatus::notSupported;
 	}
 
 
 
-	virtual Status::statusType InputCaptureInitialization(const std::initializer_list<InputCaptureParameters>& list) override {
-		return Status::notSupported;
+	virtual ResultStatus InputCaptureInitialization(const std::initializer_list<InputCaptureParameters>& list) override {
+		return ResultStatus::notSupported;
 	}
 
 
 
-	virtual Status::statusType BreakAndDeadTimeInitialization(const std::initializer_list<BreakAndDeadTimeParameters>& list) override {
-		return Status::notSupported;
+	virtual ResultStatus BreakAndDeadTimeInitialization(const std::initializer_list<BreakAndDeadTimeParameters>& list) override {
+		return ResultStatus::notSupported;
 	}
 
 
 
-	virtual Status::statusType SetInterrupt(InterruptOption interrupt, bool enable) override {
+	virtual ResultStatus SetInterrupt(InterruptOption interrupt, bool enable) override {
 		if (interrupt == Interrupt::Update) {
 			if (enable) {
 				timHandle->CTRL |= (1 << 3); // IRQEN
 			} else {
 				timHandle->CTRL &= ~(1 << 3);
 			}
-			return Status::ok;
+			return ResultStatus::ok;
 		}
-		return Status::notSupported;
+		return ResultStatus::notSupported;
 	}
 
 };

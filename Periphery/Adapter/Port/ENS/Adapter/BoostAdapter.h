@@ -27,7 +27,7 @@ public:
 	BoostAdapter(HandleType *anac) : anacHandle(anac) {}
 	virtual ~BoostAdapter() = default;
 
-	virtual Status::statusType SetParameters(Parameters val) = 0;
+	virtual ResultStatus SetParameters(Parameters val) = 0;
 	virtual void Enable() = 0;
 	virtual void Disable() = 0;
 	virtual void Standby(bool enable) = 0;

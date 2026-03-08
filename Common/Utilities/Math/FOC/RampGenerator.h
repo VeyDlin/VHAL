@@ -1,25 +1,26 @@
-﻿#pragma once
+#pragma once
 #include <algorithm>
 #include <cmath>
 
 
+template<typename T = float>
 class RampGenerator {
 private:
 	struct {
-		float rampFrequency = 0;
-		float gain = 1;
-		float offset = 1;
+		T rampFrequency = 0;
+		T gain = 1;
+		T offset = 1;
 	} in;
 
-	float outputRampSignal = 0;
-	float angle = 0;
+	T outputRampSignal = 0;
+	T angle = 0;
 public:
-	float stepAngleMax = 0;
-	float outputMax = 1;
-	float outputMin = 0;
+	T stepAngleMax = 0;
+	T outputMax = 1;
+	T outputMin = 0;
 
 
-	RampGenerator& Set(float rampFrequency, float gain, float offset) {
+	RampGenerator& Set(T rampFrequency, T gain, T offset) {
 		in.rampFrequency = rampFrequency;
 		in.gain = gain;
 		in.offset = offset;
@@ -52,11 +53,7 @@ public:
 	}
 
 
-	float Get() {
+	T Get() {
 		return outputRampSignal;
 	}
 };
-
-
-
-

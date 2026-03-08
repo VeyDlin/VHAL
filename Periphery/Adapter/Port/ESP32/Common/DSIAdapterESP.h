@@ -34,45 +34,45 @@ public:
 	}
 
 
-	Status::statusType SetParameters(Parameters val) override {
+	ResultStatus SetParameters(Parameters val) override {
 		parameters = val;
 		return Initialization();
 	}
 
 
-	Status::statusType WriteCommand(uint8 cmd, const uint8 *params, uint32 paramSize) override {
+	ResultStatus WriteCommand(uint8 cmd, const uint8 *params, uint32 paramSize) override {
 		if (!ioHandle) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 		if (esp_lcd_panel_io_tx_param(ioHandle, cmd, params, paramSize) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType ReadCommand(uint8 cmd, uint8 *data, uint32 size) override {
+	ResultStatus ReadCommand(uint8 cmd, uint8 *data, uint32 size) override {
 		if (!ioHandle) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 		if (esp_lcd_panel_io_rx_param(ioHandle, cmd, data, size) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType Start() override {
+	ResultStatus Start() override {
 		if (!panelHandle) {
-			return Status::error;
+			return ResultStatus::error;
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType Stop() override {
+	ResultStatus Stop() override {
 		Deinit();
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
@@ -96,9 +96,9 @@ protected:
 	void *frameBuffers[3] = {};
 
 
-	Status::statusType Initialization() override {
+	ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -112,7 +112,7 @@ protected:
 		bus_cfg.lane_bit_rate_mbps = parameters.laneBitRateMbps;
 
 		if (esp_lcd_new_dsi_bus(&bus_cfg, &busHandle) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		// DBI IO (for DCS commands)
@@ -123,13 +123,13 @@ protected:
 
 		if (esp_lcd_new_panel_io_dbi(busHandle, &io_cfg, &ioHandle) != ESP_OK) {
 			Deinit();
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		// DPI panel (video mode)
 		if (parameters.mode == Mode::Video) {
 			status = InitDpiPanel();
-			if (status != Status::ok) {
+			if (status != ResultStatus::ok) {
 				Deinit();
 				return status;
 			}
@@ -145,7 +145,7 @@ private:
 	}
 
 
-	Status::statusType InitDpiPanel() {
+	ResultStatus InitDpiPanel() {
 		esp_lcd_dpi_panel_config_t dpi_cfg = {};
 		dpi_cfg.virtual_channel = parameters.virtualChannel;
 		dpi_cfg.dpi_clk_src = MIPI_DSI_DPI_CLK_SRC_DEFAULT;
@@ -165,7 +165,7 @@ private:
 		dpi_cfg.flags.use_dma2d = config.useDma2d;
 
 		if (esp_lcd_new_panel_dpi(busHandle, &dpi_cfg, &panelHandle) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		// Cache framebuffer pointers
@@ -181,7 +181,7 @@ private:
 				break;
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 

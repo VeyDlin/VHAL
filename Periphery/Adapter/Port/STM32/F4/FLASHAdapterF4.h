@@ -23,37 +23,37 @@ public:
 	FLASHAdapterF4() { }
 	FLASHAdapterF4(FLASH_TypeDef *flash) : FLASHAdapter(flash) { }
 
-	virtual Status::statusType Unlock(uint32 key1 = FLASH_KEY1, uint32 key2 = FLASH_KEY2) override {
+	virtual ResultStatus Unlock(uint32 key1 = FLASH_KEY1, uint32 key2 = FLASH_KEY2) override {
 		if (IsLocked()) {
 			FLASH->KEYR = key1;
 			FLASH->KEYR = key2;
 			if (IsLocked()) {
-				return Status::error;
+				return ResultStatus::error;
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
-	virtual Status::statusType Lock() override {
+	virtual ResultStatus Lock() override {
 		FLASH->CR |= FLASH_CR_LOCK;
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
-	virtual Status::info<uint8> Read(uint8 *address) override {
+	virtual Result<uint8> Read(uint8 *address) override {
 		if (!IsFlashArea((uint32)address, sizeof(*address))) {
-			return Status::info<uint8>(Status::error, 0);
+			return Result<uint8>(ResultStatus::error, 0);
 		}
 
-		return Status::info<uint8>(Status::ok, *address);
+		return Result<uint8>(ResultStatus::ok, *address);
 	}
 
-	virtual Status::statusType Write(uint16 *address, uint16 data) override {
+	virtual ResultStatus Write(uint16 *address, uint16 data) override {
 		if (!IsFlashArea((uint32)address, sizeof(*address))) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		if (IsLocked()) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		while (IsBusy());
@@ -70,13 +70,13 @@ public:
 		return GetStatus();
 	}
 
-	virtual Status::statusType WriteData(uint32 *address, const void *data, size_t size) override {
+	virtual ResultStatus WriteData(uint32 *address, const void *data, size_t size) override {
 		if (!IsFlashArea((uint32)address, size)) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		if (IsLocked()) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		const uint32 *src = static_cast<const uint32*>(data);
@@ -92,25 +92,25 @@ public:
 			*dst++ = *src++;
 			while (IsBusy());
 			FLASH->CR &= ~FLASH_CR_PG;
-			if (GetStatus() != Status::ok) {
-				return Status::error;
+			if (GetStatus() != ResultStatus::ok) {
+				return ResultStatus::error;
 			}
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
-	virtual Status::statusType PageErase(uint8 *address) override {
+	virtual ResultStatus PageErase(uint8 *address) override {
 		return SectorErase(GetSector((uint32)address));
 	}
 
-	virtual Status::statusType SectorErase(uint32 sectorNumber) override {
+	virtual ResultStatus SectorErase(uint32 sectorNumber) override {
 		if (sectorNumber > 11) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		if (IsLocked()) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		while (IsBusy());
@@ -127,9 +127,9 @@ public:
 		return GetStatus();
 	}
 
-	virtual Status::statusType MassErase() override {
+	virtual ResultStatus MassErase() override {
 		if (IsLocked()) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		while (IsBusy());
@@ -145,32 +145,29 @@ public:
 		return GetStatus();
 	}
 
-	virtual Status::statusType GetStatus() override {
+	virtual ResultStatus GetStatus() override {
 		uint32 sr = READ_REG(FLASH->SR);
 		if (sr & (FLASH_SR_WRPERR | FLASH_SR_PGAERR | FLASH_SR_PGPERR | FLASH_SR_PGSERR)) {
-			return Status::error;
+			return ResultStatus::error;
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
-	virtual Status::statusType ClearStatusFlags() override {
+	virtual ResultStatus ClearStatusFlags() override {
 		SET_BIT(FLASH->SR, FLASH_SR_EOP | FLASH_SR_WRPERR | FLASH_SR_PGAERR | FLASH_SR_PGPERR | FLASH_SR_PGSERR);
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
-	virtual Status::info<uint32> ReadOptionBytes() override {
-		Status::info<uint32> result;
+	virtual Result<uint32> ReadOptionBytes() override {
 		// Option Bytes can be read directly from OPTCR register
 		// Values are already available in FLASH->OPTCR
-		result.data = FLASH->OPTCR;
-		result.type = Status::ok;
-		return result;
+		return static_cast<uint32>(FLASH->OPTCR);
 	}
 
-	virtual Status::statusType WriteOptionBytes(uint32 optionBytes) override {
+	virtual ResultStatus WriteOptionBytes(uint32 optionBytes) override {
 		// Unlock Option Bytes
-		Status::statusType status = UnlockOptionBytes();
-		if (status != Status::ok) {
+		ResultStatus status = UnlockOptionBytes();
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -214,7 +211,7 @@ public:
 		}
 	}
 
-	virtual Status::statusType SetReadProtectionLevel(FlashProtectionLevel level) override {
+	virtual ResultStatus SetReadProtectionLevel(FlashProtectionLevel level) override {
 		uint8 rdpValue;
 		
 		// Convert abstract level to STM32F4 specific values
@@ -229,12 +226,12 @@ public:
 				rdpValue = 0xCC;
 				break;
 			default:
-				return Status::invalidParameter;
+				return ResultStatus::invalidParameter;
 		}
 
 		// Unlock Option Bytes
-		Status::statusType status = UnlockOptionBytes();
-		if (status != Status::ok) {
+		ResultStatus status = UnlockOptionBytes();
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -256,7 +253,7 @@ public:
 		return GetStatus();
 	}
 
-	virtual Status::statusType DisableReadProtection() override {
+	virtual ResultStatus DisableReadProtection() override {
 		// Remove RDP (set Level 0)
 		return SetReadProtectionLevel(FlashProtectionLevel::Level0);
 	}
@@ -276,20 +273,20 @@ public:
 	}
 
 	// Option Bytes methods (public implementation)
-	virtual Status::statusType UnlockOptionBytes() override {
+	virtual ResultStatus UnlockOptionBytes() override {
 		if (IsOptionBytesLocked()) {
 			FLASH->OPTKEYR = OPT_KEY1;
 			FLASH->OPTKEYR = OPT_KEY2;
 			if (IsOptionBytesLocked()) {
-				return Status::error;
+				return ResultStatus::error;
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
-	virtual Status::statusType LockOptionBytes() override {
+	virtual ResultStatus LockOptionBytes() override {
 		FLASH->OPTCR |= FLASH_OPTCR_OPTLOCK;
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 	virtual bool IsOptionBytesLocked() const override {
@@ -297,9 +294,9 @@ public:
 	}
 
 protected:
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 

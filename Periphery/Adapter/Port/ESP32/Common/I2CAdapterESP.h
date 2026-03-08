@@ -36,59 +36,55 @@ public:
 	void IrqErrorHandler() override { }
 
 
-	Status::statusType CheckDevice(uint8 address, uint16 repeat = 1) override {
+	ResultStatus CheckDevice(uint8 address, uint16 repeat = 1) override {
 		auto status = EnsureDeviceHandle(address);
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
 		for (uint16 i = 0; i < repeat; i++) {
 			if (i2c_master_probe(busHandle, address, timeout) != ESP_OK) {
-				return Status::error;
+				return ResultStatus::error;
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType CheckDeviceAsync(uint8 address, uint16 repeat = 1) override {
-		return Status::notSupported;
+	ResultStatus CheckDeviceAsync(uint8 address, uint16 repeat = 1) override {
+		return ResultStatus::notSupported;
 	}
 
 
-	Status::info<uint8> Scan(uint8 *listBuffer, uint8 size) override {
-		auto result = Status::info<uint8>();
-		result.data = 0;
+	Result<uint8> Scan(uint8 *listBuffer, uint8 size) override {
+		uint8 count = 0;
 
-		for (uint8 addr = 1; addr < 128 && result.data < size; addr++) {
+		for (uint8 addr = 1; addr < 128 && count < size; addr++) {
 			if (i2c_master_probe(busHandle, addr, 50) == ESP_OK) {
-				listBuffer[result.data++] = addr;
+				listBuffer[count++] = addr;
 			}
 		}
 
-		result.type = Status::ok;
-		return result;
+		return count;
 	}
 
 
-	Status::info<uint8> ScanAsync(uint8 *listBuffer, uint8 size) override {
-		auto result = Status::info<uint8>();
-		result.type = Status::notSupported;
-		return result;
+	Result<uint8> ScanAsync(uint8 *listBuffer, uint8 size) override {
+		return ResultStatus::notSupported;
 	}
 
 
-	Status::statusType WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
+	ResultStatus WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
 		auto status = EnsureDeviceHandle(device);
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
 		if (addressSize == 0) {
 			if (i2c_master_transmit(devHandle, writeData, dataSize, timeout) != ESP_OK) {
-				return Status::error;
+				return ResultStatus::error;
 			}
-			return Status::ok;
+			return ResultStatus::ok;
 		}
 
 		uint8 txBuf[2 + dataSize];
@@ -102,24 +98,24 @@ public:
 		memcpy(&txBuf[offset], writeData, dataSize);
 
 		if (i2c_master_transmit(devHandle, txBuf, offset + dataSize, timeout) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
+	ResultStatus ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
 		auto status = EnsureDeviceHandle(device);
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
 		if (addressSize == 0) {
 			if (i2c_master_receive(devHandle, readData, dataSize, timeout) != ESP_OK) {
-				return Status::error;
+				return ResultStatus::error;
 			}
-			return Status::ok;
+			return ResultStatus::ok;
 		}
 
 		uint8 addrBuf[2];
@@ -131,27 +127,27 @@ public:
 		addrBuf[addrLen++] = address & 0xFF;
 
 		if (i2c_master_transmit_receive(devHandle, addrBuf, addrLen, readData, dataSize, timeout) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType WriteByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
-		return Status::notSupported;
+	ResultStatus WriteByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
+		return ResultStatus::notSupported;
 	}
 
 
-	Status::statusType ReadByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
-		return Status::notSupported;
+	ResultStatus ReadByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
+		return ResultStatus::notSupported;
 	}
 
 
 protected:
-	Status::statusType Initialization() override {
+	ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -173,7 +169,7 @@ protected:
 		bus_config.flags.enable_internal_pullup = !parameters.analogFilter;
 
 		if (i2c_new_master_bus(&bus_config, &busHandle) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		currentDevAddr = 0xFF;
@@ -183,9 +179,9 @@ protected:
 
 
 private:
-	Status::statusType EnsureDeviceHandle(uint8 address) {
+	ResultStatus EnsureDeviceHandle(uint8 address) {
 		if (devHandle && currentDevAddr == address) {
-			return Status::ok;
+			return ResultStatus::ok;
 		}
 
 		if (devHandle) {
@@ -201,10 +197,10 @@ private:
 		dev_config.scl_speed_hz = static_cast<uint32>(parameters.speed) * 1000;
 
 		if (i2c_master_bus_add_device(busHandle, &dev_config, &devHandle) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		currentDevAddr = address;
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 };

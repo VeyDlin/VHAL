@@ -35,18 +35,18 @@ public:
 	void IrqHandler() override { }
 
 	void AbortReceive() override {
-		rxState = Status::ready;
+		rxState = ResultStatus::ready;
 	}
 
 	void AbortTransmit() override {
-		txState = Status::ready;
+		txState = ResultStatus::ready;
 	}
 
 
 protected:
-	Status::statusType Initialization() override {
+	ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -65,7 +65,7 @@ protected:
 		bus_config.max_transfer_sz = 4096;
 
 		if (spi_bus_initialize(host, &bus_config, SPI_DMA_CH_AUTO) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		spi_device_interface_config_t dev_config = {};
@@ -77,7 +77,7 @@ protected:
 		dev_config.post_cb = PostTransactionCallback;
 
 		if (spi_bus_add_device(host, &dev_config, &devHandle) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		return AfterInitialization();
@@ -89,32 +89,32 @@ protected:
 	}
 
 
-	Status::statusType WriteByteArray(uint8 *buffer, uint32 size) override {
+	ResultStatus WriteByteArray(uint8 *buffer, uint32 size) override {
 		spi_transaction_t trans = {};
 		trans.length = size * 8;
 		trans.tx_buffer = buffer;
 
 		if (spi_device_transmit(devHandle, &trans) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType ReadByteArray(uint8 *buffer, uint32 size) override {
+	ResultStatus ReadByteArray(uint8 *buffer, uint32 size) override {
 		spi_transaction_t trans = {};
 		trans.rxlength = size * 8;
 		trans.rx_buffer = buffer;
 		trans.length = size * 8;
 
 		if (spi_device_transmit(devHandle, &trans) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType WriteReadByteArray(uint8 *txBuffer, uint8 *rxBuffer, uint32 size) override {
+	ResultStatus WriteReadByteArray(uint8 *txBuffer, uint8 *rxBuffer, uint32 size) override {
 		spi_transaction_t trans = {};
 		trans.length = size * 8;
 		trans.tx_buffer = txBuffer;
@@ -122,44 +122,44 @@ protected:
 		trans.rx_buffer = rxBuffer;
 
 		if (spi_device_transmit(devHandle, &trans) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType WriteByteArrayAsync(uint8 *buffer, uint32 size) override {
+	ResultStatus WriteByteArrayAsync(uint8 *buffer, uint32 size) override {
 		asyncTrans = {};
 		asyncTrans.length = size * 8;
 		asyncTrans.tx_buffer = buffer;
 		asyncTrans.user = this;
 
-		txState = Status::busy;
+		txState = ResultStatus::busy;
 		if (spi_device_queue_trans(devHandle, &asyncTrans, pdMS_TO_TICKS(timeout)) != ESP_OK) {
-			txState = Status::error;
-			return Status::error;
+			txState = ResultStatus::error;
+			return ResultStatus::error;
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType ReadByteArrayAsync(uint8 *buffer, uint32 size) override {
+	ResultStatus ReadByteArrayAsync(uint8 *buffer, uint32 size) override {
 		asyncTrans = {};
 		asyncTrans.length = size * 8;
 		asyncTrans.rxlength = size * 8;
 		asyncTrans.rx_buffer = buffer;
 		asyncTrans.user = this;
 
-		rxState = Status::busy;
+		rxState = ResultStatus::busy;
 		if (spi_device_queue_trans(devHandle, &asyncTrans, pdMS_TO_TICKS(timeout)) != ESP_OK) {
-			rxState = Status::error;
-			return Status::error;
+			rxState = ResultStatus::error;
+			return ResultStatus::error;
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType WriteReadByteArrayAsync(uint8 *txBuffer, uint8 *rxBuffer, uint32 size) override {
+	ResultStatus WriteReadByteArrayAsync(uint8 *txBuffer, uint8 *rxBuffer, uint32 size) override {
 		asyncTrans = {};
 		asyncTrans.length = size * 8;
 		asyncTrans.tx_buffer = txBuffer;
@@ -167,14 +167,14 @@ protected:
 		asyncTrans.rx_buffer = rxBuffer;
 		asyncTrans.user = this;
 
-		txState = Status::busy;
-		rxState = Status::busy;
+		txState = ResultStatus::busy;
+		rxState = ResultStatus::busy;
 		if (spi_device_queue_trans(devHandle, &asyncTrans, pdMS_TO_TICKS(timeout)) != ESP_OK) {
-			txState = Status::error;
-			rxState = Status::error;
-			return Status::error;
+			txState = ResultStatus::error;
+			rxState = ResultStatus::error;
+			return ResultStatus::error;
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
@@ -192,11 +192,11 @@ private:
 		}
 
 		if (trans->tx_buffer) {
-			self->txState = Status::ready;
+			self->txState = ResultStatus::ready;
 			self->CallInterrupt(Irq::Tx);
 		}
 		if (trans->rx_buffer) {
-			self->rxState = Status::ready;
+			self->rxState = ResultStatus::ready;
 			self->CallInterrupt(Irq::Rx);
 		}
 	}

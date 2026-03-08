@@ -37,7 +37,7 @@ class BLECharacteristic: public BLELocalAttribute {
 
 public:
 	BLECharacteristic(const char *uuid, unsigned char properties, unsigned char valueSize) :
-			BLELocalAttribute(uuid, BLETypeCharacteristic), _valueSize(VMath::Min<unsigned char>(valueSize, BLE_ATTRIBUTE_MAX_VALUE_LENGTH)),
+			BLELocalAttribute(uuid, BLETypeCharacteristic), _valueSize(std::min<unsigned char>(valueSize, BLE_ATTRIBUTE_MAX_VALUE_LENGTH)),
 			_value(NULL), _valueLength(0), _properties(properties), _written(false), _subscribed(false), _listener(NULL)
 		{
 		memset(this->_eventHandlers, 0x00, sizeof(this->_eventHandlers));
@@ -48,7 +48,7 @@ public:
 	}
 
 	BLECharacteristic(const char *uuid, unsigned char properties, const char *value) :
-			BLELocalAttribute(uuid, BLETypeCharacteristic), _valueSize(VMath::Min<unsigned char>(strlen(value), BLE_ATTRIBUTE_MAX_VALUE_LENGTH)),
+			BLELocalAttribute(uuid, BLETypeCharacteristic), _valueSize(std::min<unsigned char>(strlen(value), BLE_ATTRIBUTE_MAX_VALUE_LENGTH)),
 			_value(NULL), _valueLength(0), _properties(properties), _written(false), _subscribed(false), _listener(NULL)
 		{
 		memset(this->_eventHandlers, 0x00, sizeof(this->_eventHandlers));
@@ -114,7 +114,7 @@ public:
 	virtual bool setValue(const unsigned char value[], unsigned char length) {
 		bool success = true;
 
-		this->_valueLength = VMath::Min<unsigned char>(length, this->_valueSize);
+		this->_valueLength = std::min<unsigned char>(length, this->_valueSize);
 
 		memcpy(this->_value, value, this->_valueLength);
 

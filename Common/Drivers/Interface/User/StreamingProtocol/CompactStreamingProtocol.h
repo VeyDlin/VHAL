@@ -187,7 +187,7 @@ private:
             for (size_t i = 0; i < totalSize; i++) {
                 auto byte = receiveBuffer.Pop();
                 if (byte.IsOk()) {
-                    packet[i] = byte.data;
+                    packet[i] = byte.Value();
                 } else {
                     return;
                 }

@@ -32,15 +32,15 @@ public:
 	MCPWMAdapter() = default;
 	MCPWMAdapter(int groupId) : groupId(groupId) { }
 
-	virtual Status::statusType SetParameters(Parameters val) = 0;
-	virtual Status::statusType AddComparator(uint32 compareValue = 0) = 0;
-	virtual Status::statusType AddGenerator(GeneratorConfig config, uint8 comparatorIndex = 0) = 0;
-	virtual Status::statusType SetCompare(uint8 comparatorIndex, uint32 value) = 0;
-	virtual Status::statusType SetDeadTime(uint8 genA, uint8 genB, DeadTimeConfig config) = 0;
-	virtual Status::statusType Start() = 0;
-	virtual Status::statusType Stop() = 0;
+	virtual ResultStatus SetParameters(Parameters val) = 0;
+	virtual ResultStatus AddComparator(uint32 compareValue = 0) = 0;
+	virtual ResultStatus AddGenerator(GeneratorConfig config, uint8 comparatorIndex = 0) = 0;
+	virtual ResultStatus SetCompare(uint8 comparatorIndex, uint32 value) = 0;
+	virtual ResultStatus SetDeadTime(uint8 genA, uint8 genB, DeadTimeConfig config) = 0;
+	virtual ResultStatus Start() = 0;
+	virtual ResultStatus Stop() = 0;
 
-	Status::statusType SetDutyPercent(uint8 comparatorIndex, float percent) {
+	ResultStatus SetDutyPercent(uint8 comparatorIndex, float percent) {
 		uint32 value = static_cast<uint32>((percent / 100.0f) * parameters.periodTicks);
 		return SetCompare(comparatorIndex, value);
 	}

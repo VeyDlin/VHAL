@@ -1,6 +1,6 @@
 #pragma once
 #include <Utilities/DataTypes.h>
-#include <Utilities/Status.h>
+#include <Utilities/Result/Result.h>
 #include <functional>
 #include <limits>
 #include <string_view>
@@ -53,7 +53,7 @@ public:
 
 private:
 	static volatile uint64 tickCounter;
-	static float ticksInOneMs; // TODO: Convert Tick to ms
+	static uint32 msPerTick;
 
 
 public:

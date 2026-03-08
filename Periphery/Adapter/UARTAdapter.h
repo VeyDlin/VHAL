@@ -34,14 +34,14 @@ protected:
 	uint32 timeout = 1000;
 
 	bool continuousAsyncRxMode = false;
-	Status::statusType rxState = Status::ready;
+	ResultStatus rxState = ResultStatus::ready;
 	uint16 rxDataNeed = 0;
 	uint16 rxDataCounter = 0;
 	uint8 *rxDataPointer = nullptr;
 	uint8 lastRxData = 0;
 
 	bool continuousAsyncTxMode = false;
-	Status::statusType txState = Status::ready;
+	ResultStatus txState = ResultStatus::ready;
 	uint16 txDataNeed = 0;
 	uint16 txDataCounter = 0;
 	uint8 *txDataPointer = nullptr;
@@ -64,24 +64,24 @@ public:
 
 
 	template <typename DataType>
-	inline Status::statusType Write(DataType data) {
+	inline ResultStatus Write(DataType data) {
 		return WriteByteArray(reinterpret_cast<uint8*>(&data), sizeof(DataType));
 	}
 
 
 	template <typename DataType>
-	inline Status::statusType WriteArray(DataType* buffer, uint32 size) {
+	inline ResultStatus WriteArray(DataType* buffer, uint32 size) {
 		return WriteByteArray(reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
 	}
 
 
 	template <typename DataType>
-	inline Status::statusType WriteArray(const DataType* buffer, uint32 size) {
+	inline ResultStatus WriteArray(const DataType* buffer, uint32 size) {
 		return WriteByteArray(const_cast<uint8*>(reinterpret_cast<const uint8*>(buffer)), sizeof(DataType) * size);
 	}
 
 
-	Status::statusType WriteString(char *string) {
+	ResultStatus WriteString(char *string) {
 		size_t size = 0;
 		while(string[size]) {
 			size++;
@@ -91,22 +91,23 @@ public:
 	}
 
 
-	inline Status::statusType WriteString(const char* string) {
+	inline ResultStatus WriteString(const char* string) {
 		return WriteString(const_cast<char*>(string));
 	}
 
 
 	template <typename DataType>
-	Status::statusType ReadArray(DataType* buffer, uint32 size = 1) {
+	ResultStatus ReadArray(DataType* buffer, uint32 size = 1) {
 		return ReadByteArray(reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
 	}
 
 
 	template <typename DataType>
-	inline Status::info<DataType> Read(uint32 size = 1) {
-		auto output = Status::info<DataType>();
-		output.type = ReadByteArray(reinterpret_cast<uint8*>(&output.data), sizeof(DataType) * size);
-		return output;
+	inline Result<DataType> Read(uint32 size = 1) {
+		DataType data;
+		return Result<DataType>::Capture(
+			ReadByteArray(reinterpret_cast<uint8*>(&data), sizeof(DataType) * size), data
+		);
 	}
 
 
@@ -120,7 +121,7 @@ public:
 
 
 	template <typename DataType>
-	inline Status::statusType WriteAsync(DataType &data) {
+	inline ResultStatus WriteAsync(DataType &data) {
 		return WriteByteArrayAsync(reinterpret_cast<uint8*>(&data), sizeof(DataType));
 	}
 
@@ -129,7 +130,7 @@ public:
 
 
 	template <typename DataType>
-	Status::statusType WriteArrayAsync(DataType* buffer, uint32 size) {
+	ResultStatus WriteArrayAsync(DataType* buffer, uint32 size) {
 		return WriteByteArrayAsync(reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
 	}
 
@@ -138,7 +139,7 @@ public:
 
 
 	template <typename DataType>
-	inline Status::statusType WriteArrayAsync(const DataType* buffer, uint32 size) {
+	inline ResultStatus WriteArrayAsync(const DataType* buffer, uint32 size) {
 		return WriteArrayAsync<DataType>(buffer, size);
 	}
 
@@ -146,7 +147,7 @@ public:
 
 
 
-	inline Status::statusType WriteStringAsync(char *string) {
+	inline ResultStatus WriteStringAsync(char *string) {
 		size_t size = 0;
 		while(string[size]) {
 			size++;
@@ -159,7 +160,7 @@ public:
 
 
 
-	inline Status::statusType WriteStringAsync(const char* string) {
+	inline ResultStatus WriteStringAsync(const char* string) {
 		return WriteStringAsync(const_cast<char*>(string));
 	}
 
@@ -168,7 +169,7 @@ public:
 
 
 	template <typename DataType>
-	inline Status::statusType ReadArrayAsync(DataType* buffer, uint32 size = 1) {
+	inline ResultStatus ReadArrayAsync(DataType* buffer, uint32 size = 1) {
 		return ReadByteArrayAsync(reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
 	}
 
@@ -177,7 +178,7 @@ public:
 
 
 	template <typename DataType>
-	inline Status::statusType ReadAsync(DataType &data, uint32 size = 1) {
+	inline ResultStatus ReadAsync(DataType &data, uint32 size = 1) {
 		return ReadByteArrayAsync(reinterpret_cast<uint8*>(&data), sizeof(DataType) * size);
 	}
 
@@ -197,18 +198,18 @@ public:
 	}
 
 
-	Status::statusType SetContinuousAsyncTxMode(bool mode) {
+	ResultStatus SetContinuousAsyncTxMode(bool mode) {
 		auto status = mode ? StartContinuousAsyncTxMode() : StopContinuousAsyncTxMode();
-		if(status == Status::ok) {
+		if(status == ResultStatus::ok) {
 			continuousAsyncTxMode = mode;
 		}
 		return status;
 	}
 
 
-	Status::statusType SetContinuousAsyncRxMode(bool mode) {
+	ResultStatus SetContinuousAsyncRxMode(bool mode) {
 		auto status = mode ? StartContinuousAsyncRxMode() : StopContinuousAsyncRxMode();
-		if(status == Status::ok) {
+		if(status == ResultStatus::ok) {
 			continuousAsyncRxMode = mode;
 		}
 		return status;
@@ -233,11 +234,11 @@ public:
 	}
 
 
-	virtual inline Status::statusType GetRxState() {
+	virtual inline ResultStatus GetRxState() {
 		return rxState;
 	}
 
-	virtual inline Status::statusType GetTxState() {
+	virtual inline ResultStatus GetTxState() {
 		return txState;
 	}
 
@@ -252,27 +253,27 @@ public:
 
 
 protected:
-	virtual Status::statusType Initialization() = 0;
+	virtual ResultStatus Initialization() = 0;
 
-	virtual Status::statusType WriteByteArray(uint8* buffer, uint32 size) = 0;
-	virtual Status::statusType ReadByteArray(uint8* buffer, uint32 size) = 0;
-	virtual Status::statusType WriteByteArrayAsync(uint8* buffer, uint32 size) = 0;
-	virtual Status::statusType ReadByteArrayAsync(uint8* buffer, uint32 size) = 0;
+	virtual ResultStatus WriteByteArray(uint8* buffer, uint32 size) = 0;
+	virtual ResultStatus ReadByteArray(uint8* buffer, uint32 size) = 0;
+	virtual ResultStatus WriteByteArrayAsync(uint8* buffer, uint32 size) = 0;
+	virtual ResultStatus ReadByteArrayAsync(uint8* buffer, uint32 size) = 0;
 
-	virtual Status::statusType StartContinuousAsyncRxMode() {
-		return Status::notSupported;
+	virtual ResultStatus StartContinuousAsyncRxMode() {
+		return ResultStatus::notSupported;
 	}
 
-	virtual Status::statusType StopContinuousAsyncRxMode() {
-		return Status::notSupported;
+	virtual ResultStatus StopContinuousAsyncRxMode() {
+		return ResultStatus::notSupported;
 	}
 
-	virtual Status::statusType StartContinuousAsyncTxMode() {
-		return Status::notSupported;
+	virtual ResultStatus StartContinuousAsyncTxMode() {
+		return ResultStatus::notSupported;
 	}
 
-	virtual Status::statusType StopContinuousAsyncTxMode() {
-		return Status::notSupported;
+	virtual ResultStatus StopContinuousAsyncTxMode() {
+		return ResultStatus::notSupported;
 	}
 
 

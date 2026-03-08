@@ -1,31 +1,34 @@
 #pragma once
+#include <Utilities/Math/IQMath/IQ.h>
 
 
+template <RealType Type = float>
 struct Easing {
-	enum class Type { Linear, EaseIn, EaseOut, EaseInOut };
+	enum class Curve { Linear, EaseIn, EaseOut, EaseInOut };
 
-	static float Linear(float t) {
+	static Type Linear(Type t) {
 		return t;
 	}
 
-	static float EaseIn(float t) {
+	static Type EaseIn(Type t) {
 		return t * t;
 	}
 
-	static float EaseOut(float t) {
-		return t * (2.0f - t);
+	static Type EaseOut(Type t) {
+		return t * (Type(2) - t);
 	}
 
-	static float EaseInOut(float t) {
-		return t < 0.5f ? 2.0f * t * t : -1.0f + (4.0f - 2.0f * t) * t;
+	static Type EaseInOut(Type t) {
+		Type half(0.5f);
+		return t < half ? Type(2) * t * t : Type(-1) + (Type(4) - Type(2) * t) * t;
 	}
 
-	static float Apply(Type type, float t) {
-		switch (type) {
-			case Type::EaseIn:    return EaseIn(t);
-			case Type::EaseOut:   return EaseOut(t);
-			case Type::EaseInOut: return EaseInOut(t);
-			default:              return Linear(t);
+	static Type Apply(Curve curve, Type t) {
+		switch (curve) {
+			case Curve::EaseIn:    return EaseIn(t);
+			case Curve::EaseOut:   return EaseOut(t);
+			case Curve::EaseInOut: return EaseInOut(t);
+			default:               return Linear(t);
 		}
 	}
 };

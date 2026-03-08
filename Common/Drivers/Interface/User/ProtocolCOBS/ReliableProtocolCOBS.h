@@ -13,13 +13,13 @@
 #include <array>
 
 
-
 template <size_t MaxPacketSize = 256, size_t AckMailCount = 10>
 class ReliableProtocolCOBS {
 public:
-    std::function<Status::statusType(uint16 address, const uint8* data, size_t length)> onWrite = nullptr;
-    std::function<Status::statusType(uint16 address, uint8* outData, size_t& outDataLength)> onRead = nullptr;
-    std::function<Status::statusType(const uint8* encodedBuffer, size_t length)> rawWrite = nullptr;
+    std::function<ResultStatus(uint16 address, const uint8* data, size_t length)> onWrite = nullptr;
+    std::function<ResultStatus(uint16 address, uint8* outData, size_t& outDataLength)> onRead = nullptr;
+    std::function<ResultStatus(const uint8* encodedBuffer, size_t length)> rawWrite = nullptr;
+
 
 private:
     enum PacketType : uint8 {
@@ -49,6 +49,7 @@ private:
 
     uint8* readBuffer;
     size_t readBufferLength;
+
 
 public:
     //  COBS:   
@@ -83,9 +84,8 @@ public:
     }
 
 
-
     template <typename WriteDataType>
-    Status::statusType Write(uint16 address, WriteDataType& data, std::chrono::milliseconds timeout = std::chrono::milliseconds(1000), uint8 retry = 3) {
+    ResultStatus Write(uint16 address, WriteDataType& data, std::chrono::milliseconds timeout = std::chrono::milliseconds(1000), uint8 retry = 3) {
         return SendPacket(
             PacketType::write,
             address,
@@ -99,45 +99,43 @@ public:
     }
 
 
-
     template <typename ReadDataType>
-    Status::info<ReadDataType> Read(uint16 address, std::chrono::milliseconds timeout = std::chrono::milliseconds(1000), uint8 retry = 3) {
-        auto output = Status::info<ReadDataType>();
-        output.type = SendPacket(
+    Result<ReadDataType> Read(uint16 address, std::chrono::milliseconds timeout = std::chrono::milliseconds(1000), uint8 retry = 3) {
+        ReadDataType data;
+        return Result<ReadDataType>::Capture(SendPacket(
             PacketType::read,
             address,
             nullptr,
             0,
-            reinterpret_cast<uint8*>(&output.data),
+            reinterpret_cast<uint8*>(&data),
             sizeof(ReadDataType),
             timeout,
             retry
-        );
-        return output;
+        ), data);
     }
 
 
 private:
-    Status::statusType SendPacket(PacketType type, uint16 address, const uint8* data, size_t length, uint8* readData, size_t readLength, std::chrono::milliseconds timeout, uint8 retry) {
+    ResultStatus SendPacket(PacketType type, uint16 address, const uint8* data, size_t length, uint8* readData, size_t readLength, std::chrono::milliseconds timeout, uint8 retry) {
         if (length > MaxPacketSize) {
-            return Status::dataCorrupted;
+            return ResultStatus::dataCorrupted;
         }
 
         currentPacketId++;
         uint8 encodedBuffer[maxEncodedSize];
         auto packet = EncodePacket(type, address, currentPacketId, data, length, encodedBuffer, maxEncodedSize);
-        if (packet.IsError()) {
-            return packet.type;
+        if (packet.IsErr()) {
+            return packet.Error();
         }
 
         readBuffer = readData;
         readBufferLength = readLength;
 
-        Status::statusType outStatus = Status::retryExhausted;
+        ResultStatus outStatus = ResultStatus::retryExhausted;
 
         for (uint8 i = 0; i < retry; i++) {
-            auto status = SendRawPacket(encodedBuffer, packet.data);
-            if (status != Status::ok) {
+            auto status = SendRawPacket(encodedBuffer, packet.Value());
+            if (status != ResultStatus::ok) {
                 outStatus = status;
                 continue;
             }
@@ -145,17 +143,17 @@ private:
             // Wait ack
             AckInfo ack;
             if (!ackMail.Get(ack, timeout)) {
-                outStatus = Status::timeout;
+                outStatus = ResultStatus::timeout;
                 continue;
             }
 
             if (ack.id != currentPacketId) {
-                outStatus = Status::dataCorrupted;
+                outStatus = ResultStatus::dataCorrupted;
                 continue;
             }
 
-            outStatus = ack.packetType == PacketType::ack ? Status::ok : Status::nack;
-            outStatus = ack.overflow ? Status::bufferOverflow : outStatus;
+            outStatus = ack.packetType == PacketType::ack ? ResultStatus::ok : ResultStatus::nack;
+            outStatus = ack.overflow ? ResultStatus::bufferOverflow : outStatus;
 
             break;
         }
@@ -164,8 +162,7 @@ private:
     }
 
 
-
-    Status::statusType SendRawPacket(const uint8* encodedBuffer, size_t length) {
+    ResultStatus SendRawPacket(const uint8* encodedBuffer, size_t length) {
     	if (rawWrite) {
             writeMutex.Lock();
             auto status = rawWrite(encodedBuffer, length);
@@ -173,12 +170,11 @@ private:
             return status;
     	}
 
-    	return Status::writeError;
+    	return ResultStatus::writeError;
     }
 
 
-
-    Status::info<size_t> EncodePacket(PacketType type, uint16 address, uint32 packetId, const uint8* data, size_t length, uint8* encodedBuffer, size_t encodedBufferSize) {
+    Result<size_t> EncodePacket(PacketType type, uint16 address, uint32 packetId, const uint8* data, size_t length, uint8* encodedBuffer, size_t encodedBufferSize) {
         // type
         encodedBuffer[0] = static_cast<uint8>(type); 
 
@@ -205,11 +201,10 @@ private:
     }
 
 
-
     void ProcessReceivedPacket() {
         uint8 decodedBuffer[MaxPacketSize];
         auto result = cobs.Decode(rxBuffer, rxBufferCounter, decodedBuffer, MaxPacketSize);
-        if (!result.IsOk() || result.data < 9) {
+        if (!result.IsOk() || result.Value() < 9) {
             return;
         }
 
@@ -248,7 +243,7 @@ private:
             uint8 encodedBuffer[maxEncodedSize];
             size_t encodedBufferSize = 0;
 
-            Status::statusType mailStatus = Status::error;
+            ResultStatus mailStatus = ResultStatus::error;
             if (type == PacketType::read && onRead) {
                 mailStatus = onRead(address, &encodedBuffer[0], encodedBufferSize);
             }
@@ -260,12 +255,12 @@ private:
 
             // Send ACK/NACK
             uint8 responseBuffer[maxEncodedSize];
-            auto responseType = mailStatus == Status::ok ? PacketType::ack : PacketType::nack;
+            auto responseType = mailStatus == ResultStatus::ok ? PacketType::ack : PacketType::nack;
 
             auto response = EncodePacket(responseType, address, packetId, &encodedBuffer[0], encodedBufferSize, responseBuffer, maxEncodedSize);
 
             if (response.IsOk()) {
-                SendRawPacket(responseBuffer, response.data);
+                SendRawPacket(responseBuffer, response.Value());
             }
         }
     }

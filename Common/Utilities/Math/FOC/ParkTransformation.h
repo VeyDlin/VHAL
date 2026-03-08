@@ -3,18 +3,19 @@
 #include <cmath>
 
 
+template<typename T = float>
 class ParkTransformation {
 public:
 	struct Axis {
-		float alpha = 0; // stationary d-axis stator variable
-		float beta = 0;  // stationary q-axis stator variable
-		float angle = 0; // rotating angle
+		T alpha = 0; // stationary d-axis stator variable
+		T beta = 0;  // stationary q-axis stator variable
+		T angle = 0; // rotating angle
 	};
 
 	struct Park {
-		float dAxis = 0; // rotating d-axis stator variable
-		float qAxis = 0; // rotating q-axis stator variable
-		float angle = 0; // rotating angle
+		T dAxis = 0; // rotating d-axis stator variable
+		T qAxis = 0; // rotating q-axis stator variable
+		T angle = 0; // rotating angle
 	};
 
 
@@ -43,8 +44,10 @@ public:
 
 
 	ParkTransformation& Resolve() {
-		park.dAxis = (axis.alpha * std::cos(axis.angle)) + (axis.beta * std::sin(axis.angle));
-		park.qAxis = (axis.beta * std::cos(axis.angle))  - (axis.alpha * std::sin(axis.angle));
+		using std::cos;
+		using std::sin;
+		park.dAxis = (axis.alpha * cos(axis.angle)) + (axis.beta * sin(axis.angle));
+		park.qAxis = (axis.beta * cos(axis.angle))  - (axis.alpha * sin(axis.angle));
 
 		return *this;
 	}
@@ -52,14 +55,16 @@ public:
 
 
 	ParkTransformation& ResolveInverse() {
-		axis.alpha = (park.dAxis * std::cos(park.angle)) - (park.qAxis * std::sin(park.angle));
-		axis.beta = (park.dAxis * std::sin(park.angle))  + (park.qAxis * std::cos(park.angle));
+		using std::cos;
+		using std::sin;
+		axis.alpha = (park.dAxis * cos(park.angle)) - (park.qAxis * sin(park.angle));
+		axis.beta = (park.dAxis * sin(park.angle))  + (park.qAxis * cos(park.angle));
 
 		return *this;
 	}
 
 
-	
+
 	Park GetPark() {
 		return park;
 	}

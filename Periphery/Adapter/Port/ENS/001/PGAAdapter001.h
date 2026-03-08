@@ -61,9 +61,9 @@ public:
 
 
 protected:
-	Status::statusType Initialization() {
+	ResultStatus Initialization() {
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 

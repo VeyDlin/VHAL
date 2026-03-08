@@ -1,0 +1,3 @@
+[submodule "VHAL"]
+	path = VHAL
+	url = https://github.com/VeyDlin/VHAL.git

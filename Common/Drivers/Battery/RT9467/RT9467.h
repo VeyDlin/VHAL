@@ -118,59 +118,59 @@ public:
 
     // ========== Charging control ==========
 
-    Status::statusType EnableCharging(bool enable) {
+    ResultStatus EnableCharging(bool enable) {
         return UpdateRegisterBits(Address::ChgCtrl2, Mask::ChargeEnable, enable ? Mask::ChargeEnable : 0);
     }
 
 
-    Status::info<bool> IsChargingEnabled() {
+    Result<bool> IsChargingEnabled() {
     	return CheckBitRegister(Address::ChgCtrl2, Mask::ChargeEnable);
     }
 
 
-    Status::statusType SetChargeCurrent(float current) {
+    ResultStatus SetChargeCurrent(float current) {
         uint8 regValue = ConfigConstants::Ichg.Encode(current);
         return UpdateRegisterBits(Address::ChgCtrl7, Mask::Ichg, regValue << Shift::Ichg);
     }
 
 
-    Status::statusType SetInputCurrentLimit(float current) {
+    ResultStatus SetInputCurrentLimit(float current) {
         uint8 regValue = ConfigConstants::Aicr.Encode(current);
         return UpdateRegisterBits(Address::ChgCtrl3, Mask::Aicr, regValue << Shift::Aicr);
     }
 
 
-    Status::statusType SetChargeVoltage(float voltage) {
+    ResultStatus SetChargeVoltage(float voltage) {
         uint8 regValue = ConfigConstants::ChargeVolt.Encode(voltage);
         return UpdateRegisterBits(Address::ChgCtrl4,Mask::ChargeVoltage, regValue << Shift::ChargeVoltage);
     }
 
 
-    Status::statusType SetTerminationCurrent(float current) {
+    ResultStatus SetTerminationCurrent(float current) {
         uint8 regValue = ConfigConstants::Ieoc.Encode(current);
         return UpdateRegisterBits(Address::ChgCtrl9, Mask::Ieoc, regValue << Shift::Ieoc);
     }
 
 
-    Status::statusType SetPrechargeThreshold(float voltage) {
+    ResultStatus SetPrechargeThreshold(float voltage) {
         uint8 regValue = ConfigConstants::VpRec.Encode(voltage);
         return UpdateRegisterBits(Address::ChgCtrl8, Mask::Vprec, regValue << Shift::Vprec);
     }
 
 
-    Status::statusType SetPrechargeCurrent(float current) {
+    ResultStatus SetPrechargeCurrent(float current) {
         uint8 regValue = ConfigConstants::IpRec.Encode(current);
         return UpdateRegisterBits(Address::ChgCtrl8, Mask::Iprec, regValue << Shift::Iprec);
     }
 
 
-    Status::statusType SetMinimumInputVoltage(float voltage) {
+    ResultStatus SetMinimumInputVoltage(float voltage) {
         uint8 regValue = ConfigConstants::Mivr.Encode(voltage);
         return UpdateRegisterBits( Address::ChgCtrl6, Mask::Mivr, regValue << Shift::Mivr);
     }
 
 
-    Status::statusType SetIrCompensation(float resistance, float clampVoltage) {
+    ResultStatus SetIrCompensation(float resistance, float clampVoltage) {
         uint8 resReg = ConfigConstants::IrRes.Encode(resistance);
         uint8 clampReg = ConfigConstants::IrClamp.Encode(clampVoltage);
         return UpdateRegisterBits(
@@ -182,7 +182,7 @@ public:
     }
 
 
-    Status::statusType SetInputCurrentLimitMode(InputCurrentLimitMode mode) {
+    ResultStatus SetInputCurrentLimitMode(InputCurrentLimitMode mode) {
         return UpdateRegisterBits(Address::ChgCtrl2, Mask::InputLimitSel, static_cast<uint8>(mode) << Shift::InputLimitSel);
     }
 
@@ -191,17 +191,17 @@ public:
 
     // ========== Power path ==========
 
-    Status::statusType SetHighImpedanceMode(bool enable) {
+    ResultStatus SetHighImpedanceMode(bool enable) {
         return UpdateRegisterBits( Address::ChgCtrl1, Mask::HighZ, enable ? Mask::HighZ : 0);
     }
 
 
-    Status::info<bool> IsInHighImpedanceMode() {
+    Result<bool> IsInHighImpedanceMode() {
     	return CheckBitRegister(Address::ChgCtrl1, Mask::HighZ);
     }
 
 
-    Status::info<bool> IsPowerReady() {
+    Result<bool> IsPowerReady() {
     	return CheckBitRegister(Address::ChgStatc, Mask::PowerReady);
     }
 
@@ -210,12 +210,12 @@ public:
 
     // ========== Special modes ==========
 
-    Status::statusType EnterShippingMode() {
+    ResultStatus EnterShippingMode() {
         return UpdateRegisterBits(Address::ChgCtrl2, Mask::ShipEnable, Mask::ShipEnable);
     }
 
 
-    Status::statusType Reset() {
+    ResultStatus Reset() {
         return UpdateRegisterBits(Address::DeviceId, Mask::Reset, Mask::Reset);
     }
 
@@ -224,12 +224,12 @@ public:
 
     // ========== Timers & watchdog ==========
 
-    Status::statusType EnableSafetyTimer(bool enable) {
+    ResultStatus EnableSafetyTimer(bool enable) {
         return UpdateRegisterBits(Address::ChgCtrl12, Mask::TimerEnable, enable ? Mask::TimerEnable : 0);
     }
 
 
-    Status::statusType SetSafetyTimerHours(uint8 hours) {
+    ResultStatus SetSafetyTimerHours(uint8 hours) {
         uint8 code = 0;
         if (hours >= 40) {
             code = 7;
@@ -253,7 +253,7 @@ public:
     }
 
 
-    Status::statusType EnableWatchdog(bool enable, uint8 timeoutMin) {
+    ResultStatus EnableWatchdog(bool enable, uint8 timeoutMin) {
         uint8 encodedTimeout = 0;
         switch (timeoutMin) {
             case 0: encodedTimeout = 0; break;
@@ -274,12 +274,12 @@ public:
     }
 
 
-    Status::statusType KickWatchdog() {
+    ResultStatus KickWatchdog() {
         return UpdateRegisterBits(Address::ChgCtrl13, Mask::WatchdogReset, Mask::WatchdogReset);
     }
 
 
-    Status::info<bool> IsWatchdogExpired() {
+    Result<bool> IsWatchdogExpired() {
     	return CheckBitRegister(Address::ChgIrq2, Mask::WdtExpired);
     }
 
@@ -288,15 +288,15 @@ public:
 
     // ========== JEITA & thermistor ==========
 
-    Status::statusType EnableJeita(bool enable) {
+    ResultStatus EnableJeita(bool enable) {
         return UpdateRegisterBits(Address::ChgCtrl16, Mask::JeitaEnable, enable ? Mask::JeitaEnable : 0);
     }
 
 
-    Status::info<uint16> ReadBatteryTemperature() {
+    Result<uint16> ReadBatteryTemperature() {
         auto read = ReadAdc(AdcMeasurement::ThermistorBattery);
-        StatusAssert(read.type);
-        return read.data * 25; // 0.01% unit step, convert to raw JEITA
+        if (read.IsErr()) return read.Error();
+        return read.Value() * 25; // 0.01% unit step, convert to raw JEITA
     }
 
 
@@ -304,12 +304,12 @@ public:
 
     // ========== OTG mode ==========
 
-    Status::statusType EnableOtg(bool enable) {
+    ResultStatus EnableOtg(bool enable) {
         return UpdateRegisterBits(Address::ChgCtrl2,Mask::OtgEn, enable ? Mask::OtgEn : 0);
     }
 
 
-    Status::statusType SetOtgProtection(float current, float lowBatteryVoltage) {
+    ResultStatus SetOtgProtection(float current, float lowBatteryVoltage) {
     	uint8 ilim = 6;
         if (current < 0.6f) ilim = 0;
         if (current < 0.9f) ilim = 1;
@@ -332,7 +332,7 @@ public:
 
     // ========== QC/PE+/PD ==========
 
-    Status::statusType EnablePumpExpress(bool enable) {
+    ResultStatus EnablePumpExpress(bool enable) {
         return UpdateRegisterBits(Address::ChgCtrl17, Mask::PumpxEnable, enable ? Mask::PumpxEnable : 0);
     }
 
@@ -341,12 +341,12 @@ public:
 
     // ========== Frequency ==========
 
-    Status::statusType SetSwitchingFrequencyHigh(bool enable) {
+    ResultStatus SetSwitchingFrequencyHigh(bool enable) {
         return UpdateRegisterBits(Address::ChgCtrl15, Mask::FreqSel, enable ? Mask::FreqSel : 0);
     }
 
 
-    Status::statusType EnableFixedSwitchingFrequency(bool enable) {
+    ResultStatus EnableFixedSwitchingFrequency(bool enable) {
         return UpdateRegisterBits(Address::ChgCtrl15, Mask::FreqForce, enable ? Mask::FreqForce : 0);
     }
 
@@ -355,7 +355,7 @@ public:
 
     // ========== ADC ==========
 
-    Status::info<uint16> ReadAdc(AdcMeasurement channel) {
+    Result<uint16> ReadAdc(AdcMeasurement channel) {
         auto status = UpdateRegisterBits(
         	Address::ChgAdc,
     	    Mask::AdcInputSelect,
@@ -368,9 +368,9 @@ public:
 
         for (uint8 i = 0; i < 6; ++i) {
             auto irq = ReadRegister(Address::ChgIrq3);
-            StatusAssert(irq.type);
+            if (irq.IsErr()) return irq.Error();
 
-            if (irq.data & Mask::AdcDone) {
+            if (irq.Value() & Mask::AdcDone) {
                 break;
             }
             System::DelayMs(35);
@@ -379,12 +379,12 @@ public:
         System::DelayMs(1);
 
         auto msb = ReadRegister(Address::AdcDataHigh);
-        StatusAssert(msb.type);
+        if (msb.IsErr()) return msb.Error();
 
         auto lsb = ReadRegister(Address::AdcDataLow);
-        StatusAssert(lsb.type);
+        if (lsb.IsErr()) return lsb.Error();
 
-        return ((msb.data << 2) | (lsb.data >> 6));
+        return ((msb.Value() << 2) | (lsb.Value() >> 6));
     }
 
 
@@ -392,7 +392,7 @@ public:
 
     // ========== Interrupts ==========
 
-    Status::statusType SetInterrupt(const IrqLines& enable) {
+    ResultStatus SetInterrupt(const IrqLines& enable) {
         uint8 irq1 = 0, irq2 = 0, irq3 = 0, dpdm = 0;
 
         if (enable.thermalShutdown)       irq1 |= Mask::ChgOtp;
@@ -433,87 +433,87 @@ public:
     }
 
 
-    Status::info<IrqLines> GetInterruptLines() {
+    Result<IrqLines> GetInterruptLines() {
         IrqLines flags{};
 
         auto irq1 = ReadRegister(Address::ChgIrq1);
-        StatusAssert(irq1.type);
+        if (irq1.IsErr()) return irq1.Error();
 
         auto irq2 = ReadRegister(Address::ChgIrq2);
-        StatusAssert(irq2.type);
+        if (irq2.IsErr()) return irq2.Error();
 
         auto irq3 = ReadRegister(Address::ChgIrq3);
-        StatusAssert(irq3.type);
+        if (irq3.IsErr()) return irq3.Error();
 
         auto dpdm = ReadRegister(Address::DpdmIrq);
-        StatusAssert(dpdm.type);
+        if (dpdm.IsErr()) return dpdm.Error();
 
-        flags.thermalShutdown       = irq1.data & Mask::ChgOtp;
-        flags.adapterRemoved        = irq1.data & Mask::ChgRvpm;
-        flags.adapterBad            = irq1.data & Mask::AdpBadm;
-        flags.chargingStatusChanged = irq1.data & Mask::StatChanged;
-        flags.faultOccurred         = irq1.data & Mask::Fault;
-        flags.tsStateChanged        = irq1.data & Mask::TsStatChanged;
+        flags.thermalShutdown       = irq1.Value() & Mask::ChgOtp;
+        flags.adapterRemoved        = irq1.Value() & Mask::ChgRvpm;
+        flags.adapterBad            = irq1.Value() & Mask::AdpBadm;
+        flags.chargingStatusChanged = irq1.Value() & Mask::StatChanged;
+        flags.faultOccurred         = irq1.Value() & Mask::Fault;
+        flags.tsStateChanged        = irq1.Value() & Mask::TsStatChanged;
 
-        flags.ieocReached           = irq2.data & Mask::IeocMask;
-        flags.chargeTerminated      = irq2.data & Mask::Terminated;
-        flags.softStartFinished     = irq2.data & Mask::SsFinish;
-        flags.aiclMeasured          = irq2.data & Mask::AiclMeasured;
+        flags.ieocReached           = irq2.Value() & Mask::IeocMask;
+        flags.chargeTerminated      = irq2.Value() & Mask::Terminated;
+        flags.softStartFinished     = irq2.Value() & Mask::SsFinish;
+        flags.aiclMeasured          = irq2.Value() & Mask::AiclMeasured;
 
-        flags.boostUndervoltage     = irq3.data & Mask::BoostBatUv;
-        flags.pumpExpressDone       = irq3.data & Mask::PumpxDone;
-        flags.adcDone               = irq3.data & Mask::AdcDone;
+        flags.boostUndervoltage     = irq3.Value() & Mask::BoostBatUv;
+        flags.pumpExpressDone       = irq3.Value() & Mask::PumpxDone;
+        flags.adcDone               = irq3.Value() & Mask::AdcDone;
 
-        flags.dcdDetect             = dpdm.data & Mask::Dcdtm;
-        flags.chargeDetect          = dpdm.data & Mask::ChargeDetect;
-        flags.hvdcpDetect           = dpdm.data & Mask::HvdcpDetect;
-        flags.detach                = dpdm.data & Mask::Detach;
-        flags.attach                = dpdm.data & Mask::Attach;
+        flags.dcdDetect             = dpdm.Value() & Mask::Dcdtm;
+        flags.chargeDetect          = dpdm.Value() & Mask::ChargeDetect;
+        flags.hvdcpDetect           = dpdm.Value() & Mask::HvdcpDetect;
+        flags.detach                = dpdm.Value() & Mask::Detach;
+        flags.attach                = dpdm.Value() & Mask::Attach;
 
         return flags;
     }
 
 
-    Status::info<IrqFlag> ReadInterruptFlags(bool readIrq1, bool readIrq2, bool readIrq3, bool readDpdm) {
+    Result<IrqFlag> ReadInterruptFlags(bool readIrq1, bool readIrq2, bool readIrq3, bool readDpdm) {
         IrqFlag flags{};
-        Status::info<uint8> irq1 = 0, irq2 = 0, irq3 = 0, dpdm = 0;
+        Result<uint8> irq1 = 0, irq2 = 0, irq3 = 0, dpdm = 0;
 
         if (readIrq1) {
         	irq1 = ReadRegister(Address::ChgIrq1);
-        	StatusAssert(irq1.type);
+        	if (irq1.IsErr()) return irq1.Error();
         }
         if (readIrq2) {
         	irq2 = ReadRegister(Address::ChgIrq2);
-        	StatusAssert(irq2.type);
+        	if (irq2.IsErr()) return irq2.Error();
         }
         if (readIrq3) {
         	irq3 = ReadRegister(Address::ChgIrq3);
-        	StatusAssert(irq3.type);
+        	if (irq3.IsErr()) return irq3.Error();
         }
         if (readDpdm) {
         	dpdm = ReadRegister(Address::DpdmIrq);
-        	StatusAssert(dpdm.type);
+        	if (dpdm.IsErr()) return dpdm.Error();
         }
 
-        flags.otp 					= irq1.data & Mask::ChgOtp;
-        flags.vbusOverVoltage 		= irq1.data & Mask::VbusOv;
-        flags.adapterBad 			= irq1.data & Mask::AdpBadm;
-        flags.statChanged 			= irq1.data & Mask::StatChanged;
-        flags.fault 				= irq1.data & Mask::Fault;
-        flags.thermalStateChanged 	= irq1.data & Mask::TsStatChanged;
+        flags.otp 					= irq1.Value() & Mask::ChgOtp;
+        flags.vbusOverVoltage 		= irq1.Value() & Mask::VbusOv;
+        flags.adapterBad 			= irq1.Value() & Mask::AdpBadm;
+        flags.statChanged 			= irq1.Value() & Mask::StatChanged;
+        flags.fault 				= irq1.Value() & Mask::Fault;
+        flags.thermalStateChanged 	= irq1.Value() & Mask::TsStatChanged;
 
-        flags.aiclMeasured 			= irq2.data & Mask::AiclMeasured;
-        flags.watchdogTimeout 		= irq2.data & Mask::WdtExpired;
-        flags.chargeComplete 		= irq2.data & Mask::ChargeComplete;
+        flags.aiclMeasured 			= irq2.Value() & Mask::AiclMeasured;
+        flags.watchdogTimeout 		= irq2.Value() & Mask::WdtExpired;
+        flags.chargeComplete 		= irq2.Value() & Mask::ChargeComplete;
 
-        flags.adcDone 				= irq3.data & Mask::AdcDone;
-        flags.pumpExpressDone 		= irq3.data & Mask::PumpxDone;
+        flags.adcDone 				= irq3.Value() & Mask::AdcDone;
+        flags.pumpExpressDone 		= irq3.Value() & Mask::PumpxDone;
 
-        flags.dcdDetect 			= dpdm.data & Mask::Dcdtm;
-        flags.chargeDetect 			= dpdm.data & Mask::ChargeDetect;
-        flags.hvdcpDetect 			= dpdm.data & Mask::HvdcpDetect;
-        flags.detach 				= dpdm.data & Mask::Detach;
-        flags.attach 				= dpdm.data & Mask::Attach;
+        flags.dcdDetect 			= dpdm.Value() & Mask::Dcdtm;
+        flags.chargeDetect 			= dpdm.Value() & Mask::ChargeDetect;
+        flags.hvdcpDetect 			= dpdm.Value() & Mask::HvdcpDetect;
+        flags.detach 				= dpdm.Value() & Mask::Detach;
+        flags.attach 				= dpdm.Value() & Mask::Attach;
 
         return flags;
     }
@@ -523,33 +523,33 @@ public:
 
     // ========== Status and faults ==========
 
-    Status::info<ChargingStatus> GetChargingStatus() {
+    Result<ChargingStatus> GetChargingStatus() {
         auto read = ReadRegister(Address::ChgStatc);
-        StatusAssert(read.type);
-        return static_cast<ChargingStatus>((read.data & Mask::ChgStatus) >> Shift::ChgStatus);
+        if (read.IsErr()) return read.Error();
+        return static_cast<ChargingStatus>((read.Value() & Mask::ChgStatus) >> Shift::ChgStatus);
     }
 
-    Status::info<FaultStatus> GetFaultStatus() {
+    Result<FaultStatus> GetFaultStatus() {
         auto read = ReadRegister(Address::ChgFault);
-        StatusAssert(read.type);
+        if (read.IsErr()) return read.Error();
 
         FaultStatus status{};
-        status.vbusOverVoltage = read.data & Mask::VbusOv;
-        status.vbatOverVoltage = read.data & Mask::VbatOv;
-        status.thermalShutdown = read.data & Mask::ChgOtp;
-        status.adapterBad = read.data & Mask::AdpBadm;
+        status.vbusOverVoltage = read.Value() & Mask::VbusOv;
+        status.vbatOverVoltage = read.Value() & Mask::VbatOv;
+        status.thermalShutdown = read.Value() & Mask::ChgOtp;
+        status.adapterBad = read.Value() & Mask::AdpBadm;
         return status;
     }
 
 
-    Status::info<ChargingStatusFlags> GetChargingStatusFlags() {
+    Result<ChargingStatusFlags> GetChargingStatusFlags() {
         auto read = ReadRegister(Address::ChgStatc);
-        StatusAssert(read.type);
+        if (read.IsErr()) return read.Error();
 
         ChargingStatusFlags flags{};
-        flags.minimumInputVoltageRegulationActive = read.data & Mask::ChgMivr;
-        flags.averageInputCurrentRegulationActive = read.data & Mask::ChgAicr;
-        flags.powerReady = read.data & Mask::PowerReady;
+        flags.minimumInputVoltageRegulationActive = read.Value() & Mask::ChgMivr;
+        flags.averageInputCurrentRegulationActive = read.Value() & Mask::ChgAicr;
+        flags.powerReady = read.Value() & Mask::PowerReady;
         return flags;
     }
 
@@ -558,20 +558,20 @@ public:
 
     // ========== Info ==========
 
-    Status::info<uint8> GetDeviceId() {
+    Result<uint8> GetDeviceId() {
         return ReadRegister(Address::DeviceId);
     }
 
 
-    Status::info<uint8> GetChipRevision() {
+    Result<uint8> GetChipRevision() {
         return ReadRegister(Address::ChgCtrl14);
     }
 
 
-    Status::info<bool> IsPresent() {
+    Result<bool> IsPresent() {
     	auto id = GetDeviceId();
-    	StatusAssert(id.type);
-        return id.data == DeviceInfo::DeviceIdExpected;
+    	if (id.IsErr()) return id.Error();
+        return id.Value() == DeviceInfo::DeviceIdExpected;
     }
 
 
@@ -579,37 +579,36 @@ public:
 public:
     // ========== I2C ==========
 
-    Status::statusType WriteRegister(uint8 reg, uint8 val) {
+    ResultStatus WriteRegister(uint8 reg, uint8 val) {
     	if (i2c == nullptr) {
-    		return Status::invalidParameter;
+    		return ResultStatus::invalidParameter;
     	}
         return i2c->WriteByteArray(DeviceInfo::SlaveAddress, reg, 1, &val, 1);
     }
 
 
-    Status::info<uint8> ReadRegister(uint8 reg) {
+    Result<uint8> ReadRegister(uint8 reg) {
     	if (i2c == nullptr) {
-    		return Status::invalidParameter;
+    		return ResultStatus::invalidParameter;
     	}
-    	Status::info<uint8> read;
-    	read.type = i2c->ReadByteArray(DeviceInfo::SlaveAddress, reg, 1, &read.data, 1);
-    	return read;
+    	uint8 data;
+    	return Result<uint8>::Capture(i2c->ReadByteArray(DeviceInfo::SlaveAddress, reg, 1, &data, 1), data);
     }
 
 
-    Status::statusType UpdateRegisterBits(uint8 reg, uint8 mask, uint8 data) {
+    ResultStatus UpdateRegisterBits(uint8 reg, uint8 mask, uint8 data) {
         auto read = ReadRegister(reg);
-        if (read.IsError()) {
-            return read.type;
+        if (read.IsErr()) {
+            return read.Error();
         }
-        read.data = (read.data & ~mask) | (data & mask);
-        return WriteRegister(reg, read.data);
+        uint8 val = (read.Value() & ~mask) | (data & mask);
+        return WriteRegister(reg, val);
     }
 
 
-    Status::info<bool> CheckBitRegister(uint8 reg, uint8 mask) {
+    Result<bool> CheckBitRegister(uint8 reg, uint8 mask) {
         auto read = ReadRegister(reg);
-        StatusAssert(read.type);
-        return read.data & mask;
+        if (read.IsErr()) return read.Error();
+        return (bool)(read.Value() & mask);
     }
 };

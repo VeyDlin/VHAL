@@ -23,75 +23,75 @@ public:
 	}
 
 
-	Status::statusType SetParameters(Parameters val) override {
+	ResultStatus SetParameters(Parameters val) override {
 		parameters = val;
 		return Initialization();
 	}
 
 
-	Status::statusType AddComparator(uint32 compareValue = 0) override {
+	ResultStatus AddComparator(uint32 compareValue = 0) override {
 		if (comparatorCount >= maxComparators || !operHandle) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		mcpwm_comparator_config_t config = {};
 		config.flags.update_cmp_on_tez = true;
 
 		if (mcpwm_new_comparator(operHandle, &config, &comparators[comparatorCount]) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		if (mcpwm_comparator_set_compare_value(comparators[comparatorCount], compareValue) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		comparatorCount++;
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType AddGenerator(GeneratorConfig config, uint8 comparatorIndex = 0) override {
+	ResultStatus AddGenerator(GeneratorConfig config, uint8 comparatorIndex = 0) override {
 		if (generatorCount >= maxGenerators || !operHandle) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 		if (comparatorIndex >= comparatorCount) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		mcpwm_generator_config_t gen_config = {};
 		gen_config.gen_gpio_num = config.pin;
 
 		if (mcpwm_new_generator(operHandle, &gen_config, &generators[generatorCount]) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		if (mcpwm_generator_set_action_on_timer_event(generators[generatorCount],
 				MCPWM_GEN_TIMER_EVENT_ACTION(MCPWM_TIMER_DIRECTION_UP, MCPWM_TIMER_EVENT_EMPTY, MCPWM_GEN_ACTION_HIGH)) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		if (mcpwm_generator_set_action_on_compare_event(generators[generatorCount],
 				MCPWM_GEN_COMPARE_EVENT_ACTION(MCPWM_TIMER_DIRECTION_UP, comparators[comparatorIndex], MCPWM_GEN_ACTION_LOW)) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		generatorCount++;
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType SetCompare(uint8 comparatorIndex, uint32 value) override {
+	ResultStatus SetCompare(uint8 comparatorIndex, uint32 value) override {
 		if (comparatorIndex >= comparatorCount) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 		return (mcpwm_comparator_set_compare_value(comparators[comparatorIndex], value) == ESP_OK)
-			? Status::ok : Status::error;
+			? ResultStatus::ok : ResultStatus::error;
 	}
 
 
-	Status::statusType SetDeadTime(uint8 genA, uint8 genB, DeadTimeConfig config) override {
+	ResultStatus SetDeadTime(uint8 genA, uint8 genB, DeadTimeConfig config) override {
 		if (genA >= generatorCount || genB >= generatorCount) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		mcpwm_dead_time_config_t dt_config = {};
@@ -99,38 +99,38 @@ public:
 		dt_config.negedge_delay_ticks = 0;
 
 		if (mcpwm_generator_set_dead_time(generators[genA], generators[genA], &dt_config) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		dt_config.posedge_delay_ticks = 0;
 		dt_config.negedge_delay_ticks = config.negedgeDelayTicks;
 
 		if (mcpwm_generator_set_dead_time(generators[genA], generators[genB], &dt_config) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType Start() override {
+	ResultStatus Start() override {
 		if (!timerHandle) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 		if (mcpwm_timer_enable(timerHandle) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 		return (mcpwm_timer_start_stop(timerHandle, MCPWM_TIMER_START_NO_STOP) == ESP_OK)
-			? Status::ok : Status::error;
+			? ResultStatus::ok : ResultStatus::error;
 	}
 
 
-	Status::statusType Stop() override {
+	ResultStatus Stop() override {
 		if (!timerHandle) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 		return (mcpwm_timer_start_stop(timerHandle, MCPWM_TIMER_STOP_FULL) == ESP_OK)
-			? Status::ok : Status::error;
+			? ResultStatus::ok : ResultStatus::error;
 	}
 
 
@@ -145,9 +145,9 @@ protected:
 	uint8 comparatorCount = 0;
 	uint8 generatorCount = 0;
 
-	Status::statusType Initialization() override {
+	ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -161,18 +161,18 @@ protected:
 		timer_cfg.count_mode = static_cast<mcpwm_timer_count_mode_t>(parameters.countMode.Get());
 
 		if (mcpwm_new_timer(&timer_cfg, &timerHandle) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		mcpwm_operator_config_t oper_cfg = {};
 		oper_cfg.group_id = groupId;
 
 		if (mcpwm_new_operator(&oper_cfg, &operHandle) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		if (mcpwm_operator_connect_timer(operHandle, timerHandle) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		return AfterInitialization();

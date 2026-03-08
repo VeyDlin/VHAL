@@ -43,7 +43,7 @@ protected:
 
 	uint32 timeout = 1000;
 
-	Status::statusType state = Status::ready;
+	ResultStatus state = ResultStatus::ready;
 
 	uint16 deviceAddress = 0;
 
@@ -77,7 +77,7 @@ public:
 	I2CAdapter(HandleType *i2c, uint32 busClockHz):i2cHandle(i2c), inputBusClockHz(busClockHz) { }
 
 
-	virtual Status::statusType SetParameters(Parameters val) {
+	virtual ResultStatus SetParameters(Parameters val) {
 		parameters = val;
 		return Initialization();
 	}
@@ -88,22 +88,22 @@ public:
 	}
 
 
-	virtual Status::statusType Await() {
+	virtual ResultStatus Await() {
 		// TODO: [VHAL] [I2C] [ADAPTER] [ADD] add slave listen
 		// TODO: [VHAL] [I2C] [ADAPTER] [ADD]  add timeout
-		while(state != Status::ready && state != Status::error);
+		while(state != ResultStatus::ready && state != ResultStatus::error);
 
-		if (state == Status::ready) {
-			return Status::ok;
+		if (state == ResultStatus::ready) {
+			return ResultStatus::ok;
 		}
-		return Status::error;
+		return ResultStatus::error;
 	}
 
 
-	Status::statusType SetSlaveLiisten(bool mode) {
+	ResultStatus SetSlaveLiisten(bool mode) {
 		auto status = mode ? StartSlaveListen() : StopSlaveListen();
 		// TODO: [VHAL] [I2C] [ADAPTER] [WTF] add?
-		//if(status == Status::ok) {
+		//if(status == ResultStatus::ok) {
 		//	continuousAsyncRxMode = mode;
 		//}
 		return status;
@@ -111,33 +111,33 @@ public:
 
 
 
-	virtual Status::statusType CheckDevice(uint8 deviceAddress, uint16 repeat = 1) = 0;
-	virtual Status::statusType CheckDeviceAsync(uint8 deviceAddress, uint16 repeat = 1) = 0;
+	virtual ResultStatus CheckDevice(uint8 deviceAddress, uint16 repeat = 1) = 0;
+	virtual ResultStatus CheckDeviceAsync(uint8 deviceAddress, uint16 repeat = 1) = 0;
 
-	virtual Status::info<uint8> Scan(uint8 *listBuffer, uint8 size) = 0;
-	virtual Status::info<uint8> ScanAsync(uint8 *listBuffer, uint8 size) = 0;
+	virtual Result<uint8> Scan(uint8 *listBuffer, uint8 size) = 0;
+	virtual Result<uint8> ScanAsync(uint8 *listBuffer, uint8 size) = 0;
 
 	virtual void IrqEventHandler() = 0;
 	virtual void IrqErrorHandler() = 0;
 
-	virtual Status::statusType WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) = 0;
-	virtual Status::statusType ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) = 0;
+	virtual ResultStatus WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) = 0;
+	virtual ResultStatus ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) = 0;
 
-	virtual Status::statusType WriteByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) = 0;
-	virtual Status::statusType ReadByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) = 0;
+	virtual ResultStatus WriteByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) = 0;
+	virtual ResultStatus ReadByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) = 0;
 
 
 
 protected:
-	virtual Status::statusType Initialization() = 0;
+	virtual ResultStatus Initialization() = 0;
 
 
-	virtual Status::statusType StartSlaveListen() {
-		return Status::notSupported;
+	virtual ResultStatus StartSlaveListen() {
+		return ResultStatus::notSupported;
 	}
 
-	virtual Status::statusType StopSlaveListen() {
-		return Status::notSupported;
+	virtual ResultStatus StopSlaveListen() {
+		return ResultStatus::notSupported;
 	}
 
 

@@ -27,31 +27,31 @@ public:
 	void IrqHandler() override { }
 
 
-	Status::statusType Write(uint16 val) override {
+	ResultStatus Write(uint16 val) override {
 		if (!dacHandle) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 		if (dac_oneshot_output_voltage(dacHandle, static_cast<uint8>(val & 0xFF)) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType Enable() override {
+	ResultStatus Enable() override {
 		if (dacHandle) {
-			return Status::ok;
+			return ResultStatus::ok;
 		}
 		return Initialization();
 	}
 
 
-	Status::statusType Disable() override {
+	ResultStatus Disable() override {
 		if (dacHandle) {
 			dac_oneshot_del_channel(dacHandle);
 			dacHandle = nullptr;
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
@@ -61,19 +61,19 @@ public:
 	void DisableTrigger() override { }
 
 
-	Status::statusType WriteContinuous(uint16 *buffer, uint32 count) override {
-		return Status::notSupported;
+	ResultStatus WriteContinuous(uint16 *buffer, uint32 count) override {
+		return ResultStatus::notSupported;
 	}
 
-	Status::statusType StopDMA() override {
-		return Status::notSupported;
+	ResultStatus StopDMA() override {
+		return ResultStatus::notSupported;
 	}
 
 
 protected:
-	Status::statusType Initialization() override {
+	ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -86,7 +86,7 @@ protected:
 		config.chan_id = channel;
 
 		if (dac_oneshot_new_channel(&config, &dacHandle) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		return AfterInitialization();

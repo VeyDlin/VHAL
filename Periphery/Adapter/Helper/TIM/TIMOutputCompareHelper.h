@@ -2,36 +2,42 @@
 #include "ITIMHelper.h"
 
 
-class TIMOutputCompareHelper: public ITIMHelper {
+template <RealType Type = float>
+class TIMOutputCompareHelper: public ITIMHelper<Type> {
+	using Base = ITIMHelper<Type>;
+	using Base::timAdapter;
+	using Base::timChannel;
+	using Base::CalculateFrequency;
+	using Base::SetPrescaler;
+	using Base::SetPeriod;
+	using Base::SetCompare;
+
 public:
 	struct FrequencyInfo {
-		float frequencyHz;
-		float duty; // Duty in %
+		Type frequencyHz;
+		Type duty; // Duty in %
 	};
 
 
 public:
 	TIMOutputCompareHelper() { }
-	TIMOutputCompareHelper(ATIM& adapter, ATIM::ChannelOption channel): ITIMHelper(adapter, channel) { }
-	TIMOutputCompareHelper(TimerChannel& timerChannel) : ITIMHelper(timerChannel)  { }
+	TIMOutputCompareHelper(ATIM& adapter, ATIM::ChannelOption channel): Base(adapter, channel) { }
+	TIMOutputCompareHelper(TimerChannel& timerChannel) : Base(timerChannel)  { }
 
 
-	TIMOutputCompareHelper& TunePrescaler(float frequencyHz) {
-		auto division = timAdapter->GetClockDivision();
-		auto period = timAdapter->GetParameters().period + 1;
-		auto sourceFrequency = timAdapter->GetBusClockHz() * 1000;
+	TIMOutputCompareHelper& TunePrescaler(Type frequencyHz) {
+		Type division = Type(static_cast<int>(timAdapter->GetClockDivision()));
+		Type period = Type(static_cast<int>(timAdapter->GetParameters().period + 1));
+		Type sourceFrequency = Type(static_cast<int>(timAdapter->GetBusClockHz())) * Type(1000);
 
-		float input = sourceFrequency / division / period;
+		Type input = sourceFrequency / division / period;
 
-		float prescaler = input / frequencyHz;
-		prescaler = prescaler > period ? period - 1 : prescaler;
+		Type prescaler = input / frequencyHz;
+		prescaler = prescaler > period ? period - Type(1) : prescaler;
 
-		SetPrescaler(static_cast<uint16>(prescaler));
+		SetPrescaler(static_cast<uint16>(static_cast<uint32>(prescaler)));
 		return *this;
 	}
-
-
-
 
 
 	TIMOutputCompareHelper& SetHalfCompare() {
@@ -45,17 +51,11 @@ public:
 	}
 
 
-
-
-
 	TIMOutputCompareHelper& TuneHalfCompare(uint32 frequencyHz) {
-		TunePrescaler(frequencyHz * 2);
+		TunePrescaler(Type(static_cast<int>(frequencyHz * 2)));
 		SetHalfCompare();
 		return *this;
 	}
-
-
-
 
 
 	inline TIMOutputCompareHelper& EnableCounter(bool enableTimerCounter) {
@@ -64,13 +64,10 @@ public:
 	}
 
 
-
-
-
 	TIMOutputCompareHelper& SetFrequencyInfo(const FrequencyInfo& info) {
 		auto [prescaler, period] = CalculateFrequency(timAdapter, info.frequencyHz);
 
-		uint32 pulse = static_cast<uint32>(((period + 1) * info.duty) / 100.f);
+		uint32 pulse = static_cast<uint32>(Type(static_cast<int>(period + 1)) * info.duty / Type(100));
 		if (pulse == 0) {
 		    pulse = 1;
 		}
@@ -94,10 +91,7 @@ public:
 	}
 
 
-
-
-
-	TIMOutputCompareHelper& SetFrequency(float frequencyHz) {
+	TIMOutputCompareHelper& SetFrequency(Type frequencyHz) {
 		SetFrequencyInfo(FrequencyInfo {
 			.frequencyHz = frequencyHz,
 			.duty = GetFrequencyInfo().duty
@@ -107,10 +101,7 @@ public:
 	}
 
 
-
-
-
-	TIMOutputCompareHelper& SetDuty(float duty) {
+	TIMOutputCompareHelper& SetDuty(Type duty) {
 		SetFrequencyInfo(FrequencyInfo {
 			.frequencyHz = GetFrequencyInfo().frequencyHz,
 			.duty = duty
@@ -120,19 +111,16 @@ public:
 	}
 
 
-
-
-
 	FrequencyInfo GetFrequencyInfo() {
-		float division = timAdapter->GetClockDivision();
-		float prescaler = timAdapter->GetParameters().prescaler;
-		float period = timAdapter->GetParameters().period;
-		float sourceFrequency = timAdapter->GetBusClockHz() * 1000;
-		float compare = timAdapter->GetOutputCompareParameters(timChannel).compare;
+		Type division = Type(static_cast<int>(timAdapter->GetClockDivision()));
+		Type prescaler = Type(static_cast<int>(timAdapter->GetParameters().prescaler));
+		Type period = Type(static_cast<int>(timAdapter->GetParameters().period));
+		Type sourceFrequency = Type(static_cast<int>(timAdapter->GetBusClockHz())) * Type(1000);
+		Type compare = Type(static_cast<int>(timAdapter->GetOutputCompareParameters(timChannel).compare));
 
 		return FrequencyInfo{
-			.frequencyHz = sourceFrequency / division / (prescaler + 1) / (period + 1),
-			.duty = (compare / (period + 1)) * 100.f
+			.frequencyHz = sourceFrequency / division / (prescaler + Type(1)) / (period + Type(1)),
+			.duty = (compare / (period + Type(1))) * Type(100)
 		};
 	}
 

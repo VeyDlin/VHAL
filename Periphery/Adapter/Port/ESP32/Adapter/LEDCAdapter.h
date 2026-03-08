@@ -33,20 +33,20 @@ public:
 	LEDCAdapter(TimerOption timer, SpeedModeOption speedMode)
 		: timer(timer), speedMode(speedMode) { }
 
-	virtual Status::statusType SetParameters(Parameters val) = 0;
-	virtual Status::statusType AddChannel(ChannelConfig config) = 0;
-	virtual Status::statusType SetDuty(ChannelOption channel, uint32 duty) = 0;
-	virtual Status::statusType SetFrequency(uint32 frequencyHz) = 0;
+	virtual ResultStatus SetParameters(Parameters val) = 0;
+	virtual ResultStatus AddChannel(ChannelConfig config) = 0;
+	virtual ResultStatus SetDuty(ChannelOption channel, uint32 duty) = 0;
+	virtual ResultStatus SetFrequency(uint32 frequencyHz) = 0;
 	virtual uint32 GetFrequency() = 0;
 	virtual uint32 GetDuty(ChannelOption channel) = 0;
-	virtual Status::statusType FadeTo(ChannelOption channel, uint32 targetDuty, uint32 fadeTimeMs) = 0;
-	virtual Status::statusType Stop(ChannelOption channel, uint32 idleLevel = 0) = 0;
+	virtual ResultStatus FadeTo(ChannelOption channel, uint32 targetDuty, uint32 fadeTimeMs) = 0;
+	virtual ResultStatus Stop(ChannelOption channel, uint32 idleLevel = 0) = 0;
 
 	uint32 GetMaxDuty() const {
 		return (1u << parameters.dutyResolution.Get());
 	}
 
-	Status::statusType SetDutyPercent(ChannelOption channel, float percent) {
+	ResultStatus SetDutyPercent(ChannelOption channel, float percent) {
 		uint32 duty = static_cast<uint32>((percent / 100.0f) * GetMaxDuty());
 		return SetDuty(channel, duty);
 	}

@@ -45,9 +45,9 @@ public:
 
 
 protected:
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -60,9 +60,9 @@ protected:
 
 
 
-	virtual Status::statusType CalculateDividers() override {
+	virtual ResultStatus CalculateDividers() override {
 		// TODO: [VHAL] [IWDG] [G4] [ADD SUPPORT]
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 };

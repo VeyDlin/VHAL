@@ -2,7 +2,6 @@
 #include <VHAL.h>
 
 
-
 class CounterTrigger {
 public:
 	enum class Direction : uint8 { Forward = 0, Backward = 1 };
@@ -39,7 +38,7 @@ public:
 
 
 	CounterTrigger& SetTrigger(bool val = true) {
-		input.trigger = trigger;
+		input.trigger = val;
 		return *this;
 	}
 
@@ -64,7 +63,7 @@ public:
 				break;
 
 				case Direction::Backward:
-					if (out.step == 0) {
+					if (output.step == 0) {
 						output.step = 5;
 					} else {
 						output.step--;

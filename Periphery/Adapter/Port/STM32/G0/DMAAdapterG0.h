@@ -131,9 +131,9 @@ public:
 
 
 
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -152,7 +152,7 @@ public:
 
 
 
-	virtual Status::statusType StartTransfer(const uint8* from, uint8* to, uint32 size) override {
+	virtual ResultStatus StartTransfer(const uint8* from, uint8* to, uint32 size) override {
 		uint32 count = size / DataWidthBytes();
 
 		LL_DMA_DisableChannel(dmaHandle, LLChannel());
@@ -179,31 +179,31 @@ public:
 		LL_DMA_EnableChannel(dmaHandle, LLChannel());
 
 		lastTransferSize = count;
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
-	virtual Status::statusType Stop() override {
+	virtual ResultStatus Stop() override {
 		LL_DMA_DisableChannel(dmaHandle, LLChannel());
 		LL_DMA_DisableIT_TC(dmaHandle, LLChannel());
 		LL_DMA_DisableIT_HT(dmaHandle, LLChannel());
 		LL_DMA_DisableIT_TE(dmaHandle, LLChannel());
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
-	virtual Status::statusType GetStatus() override {
+	virtual ResultStatus GetStatus() override {
 		if (IsActiveFlag_TE()) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 		if (IsActiveFlag_TC()) {
-			return Status::ok;
+			return ResultStatus::ok;
 		}
-		return Status::busy;
+		return ResultStatus::busy;
 	}
 
 

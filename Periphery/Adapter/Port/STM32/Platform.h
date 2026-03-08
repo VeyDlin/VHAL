@@ -60,6 +60,10 @@
 	#include "stm32g0xx_ll_exti.h"
 	#include "cmsis_gcc.h"
 
+	#ifdef VHAL_STM32_G0_UART
+		#include "stm32g0xx_ll_usart.h"
+	#endif
+
 	#ifdef VHAL_STM32_G0_I2C
 		#include "stm32g0xx_ll_i2c.h"
 	#endif

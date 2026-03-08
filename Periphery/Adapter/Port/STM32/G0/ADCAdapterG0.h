@@ -59,7 +59,7 @@ public:
 		LL_ADC_DisableIT_EOC(adcHandle);
 		LL_ADC_DisableIT_EOS(adcHandle);
 		LL_ADC_DisableIT_OVR(adcHandle);
-		state = Status::ready;
+		state = ResultStatus::ready;
 	}
 
 
@@ -71,35 +71,35 @@ public:
 		LL_ADC_ClearFlag_AWD2(adcHandle);
 		LL_ADC_ClearFlag_AWD3(adcHandle);
 		LL_ADC_DisableIT_OVR(adcHandle);
-		state = Status::ready;
+		state = ResultStatus::ready;
 	}
 
 
 	virtual void AbortSampling() override {
 
-		state = Status::ready;
+		state = ResultStatus::ready;
 	}
 
 
 	virtual void AbortConfigurationReady() override {
 
-		state = Status::ready;
+		state = ResultStatus::ready;
 	}
 
 
 
 
 
-	virtual Status::statusType Calibration() override {
-		if (state != Status::ready) {
-			return Status::busy;
+	virtual ResultStatus Calibration() override {
+		if (state != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
-		state = Status::busy;
+		state = ResultStatus::busy;
 
 		DisableCorrect();
 
 		if (LL_ADC_IsEnabled(adcHandle)) {
-			return Status::notAvailable;
+			return ResultStatus::notAvailable;
 		}
 
 		auto backupLowPowerMode = LL_ADC_GetLowPowerMode(adcHandle);
@@ -121,9 +121,9 @@ public:
 
 					LL_ADC_SetLowPowerMode(adcHandle, backupLowPowerMode);
 					LL_ADC_REG_SetDMATransfer(adcHandle, backupDmaTransfer);
-					state = Status::ready;
+					state = ResultStatus::ready;
 
-					return Status::timeout;
+					return ResultStatus::timeout;
 				}
 			}
 
@@ -146,9 +146,9 @@ public:
 				if (LL_ADC_IsEnabled(adcHandle)) {
 					LL_ADC_SetLowPowerMode(adcHandle, backupLowPowerMode);
 					LL_ADC_REG_SetDMATransfer(adcHandle, backupDmaTransfer);
-					state = Status::ready;
+					state = ResultStatus::ready;
 
-					return Status::timeout;
+					return ResultStatus::timeout;
 				}
 			}
 		}
@@ -157,9 +157,9 @@ public:
 		LL_ADC_SetLowPowerMode(adcHandle, backupLowPowerMode);
 		LL_ADC_REG_SetDMATransfer(adcHandle, backupDmaTransfer);
 
-		state = Status::ready;
+		state = ResultStatus::ready;
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
@@ -194,7 +194,7 @@ protected:
 		switch (GetResolutionByte()) {
 			case 1: *(uint8*)dataPointer = static_cast<uint8>(lastData);  break;
 			case 2: *(uint16*)dataPointer = static_cast<uint16>(lastData); break;
-			default: abort();
+			default: SystemAbort();
 		}
 		dataPointer += GetResolutionByte();
 
@@ -217,7 +217,7 @@ protected:
 
 		dataCounter = 0;
 		dataPointer = dataPointerOriginal;
-		state = Status::ready;
+		state = ResultStatus::ready;
 
 		CallInterrupt(Irq::Conversion);
 
@@ -232,19 +232,19 @@ protected:
 	inline void WatchDogInterrupt() {
 		if (LL_ADC_IsActiveFlag_AWD1(adcHandle) && LL_ADC_IsEnabledIT_AWD1(adcHandle)) {
 			LL_ADC_ClearFlag_AWD1(adcHandle);
-			state = Status::ready;
+			state = ResultStatus::ready;
 			CallInterrupt(Irq::Watchdog, 1);
 		}
 
 		if (LL_ADC_IsActiveFlag_AWD2(adcHandle) && LL_ADC_IsEnabledIT_AWD2(adcHandle)) {
 			LL_ADC_ClearFlag_AWD2(adcHandle);
-			state = Status::ready;
+			state = ResultStatus::ready;
 			CallInterrupt(Irq::Watchdog, 1);
 		}
 
 		if (LL_ADC_IsActiveFlag_AWD3(adcHandle) && LL_ADC_IsEnabledIT_AWD3(adcHandle)) {
 			LL_ADC_ClearFlag_AWD3(adcHandle);
-			state = Status::ready;
+			state = ResultStatus::ready;
 			CallInterrupt(Irq::Watchdog, 1);
 		}
 	}
@@ -289,9 +289,9 @@ protected:
 
 
 protected:
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -305,7 +305,7 @@ protected:
 		};
 
 		if(LL_ADC_Init(adcHandle, &initDef) != ErrorStatus::SUCCESS) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		LL_ADC_REG_SetSequencerConfigurable(adcHandle, LL_ADC_REG_SEQ_CONFIGURABLE);
@@ -328,7 +328,7 @@ protected:
 			#endif
 		};
 		if(LL_ADC_CommonInit(__LL_ADC_COMMON_INSTANCE(adcHandle), &initCommon) != ErrorStatus::SUCCESS) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 
@@ -353,7 +353,7 @@ protected:
 
 
 
-	virtual Status::statusType RegularInitialization(uint8 rankLength) override {
+	virtual ResultStatus RegularInitialization(uint8 rankLength) override {
 		LL_ADC_REG_InitTypeDef init = {
 			.TriggerSource = regularParameters.triggerSource.Get(),
 			.SequencerLength = CastSequencerLength(rankLength), // rankLength
@@ -363,27 +363,27 @@ protected:
 			.Overrun = LL_ADC_REG_OVR_DATA_PRESERVED
 		};
 		if(LL_ADC_REG_Init(adcHandle, &init) != ErrorStatus::SUCCESS) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual Status::statusType InjectedInitialization(uint8 rankLength) override {
-		return Status::notSupported;
+	virtual ResultStatus InjectedInitialization(uint8 rankLength) override {
+		return ResultStatus::notSupported;
 	}
 
 
 
 
 
-	virtual Status::statusType ReadByteArray(uint8* buffer, uint16 size) override {
-		if (state != Status::ready) {
-			return Status::busy;
+	virtual ResultStatus ReadByteArray(uint8* buffer, uint16 size) override {
+		if (state != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
 		if (!LL_ADC_IsEnabled(adcHandle)) {
@@ -392,10 +392,10 @@ protected:
 		}
 
 		if (!LL_ADC_IsEnabled(adcHandle)) {
-			return Status::notAvailable;
+			return ResultStatus::notAvailable;
 		}
 
-		state = Status::busy;
+		state = ResultStatus::busy;
 		dataNeed = size / GetResolutionByte();
 		dataCounter = 0;
 		dataPointer = buffer;
@@ -412,8 +412,8 @@ protected:
 		for (dataCounter = 0; dataCounter < dataNeed; dataCounter++) {
 			while (!LL_ADC_IsActiveFlag_EOC(adcHandle)) {
 				if ((System::GetTick() - tickStart) > timeout) {
-					state = Status::ready;
-					return Status::timeout;
+					state = ResultStatus::ready;
+					return ResultStatus::timeout;
 				}
 			}
 
@@ -422,7 +422,7 @@ protected:
 			switch (GetResolutionByte()) {
 				case 1: *(uint8*)dataPointer = static_cast<uint8>(lastData);  break;
 				case 2: *(uint16*)dataPointer = static_cast<uint16>(lastData); break;
-				default: abort();
+				default: SystemAbort();
 			}
 			dataPointer += GetResolutionByte();
 		}
@@ -440,17 +440,17 @@ protected:
 		LL_ADC_ClearFlag_EOC(adcHandle);
 		LL_ADC_ClearFlag_EOS(adcHandle);
 
-		state = Status::ready;
-		return Status::ok;
+		state = ResultStatus::ready;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual Status::statusType ReadByteArrayAsync(uint8 *buffer, uint16 size) override {
-		if (state != Status::ready) {
-			return Status::busy;
+	virtual ResultStatus ReadByteArrayAsync(uint8 *buffer, uint16 size) override {
+		if (state != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
 		if (!LL_ADC_IsEnabled(adcHandle)) {
@@ -459,10 +459,10 @@ protected:
 		}
 
 		if (!LL_ADC_IsEnabled(adcHandle)) {
-			return Status::notAvailable;
+			return ResultStatus::notAvailable;
 		}
 
-		state = Status::busy;
+		state = ResultStatus::busy;
 		dataNeed = size / GetResolutionByte();
 		dataCounter = 0;
 		dataPointer = buffer;
@@ -478,11 +478,11 @@ protected:
 			LL_ADC_REG_SetDMATransfer(adcHandle, LL_ADC_REG_DMA_TRANSFER_UNLIMITED);
 
 			dma->onTransferComplete = [this]() {
-				state = Status::ready;
+				state = ResultStatus::ready;
 				CallInterrupt(Irq::Conversion);
 			};
 			dma->onError = [this]() {
-				state = Status::ready;
+				state = ResultStatus::ready;
 				CallError(Error::Overrun);
 			};
 
@@ -493,7 +493,7 @@ protected:
 				LL_ADC_REG_StartConversion(adcHandle);
 			}
 
-			return Status::ok;
+			return ResultStatus::ok;
 		}
 
 		LL_ADC_EnableIT_EOC(adcHandle);
@@ -505,20 +505,20 @@ protected:
 			LL_ADC_REG_StartConversion(adcHandle);
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
-	virtual Status::info<float> SetInjectedChannel(const InjecteChannel &channel, uint8 rank) override {
-		return { Status::notSupported };
+	virtual Result<uint32> SetInjectedChannel(const InjecteChannel &channel, uint8 rank) override {
+		return { ResultStatus::notSupported };
 	}
 
 
 
-	virtual Status::info<float> SetRegularChannel(const RegularChannel &channel, uint8 rank) override {
-		float outSamplingTime = 0;
-		uint32 samplingTime = CastSamplingTime(channel.maxSamplingCycles, outSamplingTime);
+	virtual Result<uint32> SetRegularChannel(const RegularChannel &channel, uint8 rank) override {
+		uint32 outSamplingTimeNs = 0;
+		uint32 samplingTime = CastSamplingTime(channel.maxSamplingTimeNs, outSamplingTimeNs);
 
 		LL_ADC_REG_SetSequencerRanks(adcHandle, CastRank(rank), CastChannel(channel.channel));
 		//LL_ADC_SetChannelSamplingTime(adcHandle, CastChannel(channel.channel), samplingTime);
@@ -527,7 +527,7 @@ protected:
 		LL_ADC_SetSamplingTimeCommonChannels(adcHandle, LL_ADC_SAMPLINGTIME_COMMON_1, samplingTime);
 		LL_ADC_SetChannelSamplingTime(adcHandle, CastChannel(channel.channel), LL_ADC_SAMPLINGTIME_COMMON_1);
 
-		return { Status::ok, outSamplingTime };
+		return { ResultStatus::ok, outSamplingTimeNs };
 	}
 
 
@@ -542,9 +542,9 @@ private:
 
 			case Resolution::B14:
 			case Resolution::B16:
-				abort();
+				SystemAbort();
 		}
-		abort();
+		SystemAbort();
 		return 0;
 	}
 
@@ -555,7 +555,7 @@ private:
 			case DataAlignment::Right: return LL_ADC_DATA_ALIGN_RIGHT;
 			case DataAlignment::Left: return LL_ADC_DATA_ALIGN_LEFT;
 		}
-		abort();
+		SystemAbort();
 		return 0;
 	}
 
@@ -566,7 +566,7 @@ private:
 			case ContinuousMode::Continuous: return LL_ADC_REG_CONV_CONTINUOUS;
 			case ContinuousMode::Single: return LL_ADC_REG_CONV_SINGLE;
 		}
-		abort();
+		SystemAbort();
 		return 0;
 	}
 
@@ -614,34 +614,34 @@ private:
 
 
 
-	uint32 CastSamplingTime(uint16 maxSamplingCycles, float &outSamplingTime) {
+	uint32 CastSamplingTime(uint32 maxSamplingTimeNs, uint32 &outSamplingTimeNs) {
 		static const uint8 arraySize = 7;
-		struct SamplingElement { uint32 reg; float val; };
+		struct SamplingElement { uint32 reg; uint32 val; };
 		static const SamplingElement samplingArray[arraySize] = {
-			{ LL_ADC_SAMPLINGTIME_1CYCLE_5, 	1.5   },
-			{ LL_ADC_SAMPLINGTIME_3CYCLES_5,	3.5   },
-			{ LL_ADC_SAMPLINGTIME_7CYCLES_5, 	7.5   },
-			{ LL_ADC_SAMPLINGTIME_19CYCLES_5, 	19.5  },
-			{ LL_ADC_SAMPLINGTIME_39CYCLES_5, 	39.5  },
-			{ LL_ADC_SAMPLINGTIME_79CYCLES_5,	79.5  },
-			{ LL_ADC_SAMPLINGTIME_160CYCLES_5, 	160.5 }
+			{ LL_ADC_SAMPLINGTIME_1CYCLE_5, 	1500   },
+			{ LL_ADC_SAMPLINGTIME_3CYCLES_5,	3500   },
+			{ LL_ADC_SAMPLINGTIME_7CYCLES_5, 	7500   },
+			{ LL_ADC_SAMPLINGTIME_19CYCLES_5, 	19500  },
+			{ LL_ADC_SAMPLINGTIME_39CYCLES_5, 	39500  },
+			{ LL_ADC_SAMPLINGTIME_79CYCLES_5,	79500  },
+			{ LL_ADC_SAMPLINGTIME_160CYCLES_5, 	160500 }
 		};
 
 
 
-		if(maxSamplingCycles == 0) {
-			outSamplingTime = samplingArray[0].val;
+		if(maxSamplingTimeNs == 0) {
+			outSamplingTimeNs = samplingArray[0].val;
 			return samplingArray[0].reg;
 		}
 
 		for (uint8 i = 0; i < arraySize; i++) {
-			if(maxSamplingCycles <= samplingArray[i].val) {
-				outSamplingTime = samplingArray[i].val;
+			if(maxSamplingTimeNs <= samplingArray[i].val) {
+				outSamplingTimeNs = samplingArray[i].val;
 				return samplingArray[i].reg;
 			}
 		}
 
-		outSamplingTime = samplingArray[arraySize - 1].val;
+		outSamplingTimeNs = samplingArray[arraySize - 1].val;
 		return samplingArray[arraySize - 1].reg;
 	}
 
@@ -649,13 +649,13 @@ private:
 
 
 
-	Status::statusType DisableCorrect() {
+	ResultStatus DisableCorrect() {
 		if (!LL_ADC_IsEnabled(adcHandle) || LL_ADC_IsDisableOngoing(adcHandle)) {
-			return Status::ok;
+			return ResultStatus::ok;
 		}
 
 		if (LL_ADC_REG_IsConversionOngoing(adcHandle)) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		LL_ADC_Disable(adcHandle);
@@ -668,11 +668,11 @@ private:
 
 				// New check to avoid false timeout detection in case of preemption
 				if (LL_ADC_IsEnabled(adcHandle)) {
-					return Status::error;
+					return ResultStatus::error;
 				}
 			}
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 };

@@ -45,7 +45,7 @@ public:
 
 	struct RegularChannel {
 		uint8 channel;
-		uint16 maxSamplingCycles;
+		uint32 maxSamplingTimeNs;
 	};
 
 
@@ -57,7 +57,7 @@ public:
 
 	struct InjecteChannel {
 		uint8 channel;
-		uint16 maxSamplingCycles;
+		uint32 maxSamplingTimeNs;
 	};
 
 
@@ -70,7 +70,7 @@ protected:
 
 	uint32 timeout = 1000;
 
-	Status::statusType state = Status::ready;
+	ResultStatus state = ResultStatus::ready;
 	uint16 dataNeed = 0;
 	uint16 dataCounter = 0;
 	uint8 *dataPointer = nullptr;
@@ -94,16 +94,17 @@ public:
 
 
 	template <typename DataType>
-	Status::statusType ReadArray(DataType* buffer, uint32 size = 1) {
+	ResultStatus ReadArray(DataType* buffer, uint32 size = 1) {
 		return ReadByteArray(reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
 	}
 
 
 	template <typename DataType>
-	inline Status::info<DataType> Read() {
-		auto output = Status::info<DataType>();
-		output.type = ReadByteArray(reinterpret_cast<uint8*>(&output.data), sizeof(DataType));
-		return output;
+	inline Result<DataType> Read() {
+		DataType data;
+		return Result<DataType>::Capture(
+			ReadByteArray(reinterpret_cast<uint8*>(&data), sizeof(DataType)), data
+		);
 	}
 
 
@@ -117,13 +118,13 @@ public:
 
 
 	template <typename DataType>
-	inline Status::statusType ReadArrayAsync(DataType* buffer, uint32 size = 1) {
+	inline ResultStatus ReadArrayAsync(DataType* buffer, uint32 size = 1) {
 		return ReadByteArrayAsync(reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
 	}
 
 
 	template <typename DataType>
-	inline Status::statusType ReadAsync(DataType &data) {
+	inline ResultStatus ReadAsync(DataType &data) {
 		return ReadByteArrayAsync(reinterpret_cast<uint8*>(&data), sizeof(DataType));
 	}
 
@@ -132,41 +133,41 @@ public:
 
 
 public:
-	virtual Status::statusType SetParameters(Parameters val) {
+	virtual ResultStatus SetParameters(Parameters val) {
 		parameters = val;
 		return Initialization();
 	}
 
 
 
-	virtual Status::statusType ConfigRegularGroup(RegularParameters val, const std::initializer_list<RegularChannel>& regularGroup) {
+	virtual ResultStatus ConfigRegularGroup(RegularParameters val, const std::initializer_list<RegularChannel>& regularGroup) {
 		regularParameters = val;
 		auto regular = RegularInitialization(regularGroup.size());
-		if(regular != Status::ok) {
+		if(regular != ResultStatus::ok) {
 			return regular;
 		}
 
 		uint8 rank = 1;
 		for(auto &channel : regularGroup) {
 			auto status = SetRegularChannel(channel, rank++);
-			if(status.IsError()) {
-				return status.type;
+			if(status.IsErr()) {
+				return status.Error();
 			}
 		}
 
-	    return Status::ok;
+	    return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual Status::statusType ConfigInjectedGroup(const std::initializer_list<InjecteChannel>& injectedGroup) {
+	virtual ResultStatus ConfigInjectedGroup(const std::initializer_list<InjecteChannel>& injectedGroup) {
 		uint8 rank = 1;
 		for(auto &channel : injectedGroup) {
 			auto status = SetInjectedChannel(channel, rank++);
-			if(status.IsError()) {
-				return status.type;
+			if(status.IsErr()) {
+				return status.Error();
 			}
 		}
 
@@ -177,7 +178,7 @@ public:
 
 
 	// TODO: [VHAL] [ADC] [ADAPTER] [ADD SUPPORT] ConfigCommonSampling()
-	// TODO: virtual Status::statusType ConfigCommonSampling(CCommonSampling commonSampling, uint16 maxSamplingCycles) = 0;
+	// TODO: virtual ResultStatus ConfigCommonSampling(CCommonSampling commonSampling, uint32 maxSamplingTimeNs) = 0;
 
 
 
@@ -189,7 +190,7 @@ public:
 
 
 
-	virtual Status::statusType Calibration() = 0;
+	virtual ResultStatus Calibration() = 0;
 
 
 
@@ -221,16 +222,16 @@ public:
 
 
 protected:
-	virtual Status::statusType Initialization() = 0;
-	virtual Status::statusType RegularInitialization(uint8 rankLength) = 0;
-	virtual Status::statusType InjectedInitialization(uint8 rankLength) = 0;
+	virtual ResultStatus Initialization() = 0;
+	virtual ResultStatus RegularInitialization(uint8 rankLength) = 0;
+	virtual ResultStatus InjectedInitialization(uint8 rankLength) = 0;
 
 
-	virtual Status::statusType ReadByteArray(uint8 *buffer, uint16 size) = 0;
-	virtual Status::statusType ReadByteArrayAsync(uint8 *buffer, uint16 size) = 0;
+	virtual ResultStatus ReadByteArray(uint8 *buffer, uint16 size) = 0;
+	virtual ResultStatus ReadByteArrayAsync(uint8 *buffer, uint16 size) = 0;
 
-	virtual Status::info<float> SetRegularChannel(const RegularChannel &channel, uint8 rank) = 0;
-	virtual Status::info<float> SetInjectedChannel(const InjecteChannel &channel, uint8 rank) = 0;
+	virtual Result<uint32> SetRegularChannel(const RegularChannel &channel, uint8 rank) = 0;
+	virtual Result<uint32> SetInjectedChannel(const InjecteChannel &channel, uint8 rank) = 0;
 
 
 

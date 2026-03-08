@@ -16,7 +16,7 @@ public:
 	I2CMutexAdapter(HandleT *i2c, uint32 busClockHz):AdapterClass(i2c, busClockHz) { }
 
 
-	virtual Status::statusType CheckDevice(uint8 deviceAddress, uint16 repeat = 1) override {
+	virtual ResultStatus CheckDevice(uint8 deviceAddress, uint16 repeat = 1) override {
 		CallMutex(true);
 		auto status = AdapterClass::CheckDevice(deviceAddress, repeat);
 		CallMutex(false);
@@ -25,7 +25,7 @@ public:
 
 
 
-	virtual Status::statusType CheckDeviceAsync(uint8 deviceAddress, uint16 repeat = 1) override {
+	virtual ResultStatus CheckDeviceAsync(uint8 deviceAddress, uint16 repeat = 1) override {
 		CallMutex(true);
 		auto status = AdapterClass::CheckDeviceAsync(deviceAddress, repeat);
 		StatusAssert(status);
@@ -36,7 +36,7 @@ public:
 
 
 
-	virtual Status::info<uint8> Scan(uint8 *listBuffer, uint8 size) override {
+	virtual Result<uint8> Scan(uint8 *listBuffer, uint8 size) override {
 		CallMutex(true);
 		auto status = AdapterClass::Scan(listBuffer, size);
 		CallMutex(false);
@@ -45,20 +45,23 @@ public:
 
 
 
-	virtual Status::info<uint8> ScanAsync(uint8 *listBuffer, uint8 size) override {
+	virtual Result<uint8> ScanAsync(uint8 *listBuffer, uint8 size) override {
 		CallMutex(true);
 		auto status = AdapterClass::ScanAsync(listBuffer, size);
-		if(status.IsError()) {
+		if(status.IsErr()) {
 			return status;
 		}
-		status.type = AdapterClass::Await();
+		auto awaitStatus = AdapterClass::Await();
+		if(awaitStatus != ResultStatus::ok) {
+			return awaitStatus;
+		}
 		CallMutex(false);
 		return status;
 	}
 
 
 
-	virtual Status::statusType WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
+	virtual ResultStatus WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
 		CallMutex(true);
 		auto status = AdapterClass::WriteByteArray(device, address, addressSize, writeData, dataSize);
 		CallMutex(false);
@@ -67,7 +70,7 @@ public:
 
 
 
-	virtual Status::statusType ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
+	virtual ResultStatus ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
 		CallMutex(true);
 		auto status = AdapterClass::ReadByteArray(device, address, addressSize, readData, dataSize);
 		CallMutex(false);
@@ -76,7 +79,7 @@ public:
 
 
 
-	virtual Status::statusType WriteByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
+	virtual ResultStatus WriteByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
 		CallMutex(true);
 		auto status = AdapterClass::WriteByteArrayAsync(device, address, addressSize, writeData, dataSize);
 		StatusAssert(status);
@@ -87,7 +90,7 @@ public:
 
 
 
-	virtual Status::statusType ReadByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
+	virtual ResultStatus ReadByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
 		CallMutex(true);
 		auto status = AdapterClass::ReadByteArrayAsync(device, address, addressSize, readData, dataSize);
 		StatusAssert(status);

@@ -389,7 +389,7 @@ private:
         packet.dataSpan = data;
         packet.sentBytes = 0;
 
-        if (pendingPackets.Push(packet) != Status::ok) {
+        if (pendingPackets.Push(packet) != ResultStatus::ok) {
             return {SendStatus::BufferFull, streamId, fragmentIndex};
         }
 
@@ -422,7 +422,7 @@ private:
         packet.sentBytes = 0;
 
         auto pushResult = pendingPackets.Push(packet);
-        if (pushResult != Status::ok) {
+        if (pushResult != ResultStatus::ok) {
             return {SendStatus::BufferFull, 0, 0};
         }
 
@@ -519,8 +519,8 @@ private:
 
         for (size_t i = 0; i < totalSize; i++) {
             auto byte = receiveBuffer.Pop();
-            if (byte.IsError()) return false;
-            packetData[i] = byte.data;
+            if (byte.IsErr()) return false;
+            packetData[i] = byte.Value();
         }
 
         // Check CRC
@@ -725,18 +725,18 @@ private:
             auto packet = pendingPackets.Pop();
             if (!packet.IsOk()) break;
 
-            if (!found && packet.data.header.packetNumber == header.packetNumber) {
+            if (!found && packet.Value().header.packetNumber == header.packetNumber) {
                 found = true;
-                if (header.type == PacketType::Nack && packet.data.options.retryOnError) {
-                    if (packet.data.retryCount < packet.data.options.maxRetries) {
-                        packet.data.retryCount++;
-                        packet.data.createdAt = processCounter;
-                        tempQueue.Push(packet.data);
+                if (header.type == PacketType::Nack && packet.Value().options.retryOnError) {
+                    if (packet.Value().retryCount < packet.Value().options.maxRetries) {
+                        packet.Value().retryCount++;
+                        packet.Value().createdAt = processCounter;
+                        tempQueue.Push(packet.Value());
                     }
                 }
                 // If ACK or retries exceeded - don't return to queue
             } else {
-                tempQueue.Push(packet.data);
+                tempQueue.Push(packet.Value());
             }
         }
 
@@ -744,7 +744,7 @@ private:
         while (!tempQueue.IsEmpty()) {
             auto packet = tempQueue.Pop();
             if (packet.IsOk()) {
-                pendingPackets.Push(packet.data);
+                pendingPackets.Push(packet.Value());
             }
         }
     }
@@ -782,11 +782,11 @@ private:
         }
 
         auto packet = pendingPackets.Peek();
-        if (packet.IsError()) {
+        if (packet.IsErr()) {
             return;
         }
 
-        currentPendingPacket = packet.data;
+        currentPendingPacket = packet.Value();
         hasCurrentPendingPacket = true;
         pendingPackets.Pop();
     }

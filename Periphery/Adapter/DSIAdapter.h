@@ -63,7 +63,7 @@ public:
 	DSIAdapter(HandleType *handle) : dsiHandle(handle) { }
 
 
-	virtual Status::statusType SetParameters(Parameters val) {
+	virtual ResultStatus SetParameters(Parameters val) {
 		parameters = val;
 		return Initialization();
 	}
@@ -75,12 +75,12 @@ public:
 
 
 	// DCS commands
-	virtual Status::statusType WriteCommand(uint8 cmd, const uint8 *params = nullptr, uint32 paramSize = 0) = 0;
-	virtual Status::statusType ReadCommand(uint8 cmd, uint8 *data, uint32 size) = 0;
+	virtual ResultStatus WriteCommand(uint8 cmd, const uint8 *params = nullptr, uint32 paramSize = 0) = 0;
+	virtual ResultStatus ReadCommand(uint8 cmd, uint8 *data, uint32 size) = 0;
 
 	// Control
-	virtual Status::statusType Start() = 0;
-	virtual Status::statusType Stop() = 0;
+	virtual ResultStatus Start() = 0;
+	virtual ResultStatus Stop() = 0;
 
 	// Framebuffer
 	virtual void* GetFrameBuffer(uint8 index = 0) = 0;
@@ -89,7 +89,7 @@ public:
 
 
 protected:
-	virtual Status::statusType Initialization() = 0;
+	virtual ResultStatus Initialization() = 0;
 
 
 	virtual inline void CallInterrupt(Irq irqType) {

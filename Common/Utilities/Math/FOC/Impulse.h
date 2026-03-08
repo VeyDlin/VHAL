@@ -2,7 +2,6 @@
 #include <VHAL.h>
 
 
-
 class Impulse {
 private:
 	uint32 counter = 0;

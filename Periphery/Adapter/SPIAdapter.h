@@ -52,14 +52,14 @@ protected:
 	Parameters parameters;
 
 	bool continuousAsyncRxMode = false;
-	Status::statusType rxState = Status::ready;
+	ResultStatus rxState = ResultStatus::ready;
 	uint16 rxDataNeed = 0;
 	uint16 rxDataCounter = 0;
 	uint8 *rxDataPointer = nullptr;
 	uint8 lastRxData = 0;
 
 	bool continuousAsyncTxMode = false;
-	Status::statusType txState = Status::ready;
+	ResultStatus txState = ResultStatus::ready;
 	uint16 txDataNeed = 0;
 	uint16 txDataCounter = 0;
 	uint8 *txDataPointer = nullptr;
@@ -79,7 +79,7 @@ public:
 
 
 	template <typename DataType>
-	inline Status::statusType Write(DataType data) {
+	inline ResultStatus Write(DataType data) {
 		ChipSelect(true);
 		auto status = WriteByteArray(reinterpret_cast<uint8*>(&data), sizeof(DataType));
 		ChipSelect(false);
@@ -91,7 +91,7 @@ public:
 
 
 	template <typename DataType>
-	inline Status::statusType WriteArray(DataType* buffer, uint32 size) {
+	inline ResultStatus WriteArray(DataType* buffer, uint32 size) {
 		ChipSelect(true);
 		auto status = WriteByteArray(reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
 		ChipSelect(false);
@@ -103,7 +103,7 @@ public:
 
 
 	template <typename DataType>
-	inline Status::statusType WriteArray(const DataType* buffer, uint32 size) {
+	inline ResultStatus WriteArray(const DataType* buffer, uint32 size) {
 		return WriteArray<DataType>(const_cast<DataType*>(buffer), size);
 	}
 
@@ -112,12 +112,12 @@ public:
 
 
 	template <typename DataType>
-	inline Status::info<DataType> Read(uint32 size = 1) {
-		auto output = Status::info<DataType>();
+	inline Result<DataType> Read(uint32 size = 1) {
+		DataType data;
 		ChipSelect(true);
-		output.type = ReadByteArray(reinterpret_cast<uint8*>(&output.data), sizeof(DataType) * size);
+		auto status = ReadByteArray(reinterpret_cast<uint8*>(&data), sizeof(DataType) * size);
 		ChipSelect(false);
-		return output;
+		return Result<DataType>::Capture(status, data);
 	}
 
 
@@ -125,12 +125,11 @@ public:
 
 
 	template <typename DataType>
-	inline Status::statusType ReadArray(DataType* buffer, uint32 size) {
-		auto output = Status::info<DataType>();
+	inline ResultStatus ReadArray(DataType* buffer, uint32 size) {
 		ChipSelect(true);
-		output.type = ReadByteArray(reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
+		auto status = ReadByteArray(reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
 		ChipSelect(false);
-		return output;
+		return status;
 	}
 
 
@@ -138,12 +137,12 @@ public:
 
 
 	template <typename DataType>
-	inline Status::info<DataType> WriteRead(DataType data) {
-		auto output = Status::info<DataType>();
+	inline Result<DataType> WriteRead(DataType data) {
+		DataType outData;
 		ChipSelect(true);
-		output.type = WriteReadByteArray(reinterpret_cast<uint8*>(&data), reinterpret_cast<uint8*>(&output.data), sizeof(DataType));
+		auto status = WriteReadByteArray(reinterpret_cast<uint8*>(&data), reinterpret_cast<uint8*>(&outData), sizeof(DataType));
 		ChipSelect(false);
-		return output;
+		return Result<DataType>::Capture(status, outData);
 	}
 
 
@@ -151,7 +150,7 @@ public:
 
 
 	template <typename DataType>
-	inline Status::info<DataType> WriteReadArray(DataType *txBuffer, DataType *rxBuffer, uint32 size) {
+	inline ResultStatus WriteReadArray(DataType *txBuffer, DataType *rxBuffer, uint32 size) {
 		ChipSelect(true);
 		auto status = WriteReadByteArray(reinterpret_cast<uint8*>(txBuffer), reinterpret_cast<uint8*>(rxBuffer), sizeof(DataType) * size);
 		ChipSelect(false);
@@ -169,7 +168,7 @@ public:
 
 
 	template <typename DataType>
-	inline Status::statusType WriteAsync(DataType &data) {
+	inline ResultStatus WriteAsync(DataType &data) {
 		ChipSelect(true);
 		return WriteByteArrayAsync(reinterpret_cast<uint8*>(&data), sizeof(DataType));
 	}
@@ -179,7 +178,7 @@ public:
 
 
 	template <typename DataType>
-	inline Status::statusType WriteArrayAsync(DataType* buffer, uint32 size) {
+	inline ResultStatus WriteArrayAsync(DataType* buffer, uint32 size) {
 		ChipSelect(true);
 		return WriteByteArrayAsync(reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
 	}
@@ -189,7 +188,7 @@ public:
 
 
 	template <typename DataType>
-	inline Status::statusType WriteArrayAsync(const DataType* buffer, uint32 size) {
+	inline ResultStatus WriteArrayAsync(const DataType* buffer, uint32 size) {
 		return WriteArray<DataType>(const_cast<DataType*>(buffer), size);
 	}
 
@@ -198,7 +197,7 @@ public:
 
 
 	template <typename DataType>
-	inline Status::statusType ReadAsync(DataType* buffer) {
+	inline ResultStatus ReadAsync(DataType* buffer) {
 		ChipSelect(true);
 		return ReadByteArrayAsync(reinterpret_cast<uint8*>(buffer), sizeof(DataType));
 	}
@@ -208,7 +207,7 @@ public:
 
 
 	template <typename DataType>
-	inline Status::statusType ReadArrayAsync(DataType* buffer, uint32 size) {
+	inline ResultStatus ReadArrayAsync(DataType* buffer, uint32 size) {
 		ChipSelect(true);
 		return ReadByteArrayAsync(reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
 	}
@@ -218,7 +217,7 @@ public:
 
 
 	template <typename DataType>
-	inline Status::info<DataType> WriteReadAsync(DataType *txBuffer, DataType *rxBuffer) {
+	inline ResultStatus WriteReadAsync(DataType *txBuffer, DataType *rxBuffer) {
 		ChipSelect(true);
 		return WriteReadByteArrayAsync(reinterpret_cast<uint8*>(txBuffer), reinterpret_cast<uint8*>(rxBuffer), sizeof(DataType));
 	}
@@ -228,7 +227,7 @@ public:
 
 
 	template <typename DataType>
-	inline Status::info<DataType> WriteReadArrayAsync(DataType *txBuffer, DataType *rxBuffer, uint32 size) {
+	inline ResultStatus WriteReadArrayAsync(DataType *txBuffer, DataType *rxBuffer, uint32 size) {
 		ChipSelect(true);
 		return WriteReadByteArrayAsync(reinterpret_cast<uint8*>(txBuffer), reinterpret_cast<uint8*>(rxBuffer), sizeof(DataType) * size);
 	}
@@ -272,27 +271,26 @@ public:
 
 
 public:
-	virtual Status::info<uint32> SetParameters(Parameters val) {
-		auto status = Status::info<uint32>();
+	virtual Result<uint32> SetParameters(Parameters val) {
 		parameters = val;
 
-		status.data = CalculatePrescaler();
+		auto prescaler = CalculatePrescaler();
 
-		status.type = Initialization();
-		if(status.IsError()) {
-			return status;
+		auto initStatus = Initialization();
+		if(initStatus != ResultStatus::ok) {
+			return initStatus;
 		}
 
 
 		if(parameters.chipSelectPin == nullptr) {
-			return status;
+			return Result<uint32>::Ok(prescaler);
 		}
 
 		auto mode = parameters.mode == Mode::Slave ?
 				GPIOAdapter::Mode::InterruptFalling :
 				GPIOAdapter::Mode::Output;
 
-		status.type = parameters.chipSelectPin->SetParameters({
+		auto gpioStatus = parameters.chipSelectPin->SetParameters({
 			.mode = mode,
 			.pull = GPIOAdapter::Pull::None,
 			.speed = GPIOAdapter::Speed::Medium
@@ -302,7 +300,7 @@ public:
 
 		ChipSelect(false);
 
-		return status;
+		return Result<uint32>::Capture(gpioStatus, prescaler);
 	}
 
 
@@ -311,18 +309,18 @@ public:
 	}
 
 
-	virtual Status::statusType SetContinuousAsyncTxMode(bool mode) {
+	virtual ResultStatus SetContinuousAsyncTxMode(bool mode) {
 		auto status = mode ? StartContinuousAsyncTxMode() : StopContinuousAsyncTxMode();
-		if(status == Status::ok) {
+		if(status == ResultStatus::ok) {
 			continuousAsyncTxMode = mode;
 		}
 		return status;
 	}
 
 
-	virtual Status::statusType SetContinuousAsyncRxMode(bool mode) {
+	virtual ResultStatus SetContinuousAsyncRxMode(bool mode) {
 		auto status = mode ? StartContinuousAsyncRxMode() : StopContinuousAsyncRxMode();
-		if(status == Status::ok) {
+		if(status == ResultStatus::ok) {
 			continuousAsyncRxMode = mode;
 		}
 		return status;
@@ -351,32 +349,32 @@ public:
 
 
 protected:
-	virtual Status::statusType Initialization() = 0;
+	virtual ResultStatus Initialization() = 0;
 	virtual uint32 CalculatePrescaler() = 0;
 
-	virtual Status::statusType WriteByteArray(uint8 *buffer, uint32 size) = 0;
-	virtual Status::statusType ReadByteArray(uint8 *buffer, uint32 size) = 0;
-	virtual Status::statusType WriteReadByteArray(uint8 *txBuffer, uint8 *rxBuffer, uint32 size) = 0;
+	virtual ResultStatus WriteByteArray(uint8 *buffer, uint32 size) = 0;
+	virtual ResultStatus ReadByteArray(uint8 *buffer, uint32 size) = 0;
+	virtual ResultStatus WriteReadByteArray(uint8 *txBuffer, uint8 *rxBuffer, uint32 size) = 0;
 
-	virtual Status::statusType WriteByteArrayAsync(uint8 *buffer, uint32 size) = 0;
-	virtual Status::statusType ReadByteArrayAsync(uint8 *buffer, uint32 size) = 0;
-	virtual Status::statusType WriteReadByteArrayAsync(uint8 *txBuffer, uint8 *rxBuffer, uint32 size) = 0;
+	virtual ResultStatus WriteByteArrayAsync(uint8 *buffer, uint32 size) = 0;
+	virtual ResultStatus ReadByteArrayAsync(uint8 *buffer, uint32 size) = 0;
+	virtual ResultStatus WriteReadByteArrayAsync(uint8 *txBuffer, uint8 *rxBuffer, uint32 size) = 0;
 
 
-	virtual Status::statusType StartContinuousAsyncRxMode() {
-		return Status::notSupported;
+	virtual ResultStatus StartContinuousAsyncRxMode() {
+		return ResultStatus::notSupported;
 	}
 
-	virtual Status::statusType StopContinuousAsyncRxMode() {
-		return Status::notSupported;
+	virtual ResultStatus StopContinuousAsyncRxMode() {
+		return ResultStatus::notSupported;
 	}
 
-	virtual Status::statusType StartContinuousAsyncTxMode() {
-		return Status::notSupported;
+	virtual ResultStatus StartContinuousAsyncTxMode() {
+		return ResultStatus::notSupported;
 	}
 
-	virtual Status::statusType StopContinuousAsyncTxMode() {
-		return Status::notSupported;
+	virtual ResultStatus StopContinuousAsyncTxMode() {
+		return ResultStatus::notSupported;
 	}
 
 

@@ -4,47 +4,6 @@
 #include <span>
 #include <string_view>
 
-/*
-Base64 encoding/decoding implementation
-Converts binary data to text format and back
-
-Basic encoding:
-    const char* text = "Hello World";
-    std::array<char, 64> encoded{};
-    size_t len = Base64::Encode(std::span(encoded), text);
-
-Binary data encoding:
-    std::array<uint8, 100> binaryData = {...};
-    std::array<char, 200> encoded{};
-    size_t len = Base64::Encode(std::span(encoded), std::span(binaryData));
-
-Basic decoding:
-    const char* base64Text = "SGVsbG8gV29ybGQ=";
-    std::array<uint8, 100> decoded{};
-    size_t decodedLen;
-    bool success = Base64::Decode(base64Text, std::span(decoded), decodedLen);
-
-Decode to char buffer:
-    const char* base64Text = "SGVsbG8gV29ybGQ=";
-    std::array<char, 100> textBuffer{};
-    size_t textLen;
-    bool success = Base64::DecodeToBuffer(base64Text, std::span(textBuffer), textLen);
-
-Get required buffer sizes:
-    size_t inputSize = 10;
-    size_t encodedSize = Base64::GetEncodedSize(inputSize);  // Returns 16
-    size_t decodedSize = Base64::GetDecodedSize(encodedSize);  // Returns ~10
-
-JWT header encoding:
-    const char* header = "{\"alg\":\"HS256\",\"typ\":\"JWT\"}";
-    std::array<char, 100> encoded{};
-    size_t len = Base64::Encode(std::span(encoded), header);
-
-Image data transmission:
-    std::array<uint8, 5000> imageData = {...};
-    std::array<char, 10000> base64Image{};
-    size_t len = Base64::Encode(std::span(base64Image), std::span(imageData));
-*/
 
 class Base64 {
 private:

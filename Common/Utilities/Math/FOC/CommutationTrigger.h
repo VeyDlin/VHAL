@@ -4,10 +4,8 @@
 #include <cmath>
 
 
-
 // This module determines the Bemf zero crossing points of a 3-ph BLDC motor based on motor phase voltage measurements 
 // and then generates the commutation trigger points for the 3-ph power inverter switches
-
 class CommutationTrigger {
 private:   
 	uint32 noiseWindowCounter = 0; 
@@ -54,12 +52,10 @@ public:
 	CommutationTrigger() {}
 
 
-
 	CommutationTrigger& SetInput(Input val) {
 		input = val;
 		return *this;
 	}
-
 
 
 	CommutationTrigger& SetWindowsNoise(WindowsNoise val) {
@@ -68,12 +64,10 @@ public:
 	}
 
 
-
 	CommutationTrigger& SetOptions(Options val) {
 		options = val;
 		return *this;
 	}
-
 
 
 	CommutationTrigger& Resolve() {
@@ -87,7 +81,7 @@ public:
 		// 3 * Back EMF = 3 * (vx = vn), x = a, b, c
 		float bemf;
 
-		switch (CmtnPointer) {
+		switch (input.commutationPointer) {
 			case 0: // A->B, de-energized phase = C	
 				bemf = (input.Vc * 3) - neutral;
 				if (bemf > 0) {
@@ -167,25 +161,9 @@ public:
 	}
 
 
-
-	CommutationTrigger& SetInpit(Inpit val) {
-		input = val;
-		return *this;
-	}
-
-
-
-	CommutationTrigger& SetWindowsNoise(WindowsNoise val) {
-		windowsNoise = val;
-		return *this;
-	}
-
-
-
 	Output Get() {
 		return output;
 	}
-
 
 
 private:
@@ -211,10 +189,10 @@ private:
 
 	// Delay 30 deg calculator	
 	void Delay30Deg() {
-		if (!delay30Done) {
+		if (delay30Done) {
 			return;
 		}
-		delay30Done = true; // flag indicates "gone through" once	
+		delay30Done = true; // flag indicates "gone through" once
 
 		uint32 saveTimestamp = timestamp;
 		timestamp = input.virtualTimer;

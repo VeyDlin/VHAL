@@ -20,7 +20,7 @@
 	eeprom.retry = 3;
 
 	// Check if the EEPROM is ready
-	if (eeprom.IsMemoryReady() != Status::ok) {
+	if (eeprom.IsMemoryReady() != ResultStatus::ok) {
 		System::console << Console::error << "EEPROM is not ready!" << Console::endl;
 		return;
 	}
@@ -36,11 +36,11 @@
 
 	// Or write data to EEPROM with status
 	MyData writeData = { 1, 42.42, "TestName" };
-	if (myDataStorage.Set(writeData) != Status::ok) {
+	if (myDataStorage.Set(writeData) != ResultStatus::ok) {
 		System::console << Console::error << "Failed to write myDataStorage to EEPROM!" << Console::endl;
 	}
 
-	if (myFloatStorage.Set(1.1234) != Status::ok) {
+	if (myFloatStorage.Set(1.1234) != ResultStatus::ok) {
 		System::console << Console::error << "Failed to write myFloatStorage to EEPROM!" << Console::endl;
 	}
 
@@ -94,34 +94,34 @@ namespace EEPROM {
 		}
 
 
-		Status::statusType IsMemoryReady() {
+		ResultStatus IsMemoryReady() {
 			if(!IsInit()) {
-				return Status::noInit;
+				return ResultStatus::noInit;
 			}
 
 			return i2c->CheckDevice(i2cAddress, 10);
 		}
 
 
-		Status::statusType ReadMemory(uint8 *dataOut, uint16 dataOutSize, uint16 memAddress) {
+		ResultStatus ReadMemory(uint8 *dataOut, uint16 dataOutSize, uint16 memAddress) {
 			if(!IsInit()) {
-				return Status::noInit;
+				return ResultStatus::noInit;
 			}
 			return i2c->ReadByteArray(i2cAddress, memAddress, GetMemoryAddressSize(), dataOut, dataOutSize);
 		}
 	
 	
-		Status::statusType WriteMemory(uint8 *data, uint16 dataSize, uint16 memAddress) {
+		ResultStatus WriteMemory(uint8 *data, uint16 dataSize, uint16 memAddress) {
 			if(!IsInit()) {
-				return Status::noInit;
+				return ResultStatus::noInit;
 			}
 			return i2c->WriteByteArray(i2cAddress, memAddress, GetMemoryAddressSize(), data, dataSize);
 		}
 
 	
-		Status::info<uint16> GetMemoryAddress(uint16 dataSize) {
+		Result<uint16> GetMemoryAddress(uint16 dataSize) {
 			if(addressPointer + dataSize >= GetMaxAddressPointer()) {
-				return Status::outOfRange;
+				return ResultStatus::outOfRange;
 			}
 			uint16 ret = addressPointer;
 			addressPointer += dataSize;

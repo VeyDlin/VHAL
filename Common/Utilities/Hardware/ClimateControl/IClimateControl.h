@@ -3,9 +3,11 @@
 #include <VHAL.h>
 #include <chrono>
 #include <functional>
+#include <Utilities/Math/IQMath/IQ.h>
 
 
 
+template <RealType Type = float>
 class IClimateControl: public Thread<128> {
 public:
 	enum class WorkMode { Manual, Auto, Disable };
@@ -16,7 +18,7 @@ protected:
 	WorkMode workMode = WorkMode::Disable;
 	ControlMode controlMode = ControlMode::HeatingCooling;
 
-	float holdTemperature = 0;
+	Type holdTemperature = 0;
 
 	std::chrono::milliseconds timeStep = 1s;
 
@@ -24,7 +26,7 @@ protected:
 
 
 public:
-	std::function<float(float dirty)> onUpdateState;
+	std::function<Type(Type dirty)> onUpdateState;
 	std::function<void()> onHold;
 
 
@@ -34,12 +36,12 @@ public:
 	}
 
 
-	void SetHoldTemperature(float temperature) {
+	void SetHoldTemperature(Type temperature) {
 		holdTemperature = temperature;
 	}
 
 
-	float GetHoldTemperature() {
+	Type GetHoldTemperature() {
 		return holdTemperature;
 	}
 
@@ -74,7 +76,7 @@ public:
 	}
 
 
-	void SetManualDirty(float dirty) {
+	void SetManualDirty(Type dirty) {
 		if(workMode == WorkMode::Manual && onUpdateState != nullptr) {
 			onUpdateState(dirty);
 		}

@@ -1,0 +1,35 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug (OpenOCD)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/Debug/STM32G0-Demo.elf",
+            "servertype": "openocd",
+            "configFiles": [
+                "interface/stlink.cfg",
+                "target/stm32g0x.cfg"
+            ],
+            "svdFile": "${workspaceFolder}/STM32G071.svd",
+            "runToEntryPoint": "main",
+            "showDevDebugOutput": "none",
+            "preLaunchTask": "Build"
+        },
+        {
+            "name": "Debug (J-Link)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/Debug/STM32G0-Demo.elf",
+            "servertype": "jlink",
+            "device": "STM32G071RB",
+            "interface": "swd",
+            "svdFile": "${workspaceFolder}/STM32G071.svd",
+            "runToEntryPoint": "main",
+            "showDevDebugOutput": "none",
+            "preLaunchTask": "Build"
+        }
+    ]
+}

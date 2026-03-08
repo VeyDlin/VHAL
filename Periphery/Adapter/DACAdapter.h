@@ -45,7 +45,7 @@ public:
 	virtual inline void IrqHandler() = 0;
 
 
-	virtual Status::statusType Write(uint16 val) = 0;
+	virtual ResultStatus Write(uint16 val) = 0;
 
 
 	virtual void SetParameters(Parameters val) {
@@ -55,8 +55,8 @@ public:
 	}
 
 
-	virtual Status::statusType Enable() = 0;
-	virtual Status::statusType Disable() = 0;
+	virtual ResultStatus Enable() = 0;
+	virtual ResultStatus Disable() = 0;
 
 
 	virtual void SetDMA(DMAHandleType *dmaAdapter) {
@@ -70,11 +70,11 @@ public:
 	virtual void DisableTrigger() = 0;
 
 
-	virtual Status::statusType WriteContinuous(uint16 *buffer, uint32 count) = 0;
-	virtual Status::statusType StopDMA() = 0;
+	virtual ResultStatus WriteContinuous(uint16 *buffer, uint32 count) = 0;
+	virtual ResultStatus StopDMA() = 0;
 
 protected:
-	virtual Status::statusType Initialization() = 0;
+	virtual ResultStatus Initialization() = 0;
 	virtual uint32 GetDataRegisterAddress() = 0;
 
 	virtual inline void CallError(Error error) {

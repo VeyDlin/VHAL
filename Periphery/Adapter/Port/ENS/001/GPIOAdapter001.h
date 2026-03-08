@@ -13,15 +13,15 @@ public:
 	GPIOAdapter001(CMSDK_GPIO_TypeDef *gpioPort, uint8 gpioPin, bool gpioInversion = false):GPIOAdapter(gpioPort, gpioPin, gpioInversion) { }
 
 
-	static inline Status::statusType AlternateInit(AlternateParameters val) {
+	static inline ResultStatus AlternateInit(AlternateParameters val) {
 		return GPIOAdapter<CMSDK_GPIO_TypeDef>::AlternateInitBase<AGPIO>(val);
 	}
 
-	static inline Status::statusType AlternateOpenDrainInit(AlternateParameters val)  {
+	static inline ResultStatus AlternateOpenDrainInit(AlternateParameters val)  {
 		return GPIOAdapter<CMSDK_GPIO_TypeDef>::AlternateOpenDrainInitBase<AGPIO>(val);
 	}
 
-	static inline Status::statusType AnalogInit(AnalogParameters val)  {
+	static inline ResultStatus AnalogInit(AnalogParameters val)  {
 		return GPIOAdapter<CMSDK_GPIO_TypeDef>::AnalogInitBase<AGPIO>(val);
 	}
 
@@ -58,9 +58,9 @@ protected:
 
 
 
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -179,14 +179,14 @@ protected:
 		}
 
 
-		return Status::invalidParameter;
+		return ResultStatus::invalidParameter;
 	}
 
 
 
 
 
-	virtual Status::statusType InterruptInitialization() override {
+	virtual ResultStatus InterruptInitialization() override {
 		// Configure EXTI edge detection based on mode
 		switch(parameters.mode) {
 			case Mode::InterruptRising:
@@ -215,14 +215,14 @@ protected:
 			return interruptPeripheryInit();
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual Status::statusType EventInitialization() override {
+	virtual ResultStatus EventInitialization() override {
 		// Configure EXTI edge detection based on mode
 		switch(parameters.mode) {
 			case Mode::EventRising:
@@ -251,7 +251,7 @@ protected:
 			return eventPeripheryInit();
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 

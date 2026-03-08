@@ -47,34 +47,34 @@ public:
 
 
 
-	virtual Status::statusType Write(uint16 val) override {
+	virtual ResultStatus Write(uint16 val) override {
 		LL_DAC_ConvertData12RightAligned(dacHandle, CastChannel(), val);
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual Status::statusType Enable() override {
+	virtual ResultStatus Enable() override {
 		if (LL_DAC_IsEnabled(dacHandle, CastChannel())) {
-			return Status::ok;
+			return ResultStatus::ok;
 		}
 
 		LL_DAC_Enable(dacHandle, CastChannel());
 		System::DelayUs(LL_DAC_DELAY_STARTUP_VOLTAGE_SETTLING_US);
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual Status::statusType Disable() override {
+	virtual ResultStatus Disable() override {
 		if (LL_DAC_IsEnabled(dacHandle, CastChannel())) {
 			LL_DAC_Disable(dacHandle, CastChannel());
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
@@ -98,24 +98,24 @@ public:
 	}
 
 
-	virtual Status::statusType WriteContinuous(uint16 *buffer, uint32 count) override {
+	virtual ResultStatus WriteContinuous(uint16 *buffer, uint32 count) override {
 		if (dma == nullptr) {
-			return Status::notAvailable;
+			return ResultStatus::notAvailable;
 		}
 		auto status = dma->Start(buffer, (uint16*)GetDataRegisterAddress(), count);
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 		EnableDMARequest();
 		EnableTrigger();
 		EnableIT_DmaUnderrun();
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	virtual Status::statusType StopDMA() override {
+	virtual ResultStatus StopDMA() override {
 		if (dma == nullptr) {
-			return Status::notAvailable;
+			return ResultStatus::notAvailable;
 		}
 		DisableIT_DmaUnderrun();
 		DisableDMARequest();
@@ -168,9 +168,9 @@ protected:
 	}
 
 
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			return status;
 		}
 

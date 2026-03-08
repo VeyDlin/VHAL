@@ -1,0 +1,30 @@
+[submodule "Periphery/Adapter/Port/STM32/G0/Drivers/HAL"]
+	path = Periphery/Adapter/Port/STM32/G0/Drivers/HAL
+	url = https://github.com/STMicroelectronics/stm32g0xx-hal-driver.git
+[submodule "Periphery/Adapter/Port/STM32/G0/Drivers/CMSIS/Device"]
+	path = Periphery/Adapter/Port/STM32/G0/Drivers/CMSIS/Device
+	url = https://github.com/STMicroelectronics/cmsis_device_g0.git
+[submodule "Periphery/Adapter/Port/STM32/G0/Drivers/CMSIS/Core"]
+	path = Periphery/Adapter/Port/STM32/G0/Drivers/CMSIS/Core
+	url = https://github.com/STMicroelectronics/cmsis_core.git
+[submodule "Periphery/Adapter/Port/STM32/F4/Drivers/HAL"]
+	path = Periphery/Adapter/Port/STM32/F4/Drivers/HAL
+	url = https://github.com/STMicroelectronics/stm32f4xx-hal-driver.git
+[submodule "Periphery/Adapter/Port/STM32/F4/Drivers/CMSIS/Device"]
+	path = Periphery/Adapter/Port/STM32/F4/Drivers/CMSIS/Device
+	url = https://github.com/STMicroelectronics/cmsis-device-f4.git
+[submodule "Periphery/Adapter/Port/STM32/F4/Drivers/CMSIS/Core"]
+	path = Periphery/Adapter/Port/STM32/F4/Drivers/CMSIS/Core
+	url = https://github.com/STMicroelectronics/cmsis_core.git
+[submodule "Periphery/Adapter/Port/STM32/G4/Drivers/HAL"]
+	path = Periphery/Adapter/Port/STM32/G4/Drivers/HAL
+	url = https://github.com/STMicroelectronics/stm32g4xx-hal-driver.git
+[submodule "Periphery/Adapter/Port/STM32/G4/Drivers/CMSIS/Device"]
+	path = Periphery/Adapter/Port/STM32/G4/Drivers/CMSIS/Device
+	url = https://github.com/STMicroelectronics/cmsis-device-g4.git
+[submodule "Periphery/Adapter/Port/STM32/G4/Drivers/CMSIS/Core"]
+	path = Periphery/Adapter/Port/STM32/G4/Drivers/CMSIS/Core
+	url = https://github.com/STMicroelectronics/cmsis_core.git
+[submodule "Periphery/OS/Port/FreeRTOS/Kernel"]
+	path = Periphery/OS/Port/FreeRTOS/Kernel
+	url = https://github.com/FreeRTOS/FreeRTOS-Kernel.git

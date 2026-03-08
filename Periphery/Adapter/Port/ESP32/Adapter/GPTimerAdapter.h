@@ -23,11 +23,11 @@ public:
 public:
 	GPTimerAdapter() = default;
 
-	virtual Status::statusType SetParameters(Parameters val) = 0;
-	virtual Status::statusType Start() = 0;
-	virtual Status::statusType Stop() = 0;
-	virtual Status::statusType SetAlarm(uint64 alarm, bool reload) = 0;
-	virtual Status::statusType SetCount(uint64 count) = 0;
+	virtual ResultStatus SetParameters(Parameters val) = 0;
+	virtual ResultStatus Start() = 0;
+	virtual ResultStatus Stop() = 0;
+	virtual ResultStatus SetAlarm(uint64 alarm, bool reload) = 0;
+	virtual ResultStatus SetCount(uint64 count) = 0;
 	virtual uint64 GetCount() = 0;
 
 

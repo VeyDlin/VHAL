@@ -29,7 +29,7 @@ private:
 	uint64_t startTick = 0;
 	uint64_t durationMs = 0;
 
-	Easing::Type easingType = Easing::Type::Linear;
+	Easing<>::Curve easingType = Easing<>::Curve::Linear;
 	std::function<float(float)> easingFunction;
 
 	// --- Spring state ---
@@ -92,7 +92,7 @@ public:
 
 	// ==================== Easing ====================
 
-	void SetEasing(Easing::Type type) {
+	void SetEasing(Easing<>::Curve type) {
 		easingType = type;
 		easingFunction = nullptr;
 	}
@@ -175,6 +175,11 @@ public:
 private:
 	// ==================== Internal ====================
 
+	static constexpr bool IsScalar() {
+		return std::is_arithmetic_v<T> || IQType<T>;
+	}
+
+
 	void TweenInternal(T from, T to, uint64_t ms) {
 		tweenFrom = from;
 		target = to;
@@ -212,7 +217,7 @@ private:
 			t = 1.0f;
 		}
 
-		float easedT = easingFunction ? easingFunction(t) : Easing::Apply(easingType, t);
+		float easedT = easingFunction ? easingFunction(t) : Easing<>::Apply(easingType, t);
 
 		value = Lerp(tweenFrom, target, easedT);
 
@@ -250,7 +255,8 @@ private:
 			onUpdateValue(value);
 		}
 
-		if (std::fabs(diff) < springEpsilon && std::fabs(springVelocity) < springEpsilon) {
+		using std::fabs;
+		if (fabs(diff) < springEpsilon && fabs(springVelocity) < springEpsilon) {
 			value = target;
 			if (onUpdateValue) {
 				onUpdateValue(value);
@@ -277,11 +283,12 @@ private:
 	}
 
 	static float Distance(const T& a, const T& b) {
-		return std::fabs(ScalarDiff(b, a));
+		using std::fabs;
+		return fabs(ScalarDiff(b, a));
 	}
 
 	static float ScalarDiff(const T& a, const T& b) {
-		if constexpr (std::is_arithmetic_v<T>) {
+		if constexpr (IsScalar()) {
 			return static_cast<float>(a) - static_cast<float>(b);
 		} else {
 			T diff = a - b;
@@ -290,7 +297,7 @@ private:
 	}
 
 	static T Advance(const T& v, float delta) {
-		if constexpr (std::is_arithmetic_v<T>) {
+		if constexpr (IsScalar()) {
 			return static_cast<T>(static_cast<float>(v) + delta);
 		} else {
 			T direction = v.Normalized();

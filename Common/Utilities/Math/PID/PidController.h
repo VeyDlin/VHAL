@@ -1,225 +1,11 @@
 #pragma once
 #include <cmath>
 #include <functional>
-
-/*
-// Creates a PID controller with default parameters.
-  PidController<> pid;
-
-// Creates a PID controller with specified coefficients and output limits.
-  PidController<> pid({1.0f, 0.5f, 0.1f}, {-10.0f, 10.0f});
-
-// Performs PID calculation.
-  pid.Resolve();
-
-// Resets the controller state.
-  pid.Reset();
-
-// Sets the input data.
-  pid.SetInput({350.0f, 10.0f, 50});
-
-// Sets the target value.
-  pid.SetReference(15.0f);
-
-// Sets the feedback and frequency.
-  pid.SetFeedback(12.0f, 100);
-
-// Sets only the feedback.
-  pid.SetFeedback(8.0f);
-
-// Sets the PID coefficients.
-  pid.SetCoefficients({1.0f, 0.5f, 0.1f});
-
-// Sets the proportional coefficient.
-  pid.SetProportional(1.0f);
-
-// Sets the integral coefficient.
-  pid.SetIntegral(0.5f);
-
-// Sets the derivative coefficient.
-  pid.SetDerivative(0.1f);
-
-// Sets filtering parameters.
-  pid.SetFilter({true, 0.8f, 0.2f});
-
-// Enables or disables filtering.
-  pid.SetFilterEnable(true);
-
-// Sets the integrator saturation coefficient.
-  pid.SetFilterBackSaturation(0.8f);
-
-// Sets the filtering coefficient for the derivative component.
-  pid.SetFilterDerivative(0.2f);
-
-// Configures the stabilization event.
-  pid.SetStabilizedEvent({
-      .enable = true,
-      .errorMin = -0.1f,
-      .errorMax = 0.1f,
-      .timeMs = 500,
-      .onStabilized = [](PidController<>& self) {
-          std::cout << "Stabilization achieved. Output: " << self.Get() << "\n";
-      }
-  });
-
-// Configures the destabilization event.
-  pid.SetDestabilizedEvent({
-      .enable = true,
-      .errorMin = -0.5f,
-      .errorMax = 0.5f,
-      .timeMs = 300,
-      .onDestabilized = [](PidController<>& self) {
-          std::cout << "Destabilization. Error: " << self.GetLastError() << "\n";
-      }
-  });
-
-// Returns the current output value.
-  float output = pid.Get();
-
-// Returns the last error value.
-  float lastError = pid.GetLastError();
-*/
+#include <Utilities/Math/IQMath/IQ.h>
 
 
-/*
-====== Input Structure ======
-Defines the input parameters for the PID controller.
-
-Fields:
-  feedback (Type): The current feedback value (e.g., system position).
-  reference (Type): The target value the system aims for.
-  frequency (uint32): Sampling frequency in Hz (frequency of calling `Resolve`).
-
-Usage example:
-  pid.SetInput({350.0f, 10.0f, 50}); // Angle 350°, target angle 10°, frequency 50 Hz
-
-
-====== Output Structure ======
-Defines the output parameters for the PID controller.
-
-Fields:
-  max (Type): Maximum output signal value.
-  min (Type): Minimum output signal value.
-  inversion (bool): If true, inverts the sign of the output signal.
-
-Usage example:
-  pid.SetOutput({10.0f, -10.0f}); // Output limit from -10 to 10
-
-
-====== Coefficients Structure ======
-Defines the PID controller coefficients.
-
-Fields:
-  proportional (Type): Proportional coefficient (P).
-  integral (Type): Integral coefficient (I).
-  derivative (Type): Derivative coefficient (D).
-
-Usage example:
-  pid.SetCoefficients({1.0f, 0.5f, 0.1f}); // Proportional = 1.0, Integral = 0.5, Derivative = 0.1
-
-
-====== IntegratorLimit Structure ======
-Defines the limits for the integral component.
-
-Fields:
-  enable (bool): Enables the integrator limit.
-  max (Type): Maximum value of the integral component.
-  min (Type): Minimum value of the integral component.
-
-Usage example:
-  pid.SetIntegratorLimit({true, 5.0f, -5.0f}); // Limit from -5 to 5, enabled
-
-
-====== Roll Structure ======
-Defines parameters for cyclic data (e.g., angular systems).
-
-Fields:
-  enable (bool): Enables cyclic data support.
-  maxInput (Type): Maximum input data value (e.g., 360°).
-  minInput (Type): Minimum input data value (e.g., 0°).
-
-Usage example:
-  pid.SetRoll({true, 360.0f, 0.0f}); // Cyclic support enabled, range from 0 to 360 degrees
-
-
-====== RollDeadZone Structure ======
-Defines parameters for the "dead zone" in cyclic data.
-
-Fields:
-  enable (bool): Enables the "dead zone".
-  throughConnection (bool): If true, allows through-connection through the "dead zone".
-  start (Type): Start of the "dead zone" range.
-  end (Type): End of the "dead zone" range.
-
-Usage example:
-  pid.SetRollDeadZone({true, false, 85.0f, 95.0f}); // Dead zone from 85° to 95° without through-connection
-
-
-====== Filter Structure ======
-Defines filtering parameters.
-
-Fields:
-  enable (bool): Enables filtering.
-  backSaturation (Type): Saturation coefficient for the integral component.
-  derivative (Type): Filtering coefficient for the derivative component.
-
-Usage example:
-  pid.SetFilter({true, 0.8f, 0.2f}); // Filtering enabled, saturation coefficient 0.8, filtering coefficient 0.2
-
-
-====== StabilizedEvent Structure ======
-Defines stabilization event parameters.
-
-Fields:
-  enable (bool): Enables the stabilization event.
-  errorMin (Type): Minimum error to define stable state.
-  errorMax (Type): Maximum error to define stable state.
-  timeMs (uint32): Time in milliseconds the error must stay within the range.
-  onStabilized (std::function<void(PidController&)>): Stabilization event handler.
-
-Usage example:
-  pid.SetStabilizedEvent({
-      .enable = true,
-      .errorMin = -0.1f,
-      .errorMax = 0.1f,
-      .timeMs = 500,
-      .onStabilized = [](PidController<>& self) {
-          std::cout << "Stabilization achieved. Output: " << self.Get() << "\n";
-      }
-  });
-
-
-====== DestabilizedEvent Structure ======
-Defines destabilization event parameters.
-
-Fields:
-  enable (bool): Enables the destabilization event.
-  errorMin (Type): Minimum error to define destabilized state.
-  errorMax (Type): Maximum error to define destabilized state.
-  timeMs (uint32): Time in milliseconds the error must stay outside the range.
-  onDestabilized (std::function<void(PidController&)>): Destabilization event handler.
-
-Usage example:
-  pid.SetDestabilizedEvent({
-      .enable = true,
-      .errorMin = -0.5f,
-      .errorMax = 0.5f,
-      .timeMs = 300,
-      .onDestabilized = [](PidController<>& self) {
-          std::cout << "Destabilization. Error: " << self.GetLastError() << "\n";
-      }
-  });
-*/
-
-
-template <typename Type = float>
+template <RealType Type = float>
 class PidController {
-    static_assert((
-                std::is_same<Type, float>::value ||
-                std::is_same<Type, double>::value ||
-                std::is_same<Type, long double>::value
-            ), "template instantiation has an invalid type"
-        );
 
 public:
     struct Input {
@@ -380,8 +166,9 @@ public:
 
     PidController& SetRoll(Roll val) {
         roll = val;
-        calculatedValues.fullRoll = roll.maxInput + std::abs(roll.minInput);
-        calculatedValues.halfRoll = calculatedValues.fullRoll / (Type)2;
+        using std::abs;
+        calculatedValues.fullRoll = roll.maxInput + abs(roll.minInput);
+        calculatedValues.halfRoll = calculatedValues.fullRoll / Type(2);
         return *this;
     }
 
@@ -393,8 +180,9 @@ public:
     PidController& SetRollDeadZone(RollDeadZone val) {
         rollDeadZone.enable = val.enable;
         rollDeadZone.throughConnection = val.throughConnection;
-        rollDeadZone.start = std::min(val.start, val.end);
-        rollDeadZone.end = std::max(val.start, val.end);
+        using std::min; using std::max;
+        rollDeadZone.start = min(val.start, val.end);
+        rollDeadZone.end = max(val.start, val.end);
         return *this;
     }
 
@@ -528,7 +316,8 @@ public:
     }
 
     PidController& SetIntegratorLimit(Type val) {
-        val = std::abs(val);
+        using std::abs;
+        val = abs(val);
         integratorLimit.max = val;
         integratorLimit.min = -val;
         return *this;
@@ -592,13 +381,13 @@ public:
 
 private:
     void ProcessEvents() {
-    	float samplingTimeMs = (1.0f / (float)input.frequency) * 1000.0f;
+    	Type samplingTimeMs = (Type(1) / Type(static_cast<int>(input.frequency))) * Type(1000);
     	StabilizedEventProcess(samplingTimeMs);
     	DestabilizedEventProcess(samplingTimeMs);
     }
 
 
-    void StabilizedEventProcess(float samplingTimeMs) {
+    void StabilizedEventProcess(Type samplingTimeMs) {
         if (!stabilizedEvent.enable) {
         	return;
         }
@@ -620,7 +409,7 @@ private:
     }
 
 
-    void DestabilizedEventProcess(float samplingTimeMs) {
+    void DestabilizedEventProcess(Type samplingTimeMs) {
         if (!destabilizedEvent.enable) {
         	return;
         }
@@ -661,7 +450,8 @@ private:
 
 
 		if (reference >= rollDeadZone.start && reference <= rollDeadZone.end) {
-			if (std::abs(rollDeadZone.start - reference) > std::abs(rollDeadZone.end - reference)) {
+			using std::abs;
+			if (abs(rollDeadZone.start - reference) > abs(rollDeadZone.end - reference)) {
 				return rollDeadZone.end;
 			}
 
@@ -674,7 +464,9 @@ private:
 
 
     Type GetError() {
-		float error;
+		using std::abs;
+
+		Type error;
 		if (output.inversion) {
 			error = input.feedback - input.reference;
 		} else {
@@ -698,13 +490,15 @@ private:
 				return error;
 			}
 
-			float endFeedback = error + input.feedback;
+			Type endFeedback = error + input.feedback;
 
-			float pidPathStart = std::min(endFeedback, input.feedback);
-			float pidPathEnd = std::max(endFeedback, input.feedback);
+			using std::min;
+			using std::max;
+			Type pidPathStart = min(endFeedback, input.feedback);
+			Type pidPathEnd = max(endFeedback, input.feedback);
 
-			float deadZoneStart = rollDeadZone.start;
-			float deadZoneEnd = rollDeadZone.end;
+			Type deadZoneStart = rollDeadZone.start;
+			Type deadZoneEnd = rollDeadZone.end;
 
 			if (pidPathEnd > calculatedValues.fullRoll) {
 				deadZoneStart += calculatedValues.fullRoll;
@@ -725,25 +519,27 @@ private:
 
 
     void ResolveNormal() {
+        using std::min; using std::max;
+
         Type error = GetError();
         save.output = error * coefficients.proportional;
 
         // Integrator
-        if (coefficients.integral != 0) {
-            save.integrator += (error * coefficients.integral) / input.frequency;
+        if (coefficients.integral != Type(0)) {
+            save.integrator += (error * coefficients.integral) / Type(static_cast<int>(input.frequency));
             if (integratorLimit.enable) {
-                save.integrator = std::min(std::max(save.integrator, integratorLimit.min), integratorLimit.max);
+                save.integrator = min(max(save.integrator, integratorLimit.min), integratorLimit.max);
             }
             save.output += save.integrator;
         }
 
         // Derivative
-        if (coefficients.derivative != 0) {
-            save.output += coefficients.derivative * (error - save.error) * input.frequency;
+        if (coefficients.derivative != Type(0)) {
+            save.output += coefficients.derivative * (error - save.error) * Type(static_cast<int>(input.frequency));
         }
 
         // Output
-        save.output = std::min(std::max(save.output, output.min), output.max);
+        save.output = min(max(save.output, output.min), output.max);
 
         // Last error
         save.error = error;
@@ -751,23 +547,25 @@ private:
 
 
     void ResolveFilter() {
-        Type deltaTimeSampling = (Type)1.0 / input.frequency;
-        volatile Type error = GetError();
+        using std::min; using std::max;
+
+        Type deltaTimeSampling = Type(1) / Type(static_cast<int>(input.frequency));
+        Type error = GetError();
 
         // Proportional
         Type proportionalComponent = coefficients.proportional * error;
 
         // Integrator
-        if(coefficients.integral != 0) {
+        if(coefficients.integral != Type(0)) {
             save.integrator += deltaTimeSampling * save.integralFilter;
             if(integratorLimit.enable) {
-                save.integrator = std::min(std::max(save.integrator, integratorLimit.min), integratorLimit.max);
+                save.integrator = min(max(save.integrator, integratorLimit.min), integratorLimit.max);
             }
             save.integralFilter = (coefficients.integral * error) + (filter.backSaturation * (save.output - save.lastOutput));
         }
 
         // Derivative
-        if(coefficients.derivative != 0) {
+        if(coefficients.derivative != Type(0)) {
             save.derivativeFilter += deltaTimeSampling * save.derivative;
             save.derivative = ((coefficients.derivative * error) - save.derivativeFilter) * filter.derivative;
         }
@@ -775,7 +573,7 @@ private:
         // Output
         save.output = proportionalComponent + save.integrator + save.derivative;
         save.lastOutput = save.output;
-        save.output = std::min(std::max(save.output, output.min), output.max);
+        save.output = min(max(save.output, output.min), output.max);
 
         // Last error
         save.error = error;

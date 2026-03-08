@@ -35,21 +35,21 @@ public:
 
 	void IrqHandler() override { }
 
-	void AbortRegular() override { state = Status::ready; }
+	void AbortRegular() override { state = ResultStatus::ready; }
 	void AbortInjected() override { }
 	void AbortWatchDog() override { }
 	void AbortSampling() override { }
 	void AbortConfigurationReady() override { }
 
-	Status::statusType Calibration() override {
-		return Status::notSupported;
+	ResultStatus Calibration() override {
+		return ResultStatus::notSupported;
 	}
 
 
 protected:
-	Status::statusType Initialization() override {
+	ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -63,29 +63,26 @@ protected:
 		init_config.ulp_mode = ADC_ULP_MODE_DISABLE;
 
 		if (adc_oneshot_new_unit(&init_config, &unitHandle) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		return AfterInitialization();
 	}
 
 
-	Status::statusType RegularInitialization(uint8 rankLength) override {
-		return Status::ok;
+	ResultStatus RegularInitialization(uint8 rankLength) override {
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType InjectedInitialization(uint8 rankLength) override {
-		return Status::notSupported;
+	ResultStatus InjectedInitialization(uint8 rankLength) override {
+		return ResultStatus::notSupported;
 	}
 
 
-	Status::info<float> SetRegularChannel(const RegularChannel &channel, uint8 rank) override {
-		auto result = Status::info<float>();
-
+	Result<uint32> SetRegularChannel(const RegularChannel &channel, uint8 rank) override {
 		if (rank == 0 || rank > maxRegularChannels) {
-			result.type = Status::error;
-			return result;
+			return ResultStatus::error;
 		}
 
 		adc_oneshot_chan_cfg_t config = {};
@@ -93,8 +90,7 @@ protected:
 		config.atten = ADC_ATTEN_DB_12;
 
 		if (adc_oneshot_config_channel(unitHandle, static_cast<adc_channel_t>(channel.channel), &config) != ESP_OK) {
-			result.type = Status::error;
-			return result;
+			return ResultStatus::error;
 		}
 
 		uint8 idx = rank - 1;
@@ -104,20 +100,16 @@ protected:
 			regularCount = rank;
 		}
 
-		result.type = Status::ok;
-		result.data = 0;
-		return result;
+		return 0;
 	}
 
 
-	Status::info<float> SetInjectedChannel(const InjecteChannel &channel, uint8 rank) override {
-		auto result = Status::info<float>();
-		result.type = Status::notSupported;
-		return result;
+	Result<uint32> SetInjectedChannel(const InjecteChannel &channel, uint8 rank) override {
+		return ResultStatus::notSupported;
 	}
 
 
-	Status::statusType ReadByteArray(uint8 *buffer, uint16 size) override {
+	ResultStatus ReadByteArray(uint8 *buffer, uint16 size) override {
 		uint8 resBytes = GetResolutionByte();
 		uint16 count = size / resBytes;
 
@@ -128,7 +120,7 @@ protected:
 
 			int raw = 0;
 			if (adc_oneshot_read(unitHandle, regularChannels[i].channel, &raw) != ESP_OK) {
-				return Status::error;
+				return ResultStatus::error;
 			}
 
 			if (resBytes == 2) {
@@ -138,12 +130,12 @@ protected:
 			}
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType ReadByteArrayAsync(uint8 *buffer, uint16 size) override {
-		return Status::notSupported;
+	ResultStatus ReadByteArrayAsync(uint8 *buffer, uint16 size) override {
+		return ResultStatus::notSupported;
 	}
 
 

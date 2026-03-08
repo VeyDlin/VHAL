@@ -66,75 +66,75 @@ public:
 	}
 
 
-	Status::statusType SetParameters(Parameters val) override {
+	ResultStatus SetParameters(Parameters val) override {
 		parameters = val;
 		return Initialization();
 	}
 
 
-	Status::statusType Transmit(uint16 *buffer, uint32 size) override {
+	ResultStatus Transmit(uint16 *buffer, uint32 size) override {
 		if (!txHandle) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 		size_t bytesWritten = 0;
 		if (i2s_channel_write(txHandle, buffer, size * sizeof(uint16), &bytesWritten, pdMS_TO_TICKS(timeout)) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType Receive(uint16 *buffer, uint32 size) override {
+	ResultStatus Receive(uint16 *buffer, uint32 size) override {
 		if (!rxHandle) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 		size_t bytesRead = 0;
 		if (i2s_channel_read(rxHandle, buffer, size * sizeof(uint16), &bytesRead, pdMS_TO_TICKS(timeout)) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType TransmitReceive(uint16 *txBuffer, uint16 *rxBuffer, uint32 size) override {
-		return Status::notSupported;
+	ResultStatus TransmitReceive(uint16 *txBuffer, uint16 *rxBuffer, uint32 size) override {
+		return ResultStatus::notSupported;
 	}
 
 
-	Status::statusType TransmitAsync(uint16 *buffer, uint32 size) override {
-		return Status::notSupported;
+	ResultStatus TransmitAsync(uint16 *buffer, uint32 size) override {
+		return ResultStatus::notSupported;
 	}
 
-	Status::statusType ReceiveAsync(uint16 *buffer, uint32 size) override {
-		return Status::notSupported;
+	ResultStatus ReceiveAsync(uint16 *buffer, uint32 size) override {
+		return ResultStatus::notSupported;
 	}
 
-	Status::statusType TransmitReceiveAsync(uint16 *txBuffer, uint16 *rxBuffer, uint32 size) override {
-		return Status::notSupported;
-	}
-
-
-	Status::statusType TransmitCircular(uint16 *buffer, uint32 size) override {
-		return Status::notSupported;
-	}
-
-	Status::statusType ReceiveCircular(uint16 *buffer, uint32 size) override {
-		return Status::notSupported;
+	ResultStatus TransmitReceiveAsync(uint16 *txBuffer, uint16 *rxBuffer, uint32 size) override {
+		return ResultStatus::notSupported;
 	}
 
 
-	Status::statusType StopTransmit() override {
+	ResultStatus TransmitCircular(uint16 *buffer, uint32 size) override {
+		return ResultStatus::notSupported;
+	}
+
+	ResultStatus ReceiveCircular(uint16 *buffer, uint32 size) override {
+		return ResultStatus::notSupported;
+	}
+
+
+	ResultStatus StopTransmit() override {
 		if (!txHandle) {
-			return Status::error;
+			return ResultStatus::error;
 		}
-		return (i2s_channel_disable(txHandle) == ESP_OK) ? Status::ok : Status::error;
+		return (i2s_channel_disable(txHandle) == ESP_OK) ? ResultStatus::ok : ResultStatus::error;
 	}
 
-	Status::statusType StopReceive() override {
+	ResultStatus StopReceive() override {
 		if (!rxHandle) {
-			return Status::error;
+			return ResultStatus::error;
 		}
-		return (i2s_channel_disable(rxHandle) == ESP_OK) ? Status::ok : Status::error;
+		return (i2s_channel_disable(rxHandle) == ESP_OK) ? ResultStatus::ok : ResultStatus::error;
 	}
 
 
@@ -149,9 +149,9 @@ protected:
 	i2s_chan_handle_t rxHandle = nullptr;
 
 
-	Status::statusType Initialization() override {
+	ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -172,7 +172,7 @@ protected:
 		}
 
 		if (i2s_new_channel(&chan_cfg, txPtr, rxPtr) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		if (parameters.slotCount.Get() > 2) {
@@ -181,19 +181,19 @@ protected:
 			status = InitStdMode();
 		}
 
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			Deinit();
 			return status;
 		}
 
 		if (txHandle && i2s_channel_enable(txHandle) != ESP_OK) {
 			Deinit();
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		if (rxHandle && i2s_channel_enable(rxHandle) != ESP_OK) {
 			Deinit();
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		return AfterInitialization();
@@ -227,7 +227,7 @@ private:
 	}
 
 
-	Status::statusType InitStdMode() {
+	ResultStatus InitStdMode() {
 		i2s_std_config_t cfg = {};
 
 		cfg.clk_cfg.sample_rate_hz = parameters.sampleRateHz;
@@ -278,20 +278,20 @@ private:
 
 		if (txHandle) {
 			if (i2s_channel_init_std_mode(txHandle, &cfg) != ESP_OK) {
-				return Status::error;
+				return ResultStatus::error;
 			}
 		}
 		if (rxHandle) {
 			if (i2s_channel_init_std_mode(rxHandle, &cfg) != ESP_OK) {
-				return Status::error;
+				return ResultStatus::error;
 			}
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType InitTdmMode() {
+	ResultStatus InitTdmMode() {
 		i2s_tdm_config_t cfg = {};
 
 		cfg.clk_cfg.sample_rate_hz = parameters.sampleRateHz;
@@ -326,7 +326,7 @@ private:
 				cfg.slot_cfg.bit_shift = true;
 				break;
 			case Standard::LSB:
-				return Status::notSupported;
+				return ResultStatus::notSupported;
 		}
 
 		cfg.gpio_cfg.mclk = static_cast<gpio_num_t>(gpio.mclk);
@@ -340,16 +340,16 @@ private:
 
 		if (txHandle) {
 			if (i2s_channel_init_tdm_mode(txHandle, &cfg) != ESP_OK) {
-				return Status::error;
+				return ResultStatus::error;
 			}
 		}
 		if (rxHandle) {
 			if (i2s_channel_init_tdm_mode(rxHandle, &cfg) != ESP_OK) {
-				return Status::error;
+				return ResultStatus::error;
 			}
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 

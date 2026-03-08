@@ -5,7 +5,6 @@
 
 using ASI2C = class SoftwareI2C;
 
-
 class SoftwareI2C : public I2CAdapter<void> {
 private:
 	enum class Line:uint8 { High = 1, Low = 0 };
@@ -13,7 +12,7 @@ private:
 	AGPIO sdaPin;
 	AGPIO sclPin;
 
-	Status::statusType lastStatus = Status::ok;
+	ResultStatus lastStatus = ResultStatus::ok;
 	uint16 bitDelayUs = 100;
 	bool clockStretchMode = true;
 
@@ -23,51 +22,42 @@ public:
 	SoftwareI2C(void *i2c, uint32 busClockHz):I2CAdapter(i2c, busClockHz) { }
 
 
-
-
-
 	~SoftwareI2C() {
 	    SetSda(Line::High);
 	    SetScl(Line::High);
 	}
 
 
-
-
-
 	virtual void IrqEventHandler() override {}
 
 	virtual void IrqErrorHandler() override {}
 
-	virtual Status::statusType CheckDevice(uint8 deviceAddress, uint16 repeat = 1) override {
-		return Status::notSupported;
+	virtual ResultStatus CheckDevice(uint8 deviceAddress, uint16 repeat = 1) override {
+		return ResultStatus::notSupported;
 	}
 
-	virtual Status::statusType CheckDeviceAsync(uint8 deviceAddress, uint16 repeat = 1) override {
-		return Status::notSupported;
+	virtual ResultStatus CheckDeviceAsync(uint8 deviceAddress, uint16 repeat = 1) override {
+		return ResultStatus::notSupported;
 	}
 
-	virtual Status::info<uint8> Scan(uint8* listBuffer, uint8 size) override {
-		return { Status::notSupported };
+	virtual Result<uint8> Scan(uint8* listBuffer, uint8 size) override {
+		return { ResultStatus::notSupported };
 	}
 
-	virtual Status::info<uint8> ScanAsync(uint8* listBuffer, uint8 size) override {
-		return { Status::notSupported };
+	virtual Result<uint8> ScanAsync(uint8* listBuffer, uint8 size) override {
+		return { ResultStatus::notSupported };
 	}
 
-	virtual Status::statusType WriteByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
-		return Status::notSupported;
+	virtual ResultStatus WriteByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
+		return ResultStatus::notSupported;
 	}
 
-	virtual Status::statusType ReadByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
-		return Status::notSupported;
+	virtual ResultStatus ReadByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
+		return ResultStatus::notSupported;
 	}
 
 
-
-
-
-	Status::statusType SetPins(AGPIO::IO scl, AGPIO::IO sda) {
+	ResultStatus SetPins(AGPIO::IO scl, AGPIO::IO sda) {
 	    sdaPin = AGPIO(sda);
 	    sclPin = AGPIO(scl);
 
@@ -78,89 +68,77 @@ public:
 	    Release();
 
 	    // TODO: Some tests could be added here, to check if the SDA and SCL are really turning high
-	    return Status::ok;
+	    return ResultStatus::ok;
 	}
 
 
-
-
-
-	virtual Status::statusType WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *writeData, uint32 dataSize) override {
-		Status::statusType status;
+	virtual ResultStatus WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *writeData, uint32 dataSize) override {
+		ResultStatus status;
 
 		status = Open();
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			Close();
 			return status;
 		}
-
 
 		status = RequestWrite(device);
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			Close();
 			return status;
 		}
-
 
 		status = Write(ByteConverter::GetByte(address, 0));
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			Close();
 			return status;
 		}
-
 
 		if(addressSize != 1) {
 			status = Write(ByteConverter::GetByte(address, 1));
-			if(status != Status::ok) {
+			if(status != ResultStatus::ok) {
 				Close();
 				return status;
 			}
 		}
-
 
 		for(uint32 i = 0; i < dataSize; i++) {
 			status = Write((uint8)*writeData);
 			writeData++;
 
-			if(status != Status::ok) {
+			if(status != ResultStatus::ok) {
 				Close();
 				return status;
 			}
 		}
 
-
 	    status = Close();
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			return status;
 		}
 
-
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-
-
-
-	virtual Status::statusType ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *readData, uint32 dataSize) override {
-		Status::statusType status;
+	virtual ResultStatus ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *readData, uint32 dataSize) override {
+		ResultStatus status;
 
 		status = Open();
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			Close();
 			return status;
 		}
 
 
 		status = RequestWrite(device);
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			Close();
 			return status;
 		}
 
 
 		status = Write(ByteConverter::GetByte(address, 0));
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			Close();
 			return status;
 		}
@@ -168,7 +146,7 @@ public:
 
 		if(addressSize != 1) {
 			status = Write(ByteConverter::GetByte(address, 1));
-			if(status != Status::ok) {
+			if(status != ResultStatus::ok) {
 				Close();
 				return status;
 			}
@@ -176,31 +154,27 @@ public:
 
 
 	    status = Close();
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			Close();
 			return status;
 		}
-
 
 		// --------------------
 
-
 		status = Open();
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			Close();
 			return status;
 		}
-
 
 		status = RequestRead(device);
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			Close();
 			return status;
 		}
 
-
 		for(uint32 i = 0; i < dataSize; i++) {
-			Status::info<uint8> readInfo;
+			Result<uint8> readInfo;
 
 	        if(i < dataSize - 1) {
 	        	readInfo = Read();
@@ -208,68 +182,63 @@ public:
 	        	readInfo = ReadLast();
 	        }
 
-	        if(readInfo.IsError()) {
+	        if(readInfo.IsErr()) {
 	        	Close();
-	        	return readInfo.type;
+	        	return readInfo.Error();
 	        }
 
-	        *readData = readInfo.data;
+	        *readData = readInfo.Value();
 	        readData++;
 		}
 
-
 	    status = Close();
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			return status;
 		}
 
-
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-
-
-
-	Status::statusType Open() {
+	ResultStatus Open() {
 	    return LLStart();
 	}
 
 
-	Status::statusType Close() {
+	ResultStatus Close() {
 		return LLStop();
 	}
 
 
-	Status::statusType Restart() {
+	ResultStatus Restart() {
 	    return LLRestart();
 	}
 
 
-	Status::statusType RequestWrite(uint8 address) {
+	ResultStatus RequestWrite(uint8 address) {
 	    return LLWrite((address << 1) | 0);
 	}
 
 
-	Status::statusType RequestRead(uint8 address) {
+	ResultStatus RequestRead(uint8 address) {
 	    return LLWrite((address << 1) | 1);
 	}
 
-	Status::info<uint8> Read() {
+	Result<uint8> Read() {
 	    return LLRead(true);
 	}
 
-	Status::info<uint8> ReadLast() {
+	Result<uint8> ReadLast() {
 	    return LLRead(false);
 	}
 
 
-	Status::statusType Write(uint8 data) {
+	ResultStatus Write(uint8 data) {
 	    return LLWrite(data);
 	}
 
 
-	Status::statusType Free() {
+	ResultStatus Free() {
 		return Release();
 	}
 
@@ -283,13 +252,10 @@ public:
 	}
 
 
-
-
-
 protected:
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -299,11 +265,8 @@ protected:
 	}
 
 
-
-
-
 private:
-	Status::statusType LLStart() {
+	ResultStatus LLStart() {
 
 	    // TODO: can perhaps be removed some day ? if the rest of the code is okay
 	    SetSda(Line::High);
@@ -312,7 +275,7 @@ private:
 
 
 	    if (ReadSda() == 0 || ReadScl() == 0) {
-	        return Status::error;
+	        return ResultStatus::error;
 	    }
 
 		// Force SDA low
@@ -325,19 +288,16 @@ private:
 
 
 	    if (ReadSda() != 0 || ReadScl() != 0) {
-	        return Status::busy;
+	        return ResultStatus::busy;
 	    }
 
 
-	    return Status::ok;
+	    return ResultStatus::ok;
 	}
 
 
-
-
-
 	// TODO: check if the repeated start actually works
-	Status::statusType LLRestart() {
+	ResultStatus LLRestart() {
 
 		// Force SCL low
 		SetScl(Line::Low);
@@ -351,7 +311,7 @@ private:
 		SetScl(Line::High);
 		if (clockStretchMode) {
 			if (WaitScl(Line::High)) {
-				return Status::timeout;
+				return ResultStatus::timeout;
 			}
 		}
 		Tick();
@@ -360,14 +320,11 @@ private:
 		SetSda(Line::Low);
 		Tick();
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-
-
-
-	Status::statusType LLStop() {
+	ResultStatus LLStop() {
 
 		// Force SCL low
 		SetScl(Line::Low);
@@ -381,14 +338,11 @@ private:
 	}
 
 
-
-
-
-	Status::statusType LLWrite(uint8 c) {
+	ResultStatus LLWrite(uint8 c) {
 	    for (uint8 i = 0; i < 8; i++) {
 
 	    	auto wrriteStatus = LLWriteBit(c & 0x80);
-	    	if(wrriteStatus != Status::ok) {
+	    	if(wrriteStatus != ResultStatus::ok) {
 	    		return wrriteStatus;
 	    	}
 
@@ -396,46 +350,40 @@ private:
 	    }
 
         auto bitInfo = LLReadBit();
-        if(bitInfo.IsError()) {
-        	return bitInfo.type;
+        if(bitInfo.IsErr()) {
+        	return bitInfo.Error();
         }
 
-	    return bitInfo.data == 0 ? Status::ok : Status::error;
+	    return bitInfo.Value() == 0 ? ResultStatus::ok : ResultStatus::error;
 	}
 
 
-
-
-
-	Status::info<uint8> LLRead(bool ack) {
+	Result<uint8> LLRead(bool ack) {
 	    uint8 res = 0;
 
 	    for (uint8 i = 0; i < 8; i++) {
 	        res <<= 1;
 
 	        auto bitInfo = LLReadBit();
-	        if(bitInfo.IsError()) {
+	        if(bitInfo.IsErr()) {
 	        	return bitInfo;
 	        }
 
-	        res |= bitInfo.data;
+	        res |= bitInfo.Value();
 	    }
 
     	auto wrriteStatus = LLWriteBit(ack ? 0 : 1);
-    	if(wrriteStatus != Status::ok) {
+    	if(wrriteStatus != ResultStatus::ok) {
     		return { wrriteStatus };
     	}
 
 	    Tick();
 
-	    return { Status::ok, res };
+	    return { ResultStatus::ok, res };
 	}
 
 
-
-
-
-	Status::statusType LLWriteBit(uint8 c) {
+	ResultStatus LLWriteBit(uint8 c) {
 	    SetSda(c == 0 ? Line::Low : Line::High);
 	    Tick();
 
@@ -443,7 +391,7 @@ private:
 
 	    if (clockStretchMode) {
 			if (WaitScl(Line::High)) {
-				return Status::timeout;
+				return ResultStatus::timeout;
 			}
 	    }
 
@@ -452,20 +400,17 @@ private:
 	    SetScl(Line::Low);
 	    Tick();
 
-	    return Status::ok;
+	    return ResultStatus::ok;
 	}
 
 
-
-
-
-	Status::info<uint8> LLReadBit() {
+	Result<uint8> LLReadBit() {
 	    SetSda(Line::High);
 	    SetScl(Line::High);
 
 	    if (clockStretchMode) {
 			if (WaitScl(Line::High)) {
-				return { Status::timeout };
+				return { ResultStatus::timeout };
 			}
 	    }
 
@@ -476,14 +421,11 @@ private:
 	    SetScl(Line::Low);
 	    Tick();
 
-	    return { Status::ok, bit };
+	    return { ResultStatus::ok, bit };
 	}
 
 
-
-
-
-	Status::statusType Release() {
+	ResultStatus Release() {
 	    SetScl(Line::High);
 	    Tick();
 
@@ -494,15 +436,12 @@ private:
 		auto prevMillis = System::GetTick();
 		while (ReadScl() != 1 && ReadSda() != 1) {
 			if (System::GetTick() - prevMillis >= timeout) {
-				return Status::timeout;
+				return ResultStatus::timeout;
 			}
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
-
-
-
 
 
 	void SetScl(Line state) {
@@ -525,23 +464,16 @@ private:
 	}
 
 
-
-
-
-
-	Status::statusType WaitScl(Line waitState) {
+	ResultStatus WaitScl(Line waitState) {
 		auto prevMillis = System::GetTick();
 		while (ReadScl() != static_cast<uint8>(waitState)) {
 			if (System::GetTick() - prevMillis >= timeout) {
-				return Status::timeout;
+				return ResultStatus::timeout;
 			}
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
-
-
-
 
 
 	void Tick(uint8 ticks = 1) {

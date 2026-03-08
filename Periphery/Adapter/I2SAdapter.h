@@ -59,7 +59,7 @@ public:
 	I2SAdapter(HandleType *i2s, uint32 busClockHz = 0) : i2sHandle(i2s), inputBusClockHz(busClockHz) { }
 
 
-	virtual Status::statusType SetParameters(Parameters val) {
+	virtual ResultStatus SetParameters(Parameters val) {
 		parameters = val;
 		return Initialization();
 	}
@@ -76,28 +76,28 @@ public:
 
 
 	// Sync
-	virtual Status::statusType Transmit(uint16 *buffer, uint32 size) = 0;
-	virtual Status::statusType Receive(uint16 *buffer, uint32 size) = 0;
-	virtual Status::statusType TransmitReceive(uint16 *txBuffer, uint16 *rxBuffer, uint32 size) = 0;
+	virtual ResultStatus Transmit(uint16 *buffer, uint32 size) = 0;
+	virtual ResultStatus Receive(uint16 *buffer, uint32 size) = 0;
+	virtual ResultStatus TransmitReceive(uint16 *txBuffer, uint16 *rxBuffer, uint32 size) = 0;
 
 	// Async (DMA/interrupt)
-	virtual Status::statusType TransmitAsync(uint16 *buffer, uint32 size) = 0;
-	virtual Status::statusType ReceiveAsync(uint16 *buffer, uint32 size) = 0;
-	virtual Status::statusType TransmitReceiveAsync(uint16 *txBuffer, uint16 *rxBuffer, uint32 size) = 0;
+	virtual ResultStatus TransmitAsync(uint16 *buffer, uint32 size) = 0;
+	virtual ResultStatus ReceiveAsync(uint16 *buffer, uint32 size) = 0;
+	virtual ResultStatus TransmitReceiveAsync(uint16 *txBuffer, uint16 *rxBuffer, uint32 size) = 0;
 
 	// Circular (continuous streaming)
-	virtual Status::statusType TransmitCircular(uint16 *buffer, uint32 size) = 0;
-	virtual Status::statusType ReceiveCircular(uint16 *buffer, uint32 size) = 0;
+	virtual ResultStatus TransmitCircular(uint16 *buffer, uint32 size) = 0;
+	virtual ResultStatus ReceiveCircular(uint16 *buffer, uint32 size) = 0;
 
 	// Control
-	virtual Status::statusType StopTransmit() = 0;
-	virtual Status::statusType StopReceive() = 0;
+	virtual ResultStatus StopTransmit() = 0;
+	virtual ResultStatus StopReceive() = 0;
 
 	virtual void IrqHandler() = 0;
 
 
 protected:
-	virtual Status::statusType Initialization() = 0;
+	virtual ResultStatus Initialization() = 0;
 
 
 	virtual inline void CallInterrupt(Irq irqType) {

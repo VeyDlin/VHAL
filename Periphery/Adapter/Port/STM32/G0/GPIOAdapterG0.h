@@ -15,15 +15,15 @@ public:
 	GPIOAdapterG0(IO &io):GPIOAdapter(io) { }
 
 
-	static inline Status::statusType AlternateInit(AlternateParameters val) {
+	static inline ResultStatus AlternateInit(AlternateParameters val) {
 		return GPIOAdapter<GPIO_TypeDef>::AlternateInitBase<AGPIO>(val);
 	}
 
-	static inline Status::statusType AlternateOpenDrainInit(AlternateParameters val)  {
+	static inline ResultStatus AlternateOpenDrainInit(AlternateParameters val)  {
 		return GPIOAdapter<GPIO_TypeDef>::AlternateOpenDrainInitBase<AGPIO>(val);
 	}
 
-	static inline Status::statusType AnalogInit(AnalogParameters val)  {
+	static inline ResultStatus AnalogInit(AnalogParameters val)  {
 		return GPIOAdapter<GPIO_TypeDef>::AnalogInitBase<AGPIO>(val);
 	}
 
@@ -60,11 +60,11 @@ protected:
 
 
 
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		OnEnableClock();
 
 		auto status = BeforeInitialization();
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -109,7 +109,7 @@ protected:
 		}
 
 
-		return Status::invalidParameter;
+		return ResultStatus::invalidParameter;
 	}
 
 

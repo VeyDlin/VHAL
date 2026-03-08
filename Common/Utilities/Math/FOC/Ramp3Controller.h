@@ -1,9 +1,7 @@
 ﻿#pragma once
-#include "reductionTypes.h"
+#include <VHAL.h>
 #include <algorithm>
 #include <cmath>
-
-
 
 
 class Ramp3Controller {
@@ -45,7 +43,7 @@ public:
 	}
 
 
-	Ramp3Controller& Set(float desiredInput) {
+	Ramp3Controller& Set(int32 desiredInput) {
 		in.desiredInput = desiredInput;
 		return *this;
 	}

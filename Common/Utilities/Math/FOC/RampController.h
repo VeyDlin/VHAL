@@ -1,33 +1,34 @@
-﻿#pragma once
-#include "reductionTypes.h"
+#pragma once
+#include <VHAL.h>
 #include <algorithm>
 #include <cmath>
 
 
+template<typename T = float>
 class RampController {
 private:
-	float targetPosition = 0;
+	T targetPosition = 0;
 	uint32 delayCount = 0;
 
 
 public:
     struct {
     	uint32 delayMax = 5;
-    	float amplitudeMin = -1;
-    	float amplitudeMax = 1;
-		float resolution = 0.0000305;
+    	T amplitudeMin = -1;
+    	T amplitudeMax = 1;
+		T resolution = T(0.0000305);
     } parameters;
 
 
 	struct Out {
-		float position = 0;
+		T position = 0;
 		bool equalFlag = false;
 	} out;
 
 
 	RampController() { }
 
-	RampController(uint32 delayMax, float amplitudeMin, float amplitudeMax, float resolution, int32 startPosition = 0) {
+	RampController(uint32 delayMax, T amplitudeMin, T amplitudeMax, T resolution, int32 startPosition = 0) {
 		parameters.delayMax = delayMax;
 		parameters.amplitudeMin = amplitudeMin;
 		parameters.amplitudeMax = amplitudeMax;
@@ -43,28 +44,22 @@ public:
 	}
 
 
-	RampController& SetTargetPosition(float target) {
+	RampController& SetTargetPosition(T target) {
 		targetPosition = target;
 		return *this;
 	}
 
-	RampController& SetReferencePosition(float position) {
+	RampController& SetReferencePosition(T position) {
 		out.position = position;
 		return *this;
 	}
 
-	RampController& Reset() {
-		targetPosition = 0;
-		delayCount = 0;
-		out.position = 0;
-		out.equalFlag = 0;
-		return *this;
-	}
 
 
 	RampController& Resolve() {
-		float dlt = targetPosition - out.position;
+		T dlt = targetPosition - out.position;
 
+		using std::abs;
 		if (abs(dlt) >= parameters.resolution) {
 			delayCount++;
 
@@ -75,7 +70,9 @@ public:
 					out.position -= parameters.resolution;
 				}
 
-				out.position = std::min(std::max(out.position , parameters.amplitudeMin), parameters.amplitudeMax);
+				using std::min;
+				using std::max;
+				out.position = min(max(out.position , parameters.amplitudeMin), parameters.amplitudeMax);
 
 				delayCount = 0;
 			}
@@ -92,15 +89,15 @@ public:
 		return out;
 	}
 
-	float GetTargetPosition() {
+	T GetTargetPosition() {
 		return targetPosition;
 	}
 
 
 
 	// Slew programmable ramper
-	static inline float Ramper(float in, float out, float rampDelta) {
-		float err = in - out;
+	static inline T Ramper(T in, T out, T rampDelta) {
+		T err = in - out;
 
 		if (err > rampDelta) {
 			return out + rampDelta;
@@ -111,11 +108,3 @@ public:
 	    return in;
 	}
 };
-
-
-
-
-
-
-
-

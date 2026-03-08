@@ -39,19 +39,19 @@ public:
 
 	void AbortReceive() override {
 		uart_flush_input(port);
-		rxState = Status::ready;
+		rxState = ResultStatus::ready;
 	}
 
 	void AbortTransmit() override {
 		uart_wait_tx_done(port, 0);
-		txState = Status::ready;
+		txState = ResultStatus::ready;
 	}
 
 
 protected:
-	Status::statusType Initialization() override {
+	ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -66,89 +66,89 @@ protected:
 		uart_config.source_clk = UART_SCLK_DEFAULT;
 
 		if (uart_param_config(port, &uart_config) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		if (uart_set_pin(port, txPin, rxPin, rtsPin, ctsPin) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		if (uart_driver_install(port, bufferSize, bufferSize, eventQueueSize, &eventQueue, 0) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		return AfterInitialization();
 	}
 
 
-	Status::statusType WriteByteArray(uint8* buffer, uint32 size) override {
+	ResultStatus WriteByteArray(uint8* buffer, uint32 size) override {
 		int written = uart_write_bytes(port, buffer, size);
 		if (written < 0) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 		if (uart_wait_tx_done(port, pdMS_TO_TICKS(timeout)) != ESP_OK) {
-			return Status::timeout;
+			return ResultStatus::timeout;
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType ReadByteArray(uint8* buffer, uint32 size) override {
+	ResultStatus ReadByteArray(uint8* buffer, uint32 size) override {
 		int read = uart_read_bytes(port, buffer, size, pdMS_TO_TICKS(timeout));
 		if (read < 0) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 		if (static_cast<uint32>(read) < size) {
-			return Status::timeout;
+			return ResultStatus::timeout;
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType WriteByteArrayAsync(uint8* buffer, uint32 size) override {
-		txState = Status::busy;
+	ResultStatus WriteByteArrayAsync(uint8* buffer, uint32 size) override {
+		txState = ResultStatus::busy;
 		txDataPointer = buffer;
 		txDataNeed = size;
 		txDataCounter = 0;
 
 		int written = uart_write_bytes(port, buffer, size);
 		if (written < 0) {
-			txState = Status::error;
-			return Status::error;
+			txState = ResultStatus::error;
+			return ResultStatus::error;
 		}
 
 		txDataCounter = written;
-		txState = Status::ready;
+		txState = ResultStatus::ready;
 		CallInterrupt(Irq::Tx);
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType ReadByteArrayAsync(uint8* buffer, uint32 size) override {
-		rxState = Status::busy;
+	ResultStatus ReadByteArrayAsync(uint8* buffer, uint32 size) override {
+		rxState = ResultStatus::busy;
 		rxDataPointer = buffer;
 		rxDataNeed = size;
 		rxDataCounter = 0;
 
 		int read = uart_read_bytes(port, buffer, size, 0);
 		if (read < 0) {
-			rxState = Status::error;
-			return Status::error;
+			rxState = ResultStatus::error;
+			return ResultStatus::error;
 		}
 
 		if (static_cast<uint32>(read) >= size) {
 			rxDataCounter = read;
-			rxState = Status::ready;
+			rxState = ResultStatus::ready;
 			CallInterrupt(Irq::Rx);
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType StartContinuousAsyncRxMode() override {
+	ResultStatus StartContinuousAsyncRxMode() override {
 		if (rxTaskHandle) {
-			return Status::ok;
+			return ResultStatus::ok;
 		}
 
 		auto created = xTaskCreate(
@@ -160,16 +160,16 @@ protected:
 			&rxTaskHandle
 		);
 
-		return (created == pdTRUE) ? Status::ok : Status::error;
+		return (created == pdTRUE) ? ResultStatus::ok : ResultStatus::error;
 	}
 
 
-	Status::statusType StopContinuousAsyncRxMode() override {
+	ResultStatus StopContinuousAsyncRxMode() override {
 		if (rxTaskHandle) {
 			vTaskDelete(rxTaskHandle);
 			rxTaskHandle = nullptr;
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
@@ -217,7 +217,7 @@ private:
 							self->rxDataCounter += read;
 						}
 						if (self->rxDataCounter >= self->rxDataNeed) {
-							self->rxState = Status::ready;
+							self->rxState = ResultStatus::ready;
 							self->CallInterrupt(Irq::Rx);
 						}
 					} else {

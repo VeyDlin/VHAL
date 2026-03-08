@@ -46,53 +46,49 @@ public:
     RingBuffer() : readIndex(0), size(0) {}
 
 
-    Status::statusType Push(const ElementType inElement) {
+    ResultStatus Push(const ElementType inElement) {
 		System::CriticalSection(true);
         if (IsFull()) {
 			System::CriticalSection(false);
-            return Status::filled;
+            return ResultStatus::filled;
         }
 
         buffer[WriteIndex()] = inElement;
         System::CriticalSection(false);
 
-        return Status::ok;
+        return ResultStatus::ok;
     }
 
 
-    Status::statusType Push(const ElementType* const inElement) {
+    ResultStatus Push(const ElementType* const inElement) {
         if (!inElement) {
-            return Status::error; 
+            return ResultStatus::error; 
         }
 
 		System::CriticalSection(true);
         if (IsFull()) {
 			System::CriticalSection(false);
-            return Status::filled;
+            return ResultStatus::filled;
         }
 
         buffer[WriteIndex()] = *inElement;
         System::CriticalSection(false);
 
-        return Status::ok;
+        return ResultStatus::ok;
     }
 
 
-    Status::info<ElementType> Pop() {
-        Status::info<ElementType> out;
-
+    Result<ElementType> Pop() {
 		System::CriticalSection(true);
         if (IsEmpty()) {
 			System::CriticalSection(false);
-            out.type = Status::empty;
-            return out;
+            return ResultStatus::empty;
         }
 
-        out.data = buffer[ReadIndex()];
+        ElementType data = buffer[ReadIndex()];
         System::CriticalSection(false);
 
-        out.type = Status::ok;
-        return out;
+        return data;
     }
 
 
@@ -130,15 +126,11 @@ public:
     }
 
 
-    Status::info<ElementType> Peek() const {
-        Status::info<ElementType> out;
+    Result<ElementType> Peek() const {
         if (IsEmpty()) {
-            out.type = Status::empty;
-            return out;
+            return ResultStatus::empty;
         }
-        out.data = buffer[readIndex];
-        out.type = Status::ok;
-        return out;
+        return buffer[readIndex];
     }
 
 
@@ -185,18 +177,18 @@ public:
 
 
     // Mark elements as read but don't remove them yet
-    Status::statusType MarkRead(uint16 count) {
+    ResultStatus MarkRead(uint16 count) {
         System::CriticalSection(true);
         
         if (count > size - uncommittedReadCount) {
             System::CriticalSection(false);
-            return Status::error;  // Can't mark more than available
+            return ResultStatus::error;  // Can't mark more than available
         }
         
         uncommittedReadCount += count;
         
         System::CriticalSection(false);
-        return Status::ok;
+        return ResultStatus::ok;
     }
 
 

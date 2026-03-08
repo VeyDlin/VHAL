@@ -18,31 +18,31 @@ public:
 	}
 
 
-	Status::statusType SetParameters(Parameters val) override {
+	ResultStatus SetParameters(Parameters val) override {
 		parameters = val;
 		return Initialization();
 	}
 
 
-	Status::statusType Start() override {
+	ResultStatus Start() override {
 		if (!timerHandle) {
-			return Status::error;
+			return ResultStatus::error;
 		}
-		return (gptimer_start(timerHandle) == ESP_OK) ? Status::ok : Status::error;
+		return (gptimer_start(timerHandle) == ESP_OK) ? ResultStatus::ok : ResultStatus::error;
 	}
 
 
-	Status::statusType Stop() override {
+	ResultStatus Stop() override {
 		if (!timerHandle) {
-			return Status::error;
+			return ResultStatus::error;
 		}
-		return (gptimer_stop(timerHandle) == ESP_OK) ? Status::ok : Status::error;
+		return (gptimer_stop(timerHandle) == ESP_OK) ? ResultStatus::ok : ResultStatus::error;
 	}
 
 
-	Status::statusType SetAlarm(uint64 alarm, bool reload) override {
+	ResultStatus SetAlarm(uint64 alarm, bool reload) override {
 		if (!timerHandle) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 		parameters.alarmCount = alarm;
 		parameters.autoReload = reload;
@@ -52,15 +52,15 @@ public:
 		alarm_config.reload_count = 0;
 		alarm_config.flags.auto_reload_on_alarm = reload;
 
-		return (gptimer_set_alarm_action(timerHandle, &alarm_config) == ESP_OK) ? Status::ok : Status::error;
+		return (gptimer_set_alarm_action(timerHandle, &alarm_config) == ESP_OK) ? ResultStatus::ok : ResultStatus::error;
 	}
 
 
-	Status::statusType SetCount(uint64 count) override {
+	ResultStatus SetCount(uint64 count) override {
 		if (!timerHandle) {
-			return Status::error;
+			return ResultStatus::error;
 		}
-		return (gptimer_set_raw_count(timerHandle, count) == ESP_OK) ? Status::ok : Status::error;
+		return (gptimer_set_raw_count(timerHandle, count) == ESP_OK) ? ResultStatus::ok : ResultStatus::error;
 	}
 
 
@@ -76,9 +76,9 @@ public:
 protected:
 	gptimer_handle_t timerHandle = nullptr;
 
-	Status::statusType Initialization() override {
+	ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -95,23 +95,23 @@ protected:
 		config.resolution_hz = parameters.resolutionHz;
 
 		if (gptimer_new_timer(&config, &timerHandle) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		gptimer_event_callbacks_t cbs = {};
 		cbs.on_alarm = AlarmCallback;
 
 		if (gptimer_register_event_callbacks(timerHandle, &cbs, this) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		if (gptimer_enable(timerHandle) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		if (parameters.alarmCount > 0) {
 			status = SetAlarm(parameters.alarmCount, parameters.autoReload);
-			if (status != Status::ok) {
+			if (status != ResultStatus::ok) {
 				return status;
 			}
 		}

@@ -1,0 +1,35 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug (OpenOCD)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/Debug/ENS001.elf",
+            "servertype": "openocd",
+            "configFiles": [
+                "interface/cmsis-dap.cfg",
+                "target/swj-dp.tcl"
+            ],
+            "svdFile": "${workspaceFolder}/ENS001.svd",
+            "runToEntryPoint": "main",
+            "showDevDebugOutput": "none",
+            "preLaunchTask": "Build"
+        },
+        {
+            "name": "Debug (J-Link)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/Debug/ENS001.elf",
+            "servertype": "jlink",
+            "device": "Cortex-M0",
+            "interface": "swd",
+            "svdFile": "${workspaceFolder}/ENS001.svd",
+            "runToEntryPoint": "main",
+            "showDevDebugOutput": "none",
+            "preLaunchTask": "Build"
+        }
+    ]
+}

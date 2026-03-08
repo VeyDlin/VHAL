@@ -113,6 +113,15 @@ namespace OS {
 		}
 
 
+		inline static void wHandlePendSvInterrupt() {
+#if defined(__ARM_ARCH)
+			xPortPendSVHandler();
+#else
+			SystemAbort();
+#endif
+		}
+
+
 		inline static void wHandleSvcInterrupt() {
 #if defined(__ARM_ARCH)
 			vPortSVCHandler();
@@ -124,13 +133,13 @@ namespace OS {
 
 		inline static void wHandleSysTickInterrupt() {
 #if defined(__ARM_ARCH)
-#if (INCLUDE_xTaskGetSchedulerState == 1 )
-			if (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED) {
-#endif
-				xPortSysTickHandler();
-#if (INCLUDE_xTaskGetSchedulerState == 1 )
-			}
-#endif
+	#if (INCLUDE_xTaskGetSchedulerState == 1 )
+				if (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED) {
+	#endif
+					xPortSysTickHandler();
+	#if (INCLUDE_xTaskGetSchedulerState == 1 )
+				}
+	#endif
 #else
 			SystemAbort();
 #endif
@@ -312,4 +321,3 @@ namespace OS {
 		}
 	};
 }
-

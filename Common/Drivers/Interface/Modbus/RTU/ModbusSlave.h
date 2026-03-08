@@ -107,6 +107,7 @@ public:
 	    InputRegisters
 	};
 
+
 private:
     static constexpr size_t MAX_FRAME_SIZE = 256;
     static constexpr uint16 CRC_INIT = 0xFFFF;
@@ -122,85 +123,57 @@ private:
     std::span<bool> discreteInputData;
     std::span<uint16> holdingRegisterData;
     std::span<uint16> inputRegisterData;
-    
-    uint16 CalculateCrc(std::span<const uint8> data) const {
-        uint16 crc = CRC_INIT;
-        for (uint8 byte : data) {
-            crc ^= byte;
-            for (int i = 0; i < 8; ++i) {
-                crc = (crc & 1) ? ((crc >> 1) ^ 0xA001) : (crc >> 1);
-            }
-        }
-        return crc;
-    }
-    
-    bool ValidateRequest(std::span<const uint8> request) const {
-        if (request.size() < 4) return false;
-        
-        // Check CRC
-        uint16 receivedCrc = (request[request.size() - 1] << 8) | request[request.size() - 2];
-        uint16 calculatedCrc = CalculateCrc(request.subspan(0, request.size() - 2));
-        return receivedCrc == calculatedCrc;
-    }
-    
-    void SendExceptionResponse(uint8 functionCode, ModbusException exception) {
-        if (!sendCallback) return;
-        
-        std::array<uint8, 5> response{};
-        response[0] = slaveId;
-        response[1] = functionCode | 0x80;  // Set exception bit
-        response[2] = static_cast<uint8>(exception);
-        
-        uint16 crc = CalculateCrc(std::span(response.data(), 3));
-        response[3] = crc & 0xFF;
-        response[4] = crc >> 8;
-        
-        sendCallback(std::span(response));
-        
-        if (exceptionCallback) {
-            exceptionCallback(exception, 0);
-        }
-    }
+
 
 public:
     explicit ModbusSlave(uint8 slaveId) : slaveId(slaveId) {}
     
+
     void SetSendCallback(std::function<void(std::span<const uint8>)> callback) {
         sendCallback = callback;
     }
     
+
     void SetCoilWriteCallback(std::function<bool(uint16, bool)> callback) {
         coilWriteCallback = callback;
     }
     
+
     void SetRegisterWriteCallback(std::function<bool(uint16, uint16)> callback) {
         registerWriteCallback = callback;
     }
     
+
     void SetAddressValidator(std::function<bool(uint16, uint16, DataType)> validator) {
         addressValidator = validator;
     }
     
+
     void SetExceptionCallback(std::function<void(ModbusException, uint16)> callback) {
         exceptionCallback = callback;
     }
     
+
     void SetCoilData(std::span<bool> data) {
         coilData = data;
     }
     
+
     void SetDiscreteInputData(std::span<bool> data) {
         discreteInputData = data;
     }
     
+
     void SetHoldingRegisterData(std::span<uint16> data) {
         holdingRegisterData = data;
     }
     
+
     void SetInputRegisterData(std::span<uint16> data) {
         inputRegisterData = data;
     }
     
+
     void ProcessRequest(std::span<const uint8> request) {
         if (request.size() < 4) return;
         
@@ -247,12 +220,14 @@ public:
         }
     }
     
+
     void SetCoil(uint16 address, bool value) {
         if (address < coilData.size()) {
             coilData[address] = value;
         }
     }
     
+
     bool GetCoil(uint16 address) const {
         if (address < coilData.size()) {
             return coilData[address];
@@ -260,12 +235,14 @@ public:
         return false;
     }
     
+
     void SetRegister(uint16 address, uint16 value) {
         if (address < holdingRegisterData.size()) {
             holdingRegisterData[address] = value;
         }
     }
     
+
     uint16 GetRegister(uint16 address) const {
         if (address < holdingRegisterData.size()) {
             return holdingRegisterData[address];
@@ -322,6 +299,7 @@ private:
             sendCallback(std::span(response.data(), responseLength));
         }
     }
+
     
     void HandleReadDiscreteInputs(std::span<const uint8> request) {
         if (request.size() < 8) {
@@ -371,6 +349,7 @@ private:
             sendCallback(std::span(response.data(), responseLength));
         }
     }
+
     
     void HandleReadHoldingRegisters(std::span<const uint8> request) {
         if (request.size() < 8) {
@@ -420,6 +399,7 @@ private:
         }
     }
     
+
     void HandleReadInputRegisters(std::span<const uint8> request) {
         if (request.size() < 8) {
             SendExceptionResponse(static_cast<uint8>(ModbusFunction::ReadInputRegisters), ModbusException::IllegalDataValue);
@@ -468,6 +448,7 @@ private:
         }
     }
     
+
     void HandleWriteSingleCoil(std::span<const uint8> request) {
         if (request.size() < 8) {
             SendExceptionResponse(static_cast<uint8>(ModbusFunction::WriteSingleCoil), ModbusException::IllegalDataValue);
@@ -506,6 +487,7 @@ private:
             sendCallback(request);
         }
     }
+
     
     void HandleWriteSingleRegister(std::span<const uint8> request) {
         if (request.size() < 8) {
@@ -538,6 +520,7 @@ private:
             sendCallback(request);
         }
     }
+
     
     void HandleWriteMultipleCoils(std::span<const uint8> request) {
         if (request.size() < 9) {
@@ -599,6 +582,7 @@ private:
         }
     }
     
+
     void HandleWriteMultipleRegisters(std::span<const uint8> request) {
         if (request.size() < 9) {
             SendExceptionResponse(static_cast<uint8>(ModbusFunction::WriteMultipleRegisters), ModbusException::IllegalDataValue);
@@ -656,6 +640,48 @@ private:
         
         if (sendCallback) {
             sendCallback(std::span(response));
+        }
+    }
+
+
+    uint16 CalculateCrc(std::span<const uint8> data) const {
+        uint16 crc = CRC_INIT;
+        for (uint8 byte : data) {
+            crc ^= byte;
+            for (int i = 0; i < 8; ++i) {
+                crc = (crc & 1) ? ((crc >> 1) ^ 0xA001) : (crc >> 1);
+            }
+        }
+        return crc;
+    }
+    
+
+    bool ValidateRequest(std::span<const uint8> request) const {
+        if (request.size() < 4) return false;
+        
+        // Check CRC
+        uint16 receivedCrc = (request[request.size() - 1] << 8) | request[request.size() - 2];
+        uint16 calculatedCrc = CalculateCrc(request.subspan(0, request.size() - 2));
+        return receivedCrc == calculatedCrc;
+    }
+    
+
+    void SendExceptionResponse(uint8 functionCode, ModbusException exception) {
+        if (!sendCallback) return;
+        
+        std::array<uint8, 5> response{};
+        response[0] = slaveId;
+        response[1] = functionCode | 0x80;  // Set exception bit
+        response[2] = static_cast<uint8>(exception);
+        
+        uint16 crc = CalculateCrc(std::span(response.data(), 3));
+        response[3] = crc & 0xFF;
+        response[4] = crc >> 8;
+        
+        sendCallback(std::span(response));
+        
+        if (exceptionCallback) {
+            exceptionCallback(exception, 0);
         }
     }
 };

@@ -17,7 +17,7 @@ public:
 	BoostAdapter001() = default;
 	BoostAdapter001(CMSDK_ANAC_TypeDef *anac) : BoostAdapter(anac) {}
 
-	Status::statusType SetParameters(Parameters val) override {
+	ResultStatus SetParameters(Parameters val) override {
 		parameters = val;
 		return Initialization();
 	}
@@ -60,11 +60,11 @@ private:
 
 
 protected:
-	Status::statusType Initialization() {
+	ResultStatus Initialization() {
 		OnEnableClock();
 
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 

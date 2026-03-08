@@ -483,8 +483,8 @@ protected:
 	      int valueOffset = 0;
 
 	      while(valueOffset < valueSize) {
-	        int chunkSize = VMath::Min<int>(valueSize - valueOffset, MAX_ATTRIBUTE_VALUE_PER_SETUP_MSG);
-	        int valueCopySize = VMath::Min<int>(valueLength - valueOffset, chunkSize);
+	        int chunkSize = std::min<int>(valueSize - valueOffset, MAX_ATTRIBUTE_VALUE_PER_SETUP_MSG);
+	        int valueCopySize = Vstd::min<int>(valueLength - valueOffset, chunkSize);
 
 	        setupMsgData->length = 3 + chunkSize;
 
@@ -552,7 +552,7 @@ protected:
 	      int valueOffset = 0;
 
 	      while(valueOffset < valueLength) {
-	        int chunkSize = VMath::Min<int>(valueLength - valueOffset, MAX_ATTRIBUTE_VALUE_PER_SETUP_MSG);
+	        int chunkSize = std::min<int>(valueLength - valueOffset, MAX_ATTRIBUTE_VALUE_PER_SETUP_MSG);
 
 	        setupMsgData->length = 3 + chunkSize;
 

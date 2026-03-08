@@ -1,27 +1,28 @@
-﻿#pragma once
+#pragma once
 #include <algorithm>
 #include <cmath>
 
 
+template<typename T = float>
 class SpeedCalculator {
 private:
-    float electricalAngle = 0;
-    float oldElectricalAngle = 0;
+    T electricalAngle = 0;
+    T oldElectricalAngle = 0;
 
 public:
     uint32 baseSpeedRpm = 0; 	// Base speed in rpm
-    float K1 = 0;       		// Constant for differentiator
-    float K2 = 0;       		// Constant for low-pass filter (pu)
-    float K3 = 0;       		// Constant for low-pass filter (pu)
+    T K1 = 0;       		// Constant for differentiator
+    T K2 = 0;       		// Constant for low-pass filter (pu)
+    T K3 = 0;       		// Constant for low-pass filter (pu)
 
 
     struct Out {
     	int32 speedRpm = 0; // Speed in rpm
-        float speed = 0;    // Speed in per-unit (pu)
+        T speed = 0;    // Speed in per-unit (pu)
     } out;
 
 
-    SpeedCalculator& Set(float angle) {
+    SpeedCalculator& Set(T angle) {
     	electricalAngle = angle;
     	return *this;
     }
@@ -31,8 +32,8 @@ public:
 		// === Differentiator
 
 		// Synchronous speed computation
-    	float speed;
-		if ((electricalAngle < 0.9) & (electricalAngle > 0.1)) {
+    	T speed;
+		if ((electricalAngle < T(0.9)) & (electricalAngle > T(0.1))) {
 			speed = K1 * (electricalAngle - oldElectricalAngle);
 		} else {
 			speed = out.speed;
@@ -44,7 +45,9 @@ public:
 		speed = (K2 * out.speed) + (K3 * speed);
 
 		// Saturate the output
-		out.speed = std::min(std::max(speed, -1.0f), 1.0f);
+		using std::min;
+		using std::max;
+		out.speed = min(max(speed, T(-1)), T(1));
 
 		// Update the electrical angle
 		oldElectricalAngle = electricalAngle;
@@ -60,5 +63,3 @@ public:
     	return out;
     }
 };
-
-

@@ -56,16 +56,16 @@ public:
 	}
 
 
-	Status::statusType SetParameters(Parameters val) override {
+	ResultStatus SetParameters(Parameters val) override {
 		parameters = val;
 		channelCount = 0;
 		return Initialization();
 	}
 
 
-	Status::statusType AddChannel(ChannelConfig config) override {
+	ResultStatus AddChannel(ChannelConfig config) override {
 		if (channelCount >= maxChannels) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		ledc_channel_config_t ch_config = {};
@@ -78,30 +78,30 @@ public:
 		ch_config.hpoint = config.hpoint;
 
 		if (ledc_channel_config(&ch_config) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		channels[channelCount++] = config;
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
-	Status::statusType SetDuty(ChannelOption channel, uint32 duty) override {
+	ResultStatus SetDuty(ChannelOption channel, uint32 duty) override {
 		return (ledc_set_duty_and_update(
 			static_cast<ledc_mode_t>(speedMode.Get()),
 			static_cast<ledc_channel_t>(channel.Get()),
 			duty, 0
-		) == ESP_OK) ? Status::ok : Status::error;
+		) == ESP_OK) ? ResultStatus::ok : ResultStatus::error;
 	}
 
 
-	Status::statusType SetFrequency(uint32 frequencyHz) override {
+	ResultStatus SetFrequency(uint32 frequencyHz) override {
 		parameters.frequencyHz = frequencyHz;
 		return (ledc_set_freq(
 			static_cast<ledc_mode_t>(speedMode.Get()),
 			static_cast<ledc_timer_t>(timer.Get()),
 			frequencyHz
-		) == ESP_OK) ? Status::ok : Status::error;
+		) == ESP_OK) ? ResultStatus::ok : ResultStatus::error;
 	}
 
 
@@ -121,10 +121,10 @@ public:
 	}
 
 
-	Status::statusType FadeTo(ChannelOption channel, uint32 targetDuty, uint32 fadeTimeMs) override {
+	ResultStatus FadeTo(ChannelOption channel, uint32 targetDuty, uint32 fadeTimeMs) override {
 		if (!fadeInstalled) {
 			if (ledc_fade_func_install(0) != ESP_OK) {
-				return Status::error;
+				return ResultStatus::error;
 			}
 			fadeInstalled = true;
 		}
@@ -133,19 +133,19 @@ public:
 		auto ch = static_cast<ledc_channel_t>(channel.Get());
 
 		if (ledc_set_fade_with_time(sm, ch, targetDuty, fadeTimeMs) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 		return (ledc_fade_start(sm, ch, LEDC_FADE_NO_WAIT) == ESP_OK)
-			? Status::ok : Status::error;
+			? ResultStatus::ok : ResultStatus::error;
 	}
 
 
-	Status::statusType Stop(ChannelOption channel, uint32 idleLevel = 0) override {
+	ResultStatus Stop(ChannelOption channel, uint32 idleLevel = 0) override {
 		return (ledc_stop(
 			static_cast<ledc_mode_t>(speedMode.Get()),
 			static_cast<ledc_channel_t>(channel.Get()),
 			idleLevel
-		) == ESP_OK) ? Status::ok : Status::error;
+		) == ESP_OK) ? ResultStatus::ok : ResultStatus::error;
 	}
 
 
@@ -156,9 +156,9 @@ protected:
 	uint8 channelCount = 0;
 	bool fadeInstalled = false;
 
-	Status::statusType Initialization() override {
+	ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -170,7 +170,7 @@ protected:
 		timer_config.clk_cfg = LEDC_AUTO_CLK;
 
 		if (ledc_timer_config(&timer_config) != ESP_OK) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		return AfterInitialization();

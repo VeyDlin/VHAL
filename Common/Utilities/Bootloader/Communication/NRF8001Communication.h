@@ -5,8 +5,7 @@
 #include <Utilities/Data/ByteConverter.h>
 #include <array>
 
-// Simplified NRF8001Communication using CompactStreamingProtocol
-// This uses the optimized protocol for BLE constraints (4-byte header vs 13-byte)
+// NRF8001 BLE communication using CompactStreamingProtocol
 template<size_t MaxPacketCount = 4, size_t BufferSize = 512>
 class NRF8001Communication : public ICommunication {
 protected:
@@ -80,7 +79,7 @@ public:
 
     virtual ~NRF8001Communication() = default;
 
-    virtual Status::statusType Initialize() override {
+    virtual ResultStatus Initialize() override {
         SetupBootloaderService();
         
         ble.setLocalName(deviceName);
@@ -89,7 +88,7 @@ public:
         instance = this;
         ble.begin();
 
-        return Status::ok;
+        return ResultStatus::ok;
     }
 
     virtual void Process() override {
@@ -116,17 +115,17 @@ public:
         }
     }
 
-    virtual Status::statusType SendData(std::span<const uint8> data) override {
+    virtual ResultStatus SendData(std::span<const uint8> data) override {
         if (!connected) {
-            return Status::notReady;
+            return ResultStatus::notReady;
         }
         
         if (txInProgress) {
-            return Status::busy;  // Предыдущая передача не завершена
+            return ResultStatus::busy;  // Предыдущая передача не завершена
         }
         
         if (data.size() > txDataBuffer.size()) {
-            return Status::noBufferSpaceAvailable;
+            return ResultStatus::noBufferSpaceAvailable;
         }
 
         // Копируем данные в наш буфер
@@ -140,13 +139,13 @@ public:
         if (result.status == CompactStreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::SendStatus::Success) {
             // CompactStreamingProtocol принял данные, они будут отправлены асинхронно
             // txInProgress будет сброшен в HandleStreamComplete
-            return Status::ok;
+            return ResultStatus::ok;
         } else if (result.status == CompactStreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::SendStatus::Busy) {
             txInProgress = false;
-            return Status::busy;
+            return ResultStatus::busy;
         } else {
             txInProgress = false;
-            return Status::error;
+            return ResultStatus::error;
         }
     }
 

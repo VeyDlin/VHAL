@@ -1,26 +1,7 @@
 #pragma once
 
 
-// Used to detect rising edge of a condition.
-// The condition triggers only once when it changes from false to true,
-// and will not trigger again until it returns to false first.
-//
-// Example usage:
-/*
-   EdgeTrigger trigger;
-   while (true) {
-       bool condition = SomeErrorCheck();
-       trigger = condition; // Pass the external condition each loop
-       if (trigger) {
-           // Executes only once when condition becomes true (rising edge).
-           // Will not trigger again until condition becomes false, then true again.
-       }
-   }
-
-   // Check current internal state:
-   if (trigger == true) { } // Equivalent to trigger.GetState() == true
-   if (trigger == false) { } // Equivalent to trigger.GetState() == false
-*/
+// Rising-edge detector: fires once on false-to-true transition
 class EdgeTrigger {
 private:
 	bool lastState = false;

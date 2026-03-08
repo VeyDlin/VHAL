@@ -1,0 +1,8 @@
+{
+    "files.exclude": {
+        ".vscode": true,
+    },
+    "workbench.editorAssociations": {
+        "*.md": "vscode.markdown.preview.editor"
+    }
+}

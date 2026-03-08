@@ -1,0 +1,9 @@
+build/
+.vs/
+
+*.mxproject
+*.launch
+
+.metadata/
+RemoteSystemsTempFiles/
+.settings/

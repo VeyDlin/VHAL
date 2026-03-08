@@ -1,0 +1,100 @@
+{
+    "version": "2.0.0",
+    "inputs": [
+        {
+            "id": "preset",
+            "type": "pickString",
+            "description": "Build preset",
+            "options": ["Debug", "Release", "RelSpeed", "RelDebug"],
+            "default": "Debug"
+        }
+    ],
+    "tasks": [
+        {
+            "label": "Check: cmake",
+            "type": "process",
+            "command": "cmake",
+            "args": ["--version"],
+            "problemMatcher": [],
+            "presentation": { "reveal": "silent", "showReuseMessage": false },
+            "runOptions": { "runOn": "folderOpen" },
+            "options": { "statusbar": { "hide": true } }
+        },
+        {
+            "label": "Check: arm-none-eabi-gcc",
+            "type": "process",
+            "command": "arm-none-eabi-gcc",
+            "args": ["--version"],
+            "problemMatcher": [],
+            "presentation": { "reveal": "silent", "showReuseMessage": false },
+            "runOptions": { "runOn": "folderOpen" },
+            "options": { "statusbar": { "hide": true } }
+        },
+        {
+            "label": "Check: ninja",
+            "type": "process",
+            "command": "ninja",
+            "args": ["--version"],
+            "problemMatcher": [],
+            "presentation": { "reveal": "silent", "showReuseMessage": false },
+            "runOptions": { "runOn": "folderOpen" },
+            "options": { "statusbar": { "hide": true } }
+        },
+        {
+            "label": "Build",
+            "type": "shell",
+            "command": "cmake --build --preset ${input:preset} --target clean ; cmake --preset ${input:preset} ; cmake --build --preset ${input:preset}",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$gcc",
+            "presentation": { "clear": true },
+            "options": {
+                "statusbar": {
+                    "label": "$(gear) Build",
+                    "color": "#89D185"
+                }
+            }
+        },
+        {
+            "label": "Clean",
+            "type": "shell",
+            "command": "cmake -E echo Cleaning... ; cmake -E rm -rf build ; cmake -E echo Done",
+            "problemMatcher": [],
+            "presentation": { "clear": true },
+            "options": {
+                "statusbar": {
+                    "label": "$(trash) Clean",
+                    "color": "#E8AB6B"
+                }
+            }
+        },
+        {
+            "label": "Configure",
+            "type": "shell",
+            "command": "cmake --preset ${input:preset}",
+            "problemMatcher": [],
+            "presentation": { "clear": true },
+            "options": {
+                "statusbar": {
+                    "label": "$(settings-gear) Configure",
+                    "color": "#6BB8E8"
+                }
+            }
+        },
+        {
+            "label": "Flash",
+            "type": "shell",
+            "command": "openocd -f interface/stlink.cfg -f target/stm32g0x.cfg -c \"program build/${input:preset}/STM32G0-Demo.elf verify\" -c \"reset\" -c \"exit\"",
+            "problemMatcher": [],
+            "dependsOn": "Build",
+            "options": {
+                "statusbar": {
+                    "label": "$(zap) Flash",
+                    "color": "#C586C0"
+                }
+            }
+        }
+    ]
+}

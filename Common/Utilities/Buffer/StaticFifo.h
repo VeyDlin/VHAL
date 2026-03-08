@@ -11,11 +11,11 @@ private:
     bool isReady = true;
 
 public:
-    Status::statusType Clear() {
+    ResultStatus Clear() {
         System::CriticalSection(true);
         if (!isReady) {
             System::CriticalSection(false);
-            return Status::busy;
+            return ResultStatus::busy;
         }
 
         isReady = false;
@@ -23,7 +23,7 @@ public:
         isReady = true;
 
         System::CriticalSection(false);
-        return Status::ok;
+        return ResultStatus::ok;
     }
 
 
@@ -40,11 +40,11 @@ public:
     }
 
 
-    Status::statusType Push(const Type& data) {
+    ResultStatus Push(const Type& data) {
         System::CriticalSection(true); 
         if (!isReady) {
             System::CriticalSection(false);
-            return Status::busy;
+            return ResultStatus::busy;
         }
 
         isReady = false;
@@ -52,7 +52,7 @@ public:
         if (filled >= ElementsCount) {
             isReady = true;
             System::CriticalSection(false);
-            return Status::filled;
+            return ResultStatus::filled;
         }
 
         std::memcpy(&heap[filled * sizeof(Type)], &data, sizeof(Type));
@@ -60,15 +60,15 @@ public:
 
         isReady = true;
         System::CriticalSection(false); 
-        return Status::ok;
+        return ResultStatus::ok;
     }
 
 
-    Status::info<Type> Pop() {
-        System::CriticalSection(true); 
+    Result<Type> Pop() {
+        System::CriticalSection(true);
         if (!isReady) {
             System::CriticalSection(false);
-            return Status::busy;
+            return ResultStatus::busy;
         }
 
         isReady = false;
@@ -76,7 +76,7 @@ public:
         if (filled == 0) {
             isReady = true;
             System::CriticalSection(false);
-            return Status::empty;
+            return ResultStatus::empty;
         }
 
         Type data;
@@ -85,7 +85,7 @@ public:
         ShiftHeap();
 
         isReady = true;
-        System::CriticalSection(false); 
+        System::CriticalSection(false);
         return data;
     }
 

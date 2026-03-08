@@ -1,25 +1,6 @@
 ﻿#pragma once
 #include <VHAL.h>
 
-/*
- * Adaptive hysteresis filter
- 
- * This class implements a hysteresis-like behavior with adjustable window boundaries
- * It maintains a range (window) defined by a "half-gap" around the current value.
- * The window adjusts dynamically when the input value crosses its boundaries,
- * optionally allowing directional "pulling" behavior
- 
- * Behavior is controlled via the PullType enum:
- * - NoPull: Symmetrically adjusts the window when the input value moves outside it
- * - PullUp: Adjusts the window only when the input value increases
- * - PullDown: Adjusts the window only when the input value decreases
- 
- * This class is useful for filtering noisy input signals or creating hysteresis effects
- 
- * Example usage:
-	Hysteresis<float> hysteresis(5.0, Hysteresis<float>::PullType::NoPull);
-	float filteredValue = hysteresis.Get(10.0);
-*/
 
 template <typename ValueType = float>
 class Hysteresis {

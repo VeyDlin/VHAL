@@ -25,7 +25,7 @@ public:
 
 
 
-	virtual Status::statusType SetParameters(Parameters val) {
+	virtual ResultStatus SetParameters(Parameters val) {
 		parameters = val;
 		return Initialization();
 	}
@@ -40,8 +40,8 @@ public:
 
 
 protected:
-	virtual Status::statusType Initialization() = 0;
-	virtual Status::statusType CalculateDividers() = 0;
+	virtual ResultStatus Initialization() = 0;
+	virtual ResultStatus CalculateDividers() = 0;
 };
 
 

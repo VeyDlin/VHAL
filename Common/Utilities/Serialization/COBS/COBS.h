@@ -31,29 +31,29 @@ public:
         return config;
     }
 
-    Status::info<size_t> Encode(const uint8* data, size_t length, uint8* output, size_t maxOutputLength) const {
+    Result<size_t> Encode(const uint8* data, size_t length, uint8* output, size_t maxOutputLength) const {
         uint8 tempBuffer[TempBufferSize];
         if (length > TempBufferSize) {
-            return Status::bufferOverflow;
+            return ResultStatus::bufferOverflow;
         }
 
         auto escapedLength = Escape(data, length, tempBuffer, TempBufferSize);
-        if (escapedLength.IsError()) {
-            return escapedLength.type;
+        if (escapedLength.IsErr()) {
+            return escapedLength.Error();
         }
 
         size_t readIndex = 0;
         size_t writeIndex = 2;
         size_t blockStart = 1;
 
-        if (escapedLength.data + 2 > maxOutputLength) {
-            return Status::bufferOverflow;
+        if (escapedLength.Value() + 2 > maxOutputLength) {
+            return ResultStatus::bufferOverflow;
         }
 
         output[0] = config.startByte;
         output[1] = 0; // placeholder for block length
 
-        while (readIndex < escapedLength.data) {
+        while (readIndex < escapedLength.Value()) {
             if (tempBuffer[readIndex] == 0) {
                 output[blockStart] = writeIndex - blockStart;
                 blockStart = writeIndex++;
@@ -70,14 +70,14 @@ public:
         return writeIndex;
     }
 
-    Status::info<size_t> Decode(const uint8* data, size_t length, uint8* output, size_t maxOutputLength) const {
+    Result<size_t> Decode(const uint8* data, size_t length, uint8* output, size_t maxOutputLength) const {
         if (length < 2 || data[0] != config.startByte || data[length - 1] != config.stopByte) {
-            return Status::invalidArgument;
+            return ResultStatus::invalidArgument;
         }
 
         uint8 tempBuffer[TempBufferSize];
         if (length - 2 > TempBufferSize) {
-            return Status::bufferOverflow;
+            return ResultStatus::bufferOverflow;
         }
 
         size_t readIndex = 1;
@@ -87,7 +87,7 @@ public:
             uint8 code = data[readIndex++];
             for (size_t i = 1; i < code; ++i) {
                 if (readIndex >= length - 1) {
-                    return Status::dataCorrupted;
+                    return ResultStatus::dataCorrupted;
                 }
                 tempBuffer[writeIndex++] = data[readIndex++];
             }
@@ -100,27 +100,27 @@ public:
     }
 
 private:
-    Status::info<size_t> Escape(const uint8* input, size_t length, uint8* output, size_t maxOutputLength) const {
+    Result<size_t> Escape(const uint8* input, size_t length, uint8* output, size_t maxOutputLength) const {
         size_t writeIndex = 0;
 
         for (size_t i = 0; i < length; ++i) {
             if (input[i] == config.startByte) {
-                if (writeIndex + 2 > maxOutputLength) return Status::bufferOverflow;
+                if (writeIndex + 2 > maxOutputLength) return ResultStatus::bufferOverflow;
                 output[writeIndex++] = config.escapeByte;
                 output[writeIndex++] = config.escapedStart;
             }
             else if (input[i] == config.stopByte) {
-                if (writeIndex + 2 > maxOutputLength) return Status::bufferOverflow;
+                if (writeIndex + 2 > maxOutputLength) return ResultStatus::bufferOverflow;
                 output[writeIndex++] = config.escapeByte;
                 output[writeIndex++] = config.escapedStop;
             }
             else if (input[i] == config.escapeByte) {
-                if (writeIndex + 2 > maxOutputLength) return Status::bufferOverflow;
+                if (writeIndex + 2 > maxOutputLength) return ResultStatus::bufferOverflow;
                 output[writeIndex++] = config.escapeByte;
                 output[writeIndex++] = config.escapedEscape;
             }
             else {
-                if (writeIndex + 1 > maxOutputLength) return Status::bufferOverflow;
+                if (writeIndex + 1 > maxOutputLength) return ResultStatus::bufferOverflow;
                 output[writeIndex++] = input[i];
             }
         }
@@ -128,31 +128,31 @@ private:
         return writeIndex;
     }
 
-    Status::info<size_t> Unescape(const uint8* input, size_t length, uint8* output, size_t maxOutputLength) const {
+    Result<size_t> Unescape(const uint8* input, size_t length, uint8* output, size_t maxOutputLength) const {
         size_t writeIndex = 0;
 
         for (size_t i = 0; i < length; ++i) {
             if (input[i] == config.escapeByte) {
                 ++i;
-                if (i >= length) return Status::dataCorrupted;
+                if (i >= length) return ResultStatus::dataCorrupted;
                 if (input[i] == config.escapedStart) {
-                    if (writeIndex + 1 > maxOutputLength) return Status::bufferOverflow;
+                    if (writeIndex + 1 > maxOutputLength) return ResultStatus::bufferOverflow;
                     output[writeIndex++] = config.startByte;
                 }
                 else if (input[i] == config.escapedStop) {
-                    if (writeIndex + 1 > maxOutputLength) return Status::bufferOverflow;
+                    if (writeIndex + 1 > maxOutputLength) return ResultStatus::bufferOverflow;
                     output[writeIndex++] = config.stopByte;
                 }
                 else if (input[i] == config.escapedEscape) {
-                    if (writeIndex + 1 > maxOutputLength) return Status::bufferOverflow;
+                    if (writeIndex + 1 > maxOutputLength) return ResultStatus::bufferOverflow;
                     output[writeIndex++] = config.escapeByte;
                 }
                 else {
-                    return Status::dataCorrupted;
+                    return ResultStatus::dataCorrupted;
                 }
             }
             else {
-                if (writeIndex + 1 > maxOutputLength) return Status::bufferOverflow;
+                if (writeIndex + 1 > maxOutputLength) return ResultStatus::bufferOverflow;
                 output[writeIndex++] = input[i];
             }
         }

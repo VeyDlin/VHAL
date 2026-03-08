@@ -20,8 +20,9 @@ public:
 	}
 
 
-	Status::statusType Clear() {
-		return buffer.Clear();
+	ResultStatus Clear() {
+		buffer.Clear();
+		return ResultStatus::ok;
 	}
 
 
@@ -35,11 +36,7 @@ public:
 	}
 
 
-	Status::info<uint8> Pop() {
-		Status::info<uint8> out;
-
-		out.type = buffer.Pop(out.data);
-
-		return out;
+	Result<uint8> Pop() {
+		return buffer.Pop();
 	}
 };

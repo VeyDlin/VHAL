@@ -85,12 +85,12 @@ private:
 			return;
 		}
 
-		if(txState == Status::ready) {
+		if(txState == ResultStatus::ready) {
 			LL_SPI_DisableIT_ERR(spiHandle);
 		}
 		LL_SPI_DisableIT_RXNE(spiHandle);
 
-		rxState = Status::ready;
+		rxState = ResultStatus::ready;
 
 		CallInterrupt(Irq::Rx);
 	}
@@ -105,7 +105,7 @@ private:
 		}
 
 		if(continuousAsyncTxMode) {
-			abort(); // TODO: continuous
+			SystemAbort(); // TODO: continuous
 			return;
 		}
 
@@ -115,12 +115,12 @@ private:
 			return;
 		}
 
-		if(rxState == Status::ready) {
+		if(rxState == ResultStatus::ready) {
 			LL_SPI_DisableIT_ERR(spiHandle);
 		}
 		LL_SPI_DisableIT_TXE(spiHandle);
 
-		txState = Status::ready;
+		txState = ResultStatus::ready;
 
 		CallInterrupt(Irq::Tx);
 	}
@@ -131,9 +131,9 @@ private:
 
 
 protected:
-	virtual Status::statusType Initialization() override {
+	virtual ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if(status != Status::ok) {
+		if(status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -151,7 +151,7 @@ protected:
 		};
 
 		if(LL_SPI_Init(spiHandle, &init) != ErrorStatus::SUCCESS) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		LL_SPI_SetStandard(spiHandle, LL_SPI_PROTOCOL_MOTOROLA);
@@ -200,12 +200,12 @@ protected:
 
 
 
-	virtual Status::statusType StartContinuousAsyncRxMode() {
-		if (rxState != Status::ready) {
-			return Status::busy;
+	virtual ResultStatus StartContinuousAsyncRxMode() {
+		if (rxState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		rxState = Status::busy;
+		rxState = ResultStatus::busy;
 		txDataNeed = 0;
 		txDataPointer = 0;
 		txDataCounter = 0;
@@ -215,27 +215,27 @@ protected:
 
 		// SPI is already enabled during initialization
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	virtual Status::statusType StopContinuousAsyncRxMode() {
-		return Status::notSupported;
+	virtual ResultStatus StopContinuousAsyncRxMode() {
+		return ResultStatus::notSupported;
 	}
 
 
 
 
 
-	inline virtual Status::statusType WriteByteArray(uint8 *buffer, uint32 size) override {
-		if (txState != Status::ready) {
-			return Status::busy;
+	inline virtual ResultStatus WriteByteArray(uint8 *buffer, uint32 size) override {
+		if (txState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		txState = Status::busy;
+		txState = ResultStatus::busy;
 		txDataNeed = size;
 		txDataPointer = buffer;
 		txDataCounter = 0;
@@ -255,8 +255,8 @@ protected:
 			while(!LL_SPI_IsActiveFlag_TXE(spiHandle)) {
 				if((System::GetTick() - tickStart) > timeout) {
 					// Keep SPI enabled even on timeout
-					txState = Status::ready;
-					return Status::timeout;
+					txState = ResultStatus::ready;
+					return ResultStatus::timeout;
 				}
 			}
 
@@ -269,21 +269,21 @@ protected:
 		}
 
 		// Keep SPI enabled between transfers
-		txState = Status::ready;
+		txState = ResultStatus::ready;
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	inline virtual Status::statusType ReadByteArray(uint8 *buffer, uint32 size) override {
-		if (rxState != Status::ready) {
-			return Status::busy;
+	inline virtual ResultStatus ReadByteArray(uint8 *buffer, uint32 size) override {
+		if (rxState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		rxState = Status::busy;
+		rxState = ResultStatus::busy;
 		rxDataNeed = size;
 		rxDataPointer = buffer;
 		uint32 tickStart = System::GetTick();
@@ -296,8 +296,8 @@ protected:
 			while(!LL_SPI_IsActiveFlag_RXNE(spiHandle)) {
 				if((System::GetTick() - tickStart) > timeout) {
 					// Keep SPI enabled even on timeout
-					rxState = Status::ready;
-					return Status::timeout;
+					rxState = ResultStatus::ready;
+					return ResultStatus::timeout;
 				}
 			}
 
@@ -307,26 +307,26 @@ protected:
 
 
 		// Keep SPI enabled between transfers
-		rxState = Status::ready;
+		rxState = ResultStatus::ready;
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	inline virtual Status::statusType WriteReadByteArray(uint8 *txBuffer, uint8 *rxBuffer, uint32 size) override {
-		if (txState != Status::ready || rxState != Status::ready) {
-			return Status::busy;
+	inline virtual ResultStatus WriteReadByteArray(uint8 *txBuffer, uint8 *rxBuffer, uint32 size) override {
+		if (txState != ResultStatus::ready || rxState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		txState = Status::busy;
+		txState = ResultStatus::busy;
 		txDataNeed = size;
 		txDataPointer = txBuffer;
 		txDataCounter = 0;
 
-		rxState = Status::busy;
+		rxState = ResultStatus::busy;
 		rxDataNeed = size;
 		rxDataPointer = rxBuffer;
 		rxDataCounter = 0;
@@ -360,9 +360,9 @@ protected:
 
 			if((System::GetTick() - tickStart) > timeout) {
 				// Keep SPI enabled even on timeout
-				txState = Status::ready;
-				rxState = Status::ready;
-				return Status::timeout;
+				txState = ResultStatus::ready;
+				rxState = ResultStatus::ready;
+				return ResultStatus::timeout;
 			}
 		}
 
@@ -373,22 +373,22 @@ protected:
 
 		// Keep SPI enabled between transfers
 
-		txState = Status::ready;
-		rxState = Status::ready;
+		txState = ResultStatus::ready;
+		rxState = ResultStatus::ready;
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	inline virtual Status::statusType WriteByteArrayAsync(uint8 *buffer, uint32 size) override {
-		if (txState != Status::ready) {
-			return Status::busy;
+	inline virtual ResultStatus WriteByteArrayAsync(uint8 *buffer, uint32 size) override {
+		if (txState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		txState = Status::busy;
+		txState = ResultStatus::busy;
 		txDataNeed = size;
 		txDataPointer = buffer;
 		txDataCounter = 0;
@@ -398,19 +398,19 @@ protected:
 
 		// SPI is already enabled during initialization
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	inline virtual Status::statusType ReadByteArrayAsync(uint8 *buffer, uint32 size) override {
-		if (rxState != Status::ready) {
-			return Status::busy;
+	inline virtual ResultStatus ReadByteArrayAsync(uint8 *buffer, uint32 size) override {
+		if (rxState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		rxState = Status::busy;
+		rxState = ResultStatus::busy;
 		txDataNeed = size;
 		txDataPointer = buffer;
 		txDataCounter = 0;
@@ -422,24 +422,24 @@ protected:
 			LL_SPI_Enable(spiHandle);
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
 
 
 
-	inline virtual Status::statusType WriteReadByteArrayAsync(uint8 *txBuffer, uint8 *rxBuffer, uint32 size) override {
-		if (txState != Status::ready || rxState != Status::ready) {
-			return Status::busy;
+	inline virtual ResultStatus WriteReadByteArrayAsync(uint8 *txBuffer, uint8 *rxBuffer, uint32 size) override {
+		if (txState != ResultStatus::ready || rxState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		txState = Status::busy;
+		txState = ResultStatus::busy;
 		txDataNeed = size;
 		txDataPointer = txBuffer;
 		txDataCounter = 0;
 
-		rxState = Status::busy;
+		rxState = ResultStatus::busy;
 		rxDataNeed = size;
 		rxDataPointer = rxBuffer;
 		rxDataCounter = 0;
@@ -452,7 +452,7 @@ protected:
 			LL_SPI_Enable(spiHandle);
 		}
 
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 
@@ -466,7 +466,7 @@ private:
 			case Direction::Rx: return LL_SPI_HALF_DUPLEX_RX;
 			case Direction::TxRx: return LL_SPI_FULL_DUPLEX;
 		}
-		abort();
+		SystemAbort();
 		return 0;
 	}
 
@@ -476,7 +476,7 @@ private:
 			case Mode::Master: return LL_SPI_MODE_MASTER;
 			case Mode::Slave: return LL_SPI_MODE_SLAVE;
 		}
-		abort();
+		SystemAbort();
 		return 0;
 	}
 
@@ -486,7 +486,7 @@ private:
 			case ClockPolarity::High: return LL_SPI_POLARITY_HIGH;
 			case ClockPolarity::Low: return LL_SPI_POLARITY_LOW;
 		}
-		abort();
+		SystemAbort();
 		return 0;
 	}
 
@@ -496,7 +496,7 @@ private:
 			case ClockPhase::Edge1: return LL_SPI_PHASE_1EDGE;
 			case ClockPhase::Edge2: return LL_SPI_PHASE_2EDGE;
 		}
-		abort();
+		SystemAbort();
 		return 0;
 	}
 
@@ -506,7 +506,7 @@ private:
 			case FirstBit::LSB: return LL_SPI_LSB_FIRST;
 			case FirstBit::MSB: return LL_SPI_MSB_FIRST;
 		}
-		abort();
+		SystemAbort();
 		return 0;
 	}
 

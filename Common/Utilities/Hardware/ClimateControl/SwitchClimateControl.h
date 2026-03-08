@@ -1,27 +1,38 @@
 #pragma once
 #include "IClimateControl.h"
-#include <cmath>
 
 
-class SwitchClimateControl: public IClimateControl {
+template <RealType Type = float>
+class SwitchClimateControl: public IClimateControl<Type> {
+	using Base = IClimateControl<Type>;
+	using typename Base::WorkMode;
+	using typename Base::ControlMode;
+	using Base::timeStep;
+	using Base::onUpdateState;
+	using Base::workMode;
+	using Base::controlMode;
+	using Base::holdTemperature;
+	using Base::waitHold;
+	using Base::onHold;
+
 public:
-	float temperatureTolerance = 0.5f; // Temperature tolerance for HeatingCooling mode
-	
+	Type temperatureTolerance = Type(0.5f);
+
 public:
 	SwitchClimateControl() { }
 
 
 	virtual void Execute() override {
-		float dirty = 0;
+		Type dirty = 0;
 
 		while(true) {
-			Sleep(timeStep);
+			this->Sleep(timeStep);
 
 			if(onUpdateState == nullptr || workMode != WorkMode::Auto) {
 				continue;
 			}
 
-			float currentTemp = onUpdateState(dirty);
+			Type currentTemp = onUpdateState(dirty);
 			dirty = GetDirtyFromTemperature(currentTemp);
 
 			OnHold(currentTemp);
@@ -30,30 +41,31 @@ public:
 
 
 private:
-	float GetDirtyFromTemperature(float currentTemp) {
+	Type GetDirtyFromTemperature(Type currentTemp) {
 		switch (controlMode) {
 			case ControlMode::Heating:
-				return currentTemp < holdTemperature ? 1 : 0;
+				return currentTemp < holdTemperature ? Type(1) : Type(0);
 			break;
 
 			case ControlMode::Cooling:
-				return currentTemp > holdTemperature ? -1 : 0;
+				return currentTemp > holdTemperature ? Type(-1) : Type(0);
 			break;
 
 			case ControlMode::HeatingCooling:
-				return currentTemp > holdTemperature ? -1 : 1;
+				return currentTemp > holdTemperature ? Type(-1) : Type(1);
 			break;
 		}
 
-		return 0;
+		return Type(0);
 	}
 
 
-	void OnHold(float currentTemp) {
+	void OnHold(Type currentTemp) {
 		if(!waitHold) {
 			return;
 		}
 
+		using std::abs;
 		switch (controlMode) {
 			case ControlMode::Heating:
 				waitHold = currentTemp < holdTemperature;
@@ -64,7 +76,7 @@ private:
 			break;
 
 			case ControlMode::HeatingCooling:
-				waitHold = (std::abs(currentTemp - holdTemperature) > temperatureTolerance);
+				waitHold = (abs(currentTemp - holdTemperature) > temperatureTolerance);
 			break;
 		}
 

@@ -15,30 +15,31 @@ namespace EEPROM {
 
 		Data(Eeprom &eeprom): ic(&eeprom) {
 			auto address = ic->GetMemoryAddress(dataSize);
-			dataAddress = address.data;
+			dataAddress = address.Value();
 		}
 
 
-		Status::info<DataType> Get() {
-			Status::info<DataType> read = Status::retryExhausted;
+		Result<DataType> Get() {
+			DataType data{};
+			ResultStatus readStatus = ResultStatus::retryExhausted;
 
 			for(uint8 i = 0; i < ic->retry; i++) {
-				read.type = ic->ReadMemory((uint8*)&read.data, dataSize, dataAddress);
-				if(read.IsOk()) {
+				readStatus = ic->ReadMemory((uint8*)&data, dataSize, dataAddress);
+				if(readStatus == ResultStatus::ok) {
 					break;
 				}
 			}
 
-			return read;
+			return Result<DataType>::Capture(readStatus, data);
 		}
 
 
-		Status::statusType Set(const DataType& data) {
-			Status::statusType read = Status::retryExhausted;
+		ResultStatus Set(const DataType& data) {
+			ResultStatus read = ResultStatus::retryExhausted;
 
 			for(uint8 i = 0; i < ic->retry; i++) {
-				read = ic->ReadMemory((uint8*)&read.data, dataSize, dataAddress);
-				if(Status::IsOk(read)) {
+				read = ic->WriteMemory((uint8*)&data, dataSize, dataAddress);
+				if(read == ResultStatus::ok) {
 					break;
 				}
 			}
@@ -48,17 +49,17 @@ namespace EEPROM {
 
 
 		DataType GetData() {
-			return Get().data;
+			return Get().Value();
 		}
 
 
-		operator Status::info<DataType>() {
+		operator Result<DataType>() {
 			return Get();
 		}
 
 
 		operator DataType() {
-			return Get().data;
+			return Get().Value();
 		}
 
 
@@ -73,12 +74,12 @@ namespace EEPROM {
 
 
 		bool operator==(const DataType& data) {
-			return data == Get().data;
+			return data == Get().Value();
 		}
 
 
 		bool operator!=(const DataType& data) {
-			return data != Get().data;
+			return data != Get().Value();
 		}
 
 
@@ -93,28 +94,28 @@ namespace EEPROM {
 
 
 		DataType operator++(int) {
-			auto data = Get().data;
+			auto data = Get().Value();
 			Set(data + 1);
 			return data;
 		}
 
 
 		DataType operator++() {
-			auto data = Get().data + 1;
+			auto data = Get().Value() + 1;
 			Set(data);
 			return data;
 		}
 
 
 		DataType operator--(int) {
-			auto data = Get().data;
+			auto data = Get().Value();
 			Set(data - 1);
 			return data;
 		}
 
 
 		DataType operator--() {
-			auto data = Get().data - 1;
+			auto data = Get().Value() - 1;
 			Set(data);
 			return data;
 		}

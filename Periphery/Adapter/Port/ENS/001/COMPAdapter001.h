@@ -50,52 +50,52 @@ public:
 		return (GetCtrlReg() >> 8) & 0x01;
 	}
 
-	Status::statusType Enable() override {
+	ResultStatus Enable() override {
 		GetCtrlReg() |= 0x01;
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
-	Status::statusType Disable() override {
+	ResultStatus Disable() override {
 		GetCtrlReg() &= ~0x01u;
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
-	Status::statusType SetInputPlus(InputPlusOption inputPlus) override {
+	ResultStatus SetInputPlus(InputPlusOption inputPlus) override {
 		auto &ctrl = GetCtrlReg();
 		ctrl &= ~(0x01u << 1);
 		ctrl |= (inputPlus.Get() & 0x01) << 1;
 		parameters.inputPlus = inputPlus;
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
-	Status::statusType SetInputMinus(InputMinusOption inputMinus) override {
+	ResultStatus SetInputMinus(InputMinusOption inputMinus) override {
 		auto &ctrl = GetCtrlReg();
 		ctrl &= ~(0x03u << 2);
 		ctrl |= (inputMinus.Get() & 0x03) << 2;
 		parameters.inputMinus = inputMinus;
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
-	Status::statusType SetInputHysteresis(InputHysteresisOption inputHysteresis) override {
+	ResultStatus SetInputHysteresis(InputHysteresisOption inputHysteresis) override {
 		// ENS001 comparators do not support hysteresis
-		return Status::notSupported;
+		return ResultStatus::notSupported;
 	}
 
-	Status::statusType SetOutputPolarity(OutputPolarity polarity) override {
+	ResultStatus SetOutputPolarity(OutputPolarity polarity) override {
 		// ENS001 comparators do not support output polarity inversion
 		parameters.outputPolarity = polarity;
-		return (polarity == OutputPolarity::NotInverted) ? Status::ok : Status::notSupported;
+		return (polarity == OutputPolarity::NotInverted) ? ResultStatus::ok : ResultStatus::notSupported;
 	}
 
-	Status::statusType SetOutputBlankingSource(OutputBlankingSourceOption outputBlankingSource) override {
+	ResultStatus SetOutputBlankingSource(OutputBlankingSourceOption outputBlankingSource) override {
 		// ENS001 comparators do not support blanking
-		return Status::notSupported;
+		return ResultStatus::notSupported;
 	}
 
-	Status::statusType SetTriggerMode(TriggerMode triggerMode) override {
+	ResultStatus SetTriggerMode(TriggerMode triggerMode) override {
 		// ENS001 comparators do not have EXTI trigger support
 		parameters.triggerMode = triggerMode;
-		return (triggerMode == TriggerMode::None) ? Status::ok : Status::notSupported;
+		return (triggerMode == TriggerMode::None) ? ResultStatus::ok : ResultStatus::notSupported;
 	}
 
 	// ENS001-specific: set VREF voltage (<6:4> in COMPx_CTRL)
@@ -112,9 +112,9 @@ public:
 
 
 protected:
-	Status::statusType Initialization() override {
+	ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 

@@ -12,30 +12,32 @@ public:
 	static inline constexpr uint32 SectorCount = 8;               // 8 sectors (sector 7 reserved for bootloader)
 	static inline constexpr uint32 UnlockKey = 0x5A5A5A5A;
 
+	uint32 inputBusClockHz = 0;
+
 	FLASHAdapter001() = default;
-	FLASHAdapter001(CMSDK_MTPREG_TypeDef *mtp) : FLASHAdapter(mtp) {}
+	FLASHAdapter001(CMSDK_MTPREG_TypeDef *mtp, uint32 busClockHz) : FLASHAdapter(mtp), inputBusClockHz(busClockHz) {}
 
 
-	Status::statusType Unlock(uint32 key1, uint32 key2) override {
+	ResultStatus Unlock(uint32 key1, uint32 key2) override {
 		flashHandle->MTP_CLR = 0xFFFFFFFF;
 		flashHandle->MTP_CR = 0x00000002;
 		flashHandle->MTP_ACLR = 0x00000000;   // Unlock sectors 0-6 (sector 7 = bootloader)
 		flashHandle->MTP_KEYR = key1;
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
-	Status::statusType Lock() override {
+	ResultStatus Lock() override {
 		flashHandle->MTP_CR = GetCrClockValue();
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
-	Status::info<uint8> Read(uint8 *address) override {
-		return { Status::ok, *address };
+	Result<uint8> Read(uint8 *address) override {
+		return *address;
 	}
 
-	Status::statusType WriteData(uint32 *address, const void *data, size_t size) override {
+	ResultStatus WriteData(uint32 *address, const void *data, size_t size) override {
 		auto status = Unlock(UnlockKey, 0);
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -63,12 +65,12 @@ public:
 		}
 
 		Lock();
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
-	Status::statusType Write(uint16 *address, uint16 data) override {
+	ResultStatus Write(uint16 *address, uint16 data) override {
 		auto status = Unlock(UnlockKey, 0);
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -87,26 +89,26 @@ public:
 		WaitBusy();
 
 		Lock();
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
-	Status::statusType PageErase(uint8 *address) override {
+	ResultStatus PageErase(uint8 *address) override {
 		// MTP uses sector erase, map page to sector
 		auto addr = reinterpret_cast<uint32>(address);
 		if (addr < MtpBase || addr >= MtpBase + MtpSize) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 		uint32 sector = (addr - MtpBase) / SectorSize;
 		return SectorErase(sector);
 	}
 
-	Status::statusType SectorErase(uint32 sectorNumber) override {
+	ResultStatus SectorErase(uint32 sectorNumber) override {
 		if (sectorNumber >= SectorCount) {
-			return Status::error;
+			return ResultStatus::error;
 		}
 
 		auto status = Unlock(UnlockKey, 0);
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -118,40 +120,40 @@ public:
 		}
 
 		Lock();
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
-	Status::statusType MassErase() override {
+	ResultStatus MassErase() override {
 		for (uint32 i = 0; i < SectorCount; i++) {
 			auto status = SectorErase(i);
-			if (status != Status::ok) {
+			if (status != ResultStatus::ok) {
 				return status;
 			}
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
-	Status::statusType GetStatus() override {
+	ResultStatus GetStatus() override {
 		uint32 sr = flashHandle->MTP_SR;
 		// Bit 1: busy
 		if (sr & 0x02) {
-			return Status::busy;
+			return ResultStatus::busy;
 		}
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
-	Status::statusType ClearStatusFlags() override {
+	ResultStatus ClearStatusFlags() override {
 		flashHandle->MTP_CLR = 0xFFFFFFFF;
-		return Status::ok;
+		return ResultStatus::ok;
 	}
 
 	// Option bytes - not supported on MTP
-	Status::info<uint32> ReadOptionBytes() override {
-		return { Status::notSupported, 0 };
+	Result<uint32> ReadOptionBytes() override {
+		return ResultStatus::notSupported;
 	}
 
-	Status::statusType WriteOptionBytes(uint32 optionBytes) override {
-		return Status::notSupported;
+	ResultStatus WriteOptionBytes(uint32 optionBytes) override {
+		return ResultStatus::notSupported;
 	}
 
 	// Read protection
@@ -167,20 +169,20 @@ public:
 		return FlashProtectionLevel::Level0;
 	}
 
-	Status::statusType SetReadProtectionLevel(FlashProtectionLevel level) override {
-		return Status::notSupported;
+	ResultStatus SetReadProtectionLevel(FlashProtectionLevel level) override {
+		return ResultStatus::notSupported;
 	}
 
-	Status::statusType DisableReadProtection() override {
-		return Status::notSupported;
+	ResultStatus DisableReadProtection() override {
+		return ResultStatus::notSupported;
 	}
 
-	Status::statusType UnlockOptionBytes() override {
-		return Status::notSupported;
+	ResultStatus UnlockOptionBytes() override {
+		return ResultStatus::notSupported;
 	}
 
-	Status::statusType LockOptionBytes() override {
-		return Status::notSupported;
+	ResultStatus LockOptionBytes() override {
+		return ResultStatus::notSupported;
 	}
 
 	bool IsOptionBytesLocked() const override {
@@ -189,9 +191,9 @@ public:
 
 
 protected:
-	Status::statusType Initialization() override {
+	ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if (status != Status::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
@@ -213,10 +215,10 @@ private:
 		return true;
 	}
 
-	static uint32 GetCrClockValue() {
+	uint32 GetCrClockValue() {
 		// MTP_CR clock config: bits <1:0>
 		// 0x01 = 16 MHz, 0x03 = 32 MHz
-		if (SystemCoreClock >= 32000000) {
+		if (inputBusClockHz >= 32000000) {
 			return 0x03;
 		}
 		return 0x01;
