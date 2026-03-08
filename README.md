@@ -1,5 +1,7 @@
 # VHAL
 
+[![Documentation](https://img.shields.io/badge/docs-veydlin.github.io%2FVHAL-blue)](https://veydlin.github.io/VHAL/)
+
 VHAL is a C++20 multiplatform HAL library for embedded MCUs. Write your application logic once — switch between STM32, ESP32, or custom silicon by changing one config file.
 
 Supported platforms: **STM32**, **ESP32**, **ENS001**
