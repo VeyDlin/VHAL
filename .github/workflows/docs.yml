@@ -1,0 +1,76 @@
+name: Deploy Docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main (VHAL source + wiki)
+        uses: actions/checkout@v4
+        with:
+          path: vhal
+
+      - name: Checkout pages branch (docs site)
+        uses: actions/checkout@v4
+        with:
+          ref: pages
+          path: site
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install generator dependencies
+        run: pip install -r site/generator/requirements.txt
+
+      - name: Generate docs data
+        run: |
+          python site/generator/generate.py \
+            --vhal-root vhal \
+            --output site/client/src/generated \
+            --docs-root vhal/.wiki
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site/client/package-lock.json
+
+      - name: Install client dependencies
+        run: npm ci
+        working-directory: site/client
+
+      - name: Build
+        run: npx vite build
+        working-directory: site/client
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/client/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
