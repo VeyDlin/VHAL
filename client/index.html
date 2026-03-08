@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>VHAL Documentation</title>
+  </head>
+  <body>
+    <div id="app" class="isolate"></div>
+    <script>
+      // Restore SPA path from 404.html redirect
+      (function() {
+        var p = new URLSearchParams(location.search).get('p');
+        if (p) history.replaceState(null, '', '/VHAL' + p);
+      })();
+    </script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

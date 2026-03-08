@@ -1,0 +1,4 @@
+node_modules/
+dist/
+client/src/generated/
+generator/.venv/

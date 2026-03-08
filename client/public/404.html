@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script>
+    // SPA redirect for GitHub Pages
+    // Converts path to query string so index.html can restore it
+    var seg = location.pathname.split('/').length - 1;
+    var repo = '/VHAL';
+    var path = location.pathname.slice(repo.length);
+    location.replace(
+      repo + '/?p=' + encodeURIComponent(path + location.search + location.hash)
+    );
+  </script>
+</head>
+</html>
