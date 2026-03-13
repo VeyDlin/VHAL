@@ -3,6 +3,11 @@
 #if defined(VHAL_ENS)
 
 
+void System::InitPlatform() {
+
+}
+
+
 void System::Reset() {
     NVIC_SystemReset();
 }

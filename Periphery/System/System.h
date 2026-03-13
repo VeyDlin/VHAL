@@ -14,7 +14,7 @@
 #define ___SystemAbort1() System::CriticalError(nullptr, __FILENAME_ONLY__, __LINE__)
 #define ___SystemAbort2(message) System::CriticalError(message, __FILENAME_ONLY__, __LINE__)
 
-#ifdef USE_FULL_ASSERT
+#ifdef VHAL_FULL_ASSERT
 	#define SystemAssert(...) ___SystemGetMacro(__VA_ARGS__, ___SystemAssert2, ___SystemAssert1)(__VA_ARGS__)
 	#define SystemAbort(...) ___SystemGetMacro(__VA_ARGS__, ___SystemAbort2, ___SystemAbort1)(__VA_ARGS__)
 #else
@@ -58,6 +58,7 @@ private:
 
 public:
     static void Init();
+    static void InitPlatform();
     static void TickHandler();
     static void SetWriteHandler(std::function<void(const char* string, size_t size)> handler);
     static void SetReadHandler(std::function<int()> handler);

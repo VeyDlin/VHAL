@@ -3,6 +3,11 @@
 #if defined(VHAL_STM32)
 
 
+void System::InitPlatform() {
+
+}
+
+
 void System::Reset() {
     NVIC_SystemReset();
 }

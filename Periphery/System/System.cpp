@@ -36,6 +36,7 @@ void System::SetReadHandler(std::function<int()> handler) {
 
 void System::Init() {
     InitDelayUs();
+    InitPlatform();
 }
 
 
@@ -103,7 +104,7 @@ void System::CriticalError(const char* message, const char* file, uint32_t line)
 
 
 // printf support
-#ifdef VHAL_SYSTEM_CONSOLE
+#if defined(VHAL_SYSTEM_CONSOLE) && defined(VHAL_SYSTEM_CONSOLE_RUNTIME)
 	extern "C" {
 		int _read(int file, char *ptr, int len) {
 			return System::console.Read(ptr, len);

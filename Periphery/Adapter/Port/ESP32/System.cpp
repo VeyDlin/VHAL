@@ -16,6 +16,31 @@ uint32 SystemCoreClock = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ * 1000000;
 static portMUX_TYPE s_criticalMux = portMUX_INITIALIZER_UNLOCKED;
 
 
+void System::InitPlatform() {
+#ifdef VHAL_SYSTEM_CONSOLE
+	// Console
+	SetWriteHandler([](const char* str, size_t size) {
+		fwrite(str, 1, size, stdout);
+	});
+	
+	SetReadHandler([]() -> int {
+		return fgetc(stdin);
+	});
+#endif
+
+#if defined(VHAL_RTOS) && defined(VHAL_RTOS_FREERTOS)
+	// For use System::DelayMs() in RTOS
+	rtosDelayMsHandle = [](auto delay) {
+		if (OS::RTOS::IsSchedulerRun()) {
+			OS::RTOS::Sleep(std::chrono::milliseconds(delay));
+			return true;
+		}
+		return false;
+	};
+#endif
+}
+
+
 uint32 System::GetCoreTick() {
 	return esp_cpu_get_cycle_count();
 }
