@@ -4,7 +4,7 @@
 
 class SeparatorManipulator {
 public:
-	static constexpr char* defaultSeparator = "----------------------------------------";
+	static constexpr const char* defaultSeparator = "----------------------------------------";
 
 private:
     const char* separator;

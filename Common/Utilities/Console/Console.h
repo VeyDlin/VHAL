@@ -17,6 +17,15 @@ class System;
 
 
 class Console : public Print {
+public:
+    const char* verboseMark = "[VERBOSE]";
+    const char* debugMark = "[DEBUG]";
+    const char* infoMark = "[INFO]";
+    const char* warningMark = "[ERROR]";
+    const char* errorMark = "[WARNING]";
+
+
+
 private:
     std::function<void(const char* string, size_t size)> writeHandle;
     std::function<int()> readHandle;
@@ -47,18 +56,28 @@ public:
     }
 
 
+    void Verbose(const char* message = nullptr) {
+        Log(verboseMark, message);
+    }
+
+
     void Info(const char* message = nullptr) {
-        Log("[INFO]", message);
+        Log(infoMark, message);
     }
 
 
     void Debug(const char* message = nullptr) {
-        Log("[DEBUG]", message);
+        Log(debugMark, message);
+    }
+
+    
+    void Warning(const char* message = nullptr) {
+        Log(warningMark, message);
     }
 
 
     void Error(const char* message = nullptr) {
-        Log("[ERROR]", message);
+        Log(errorMark, message);
     }
 
 
@@ -258,6 +277,12 @@ public:
         return console;
     }
 
+    
+    static Console& verbose(Console& console) {
+        console.Verbose();
+        return console;
+    }
+
 
     static Console& info(Console& console) {
         console.Info();
@@ -267,6 +292,12 @@ public:
 
     static Console& debug(Console& console) {
         console.Debug();
+        return console;
+    }
+
+
+    static Console& warning(Console& console) {
+        console.Warning();
         return console;
     }
 
@@ -344,29 +375,29 @@ private:
         }
 
         // Write time in HH:MM:SS or HH:MM:SS:MS format
-        char timeBuffer[20];
+        char timeBuffer[32];
         size_t len = 0;
 
         // Hours
         if (hours < 10) timeBuffer[len++] = '0';
-        len += NumberToString(&timeBuffer[len], sizeof(timeBuffer) - len, hours, Format::Dec);
+        len += NumberToString(&timeBuffer[len], 4, hours, Format::Dec);
         timeBuffer[len++] = ':';
 
         // Minutes
         if (minutes < 10) timeBuffer[len++] = '0';
-        len += NumberToString(&timeBuffer[len], sizeof(timeBuffer) - len, minutes, Format::Dec);
+        len += NumberToString(&timeBuffer[len], 4, minutes, Format::Dec);
         timeBuffer[len++] = ':';
 
         // Seconds
         if (seconds < 10) timeBuffer[len++] = '0';
-        len += NumberToString(&timeBuffer[len], sizeof(timeBuffer) - len, seconds, Format::Dec);
+        len += NumberToString(&timeBuffer[len], 4, seconds, Format::Dec);
 
         // Milliseconds (if requested)
         if (format == TimestampManipulator::Format::HMSM || format == TimestampManipulator::Format::Auto) {
             timeBuffer[len++] = ':';
             if (ms < 100) timeBuffer[len++] = '0';
             if (ms < 10) timeBuffer[len++] = '0';
-            len += NumberToString(&timeBuffer[len], sizeof(timeBuffer) - len, ms, Format::Dec);
+            len += NumberToString(&timeBuffer[len], 4, ms, Format::Dec);
         }
 
         timeBuffer[len] = '\0';

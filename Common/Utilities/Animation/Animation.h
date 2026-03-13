@@ -26,8 +26,8 @@ private:
 
 	// --- Tween state ---
 	T tweenFrom{};
-	uint64_t startTick = 0;
-	uint64_t durationMs = 0;
+	uint64 startTick = 0;
+	uint64 durationMs = 0;
 
 	Easing<>::Curve easingType = Easing<>::Curve::Linear;
 	std::function<float(float)> easingFunction;
@@ -39,7 +39,7 @@ private:
 	float springEpsilon = 0.001f;
 
 	// --- Time tracking ---
-	uint64_t lastTick = 0;
+	uint64 lastTick = 0;
 
 
 public:
