@@ -8,12 +8,13 @@ using AI2C = class I2CAdapterESP;
 class I2CAdapterESP : public I2CAdapter<void> {
 protected:
 	i2c_master_bus_handle_t busHandle = nullptr;
-	i2c_master_dev_handle_t devHandle = nullptr;
-	uint8 currentDevAddr = 0xFF;
 
+	static constexpr uint8 maxDevices = 128;
+	i2c_master_dev_handle_t devHandles[maxDevices] = {};
+
+	i2c_port_num_t port;
 	int sdaPin;
 	int sclPin;
-	i2c_port_num_t port;
 
 
 public:
@@ -23,8 +24,10 @@ public:
 		: port(i2cPort), sdaPin(sda), sclPin(scl) { }
 
 	~I2CAdapterESP() override {
-		if (devHandle) {
-			i2c_master_bus_rm_device(devHandle);
+		for (uint8 i = 0; i < maxDevices; i++) {
+			if (devHandles[i]) {
+				i2c_master_bus_rm_device(devHandles[i]);
+			}
 		}
 		if (busHandle) {
 			i2c_del_master_bus(busHandle);
@@ -37,11 +40,6 @@ public:
 
 
 	ResultStatus CheckDevice(uint8 address, uint16 repeat = 1) override {
-		auto status = EnsureDeviceHandle(address);
-		if (status != ResultStatus::ok) {
-			return status;
-		}
-
 		for (uint16 i = 0; i < repeat; i++) {
 			if (i2c_master_probe(busHandle, address, timeout) != ESP_OK) {
 				return ResultStatus::error;
@@ -75,13 +73,14 @@ public:
 
 
 	ResultStatus WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
-		auto status = EnsureDeviceHandle(device);
+		i2c_master_dev_handle_t handle;
+		auto status = EnsureDeviceHandle(device, handle);
 		if (status != ResultStatus::ok) {
 			return status;
 		}
 
 		if (addressSize == 0) {
-			if (i2c_master_transmit(devHandle, writeData, dataSize, timeout) != ESP_OK) {
+			if (i2c_master_transmit(handle, writeData, dataSize, timeout) != ESP_OK) {
 				return ResultStatus::error;
 			}
 			return ResultStatus::ok;
@@ -97,7 +96,7 @@ public:
 
 		memcpy(&txBuf[offset], writeData, dataSize);
 
-		if (i2c_master_transmit(devHandle, txBuf, offset + dataSize, timeout) != ESP_OK) {
+		if (i2c_master_transmit(handle, txBuf, offset + dataSize, timeout) != ESP_OK) {
 			return ResultStatus::error;
 		}
 
@@ -106,13 +105,14 @@ public:
 
 
 	ResultStatus ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
-		auto status = EnsureDeviceHandle(device);
+		i2c_master_dev_handle_t handle;
+		auto status = EnsureDeviceHandle(device, handle);
 		if (status != ResultStatus::ok) {
 			return status;
 		}
 
 		if (addressSize == 0) {
-			if (i2c_master_receive(devHandle, readData, dataSize, timeout) != ESP_OK) {
+			if (i2c_master_receive(handle, readData, dataSize, timeout) != ESP_OK) {
 				return ResultStatus::error;
 			}
 			return ResultStatus::ok;
@@ -126,7 +126,7 @@ public:
 		}
 		addrBuf[addrLen++] = address & 0xFF;
 
-		if (i2c_master_transmit_receive(devHandle, addrBuf, addrLen, readData, dataSize, timeout) != ESP_OK) {
+		if (i2c_master_transmit_receive(handle, addrBuf, addrLen, readData, dataSize, timeout) != ESP_OK) {
 			return ResultStatus::error;
 		}
 
@@ -152,9 +152,11 @@ protected:
 		}
 
 		if (busHandle) {
-			if (devHandle) {
-				i2c_master_bus_rm_device(devHandle);
-				devHandle = nullptr;
+			for (uint8 i = 0; i < maxDevices; i++) {
+				if (devHandles[i]) {
+					i2c_master_bus_rm_device(devHandles[i]);
+					devHandles[i] = nullptr;
+				}
 			}
 			i2c_del_master_bus(busHandle);
 			busHandle = nullptr;
@@ -172,21 +174,15 @@ protected:
 			return ResultStatus::error;
 		}
 
-		currentDevAddr = 0xFF;
-
 		return AfterInitialization();
 	}
 
 
 private:
-	ResultStatus EnsureDeviceHandle(uint8 address) {
-		if (devHandle && currentDevAddr == address) {
+	ResultStatus EnsureDeviceHandle(uint8 address, i2c_master_dev_handle_t &handle) {
+		if (devHandles[address]) {
+			handle = devHandles[address];
 			return ResultStatus::ok;
-		}
-
-		if (devHandle) {
-			i2c_master_bus_rm_device(devHandle);
-			devHandle = nullptr;
 		}
 
 		i2c_device_config_t dev_config = {};
@@ -196,11 +192,11 @@ private:
 		dev_config.device_address = address;
 		dev_config.scl_speed_hz = static_cast<uint32>(parameters.speed) * 1000;
 
-		if (i2c_master_bus_add_device(busHandle, &dev_config, &devHandle) != ESP_OK) {
+		if (i2c_master_bus_add_device(busHandle, &dev_config, &devHandles[address]) != ESP_OK) {
 			return ResultStatus::error;
 		}
 
-		currentDevAddr = address;
+		handle = devHandles[address];
 		return ResultStatus::ok;
 	}
 };

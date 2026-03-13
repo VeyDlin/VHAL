@@ -128,6 +128,79 @@ public:
 
 
 
+	template <typename DataType, typename AddressType>
+	inline ResultStatus Write(uint8 device, AddressType address, DataType data) {
+		return WriteByteArray(device, address, sizeof(AddressType), reinterpret_cast<uint8*>(&data), sizeof(DataType));
+	}
+
+
+	template <typename DataType, typename AddressType>
+	inline ResultStatus WriteArray(uint8 device, AddressType address, DataType* buffer, uint32 size) {
+		return WriteByteArray(device, address, sizeof(AddressType), reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
+	}
+
+
+	template <typename DataType, typename AddressType>
+	inline ResultStatus WriteArray(uint8 device, AddressType address, const DataType* buffer, uint32 size) {
+		return WriteByteArray(device, address, sizeof(AddressType), reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
+	}
+
+
+
+	template <typename DataType, typename AddressType>
+	inline ResultStatus ReadArray(uint8 device, AddressType address, DataType* buffer, uint32 size = 1) {
+		return ReadByteArray(device, address, sizeof(AddressType), reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
+	}
+
+
+	template <typename DataType, typename AddressType>
+	inline Result<DataType> Read(uint8 device, AddressType address, uint32 size = 1) {
+		DataType data;
+		return Result<DataType>::Capture(
+			ReadByteArray(device, address, sizeof(AddressType), reinterpret_cast<uint8*>(&data), sizeof(DataType) * size), data
+		);
+	}
+
+
+
+	// ---------------
+
+
+
+	template <typename DataType, typename AddressType>
+	inline ResultStatus WriteAsync(uint8 device, AddressType address, DataType data) {
+		return WriteByteArrayAsync(device, address, sizeof(AddressType), reinterpret_cast<uint8*>(&data), sizeof(DataType));
+	}
+
+
+	template <typename DataType, typename AddressType>
+	inline ResultStatus WriteArrayAsync(uint8 device, AddressType address, DataType* buffer, uint32 size) {
+		return WriteByteArrayAsync(device, address, sizeof(AddressType), reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
+	}
+
+
+	template <typename DataType, typename AddressType>
+	inline ResultStatus WriteArrayAsync(uint8 device, AddressType address, const DataType* buffer, uint32 size) {
+		return WriteByteArrayAsync(device, address, sizeof(AddressType), reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
+	}
+
+
+
+	template <typename DataType, typename AddressType>
+	inline ResultStatus ReadArrayAsync(uint8 device, AddressType address, DataType* buffer, uint32 size = 1) {
+		return ReadByteArrayAsync(device, address, sizeof(AddressType), reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
+	}
+
+
+	template <typename DataType, typename AddressType>
+	inline Result<DataType> ReadAsync(uint8 device, AddressType address, uint32 size = 1) {
+		DataType data;
+		return Result<DataType>::Capture(
+			ReadByteArrayAsync(device, address, sizeof(AddressType), reinterpret_cast<uint8*>(&data), sizeof(DataType) * size), data
+		);
+	}
+
+
 protected:
 	virtual ResultStatus Initialization() = 0;
 
