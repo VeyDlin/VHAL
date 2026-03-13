@@ -21,3 +21,8 @@
 	#include <OS/Port/Wrapper.h>
 	#include <OS/Adapter.h>
 #endif
+
+
+#ifdef VHAL_SYSTEM_CONSOLE
+	#include <Utilities/Console/Console.h>
+#endif

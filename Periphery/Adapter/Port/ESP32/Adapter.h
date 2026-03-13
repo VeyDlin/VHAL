@@ -45,3 +45,11 @@
 #ifdef VHAL_ESP32_DSI
 	#include <Adapter/Port/ESP32/Common/DSIAdapterESP.h>
 #endif
+
+#ifdef VHAL_ESP32_PPA
+	#include <Adapter/Port/ESP32/Common/PPAAdapterESP.h>
+#endif
+
+#ifdef VHAL_ESP32_LDO
+	#include <Adapter/Port/ESP32/Common/LDOAdapterESP.h>
+#endif

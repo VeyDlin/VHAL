@@ -33,10 +33,20 @@
 
 #ifdef VHAL_ESP32_DSI
 	#include "esp_lcd_mipi_dsi.h"
+	#include "esp_lcd_panel_ops.h"
+	#include "esp_lcd_panel_io.h"
 #endif
 
 #ifdef VHAL_ESP32_ADC
 	#include "esp_adc/adc_oneshot.h"
+#endif
+
+#ifdef VHAL_ESP32_PPA
+	#include "driver/ppa.h"
+#endif
+
+#ifdef VHAL_ESP32_LDO
+	#include "esp_ldo_regulator.h"
 #endif
 
 #ifdef VHAL_ESP32_DAC
