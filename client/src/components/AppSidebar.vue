@@ -134,8 +134,30 @@ function findItemByLabels(labels: string[]): DocTreeItem | undefined {
   return item
 }
 
+const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+
+function toggleFolder(item: DocTreeItem) {
+  const key = item.path || item.label || ''
+  const set = new Set(expanded.value)
+  if (set.has(key)) {
+    set.delete(key)
+  } else {
+    set.add(key)
+  }
+  expanded.value = [...set]
+}
+
+function navigateToItem(item: DocTreeItem) {
+  if (!hasPage(item)) return
+  selectedItem.value = item
+  const target = item.path === '__home' ? '/' : '/docs/' + item.path
+  router.push(target).then(() => {
+    query.value = ''
+  })
+}
+
 // Intercept clicks in capture phase to prevent UTree from expanding folders on single click.
-// Files pass through to UTree normally; folders are handled manually (navigate if they have a page).
+// Files pass through to UTree normally; folders are handled manually.
 useEventListener(treeRef, 'click', (e: MouseEvent) => {
   const target = (e.target as HTMLElement).closest('[role="treeitem"]')
   if (!target) return
@@ -149,18 +171,20 @@ useEventListener(treeRef, 'click', (e: MouseEvent) => {
   // Folder — block UTree's internal toggle
   e.stopPropagation()
 
-  // Still navigate if folder has a page
-  if (hasPage(item)) {
-    selectedItem.value = item
-    const target = item.path === '__home' ? '/' : '/docs/' + item.path
-    router.push(target).then(() => {
-      query.value = ''
-    })
+  if (isTouchDevice) {
+    // Touch: single tap toggles folder and navigates
+    toggleFolder(item)
+    navigateToItem(item)
+  } else {
+    // Desktop: single click only navigates
+    navigateToItem(item)
   }
 }, { capture: true })
 
-// Double-click toggles folder expansion
+// Double-click toggles folder expansion (desktop only)
 useEventListener(treeRef, 'dblclick', (e: MouseEvent) => {
+  if (isTouchDevice) return
+
   const target = (e.target as HTMLElement).closest('[role="treeitem"]')
   if (!target) return
 
@@ -170,14 +194,7 @@ useEventListener(treeRef, 'dblclick', (e: MouseEvent) => {
   const item = findItemByLabels(labels)
   if (!item || !hasChildren(item)) return
 
-  const key = item.path || item.label || ''
-  const set = new Set(expanded.value)
-  if (set.has(key)) {
-    set.delete(key)
-  } else {
-    set.add(key)
-  }
-  expanded.value = [...set]
+  toggleFolder(item)
 })
 </script>
 

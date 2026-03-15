@@ -21,7 +21,7 @@ watch(() => route.path, () => {
 
 <template>
   <UApp>
-    <div class="flex min-h-screen">
+    <div class="flex min-h-screen overflow-x-hidden">
       <!-- Desktop sidebar -->
       <aside class="hidden lg:flex w-72 shrink-0 border-r border-[var(--ui-border)] bg-[var(--ui-bg)] sticky top-0 h-screen overflow-hidden flex-col">
         <div class="flex items-center gap-2 px-4 py-3 border-b border-[var(--ui-border)]">
@@ -50,9 +50,9 @@ watch(() => route.path, () => {
         </a>
       </div>
 
-      <USlideover v-model:open="mobileMenuOpen" side="left" class="lg:hidden" :ui="{ content: 'max-w-[75vw] sm:max-w-sm' }">
+      <UDrawer v-model:open="mobileMenuOpen" direction="left" class="lg:hidden">
         <template #content>
-          <div class="flex flex-col h-full">
+          <div class="flex flex-col h-full w-72 max-w-[75vw]">
             <div class="flex items-center gap-2 px-4 py-3 border-b border-[var(--ui-border)]">
               <span class="text-lg font-bold text-[var(--ui-text-highlighted)]">VHAL</span>
               <span class="text-xs text-[var(--ui-text-dimmed)]">docs</span>
@@ -68,7 +68,7 @@ watch(() => route.path, () => {
             <AppSidebar />
           </div>
         </template>
-      </USlideover>
+      </UDrawer>
 
       <!-- Main content -->
       <main class="flex-1 min-w-0 pt-[53px] lg:pt-0">
