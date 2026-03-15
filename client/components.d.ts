@@ -22,6 +22,7 @@ declare module 'vue' {
     UCollapsible: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Collapsible.vue')['default']
     UIcon: typeof import('./node_modules/@nuxt/ui/dist/runtime/vue/components/Icon.vue')['default']
     UInput: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Input.vue')['default']
+    USlideover: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Slideover.vue')['default']
     UTabs: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Tabs.vue')['default']
     UTree: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Tree.vue')['default']
   }

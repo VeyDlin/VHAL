@@ -1,0 +1,81 @@
+name: Deploy docs to GitHub Pages
+
+on:
+  push:
+    branches: [pages]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pages branch
+        uses: actions/checkout@v4
+        with:
+          ref: pages
+
+      - name: Checkout VHAL source + wiki
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: VHAL
+
+      - name: Checkout wiki
+        uses: actions/checkout@v4
+        with:
+          repository: VeyDlin/VHAL.wiki
+          path: VHAL/.wiki
+        continue-on-error: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install generator dependencies
+        run: pip install -r generator/requirements.txt
+
+      - name: Generate documentation data
+        run: python generator/generate.py --vhal-root VHAL --output client/src/generated --docs-root VHAL/.wiki
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install client dependencies
+        run: npm ci
+        working-directory: client
+
+      - name: Type check & build
+        run: npx vue-tsc -b && npx vite build
+        working-directory: client
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: client/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

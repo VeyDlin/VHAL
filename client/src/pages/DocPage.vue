@@ -124,7 +124,7 @@ onMounted(() => scrollToHash())
 </script>
 
 <template>
-  <div class="w-full px-8 py-10">
+  <div class="w-full px-4 sm:px-8 py-6 sm:py-10">
     <template v-if="pageData">
       <UTabs
         v-if="showTabs"

@@ -48,7 +48,7 @@ function escapeHtml(str: string): string {
 </script>
 
 <template>
-  <div class="w-full px-8 py-10">
+  <div class="w-full px-4 sm:px-8 py-6 sm:py-10">
     <div class="mb-6">
       <h1 class="text-2xl font-bold text-[var(--ui-text-highlighted)]">
         Search results

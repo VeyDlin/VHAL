@@ -254,8 +254,8 @@ function hasAnyMembers(sym: Symbol): boolean {
             </div>
 
             <!-- Fields -->
-            <div v-if="getFields(getMembers(sym).public).length > 0" class="mb-4">
-              <table class="w-full text-sm">
+            <div v-if="getFields(getMembers(sym).public).length > 0" class="mb-4 overflow-x-auto">
+              <table class="w-full text-sm min-w-[500px]">
                 <thead>
                   <tr class="border-b border-[var(--ui-border)]">
                     <th class="text-left py-2 pr-4 text-[var(--ui-text-dimmed)] font-medium text-xs uppercase tracking-wider">Type</th>
@@ -333,8 +333,8 @@ function hasAnyMembers(sym: Symbol): boolean {
               <template #content>
                 <div class="pl-4 pt-3">
                   <!-- Protected fields -->
-                  <div v-if="getFields(getMembers(sym).protected).length > 0" class="mb-4">
-                    <table class="w-full text-sm">
+                  <div v-if="getFields(getMembers(sym).protected).length > 0" class="mb-4 overflow-x-auto">
+                    <table class="w-full text-sm min-w-[500px]">
                       <tbody>
                         <tr
                           v-for="field in getFields(getMembers(sym).protected)"
@@ -391,8 +391,8 @@ function hasAnyMembers(sym: Symbol): boolean {
               <template #content>
                 <div class="pl-4 pt-3">
                   <!-- Private fields -->
-                  <div v-if="getFields(getMembers(sym).private).length > 0" class="mb-4">
-                    <table class="w-full text-sm">
+                  <div v-if="getFields(getMembers(sym).private).length > 0" class="mb-4 overflow-x-auto">
+                    <table class="w-full text-sm min-w-[500px]">
                       <tbody>
                         <tr
                           v-for="field in getFields(getMembers(sym).private)"
