@@ -224,19 +224,6 @@ class MainTask : public ThreadStatic<512> {
 };
 ```
 
-### What this demonstrates
-
-| Feature | How it's used |
-|---------|---------------|
-| **RTOS thread** | `ThreadStatic<512>` with `Sleep()`, `Execute()` loop |
-| **ADC with interrupts** | Async conversion, `IrqHandler()` delegation |
-| **IQ fixed-point math** | `IQ<16>` — all calculations without FPU, seamless with Animation and TIM helper |
-| **Timer + PWM helper** | `TIMOutputCompareHelper<iq>` — frequency/duty in one call, no manual register math |
-| **AnimationRTOS + easing** | `AnimationRTOS<iq, 128>` — runs on its own RTOS thread, auto-updates at ~60 FPS |
-| **Gamma correction** | `GammaProfile::sRGB()` for perceptually linear LED brightness |
-| **UART with interrupts** | Continuous async RX mode, `onInterrupt` callback |
-| **RegisterMap** | Expose ADC value as readable register, accept brightness/speed commands as writable registers |
-
 ## Architecture
 
 ```
