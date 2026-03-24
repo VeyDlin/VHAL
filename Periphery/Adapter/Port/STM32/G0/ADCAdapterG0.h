@@ -41,6 +41,20 @@ public:
 	ADCAdapterG0(ADC_TypeDef *adc):ADCAdapter(adc) { }
 
 
+	virtual void SetDMA(ADMA *dmaAdapter) override {
+		dma = dmaAdapter;
+		if (dma != nullptr) {
+			dma->onTransferComplete = [this]() {
+				state = ResultStatus::ready;
+				CallInterrupt(Irq::Conversion);
+			};
+			dma->onError = [this]() {
+				state = ResultStatus::ready;
+				CallError(Error::Overrun);
+			};
+		}
+	}
+
 
 	virtual inline void IrqHandler() override {
 		EndSamplingInterrupt();
@@ -476,15 +490,6 @@ protected:
 		// DMA path
 		if (dma != nullptr) {
 			LL_ADC_REG_SetDMATransfer(adcHandle, LL_ADC_REG_DMA_TRANSFER_UNLIMITED);
-
-			dma->onTransferComplete = [this]() {
-				state = ResultStatus::ready;
-				CallInterrupt(Irq::Conversion);
-			};
-			dma->onError = [this]() {
-				state = ResultStatus::ready;
-				CallError(Error::Overrun);
-			};
 
 			auto adcDataAddr = LL_ADC_DMA_GetRegAddr(adcHandle, LL_ADC_DMA_REG_REGULAR_DATA);
 			dma->Start((uint16*)adcDataAddr, (uint16*)buffer, dataNeed);
