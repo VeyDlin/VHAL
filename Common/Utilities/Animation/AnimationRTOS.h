@@ -5,7 +5,7 @@
 #include "Animation.h"
 
 
-template<typename T, std::size_t stackSize>
+template<RealType T, std::size_t stackSize>
 class AnimationRTOS : public Animation<T> {
 private:
 	class AnimationTimer : public OS::Timer<stackSize> {
@@ -42,7 +42,7 @@ protected:
 
 
 public:
-	AnimationRTOS& SetFps(uint8_t val) {
+	AnimationRTOS& SetFps(uint8 val) {
 		timer.interval = std::chrono::milliseconds(1000 / val);
 		return *this;
 	}

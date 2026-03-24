@@ -3,15 +3,15 @@
 #include <chrono>
 #include <cmath>
 #include <type_traits>
+#include <Utilities/Math/IQMath/IQ.h>
 #include "Easing.h"
 
 
-template<typename T>
+template<RealType T>
 class Animation {
 public:
 	enum class Mode { None, Tween, Spring };
 
-	// === Callbacks ===
 	std::function<void(T)> onUpdateValue;
 	std::function<void(T)> onStart;
 	std::function<void(T)> onStop;
@@ -24,21 +24,18 @@ private:
 	T value{};
 	T target{};
 
-	// --- Tween state ---
 	T tweenFrom{};
 	uint64 startTick = 0;
 	uint64 durationMs = 0;
 
-	Easing<>::Curve easingType = Easing<>::Curve::Linear;
-	std::function<float(float)> easingFunction;
+	typename Easing<T>::Curve easingType = Easing<T>::Curve::Linear;
+	std::function<T(T)> easingFunction;
 
-	// --- Spring state ---
-	float springStiffness = 200.0f;
-	float springDamping = 20.0f;
-	float springVelocity = 0.0f;
-	float springEpsilon = 0.001f;
+	T springStiffness = 200;
+	T springDamping = 20;
+	T springVelocity{};
+	T springEpsilon = 0.001f;
 
-	// --- Time tracking ---
 	uint64 lastTick = 0;
 
 
@@ -53,27 +50,29 @@ public:
 		TweenInternal(from, to, duration.count());
 	}
 
-	void TweenSpeed(T to, float speed) {
-		float distance = Distance(value, to);
-		uint64_t ms = (speed > 0) ? static_cast<uint64_t>((distance / speed) * 1000.0f) : 0;
+	void TweenSpeed(T to, T speed) {
+		using std::fabs;
+		T distance = fabs(to - value);
+		uint64 ms = ToUint64(distance / speed * 1000);
 		TweenInternal(value, to, ms);
 	}
 
-	void TweenSpeed(T from, T to, float speed) {
-		float distance = Distance(from, to);
-		uint64_t ms = (speed > 0) ? static_cast<uint64_t>((distance / speed) * 1000.0f) : 0;
+	void TweenSpeed(T from, T to, T speed) {
+		using std::fabs;
+		T distance = fabs(to - from);
+		uint64 ms = ToUint64(distance / speed * 1000);
 		TweenInternal(from, to, ms);
 	}
 
 
 	// ==================== Spring ====================
 
-	void SetSpring(float stiffness, float damping) {
+	void SetSpring(T stiffness, T damping) {
 		springStiffness = stiffness;
 		springDamping = damping;
 	}
 
-	void SetSpringEpsilon(float eps) {
+	void SetSpringEpsilon(T eps) {
 		springEpsilon = eps;
 	}
 
@@ -88,19 +87,19 @@ public:
 				}
 			}
 			activeMode = Mode::Spring;
-			springVelocity = 0.0f;
+			springVelocity = 0;
 		}
 	}
 
 
 	// ==================== Easing ====================
 
-	void SetEasing(Easing<>::Curve type) {
+	void SetEasing(typename Easing<T>::Curve type) {
 		easingType = type;
 		easingFunction = nullptr;
 	}
 
-	void SetEasing(std::function<float(float)> fn) {
+	void SetEasing(std::function<T(T)> fn) {
 		easingFunction = fn;
 	}
 
@@ -119,7 +118,7 @@ public:
 		bool wasActive = activeMode != Mode::None;
 		activeMode = Mode::None;
 		paused = false;
-		springVelocity = 0.0f;
+		springVelocity = 0;
 
 		if (wasActive) {
 			if (onStop) {
@@ -134,7 +133,7 @@ public:
 
 	// ==================== Tick ====================
 
-	void Update(uint64_t nowMs) {
+	void Update(uint64 nowMs) {
 		if (activeMode == Mode::None || paused) {
 			lastTick = nowMs;
 			return;
@@ -181,8 +180,6 @@ public:
 
 
 private:
-	// ==================== Internal ====================
-
 	virtual void OnAnimationStart() {}
 	virtual void OnAnimationStop() {}
 
@@ -191,13 +188,22 @@ private:
 	}
 
 
-	void TweenInternal(T from, T to, uint64_t ms) {
+	static uint64 ToUint64(T v) {
+		if constexpr (IQType<T>) {
+			return static_cast<uint64>(v.ToInt());
+		} else {
+			return static_cast<uint64>(v);
+		}
+	}
+
+
+	void TweenInternal(T from, T to, uint64 ms) {
 		tweenFrom = from;
 		target = to;
 		value = from;
 		durationMs = ms;
 		startTick = 0;
-		springVelocity = 0.0f;
+		springVelocity = 0;
 
 		if (activeMode == Mode::None) {
 			OnAnimationStart();
@@ -210,7 +216,7 @@ private:
 	}
 
 
-	void UpdateTween(uint64_t nowMs) {
+	void UpdateTween(uint64 nowMs) {
 		if (startTick == 0) {
 			startTick = nowMs;
 		}
@@ -224,46 +230,48 @@ private:
 			return;
 		}
 
-		uint64_t elapsed = nowMs - startTick;
-		float t = static_cast<float>(elapsed) / static_cast<float>(durationMs);
+		uint64 elapsed = nowMs - startTick;
 
-		if (t >= 1.0f) {
-			t = 1.0f;
+		T t = static_cast<int>(elapsed) / static_cast<int>(durationMs);
+
+		if (t >= 1) {
+			t = 1;
 		}
 
-		float easedT = easingFunction ? easingFunction(t) : Easing<>::Apply(easingType, t);
+		T easedT = easingFunction ? easingFunction(t) : Easing<T>::Apply(easingType, t);
 
-		value = Lerp(tweenFrom, target, easedT);
+		value = tweenFrom + (target - tweenFrom) * easedT;
 
 		if (onUpdateValue) {
 			onUpdateValue(value);
 		}
 
-		if (t >= 1.0f) {
+		if (t >= 1) {
 			FinishAnimation();
 		}
 	}
 
 
-	void UpdateSpring(uint64_t nowMs) {
-		float dt;
+	void UpdateSpring(uint64 nowMs) {
+		T dt;
 
 		if (lastTick == 0 || lastTick >= nowMs) {
 			dt = 0.001f;
 		} else {
-			dt = static_cast<float>(nowMs - lastTick) / 1000.0f;
+			dt = static_cast<int>(nowMs - lastTick) / 1000;
 		}
 
-		if (dt > 0.1f) {
-			dt = 0.1f;
+		T maxDt = 0.1f;
+		if (dt > maxDt) {
+			dt = maxDt;
 		}
 
-		float diff = ScalarDiff(target, value);
-		float force = diff * springStiffness;
-		springVelocity += force * dt;
-		springVelocity *= (1.0f - springDamping * dt);
+		T diff = target - value;
+		T force = diff * springStiffness;
+		springVelocity = springVelocity + force * dt;
+		springVelocity = springVelocity * (1 - springDamping * dt);
 
-		value = Advance(value, springVelocity * dt);
+		value = value + springVelocity * dt;
 
 		if (onUpdateValue) {
 			onUpdateValue(value);
@@ -282,43 +290,13 @@ private:
 
 	void FinishAnimation() {
 		activeMode = Mode::None;
-		springVelocity = 0.0f;
+		springVelocity = 0;
 
 		if (onStop) {
 			onStop(value);
 		}
 		if (activeMode == Mode::None) {
 			OnAnimationStop();
-		}
-	}
-
-
-	// ==================== Type operations ====================
-
-	static T Lerp(const T& a, const T& b, float t) {
-		return a + (b - a) * t;
-	}
-
-	static float Distance(const T& a, const T& b) {
-		using std::fabs;
-		return fabs(ScalarDiff(b, a));
-	}
-
-	static float ScalarDiff(const T& a, const T& b) {
-		if constexpr (IsScalar()) {
-			return static_cast<float>(a) - static_cast<float>(b);
-		} else {
-			T diff = a - b;
-			return diff.Magnitude();
-		}
-	}
-
-	static T Advance(const T& v, float delta) {
-		if constexpr (IsScalar()) {
-			return static_cast<T>(static_cast<float>(v) + delta);
-		} else {
-			T direction = v.Normalized();
-			return v + direction * delta;
 		}
 	}
 };

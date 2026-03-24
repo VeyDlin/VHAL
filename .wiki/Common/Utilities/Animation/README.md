@@ -1,6 +1,6 @@
 # Animation — Tween & Spring Animation Library
 
-Header-only animation library with two modes: **tween** (time-based interpolation with easing) and **spring** (physics-based spring simulation). Works with any arithmetic type or custom vector type. Optionally integrates with RTOS for automatic timer-driven updates.
+Header-only animation library with two modes: **tween** (time-based interpolation with easing) and **spring** (physics-based spring simulation). Works with any `RealType` — `float`, `double`, or `IQ<Q>` fixed-point. Optionally integrates with RTOS for automatic timer-driven updates. Includes `RgbAnimation` for color transitions.
 
 ## Quick Start
 
@@ -15,11 +15,23 @@ anim.onUpdateValue = [](float val) {
 };
 
 // Tween from current value to 1.0 over 500ms
-anim.SetEasing(Easing<>::Curve::EaseInOut);
+anim.SetEasing(Easing<float>::Curve::EaseInOut);
 anim.Tween(1.0f, std::chrono::milliseconds(500));
 
 // In your main loop or timer interrupt:
 anim.Update(GetCurrentTimeMs());
+```
+
+### IQ Fixed-Point (no FPU required)
+
+```cpp
+using iq = IQ<16>;
+
+Animation<iq> anim;
+anim.SetEasing(Easing<iq>::Curve::EaseInOut);
+anim.Tween(iq(1), 500ms);
+
+// All internal math is integer — no float operations
 ```
 
 ## Animation Modes
@@ -30,7 +42,7 @@ Time-based interpolation from start to end value with configurable easing and du
 
 ```cpp
 Animation<float> anim;
-anim.SetEasing(Easing<>::Curve::EaseOut);
+anim.SetEasing(Easing<float>::Curve::EaseOut);
 
 // Tween from current value to target over duration
 anim.Tween(1.0f, 300ms);
@@ -51,11 +63,8 @@ Physics-based spring simulation. The value oscillates toward the target and sett
 Animation<float> anim;
 
 // Configure spring parameters
-anim.SetSpring(
-    200.0f,   // stiffness — higher = faster, more oscillation
-    20.0f     // damping — higher = less oscillation, faster settle
-);
-anim.SetSpringEpsilon(0.001f);  // convergence threshold
+anim.SetSpring(200.0f, 20.0f);    // stiffness, damping
+anim.SetSpringEpsilon(0.001f);    // convergence threshold
 
 // Set target — spring starts automatically
 anim.SetTarget(1.0f);
@@ -80,14 +89,26 @@ Four built-in easing types, or provide a custom function:
 
 ```cpp
 // Built-in
-anim.SetEasing(Easing<>::Curve::Linear);     // constant speed
-anim.SetEasing(Easing<>::Curve::EaseIn);     // slow start (t²)
-anim.SetEasing(Easing<>::Curve::EaseOut);    // slow end
-anim.SetEasing(Easing<>::Curve::EaseInOut);  // slow start and end
+anim.SetEasing(Easing<float>::Curve::Linear);     // constant speed
+anim.SetEasing(Easing<float>::Curve::EaseIn);     // slow start (t²)
+anim.SetEasing(Easing<float>::Curve::EaseOut);    // slow end
+anim.SetEasing(Easing<float>::Curve::EaseInOut);  // slow start and end
 
-// Custom easing function: float(float t), t ∈ [0, 1]
+// Custom easing function: T(T t), t ∈ [0, 1]
 anim.SetEasing([](float t) {
     return t * t * t;  // cubic ease-in
+});
+```
+
+With IQ:
+
+```cpp
+Animation<iq> anim;
+anim.SetEasing(Easing<iq>::Curve::EaseInOut);
+
+// Custom easing — also in IQ, no float
+anim.SetEasing([](iq t) {
+    return t * t * t;
 });
 ```
 
@@ -171,27 +192,67 @@ Tween()/TweenSpeed()/SetTarget() called → timer.Start() → thread resumes, ca
 Animation finishes or Stop() called → timer.Stop() → thread suspended again
 ```
 
-## Custom Types
+## RgbAnimation
 
-`Animation<T>` works with any type that supports:
-- `T + T`, `T - T`, `T * float` (for lerp)
-- `T.Magnitude()` → `float` (for spring scalar diff)
-- `T.Normalized()` → `T` (for spring advance direction)
-
-Arithmetic types (`float`, `int`, etc.) work out of the box.
+Animates `Colors::IRgb<T>` color values using a single internal `Animation<T>` as a 0→1 progress driver. Lightweight — one animation instance, not three.
 
 ```cpp
-// Example: animate a 2D position
-struct Vec2 {
-    float x, y;
-    Vec2 operator+(Vec2 o) const { return {x + o.x, y + o.y}; }
-    Vec2 operator-(Vec2 o) const { return {x - o.x, y - o.y}; }
-    Vec2 operator*(float s) const { return {x * s, y * s}; }
-    float Magnitude() const { return sqrtf(x*x + y*y); }
-    Vec2 Normalized() const { float m = Magnitude(); return {x/m, y/m}; }
+#include <Utilities/Animation/RgbAnimation.h>
+
+// Without RTOS — call Update() manually
+RgbAnimation<float> anim;
+
+anim.onUpdateValue = [](Colors::IRgb<float> color) {
+    SetLedColor(color.r, color.g, color.b);
 };
 
-Animation<Vec2> anim;
-anim.SetSpring(150.0f, 15.0f);
-anim.SetTarget({100.0f, 200.0f});
+anim.Tween({1, 0, 0}, {0, 0, 1}, 1000ms);  // red → blue
+
+// In timer:
+anim.Update(System::GetMs());
+```
+
+### RTOS version
+
+Pass `AnimationRTOS` as the second template parameter:
+
+```cpp
+#include <Utilities/Animation/AnimationRTOS.h>
+#include <Utilities/Animation/RgbAnimation.h>
+
+RgbAnimation<float, AnimationRTOS<float, 128>> anim;
+
+// Configure timer via GetProgress()
+anim.GetProgress().SetInterval(10ms);
+
+anim.onUpdateValue = [](Colors::IRgb<float> color) {
+    SetLedColor(color.r, color.g, color.b);
+};
+
+anim.SetEasing(Easing<float>::Curve::EaseInOut);
+anim.Tween({0, 0, 0}, {1, 1, 1}, 2000ms);  // black → white
+```
+
+### Spring mode
+
+```cpp
+RgbAnimation<float> anim;
+anim.SetSpring(100.0f, 10.0f);
+anim.SetTarget({1, 0, 0});   // chase red
+anim.SetTarget({0, 1, 0});   // retarget to green mid-animation
+```
+
+## Type Support
+
+`Animation<T>` requires `T` to satisfy the `RealType` concept:
+- `float`, `double` — standard floating point
+- `IQ<Q>` — fixed-point math (no FPU required)
+
+Implicit conversions from `int` and `float` literals work transparently with IQ — no `T(...)` wrappers needed:
+
+```cpp
+Animation<iq> anim;
+anim.SetSpring(200, 20);      // int → iq implicitly
+anim.SetSpringEpsilon(0.001f); // float → iq implicitly
+anim.Tween(0, 1, 500ms);      // just works
 ```
