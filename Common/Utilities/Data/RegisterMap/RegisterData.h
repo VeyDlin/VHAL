@@ -83,16 +83,11 @@ public:
     bool WriteEvent(const uint8* buffer) override {
         if(!onWrite) {
             return true;
-
         }
         RawDataType data;
         std::memcpy(&data, buffer, DataTypeSize());
 
-        System::CriticalSection(true);
-        auto writeData = onWrite(data);
-        System::CriticalSection(false);
-
-        return writeData;
+        return onWrite(data);
     }
 
     size_t GetUnsafe(uint8* outData) override {
