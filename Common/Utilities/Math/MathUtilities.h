@@ -9,15 +9,15 @@ namespace MathUtilities {
 		return a + rand() % (b - a + 1);
 	}
 
-	template<typename type>
-	void SetMin(type &data, type val) {
+	template<typename typeData, typename typeVal>
+	inline void SetMin(typeData &data, typeVal val) {
 		if (val < data) {
 			data = val;
 		}
 	}
 
-	template<typename type>
-	void SetMax(type &data, type val) {
+	template<typename typeData, typename typeVal>
+	inline void SetMax(typeData &data, typeVal val) {
 		if (val > data) {
 			data = val;
 		}
