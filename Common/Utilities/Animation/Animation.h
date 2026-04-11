@@ -232,7 +232,7 @@ private:
 
 		uint64 elapsed = nowMs - startTick;
 
-		T t = static_cast<int>(elapsed) / static_cast<int>(durationMs);
+		T t = static_cast<T>(elapsed) / static_cast<T>(durationMs);
 
 		if (t >= 1) {
 			t = 1;
@@ -258,7 +258,7 @@ private:
 		if (lastTick == 0 || lastTick >= nowMs) {
 			dt = 0.001f;
 		} else {
-			dt = static_cast<int>(nowMs - lastTick) / 1000;
+			dt = static_cast<T>(nowMs - lastTick) / static_cast<T>(1000);
 		}
 
 		T maxDt = 0.1f;
