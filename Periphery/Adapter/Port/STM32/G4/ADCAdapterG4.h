@@ -453,7 +453,7 @@ protected:
 		LL_ADC_SetChannelSamplingTime(adcHandle, CastChannel(channel.channel), samplingTime);
 		LL_ADC_SetChannelSingleDiff(adcHandle, CastChannel(channel.channel), LL_ADC_SINGLE_ENDED);
 
-		return { ResultStatus::ok, outSamplingTimeNs };
+		return Ok<uint32>(outSamplingTimeNs);
 	}
 
 
