@@ -80,7 +80,7 @@ set(_VHAL_DRIVER_INCLUDES "")
 if(DEFINED PORT_DIR AND EXISTS ${PORT_DIR}/Drivers)
     # LL drivers
     file(GLOB _LL_SOURCES ${PORT_DIR}/Drivers/HAL/Src/*_ll_*.c)
-    list(FILTER _LL_SOURCES EXCLUDE REGEX "ll_usb\\.c$")
+    list(FILTER _LL_SOURCES EXCLUDE REGEX "ll_usb\\.c$|ll_fmc\\.c$")
     list(APPEND _VHAL_DRIVER_SOURCES ${_LL_SOURCES})
 
     # CMSIS / HAL includes
