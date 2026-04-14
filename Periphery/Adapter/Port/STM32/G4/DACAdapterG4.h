@@ -53,7 +53,39 @@ public:
 
 
 
+	virtual void EnableDMARequest() override {
+		LL_DAC_EnableDMAReq(dacHandle, CastChannel());
+	}
+
+	virtual void DisableDMARequest() override {
+		LL_DAC_DisableDMAReq(dacHandle, CastChannel());
+	}
+
+	virtual void EnableTrigger() override {
+		LL_DAC_EnableTrigger(dacHandle, CastChannel());
+	}
+
+	virtual void DisableTrigger() override {
+		LL_DAC_DisableTrigger(dacHandle, CastChannel());
+	}
+
+	virtual ResultStatus WriteContinuous(uint16 *buffer, uint32 count) override {
+		return ResultStatus::notAvailable;
+	}
+
+	virtual ResultStatus StopDMA() override {
+		return ResultStatus::notAvailable;
+	}
+
+
+
 protected:
+	virtual uint32 GetDataRegisterAddress() override {
+		return LL_DAC_DMA_GetRegAddr(dacHandle, CastChannel(), LL_DAC_DMA_REG_DATA_12BITS_RIGHT_ALIGNED);
+	}
+
+
+
 	virtual ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
 		if(status != ResultStatus::ok) {
