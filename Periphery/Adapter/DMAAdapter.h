@@ -32,6 +32,7 @@ public:
 		bool circularMode = false;
 		bool enableTransferCompleteIT = true;
 		DataWidth dataWidth = DataWidth::B8;
+		DataWidth periphDataWidth = static_cast<DataWidth>(0);
 		uint32 priority = 0;
 	};
 

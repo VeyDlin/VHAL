@@ -646,6 +646,14 @@ protected:
 
 		LL_TIM_DisableARRPreload(timHandle);
 
+		if (parameters.outputTrigger.Get() != 0) {
+			LL_TIM_SetTriggerOutput(timHandle, parameters.outputTrigger.Get());
+		}
+
+		if (IS_TIM_TRGO2_INSTANCE(timHandle) && parameters.outputTrigger2.Get() != 0) {
+			LL_TIM_SetTriggerOutput2(timHandle, parameters.outputTrigger2.Get());
+		}
+
 		return AfterInitialization();
 	}
 
@@ -680,9 +688,6 @@ protected:
 			// TODO: [VHAL] [TIM] [G4] [WTF] channel 2 ??
 			LL_TIM_OC_DisableFast(timHandle, channel.channel.Get<1>());
 		}
-
-		// TODO: [VHAL] [TIM] [ADAPTER] [ADD SUPPORT] Add Trigger to settings
-		LL_TIM_SetTriggerOutput(timHandle, LL_TIM_TRGO_RESET);
 
 		// TODO: [VHAL] [TIM] [ADAPTER] [ADD SUPPORT] Add Master Slave Mode to settings
 		LL_TIM_DisableMasterSlaveMode(timHandle);

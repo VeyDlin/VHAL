@@ -1,33 +1,44 @@
 #pragma once
 #include <Adapter/DACAdapter.h>
+#include "DMAAdapterG4.h"
 
 
 using ADAC = class DACAdapterG4;
 
 
-class DACAdapterG4: public DACAdapter<DAC_TypeDef> {
+class DACAdapterG4: public DACAdapter<DAC_TypeDef, ADMA> {
+public:
+	struct TriggerSource {
+		static inline constexpr TriggerSourceOption Software        { LL_DAC_TRIG_SOFTWARE };
+		static inline constexpr TriggerSourceOption Timer1Trigger   { LL_DAC_TRIG_EXT_TIM1_TRGO };
+		static inline constexpr TriggerSourceOption Timer8Trigger   { LL_DAC_TRIG_EXT_TIM8_TRGO };
+		static inline constexpr TriggerSourceOption Timer7Trigger   { LL_DAC_TRIG_EXT_TIM7_TRGO };
+		static inline constexpr TriggerSourceOption Timer15Trigger  { LL_DAC_TRIG_EXT_TIM15_TRGO };
+		static inline constexpr TriggerSourceOption Timer2Trigger   { LL_DAC_TRIG_EXT_TIM2_TRGO };
+		static inline constexpr TriggerSourceOption Timer4Trigger   { LL_DAC_TRIG_EXT_TIM4_TRGO };
+		static inline constexpr TriggerSourceOption Timer6Trigger   { LL_DAC_TRIG_EXT_TIM6_TRGO };
+		static inline constexpr TriggerSourceOption Timer3Trigger   { LL_DAC_TRIG_EXT_TIM3_TRGO };
+		static inline constexpr TriggerSourceOption InterruptLine9  { LL_DAC_TRIG_EXT_EXTI_LINE9 };
+	};
+
+
 public:
 	DACAdapterG4() { }
 
-	DACAdapterG4(DAC_TypeDef *dac, uint8 channel):DACAdapter(dac, channel) {
+	DACAdapterG4(DAC_TypeDef *dac, uint8 channel): DACAdapter(dac, channel) {
 
 	}
+
 
 	virtual inline void IrqHandler() override {
-		// TODO: [VHAL] [DAC] [G4] [ADD SUPPORT]
+		DmaUnderrunInterrupt();
 	}
-
-
 
 
 	virtual ResultStatus Write(uint16 val) override {
 		LL_DAC_ConvertData12RightAligned(dacHandle, CastChannel(), val);
-		System::DelayUs(LL_DAC_DELAY_VOLTAGE_SETTLING_US );
 		return ResultStatus::ok;
-	};
-
-
-
+	}
 
 
 	virtual ResultStatus Enable() override {
@@ -41,9 +52,6 @@ public:
 	}
 
 
-
-
-
 	virtual ResultStatus Disable() override {
 		if (LL_DAC_IsEnabled(dacHandle, CastChannel())) {
 			LL_DAC_Disable(dacHandle, CastChannel());
@@ -52,48 +60,116 @@ public:
 	}
 
 
-
 	virtual void EnableDMARequest() override {
 		LL_DAC_EnableDMAReq(dacHandle, CastChannel());
 	}
+
 
 	virtual void DisableDMARequest() override {
 		LL_DAC_DisableDMAReq(dacHandle, CastChannel());
 	}
 
+
 	virtual void EnableTrigger() override {
 		LL_DAC_EnableTrigger(dacHandle, CastChannel());
 	}
+
 
 	virtual void DisableTrigger() override {
 		LL_DAC_DisableTrigger(dacHandle, CastChannel());
 	}
 
+
 	virtual ResultStatus WriteContinuous(uint16 *buffer, uint32 count) override {
-		return ResultStatus::notAvailable;
+		if (dma == nullptr) {
+			return ResultStatus::notAvailable;
+		}
+		auto status = dma->Start(buffer, (uint16*)GetDataRegisterAddress(), count);
+		if (status != ResultStatus::ok) {
+			return status;
+		}
+		ClearFlag_DmaUnderrun();
+		EnableDMARequest();
+		EnableTrigger();
+		EnableIT_DmaUnderrun();
+		return ResultStatus::ok;
 	}
+
 
 	virtual ResultStatus StopDMA() override {
-		return ResultStatus::notAvailable;
+		if (dma == nullptr) {
+			return ResultStatus::notAvailable;
+		}
+		DisableIT_DmaUnderrun();
+		DisableDMARequest();
+		DisableTrigger();
+		return dma->Stop();
 	}
-
 
 
 protected:
-	virtual uint32 GetDataRegisterAddress() override {
-		return LL_DAC_DMA_GetRegAddr(dacHandle, CastChannel(), LL_DAC_DMA_REG_DATA_12BITS_RIGHT_ALIGNED);
+	inline void DmaUnderrunInterrupt() {
+		bool active, enabled;
+
+		if (dacChannel == 1) {
+			active = LL_DAC_IsActiveFlag_DMAUDR1(dacHandle);
+			enabled = LL_DAC_IsEnabledIT_DMAUDR1(dacHandle);
+		} else {
+			active = LL_DAC_IsActiveFlag_DMAUDR2(dacHandle);
+			enabled = LL_DAC_IsEnabledIT_DMAUDR2(dacHandle);
+		}
+
+		if (!active || !enabled) {
+			return;
+		}
+
+		CallError(Error::DmaUnderrun);
+
+		if (dacChannel == 1) {
+			LL_DAC_ClearFlag_DMAUDR1(dacHandle);
+		} else {
+			LL_DAC_ClearFlag_DMAUDR2(dacHandle);
+		}
 	}
 
+
+	inline void EnableIT_DmaUnderrun() {
+		if (dacChannel == 1) {
+			LL_DAC_EnableIT_DMAUDR1(dacHandle);
+		} else {
+			LL_DAC_EnableIT_DMAUDR2(dacHandle);
+		}
+	}
+
+
+	inline void DisableIT_DmaUnderrun() {
+		if (dacChannel == 1) {
+			LL_DAC_DisableIT_DMAUDR1(dacHandle);
+		} else {
+			LL_DAC_DisableIT_DMAUDR2(dacHandle);
+		}
+	}
+
+
+	inline void ClearFlag_DmaUnderrun() {
+		if (dacChannel == 1) {
+			LL_DAC_ClearFlag_DMAUDR1(dacHandle);
+		} else {
+			LL_DAC_ClearFlag_DMAUDR2(dacHandle);
+		}
+	}
 
 
 	virtual ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
-		if(status != ResultStatus::ok) {
+		if (status != ResultStatus::ok) {
 			return status;
 		}
 
 		LL_DAC_InitTypeDef init = {
-			.TriggerSource = LL_DAC_TRIG_SOFTWARE,
+			.TriggerSource = parameters.triggerSource.Get() != 0
+				? parameters.triggerSource.Get()
+				: LL_DAC_TRIG_SOFTWARE,
 			.TriggerSource2 = LL_DAC_TRIG_SOFTWARE,
 			.WaveAutoGeneration = LL_DAC_WAVE_AUTO_GENERATION_NONE,
 			.WaveAutoGenerationConfig = LL_DAC_NOISE_LFSR_UNMASK_BIT0,
@@ -104,14 +180,16 @@ protected:
 
 		LL_DAC_SetSignedFormat(dacHandle, CastChannel(), LL_DAC_SIGNED_FORMAT_DISABLE);
 		SystemAssert(LL_DAC_Init(dacHandle, CastChannel(), &init) == ErrorStatus::SUCCESS);
-		LL_DAC_DisableTrigger(dacHandle, CastChannel());
 		LL_DAC_DisableDMADoubleDataMode(dacHandle, CastChannel());
 
 		return AfterInitialization();
 	}
 
 
-
+	virtual uint32 GetDataRegisterAddress() override {
+		return LL_DAC_DMA_GetRegAddr(dacHandle, CastChannel(),
+			LL_DAC_DMA_REG_DATA_12BITS_RIGHT_ALIGNED);
+	}
 
 
 private:
@@ -154,18 +232,3 @@ private:
 		return 0;
 	}
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

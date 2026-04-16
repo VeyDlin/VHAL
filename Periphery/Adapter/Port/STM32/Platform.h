@@ -126,6 +126,10 @@
 		#include "stm32g4xx_ll_iwdg.h"
 	#endif
 
+	#ifdef VHAL_STM32_G4_DMA
+		#include "stm32g4xx_ll_dma.h"
+	#endif
+
 #else
 	#error "VHAL: Define VHAL_STM32_F4, VHAL_STM32_G0, or VHAL_STM32_G4"
 #endif
