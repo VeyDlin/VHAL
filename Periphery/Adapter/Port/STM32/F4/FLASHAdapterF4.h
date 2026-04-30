@@ -41,10 +41,10 @@ public:
 
 	virtual Result<uint8> Read(uint8 *address) override {
 		if (!IsFlashArea((uint32)address, sizeof(*address))) {
-			return Result<uint8>(ResultStatus::error, 0);
+			return ResultStatus::error;
 		}
 
-		return Result<uint8>(ResultStatus::ok, *address);
+		return Ok<uint8>(*address);
 	}
 
 	virtual ResultStatus Write(uint16 *address, uint16 data) override {

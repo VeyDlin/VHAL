@@ -44,7 +44,7 @@ template<typename T> bool BLETypedCharacteristic<T>::setValueLE(T value) {
 }
 
 template<typename T> T BLETypedCharacteristic<T>::valueLE() {
-	return this->getValue();
+	return this->value();
 }
 
 template<typename T> bool BLETypedCharacteristic<T>::setValueBE(T value) {

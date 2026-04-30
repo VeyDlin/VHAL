@@ -310,7 +310,7 @@ protected:
 		LL_ADC_REG_SetSequencerRanks(adcHandle, CastRank(rank), CastChannel(channel.channel));
 		LL_ADC_SetChannelSamplingTime(adcHandle, CastChannel(channel.channel), samplingTime);
 
-		return { ResultStatus::ok, outSamplingTimeNs };
+		return Ok<uint32>(outSamplingTimeNs);
 	}
 
 

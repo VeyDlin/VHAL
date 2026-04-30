@@ -1,7 +1,7 @@
 #pragma once
 #include <VHAL.h>
 #include "utility/lib_aci.h"
-#include <Utilities/Math/VMath/Utilities.h>
+#include <Utilities/Math/MathUtilities.h>
 #include "BLEDevice.h"
 #include "BLECharacteristic.h"
 #include "BLEDescriptor.h"
@@ -484,7 +484,7 @@ protected:
 
 	      while(valueOffset < valueSize) {
 	        int chunkSize = std::min<int>(valueSize - valueOffset, MAX_ATTRIBUTE_VALUE_PER_SETUP_MSG);
-	        int valueCopySize = Vstd::min<int>(valueLength - valueOffset, chunkSize);
+	        int valueCopySize = std::min<int>(valueLength - valueOffset, chunkSize);
 
 	        setupMsgData->length = 3 + chunkSize;
 
