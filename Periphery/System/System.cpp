@@ -81,20 +81,20 @@ void System::Abort(const char* message, const char* file, uint32_t line) {
 
 
 void System::CriticalError(const char* message, const char* file, uint32_t line) {
-    if (criticalErrorHandle) {
-		#ifdef VHAL_SYSTEM_CONSOLE
-            console << Console::error << "System critical error" << Console::endl;
-            if (line != 0) {
-                console << "Line: " << line << Console::endl;
-            }
-            if (file != nullptr) {
-                console << "File: " << file << Console::endl;
-            }
-            if (message != nullptr) {
-                console << "Message: " << message << Console::endl;
-            }
-		#endif
+	#ifdef VHAL_SYSTEM_CONSOLE
+        console << Console::error << "System critical error" << Console::endl;
+        if (line != 0) {
+            console << "Line: " << line << Console::endl;
+        }
+        if (file != nullptr) {
+            console << "File: " << file << Console::endl;
+        }
+        if (message != nullptr) {
+            console << "Message: " << message << Console::endl;
+        }
+	#endif
 
+    if (criticalErrorHandle) {
         criticalErrorHandle(const_cast<char*>(message), const_cast<char*>(file), line);
     }
 
