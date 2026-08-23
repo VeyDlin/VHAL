@@ -20,6 +20,11 @@ public:
     std::function<ResultStatus(uint16 address, uint8* outData, size_t& outDataLength)> onRead = nullptr;
     std::function<ResultStatus(const uint8* encodedBuffer, size_t length)> rawWrite = nullptr;
 
+    // Multi-drop bus addressing: the high byte of the packet address field selects
+    // the device, the low byte is passed to onRead/onWrite. Packets addressed to
+    // another device are dropped silently (no NACK on a shared bus).
+    static constexpr uint8 broadcastAddress = 0xFF;
+
 
 private:
     enum PacketType : uint8 {
@@ -50,6 +55,9 @@ private:
     uint8* readBuffer;
     size_t readBufferLength;
 
+    uint8 deviceAddress = 0;
+    bool deviceAddressEnabled = false;
+
 
 public:
     //  COBS:   
@@ -63,6 +71,17 @@ public:
 
     inline void RxEvent(uint8 byte) {
         byteMail.Put(byte);
+    }
+
+
+    void SetDeviceAddress(uint8 address) {
+        deviceAddress = address;
+        deviceAddressEnabled = true;
+    }
+
+
+    void DisableDeviceAddress() {
+        deviceAddressEnabled = false;
     }
 
 
@@ -240,16 +259,35 @@ private:
 
         // Get data packet
         if (type == PacketType::read || type == PacketType::write) {
+            uint16 callbackAddress = address;
+
+            if (deviceAddressEnabled) {
+                uint8 target = static_cast<uint8>(address >> 8);
+                callbackAddress = address & 0x00FF;
+
+                if (target == broadcastAddress) {
+                    // Broadcast: execute writes, never respond on the shared bus
+                    if (type == PacketType::write && onWrite) {
+                        onWrite(callbackAddress, data, size);
+                    }
+                    return;
+                }
+
+                if (target != deviceAddress) {
+                    return; // Addressed to another device — stay silent
+                }
+            }
+
             uint8 encodedBuffer[maxEncodedSize];
             size_t encodedBufferSize = 0;
 
             ResultStatus mailStatus = ResultStatus::error;
             if (type == PacketType::read && onRead) {
-                mailStatus = onRead(address, &encodedBuffer[0], encodedBufferSize);
+                mailStatus = onRead(callbackAddress, &encodedBuffer[0], encodedBufferSize);
             }
 
             if (type == PacketType::write && onWrite) {
-                mailStatus = onWrite(address, data, size);
+                mailStatus = onWrite(callbackAddress, data, size);
             }
 
 
