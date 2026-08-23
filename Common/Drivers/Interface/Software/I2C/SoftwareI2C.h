@@ -174,13 +174,7 @@ public:
 		}
 
 		for(uint32 i = 0; i < dataSize; i++) {
-			Result<uint8> readInfo;
-
-	        if(i < dataSize - 1) {
-	        	readInfo = Read();
-	        } else {
-	        	readInfo = ReadLast();
-	        }
+			Result<uint8> readInfo = (i < dataSize - 1) ? Read() : ReadLast();
 
 	        if(readInfo.IsErr()) {
 	        	Close();
@@ -310,7 +304,7 @@ private:
 		// Release SCL
 		SetScl(Line::High);
 		if (clockStretchMode) {
-			if (WaitScl(Line::High)) {
+			if (WaitScl(Line::High) != ResultStatus::ok) {
 				return ResultStatus::timeout;
 			}
 		}
@@ -379,7 +373,7 @@ private:
 
 	    Tick();
 
-	    return { ResultStatus::ok, res };
+	    return Ok<uint8>(res);
 	}
 
 
@@ -390,7 +384,7 @@ private:
 	    SetScl(Line::High);
 
 	    if (clockStretchMode) {
-			if (WaitScl(Line::High)) {
+			if (WaitScl(Line::High) != ResultStatus::ok) {
 				return ResultStatus::timeout;
 			}
 	    }
@@ -409,7 +403,7 @@ private:
 	    SetScl(Line::High);
 
 	    if (clockStretchMode) {
-			if (WaitScl(Line::High)) {
+			if (WaitScl(Line::High) != ResultStatus::ok) {
 				return { ResultStatus::timeout };
 			}
 	    }
@@ -421,7 +415,7 @@ private:
 	    SetScl(Line::Low);
 	    Tick();
 
-	    return { ResultStatus::ok, bit };
+	    return Ok<uint8>(bit);
 	}
 
 

@@ -151,7 +151,7 @@ public:
 				count++;
 			}
 		}
-		return { ResultStatus::ok, count };
+		return Ok<uint8>(count);
 	}
 
 
@@ -319,7 +319,7 @@ protected:
 public:
 	virtual ResultStatus WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8 *writeData, uint32 dataSize) override {
 
-		if (_isBusyFlag(SET) != I2C_OK) return ResultStatus::busy;
+		if (_isBusyFlag(SET) != ResultStatus::ok) return ResultStatus::busy;
 
 		if ((i2cHandle->CR1 & I2C_CR1_PE) != I2C_CR1_PE) i2cHandle->CR1 |= I2C_CR1_PE;
 
@@ -336,7 +336,7 @@ public:
 			writeData++;
 			dataSize--;
 
-			if ((_isBTF_Flag(SET) != I2C_OK) && (dataSize != 0)) {
+			if ((_isBTF_Flag(SET) != ResultStatus::ok) && (dataSize != 0)) {
 				i2cHandle->DR = (uint8_t) *writeData;
 				writeData++;
 				dataSize--;
@@ -580,7 +580,7 @@ private:
 
 		i2cHandle->CR1 |= I2C_CR1_START;
 
-		if (_isSB_Flag(RESET)) {
+		if (_isSB_Flag(RESET) != ResultStatus::ok) {
 			if ((i2cHandle->CR1 & I2C_CR1_START) == I2C_CR1_START) return ResultStatus::timeout;
 		}
 
@@ -594,7 +594,7 @@ private:
 
 		i2cHandle->CR1 |= I2C_CR1_START;
 
-		if (_isSB_Flag(RESET)) {
+		if (_isSB_Flag(RESET) != ResultStatus::ok) {
 			if ((i2cHandle->CR1 & I2C_CR1_START) == I2C_CR1_START) return ResultStatus::timeout;
 		}
 
@@ -615,7 +615,7 @@ private:
 
 		i2cHandle->CR1 |= I2C_CR1_START;
 
-		if (_isSB_Flag(RESET) != I2C_OK) {
+		if (_isSB_Flag(RESET) != ResultStatus::ok) {
 			if ((i2cHandle->CR1 & I2C_CR1_START) == I2C_CR1_START) {
 				return ResultStatus::error;
 			}
@@ -641,7 +641,7 @@ private:
 
 		i2cHandle->CR1 |= I2C_CR1_START;
 
-		if (_isSB_Flag(RESET)) {
+		if (_isSB_Flag(RESET) != ResultStatus::ok) {
 			if ((i2cHandle->CR1 & I2C_CR1_START) == I2C_CR1_START) return ResultStatus::timeout;
 		}
 
@@ -657,7 +657,7 @@ private:
 
 		Status = _isTXE_Flag();
 		if (Status != ResultStatus::ok) {
-			if (Status == I2C_AF_ERROR) i2cHandle->CR1 |= I2C_CR1_STOP;
+			if (Status == ResultStatus::error) i2cHandle->CR1 |= I2C_CR1_STOP;
 			return Status;
 		}
 
@@ -682,7 +682,7 @@ private:
 
 			i2cHandle->CR1 |= I2C_CR1_START;
 
-			if (_isSB_Flag(RESET)) {
+			if (_isSB_Flag(RESET) != ResultStatus::ok) {
 				if ((i2cHandle->CR1 & I2C_CR1_START) == I2C_CR1_START) return ResultStatus::error;
 			}
 

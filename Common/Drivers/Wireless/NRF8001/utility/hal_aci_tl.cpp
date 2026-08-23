@@ -385,10 +385,12 @@ bool hal_aci_tl_send(hal_aci_data_t *p_aci_cmd) {
 static uint8_t spi_readwrite(const uint8_t aci_byte) {
 
 	System::CriticalSection(true);
-	auto read = a_pins_local_ptr->spi->WriteRead<uint8>(aci_byte).data;
+	uint8_t tx = aci_byte;
+	uint8_t rx = 0;
+	a_pins_local_ptr->spi->WriteReadArray<uint8>(&tx, &rx, 1);
 	System::CriticalSection(false);
 
-	return read;
+	return rx;
 }
 
 bool hal_aci_tl_rx_q_empty(void) {

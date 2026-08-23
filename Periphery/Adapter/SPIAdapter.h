@@ -28,7 +28,7 @@ public:
 		ClockPhase clockPhase = ClockPhase::Edge1;
 		FirstBit firstBit = FirstBit::MSB;
 		uint32 maxSpeedHz = 100;
-		GPIOAdapter *chipSelectPin = nullptr;
+		GPIOAdapter<> *chipSelectPin = nullptr;
 		ChipSelect chipSelect = ChipSelect::Low;
 	};
 
@@ -283,17 +283,17 @@ public:
 
 
 		if(parameters.chipSelectPin == nullptr) {
-			return Result<uint32>::Ok(prescaler);
+			return Ok<uint32>(prescaler);
 		}
 
 		auto mode = parameters.mode == Mode::Slave ?
-				GPIOAdapter::Mode::InterruptFalling :
-				GPIOAdapter::Mode::Output;
+				GPIOAdapter<>::Mode::InterruptFalling :
+				GPIOAdapter<>::Mode::Output;
 
 		auto gpioStatus = parameters.chipSelectPin->SetParameters({
 			.mode = mode,
-			.pull = GPIOAdapter::Pull::None,
-			.speed = GPIOAdapter::Speed::Medium
+			.pull = GPIOAdapter<>::Pull::None,
+			.speed = GPIOAdapter<>::Speed::Medium
 		});
 		parameters.chipSelectPin->SetInversion(parameters.chipSelect == ChipSelect::Low);
 
