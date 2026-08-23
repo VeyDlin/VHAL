@@ -62,6 +62,16 @@ public:
 		static inline constexpr InterruptOption Commutation     { 8 };
 	};
 
+	struct DMARequest {
+		static inline constexpr DMARequestOption CaptureCompare1 { 1 };
+		static inline constexpr DMARequestOption CaptureCompare2 { 2 };
+		static inline constexpr DMARequestOption CaptureCompare3 { 3 };
+		static inline constexpr DMARequestOption CaptureCompare4 { 4 };
+		static inline constexpr DMARequestOption Update          { 5 };
+		static inline constexpr DMARequestOption Trigger         { 6 };
+		static inline constexpr DMARequestOption Commutation     { 7 };
+	};
+
 	struct OutputTrigger {
 		static inline constexpr OutputTriggerOption Reset        	{ LL_TIM_TRGO_RESET };
 		static inline constexpr OutputTriggerOption Enable       	{ LL_TIM_TRGO_ENABLE };
@@ -776,6 +786,56 @@ protected:
 				LL_TIM_EnableIT_COM(timHandle);
 			} else {
 				LL_TIM_DisableIT_COM(timHandle);
+			}
+		}
+		return ResultStatus::ok;
+	}
+
+
+
+
+	virtual ResultStatus SetDMARequest(DMARequestOption request, bool enable) override {
+		if(request == DMARequest::CaptureCompare1) {
+			if (enable) {
+				LL_TIM_EnableDMAReq_CC1(timHandle);
+			} else {
+				LL_TIM_DisableDMAReq_CC1(timHandle);
+			}
+		} else if(request == DMARequest::CaptureCompare2) {
+			if (enable) {
+				LL_TIM_EnableDMAReq_CC2(timHandle);
+			} else {
+				LL_TIM_DisableDMAReq_CC2(timHandle);
+			}
+		} else if(request == DMARequest::CaptureCompare3) {
+			if (enable) {
+				LL_TIM_EnableDMAReq_CC3(timHandle);
+			} else {
+				LL_TIM_DisableDMAReq_CC3(timHandle);
+			}
+		} else if(request == DMARequest::CaptureCompare4) {
+			if (enable) {
+				LL_TIM_EnableDMAReq_CC4(timHandle);
+			} else {
+				LL_TIM_DisableDMAReq_CC4(timHandle);
+			}
+		} else if(request == DMARequest::Update) {
+			if (enable) {
+				LL_TIM_EnableDMAReq_UPDATE(timHandle);
+			} else {
+				LL_TIM_DisableDMAReq_UPDATE(timHandle);
+			}
+		} else if(request == DMARequest::Trigger) {
+			if (enable) {
+				LL_TIM_EnableDMAReq_TRIG(timHandle);
+			} else {
+				LL_TIM_DisableDMAReq_TRIG(timHandle);
+			}
+		} else if(request == DMARequest::Commutation) {
+			if (enable) {
+				LL_TIM_EnableDMAReq_COM(timHandle);
+			} else {
+				LL_TIM_DisableDMAReq_COM(timHandle);
 			}
 		}
 		return ResultStatus::ok;

@@ -73,9 +73,11 @@ public:
 	virtual ResultStatus WriteContinuous(uint16 *buffer, uint32 count) = 0;
 	virtual ResultStatus StopDMA() = 0;
 
+	// Data holding register address for external DMA sources (e.g. timer-triggered DMA)
+	virtual uint32 GetDataRegisterAddress() = 0;
+
 protected:
 	virtual ResultStatus Initialization() = 0;
-	virtual uint32 GetDataRegisterAddress() = 0;
 
 	virtual inline void CallError(Error error) {
 		if (onError != nullptr) {

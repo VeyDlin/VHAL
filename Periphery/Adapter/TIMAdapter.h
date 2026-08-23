@@ -37,6 +37,10 @@ public:
 	    using IOption::IOption;
 	};
 
+	struct DMARequestOption : IOption<uint8> {
+	    using IOption::IOption;
+	};
+
 	struct InputPrescalerOption : IOption<uint32> {
 	    using IOption::IOption;
 	};
@@ -239,6 +243,30 @@ public:
 	}
 
 
+
+	virtual ResultStatus EnableDMARequest(const std::initializer_list<DMARequestOption>& list) {
+		for(auto &request : list) {
+			auto status = SetDMARequest(request, true);
+			if(status != ResultStatus::ok) {
+				return status;
+			}
+		}
+		return ResultStatus::ok;
+	}
+
+
+
+	virtual ResultStatus DisableDMARequest(const std::initializer_list<DMARequestOption>& list) {
+		for(auto &request : list) {
+			auto status = SetDMARequest(request, false);
+			if(status != ResultStatus::ok) {
+				return status;
+			}
+		}
+		return ResultStatus::ok;
+	}
+
+
 	virtual inline void EnableCounter(bool enableTimerCounter) = 0;
 	virtual inline void SetChannelsState(const std::initializer_list<EnableChannelParameters>& list) = 0;
 
@@ -266,6 +294,11 @@ protected:
 	virtual ResultStatus InputCaptureInitialization(const std::initializer_list<InputCaptureParameters>& list) = 0;
 	virtual ResultStatus BreakAndDeadTimeInitialization(const std::initializer_list<BreakAndDeadTimeParameters>& list) = 0;
 	virtual ResultStatus SetInterrupt(InterruptOption interrupt, bool enable) = 0;
+
+	// Ports without timer DMA request support keep the default
+	virtual ResultStatus SetDMARequest(DMARequestOption request, bool enable) {
+		return ResultStatus::notSupported;
+	}
 
 
 	virtual inline void CallInputCaptureEvent(uint8 channel) {

@@ -107,6 +107,12 @@ public:
 	}
 
 
+	virtual uint32 GetDataRegisterAddress() override {
+		return LL_DAC_DMA_GetRegAddr(dacHandle, CastChannel(),
+			LL_DAC_DMA_REG_DATA_12BITS_RIGHT_ALIGNED);
+	}
+
+
 protected:
 	inline void DmaUnderrunInterrupt() {
 		bool active, enabled;
@@ -183,12 +189,6 @@ protected:
 		LL_DAC_DisableDMADoubleDataMode(dacHandle, CastChannel());
 
 		return AfterInitialization();
-	}
-
-
-	virtual uint32 GetDataRegisterAddress() override {
-		return LL_DAC_DMA_GetRegAddr(dacHandle, CastChannel(),
-			LL_DAC_DMA_REG_DATA_12BITS_RIGHT_ALIGNED);
 	}
 
 
