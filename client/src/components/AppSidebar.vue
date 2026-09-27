@@ -8,7 +8,7 @@ import { useSearch } from '../composables/useSearch'
 
 const router = useRouter()
 const route = useRoute()
-const { query, isSearchActive, matchedPaths } = useSearch()
+const { query, isSearchActive, matchedPaths, semanticState, retrySemantic } = useSearch()
 
 const selectedItem = ref<DocTreeItem | undefined>()
 const expanded = ref<string[]>([])
@@ -201,6 +201,15 @@ useEventListener(treeRef, 'dblclick', (e: MouseEvent) => {
 <template>
   <nav class="flex flex-col min-h-0 flex-1 overflow-hidden">
     <div class="px-2 pt-3 pb-2">
+      <div v-if="semanticState.status !== 'idle'" class="px-2 pb-2 text-xs text-[var(--ui-text-muted)]" role="status" aria-live="polite">
+        <div class="flex items-center gap-2">
+          <span>{{ semanticState.phase }}</span>
+          <button v-if="semanticState.status === 'unavailable'" type="button" class="text-[var(--ui-primary)] underline underline-offset-2" @click="retrySemantic">Retry</button>
+        </div>
+        <div v-if="semanticState.status === 'loading' && semanticState.percent !== null" role="progressbar" :aria-valuenow="semanticState.percent" aria-valuemin="0" aria-valuemax="100" aria-label="Meaning search loading" class="mt-1 h-1 rounded-full bg-[var(--ui-bg-elevated)]">
+          <div class="h-full rounded-full bg-[var(--ui-primary)]" :style="{ width: `${semanticState.percent}%` }" />
+        </div>
+      </div>
       <UInput
         v-model="query"
         icon="i-lucide-search"

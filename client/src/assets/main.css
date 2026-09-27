@@ -2,6 +2,127 @@
 @import "@nuxt/ui";
 @plugin "@tailwindcss/typography";
 
+:root {
+  color-scheme: light;
+  --vhal-surface: #f8fafc;
+  --vhal-surface-elevated: #ffffff;
+  --vhal-text: #0f172a;
+  --vhal-text-muted: #475569;
+  --vhal-text-dimmed: #64748b;
+  --vhal-border: #cbd5e1;
+  --vhal-primary: #2563eb;
+  --ui-bg: var(--vhal-surface);
+  --ui-bg-elevated: var(--vhal-surface-elevated);
+  --ui-text: var(--vhal-text);
+  --ui-text-highlighted: var(--vhal-text);
+  --ui-text-muted: var(--vhal-text-muted);
+  --ui-text-dimmed: var(--vhal-text-dimmed);
+  --ui-border: var(--vhal-border);
+  --ui-primary: var(--vhal-primary);
+}
+
+.dark {
+  color-scheme: dark;
+  --vhal-surface: #0f172a;
+  --vhal-surface-elevated: #1e293b;
+  --vhal-text: #e2e8f0;
+  --vhal-text-muted: #cbd5e1;
+  --vhal-text-dimmed: #94a3b8;
+  --vhal-border: #334155;
+  --vhal-primary: #60a5fa;
+}
+
+.doc-content {
+  --tw-prose-body: var(--vhal-text-muted);
+  --tw-prose-headings: var(--vhal-text);
+  --tw-prose-lead: var(--vhal-text-muted);
+  --tw-prose-links: var(--vhal-primary);
+  --tw-prose-bold: var(--vhal-text);
+  --tw-prose-counters: var(--vhal-text-dimmed);
+  --tw-prose-bullets: var(--vhal-border);
+  --tw-prose-hr: var(--vhal-border);
+  --tw-prose-quotes: var(--vhal-text);
+  --tw-prose-quote-borders: var(--vhal-border);
+  --tw-prose-captions: var(--vhal-text-dimmed);
+  --tw-prose-code: var(--vhal-text);
+  --tw-prose-pre-code: var(--vhal-text);
+  --tw-prose-pre-bg: var(--vhal-surface-elevated);
+  --tw-prose-th-borders: var(--vhal-border);
+  --tw-prose-td-borders: var(--vhal-border);
+}
+
+body {
+  background-color: var(--vhal-surface);
+  color: var(--vhal-text);
+}
+
+.theme-switcher {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  color: var(--vhal-text-muted);
+  font-size: 0.875rem;
+}
+
+.theme-switcher-compact {
+  flex: 0 0 auto;
+  padding: 0;
+}
+
+.theme-select {
+  min-width: 6rem;
+  max-width: 7.5rem;
+  border: 1px solid var(--vhal-border);
+  border-radius: 0.375rem;
+  background: var(--vhal-surface-elevated);
+  color: var(--vhal-text);
+  padding: 0.25rem 1.5rem 0.25rem 0.5rem;
+  font-size: 0.875rem;
+}
+
+.theme-switcher-compact .theme-select {
+  min-width: 4.75rem;
+  width: 4.75rem;
+  padding-right: 0.25rem;
+  padding-left: 0.375rem;
+}
+
+mark[data-search-hit] {
+  background: #fde047 !important;
+  color: #171717 !important;
+  border-radius: 2px;
+  box-shadow: 0 0 0 2px #fde047;
+  scroll-margin-block: 6rem;
+}
+
+mark[data-search-hit] * {
+  color: #171717 !important;
+}
+
+.dark mark[data-search-hit] {
+  background: #facc15 !important;
+  color: #0f172a !important;
+  box-shadow: 0 0 0 2px #facc15;
+}
+
+.dark mark[data-search-hit] * {
+  color: #0f172a !important;
+}
+
+.shiki-highlighted {
+  background-color: var(--vhal-surface-elevated) !important;
+}
+
+.shiki-highlighted code {
+  background-color: transparent !important;
+}
+
+.dark .shiki-highlighted span,
+.dark .shiki-inline span {
+  color: var(--shiki-dark) !important;
+}
+
 .sidebar-scroll {
   scrollbar-width: thin;
   scrollbar-color: var(--ui-border) transparent;

@@ -7,7 +7,7 @@ from C++ header files into a structured dictionary format.
 
 import os
 import tree_sitter_cpp as tscpp
-from tree_sitter import Language, Parser
+from tree_sitter import Language, Node, Parser
 
 CPP = Language(tscpp.language())
 parser = Parser(CPP)
@@ -260,7 +260,10 @@ def _extract_enum(enum_spec):
     return name, values, is_enum_class
 
 
-def _parse_field_declaration(node, description):
+def _parse_field_declaration(
+    node: Node,
+    description: str,
+) -> dict[str, object] | None:
     """Parse a field_declaration node. Could be an enum, a regular field, or a function declaration."""
     # Check if it contains an enum_specifier
     for child in node.children:
@@ -272,6 +275,13 @@ def _parse_field_declaration(node, description):
                 "values": values,
                 "description": description,
             }
+
+        if child.type in ("class_specifier", "struct_specifier"):
+            has_name = child.child_by_field_name("name") is not None
+            has_body = child.child_by_field_name("body") is not None
+            has_declarator = node.child_by_field_name("declarator") is not None
+            if has_name and has_body and not has_declarator:
+                return _parse_class_or_struct(child, description)
 
     # Regular field declaration
     # Gather type parts and field name
@@ -529,7 +539,10 @@ def _parse_declaration(node, description):
     return None
 
 
-def _parse_template_member(template_node, description):
+def _parse_template_member(
+    template_node: Node,
+    description: str,
+) -> dict[str, object] | None:
     """Parse a template_declaration that is a member of a class (template method or nested class)."""
     template_str = _extract_template_str(template_node)
     inner = None
@@ -554,6 +567,9 @@ def _parse_template_member(template_node, description):
         if member:
             member["template"] = template_str
         return member
+    elif inner.type in ("class_specifier", "struct_specifier"):
+        member = _parse_class_or_struct(inner, description, template_str)
+        return member
 
     return None
 
@@ -566,7 +582,11 @@ def _is_forward_declaration(node):
     return True
 
 
-def _parse_class_or_struct(node, description, template_str=""):
+def _parse_class_or_struct(
+    node: Node,
+    description: str,
+    template_str: str = "",
+) -> dict[str, object] | None:
     """
     Parse a class_specifier or struct_specifier into a symbol dict.
     Returns None for forward declarations (no body).
@@ -626,7 +646,10 @@ def _parse_top_level_enum(node, description):
     }
 
 
-def _collect_symbols(children, namespace=""):
+def _collect_symbols(
+    children: list[Node],
+    namespace: str = "",
+) -> list[dict[str, object]]:
     """Collect API symbols from a list of tree-sitter nodes."""
     symbols = []
 
@@ -677,6 +700,11 @@ def _collect_symbols(children, namespace=""):
 
         elif child.type in ("class_specifier", "struct_specifier"):
             sym = _parse_class_or_struct(child, description)
+            if sym:
+                _add_sym(symbols, sym, namespace)
+
+        elif child.type == "enum_specifier":
+            sym = _parse_top_level_enum(child, description)
             if sym:
                 _add_sym(symbols, sym, namespace)
 

@@ -1,22 +1,32 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import type { TabsItem } from '@nuxt/ui'
 import ApiReference from '../components/ApiReference.vue'
-import { highlightHtmlString } from '../composables/useShiki'
-import { useSearch } from '../composables/useSearch'
+import { highlightHtmlString, yieldAfterPaint } from '../composables/useShiki'
+import { useSearchHighlight } from '../composables/useSearchHighlight'
 
 const route = useRoute()
-const router = useRouter()
-const { pendingTab } = useSearch()
 const docContentRef = ref<HTMLElement | null>(null)
+const pageContentRef = ref<HTMLElement | null>(null)
 const activeTab = ref<string>('docs')
 const processedReadme = ref<string>('')
+const readmeReady = ref<boolean>(false)
+const apiReady = ref<boolean>(false)
 
 function scrollToHash() {
+  if (searchSelection.value) {
+    return
+  }
   const hash = route.hash
   if (!hash) return
-  const el = document.querySelector(hash)
+  let id: string
+  try {
+    id = decodeURIComponent(hash.slice(1))
+  } catch {
+    return
+  }
+  const el = document.getElementById(id)
   if (el) {
     el.scrollIntoView({ behavior: 'smooth' })
   }
@@ -57,6 +67,9 @@ const pageData = computed<PageData | null>(() => {
 
 const hasReadme = computed(() => !!pageData.value?.readme)
 const hasApi = computed(() => pageData.value?.api && pageData.value.api.length > 0)
+const pagePath = computed<string>(() => pageData.value?.path ?? '')
+const contentReady = computed<boolean>(() => activeTab.value === 'api' ? apiReady.value : readmeReady.value)
+const searchSelection = useSearchHighlight(pageContentRef, pagePath, contentReady)
 
 const tabs = computed<TabsItem[]>(() => {
   const items: TabsItem[] = []
@@ -75,16 +88,30 @@ const showTabs = computed(() => hasReadme.value && hasApi.value)
 watch(
   () => pageData.value?.readme,
   async (raw) => {
+    readmeReady.value = false
     if (!raw) {
       processedReadme.value = ''
       return
     }
     // Show raw content immediately, then replace with highlighted version
     processedReadme.value = raw
-    const highlighted = await highlightHtmlString(raw)
-    // Only update if the source hasn't changed while we were highlighting
-    if (pageData.value?.readme === raw) {
-      processedReadme.value = highlighted
+    await nextTick()
+    if (pageData.value?.readme !== raw) {
+      return
+    }
+    readmeReady.value = true
+    try {
+      await yieldAfterPaint()
+      const highlighted: string = await highlightHtmlString(raw)
+      if (pageData.value?.readme === raw) {
+        processedReadme.value = highlighted
+      }
+    } catch {
+      // Keep the raw README visible if syntax highlighting cannot load.
+    } finally {
+      if (pageData.value?.readme === raw) {
+        readmeReady.value = true
+      }
     }
   },
   { immediate: true }
@@ -104,17 +131,19 @@ watch(
 watch(
   () => route.params.slug,
   async () => {
-    if (pendingTab.value) {
-      activeTab.value = pendingTab.value
-      pendingTab.value = null
-    } else {
-      activeTab.value = 'docs'
-    }
+    apiReady.value = false
+    activeTab.value = searchSelection.value?.tab ?? (hasReadme.value ? 'docs' : 'api')
     await nextTick()
     scrollToHash()
   },
   { immediate: true }
 )
+
+watch(searchSelection, (target) => {
+  if (target) {
+    activeTab.value = target.tab
+  }
+})
 
 watch(() => route.hash, () => {
   nextTick(() => scrollToHash())
@@ -124,7 +153,7 @@ onMounted(() => scrollToHash())
 </script>
 
 <template>
-  <div class="w-full px-4 sm:px-8 py-6 sm:py-10">
+  <div ref="pageContentRef" class="w-full px-4 sm:px-8 py-6 sm:py-10">
     <template v-if="pageData">
       <UTabs
         v-if="showTabs"
@@ -139,7 +168,7 @@ onMounted(() => scrollToHash())
       <div
         v-if="hasReadme && (!showTabs || activeTab === 'docs')"
         ref="docContentRef"
-        class="doc-content prose prose-invert max-w-none"
+        class="doc-content prose max-w-none"
         v-html="processedReadme"
       />
 
@@ -147,6 +176,9 @@ onMounted(() => scrollToHash())
         v-if="hasApi && (!showTabs || activeTab === 'api')"
         :api="pageData.api!"
         :page-path="pageData.path"
+        :search-terms="searchSelection?.tab === 'api' ? searchSelection.terms : []"
+        :search-source-key="searchSelection?.tab === 'api' ? searchSelection.sourceKey : undefined"
+        @ready="apiReady = $event"
       />
     </template>
 
@@ -240,7 +272,10 @@ onMounted(() => scrollToHash())
 }
 
 .doc-content :deep(table) {
+  display: block;
   width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
   margin: 1rem 0;
 }

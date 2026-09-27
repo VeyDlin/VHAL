@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { highlightHtmlString } from '../composables/useShiki'
+import { ref, watch, nextTick } from 'vue'
+import { highlightHtmlString, yieldAfterPaint } from '../composables/useShiki'
+import { useSearchHighlight } from '../composables/useSearchHighlight'
 
-const router = useRouter()
 const docContentRef = ref<HTMLElement | null>(null)
 const processedReadme = ref<string>('')
+const contentReady = ref<boolean>(false)
+useSearchHighlight(docContentRef, ref('__home'), contentReady)
 
 const homeModule = import.meta.glob('../generated/pages/__home.json', { eager: true }) as Record<string, { default?: any } & Record<string, any>>
 const homeKey = '../generated/pages/__home.json'
@@ -31,8 +32,16 @@ watch(
       return
     }
     processedReadme.value = raw
-    const highlighted = await highlightHtmlString(raw)
-    processedReadme.value = highlighted
+    await nextTick()
+    contentReady.value = true
+    try {
+      await yieldAfterPaint()
+      processedReadme.value = await highlightHtmlString(raw)
+    } catch {
+      // Keep the raw README visible if syntax highlighting cannot load.
+    } finally {
+      contentReady.value = true
+    }
   },
   { immediate: true }
 )
@@ -53,7 +62,7 @@ watch(
     <div
       v-if="processedReadme"
       ref="docContentRef"
-      class="doc-content prose prose-invert max-w-none"
+      class="doc-content prose max-w-none"
       v-html="processedReadme"
     />
 
@@ -144,7 +153,10 @@ watch(
 }
 
 .doc-content :deep(table) {
+  display: block;
   width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
   margin: 1rem 0;
 }

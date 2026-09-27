@@ -10,6 +10,10 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+public/semantic/
+.cache/transformers/
+test-results/
+playwright-report/
 *.local
 
 # Editor directories and files

@@ -4,6 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script>
+      (function() {
+        var mode = 'system';
+        try {
+          var storedMode = localStorage.getItem('vhal-theme');
+          if (storedMode === 'system' || storedMode === 'light' || storedMode === 'dark') {
+            mode = storedMode;
+          }
+        } catch (error) {
+          // Storage may be unavailable in restricted browsing contexts.
+        }
+        var media = window.matchMedia('(prefers-color-scheme: dark)');
+        function applyTheme() {
+          var dark = mode === 'dark' || (mode === 'system' && media.matches);
+          document.documentElement.classList.toggle('dark', dark);
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+        }
+        applyTheme();
+      })();
+    </script>
     <title>VHAL Documentation</title>
   </head>
   <body>

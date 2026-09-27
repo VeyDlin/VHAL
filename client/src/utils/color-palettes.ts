@@ -140,7 +140,11 @@ export const tailwindShades = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 
 export function toTailwindShades(palette: Record<number, string>): Record<number, string> {
 	const result: Record<number, string> = {};
 	for (const shade of tailwindShades) {
-		result[shade] = palette[shade] ?? palette[500];
+		const color: string | undefined = palette[shade] ?? palette[500];
+		if (color === undefined) {
+			throw new Error(`Palette is missing shade ${shade} and fallback shade 500`);
+		}
+		result[shade] = color;
 	}
 	return result;
 }

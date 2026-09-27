@@ -7,71 +7,142 @@ Builds a navigation tree and generates per-page JSON files.
 """
 
 import os
-import re
 import json
+import re
+from html.parser import HTMLParser
 
 from scanner import build_navigation
 from cpp_parser import parse_header
 from readme_parser import parse_readme
 
 
+class SearchTextParser(HTMLParser):
+    block_tags: frozenset[str] = frozenset({
+        'div', 'p', 'pre', 'li', 'td', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        'section', 'article', 'tr',
+    })
+    skipped_tags: frozenset[str] = frozenset({'script', 'style', 'noscript', 'button'})
+    void_tags: frozenset[str] = frozenset({
+        'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta',
+        'param', 'source', 'track', 'wbr',
+    })
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self.skip_stack: list[str] = []
+
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self.skip_stack:
+            if tag not in self.void_tags:
+                self.skip_stack.append(tag)
+            return
+
+        attributes: dict[str, str | None] = dict(attrs)
+        classes: set[str] = set((attributes.get('class') or '').split())
+        is_hidden: bool = 'hidden' in attributes
+        is_aria_hidden: bool = (attributes.get('aria-hidden') or '').strip().lower() == 'true'
+        is_anchor_control: bool = tag == 'a' and 'anchor-link' in classes
+
+        if tag in self.skipped_tags or is_hidden or is_aria_hidden or is_anchor_control:
+            if tag not in self.void_tags:
+                self.skip_stack.append(tag)
+            return
+
+        if tag in self.block_tags or tag == 'br':
+            self.parts.append(' ')
+
+
+    def handle_endtag(self, tag: str) -> None:
+        if self.skip_stack:
+            if tag in self.skip_stack:
+                matching_index: int = len(self.skip_stack) - 1 - self.skip_stack[::-1].index(tag)
+                del self.skip_stack[matching_index:]
+            return
+
+        if tag in self.block_tags:
+            self.parts.append(' ')
+
+
+    def handle_data(self, data: str) -> None:
+        if not self.skip_stack:
+            self.parts.append(data)
+
+
 def _strip_html(html: str) -> str:
-    """Remove HTML tags and collapse whitespace."""
-    text = re.sub(r'<[^>]+>', ' ', html)
-    text = re.sub(r'\s+', ' ', text)
-    return text.strip()
+    """Extract visible search text and collapse whitespace."""
+    parser: SearchTextParser = SearchTextParser()
+    parser.feed(html)
+    parser.close()
+    return ' '.join(''.join(parser.parts).split())
 
 
-def _extract_symbols(api: list[dict]) -> str:
-    """Extract symbol names, types, qualifiers from API data into a searchable string."""
+def _extract_symbols(api: list[dict]) -> tuple[str, list[dict]]:
+    """Extract visible API words and compact structural origins."""
     tokens: list[str] = []
+    origins: list[dict] = []
+    word_count: int = 0
 
-    def _add_member(member: dict):
+    def append_token(value: str, key: str) -> None:
+        nonlocal word_count
+        words: list[str] = re.findall(r'\S+', value)
+        if not words:
+            return
+        if not origins or origins[-1]['key'] != key:
+            origins.append({'start': word_count, 'key': key})
+        tokens.append(value)
+        word_count += len(words)
+
+    def add_member(member: dict, key: str) -> None:
         kind = member.get('kind', '')
         name = member.get('name', '')
         if name:
-            tokens.append(name)
+            append_token(name, key)
         if kind == 'method':
             ret = member.get('returnType', '')
             if ret:
-                tokens.append(ret)
+                append_token(ret, key)
             for q in member.get('qualifiers', []):
-                tokens.append(q)
+                if q in ('static', 'const', 'virtual', 'override', 'constexpr', 'noexcept'):
+                    append_token(q, key)
             for p in member.get('params', []):
                 ptype = p.get('type', '')
                 pname = p.get('name', '')
                 if ptype:
-                    tokens.append(ptype)
+                    append_token(ptype, key)
                 if pname:
-                    tokens.append(pname)
+                    append_token(pname, key)
         elif kind == 'field':
             ftype = member.get('type', '')
             if ftype:
-                tokens.append(ftype)
+                append_token(ftype, key)
         elif kind == 'enum':
-            tokens.extend(member.get('values', []))
+            for value in member.get('values', []):
+                append_token(value, key)
         if 'members' in member:
-            _walk_members(member['members'])
+            walk_members(member['members'], key)
 
-    def _walk_members(members: dict):
+    def walk_members(members: dict, parent_key: str) -> None:
         for access in ('public', 'protected', 'private'):
-            for member in members.get(access, []):
-                _add_member(member)
+            for index, member in enumerate(members.get(access, [])):
+                add_member(member, f'{parent_key}/{access}/{index}')
 
-    for file_data in api:
-        for sym in file_data.get('symbols', []):
+    for file_index, file_data in enumerate(api):
+        for symbol_index, sym in enumerate(file_data.get('symbols', [])):
+            key: str = f'f{file_index}/s{symbol_index}'
             name = sym.get('name', '')
             if name:
-                tokens.append(name)
+                append_token(name, key)
             template = sym.get('template', '')
             if template:
-                tokens.append(template)
+                append_token(template, key)
             for base in sym.get('bases', []):
-                tokens.append(base)
+                append_token(base, key)
             if 'members' in sym:
-                _walk_members(sym['members'])
+                walk_members(sym['members'], key)
 
-    return ' '.join(t for t in tokens if t)
+    return ' '.join(tokens), origins
 
 
 def _build_search_index(all_pages: list[dict]) -> list[dict]:
@@ -81,6 +152,7 @@ def _build_search_index(all_pages: list[dict]) -> list[dict]:
         path = page['path']
         parts = path.replace('\\', '/').split('/')
         breadcrumb = ' > '.join(parts[:-1]) if len(parts) > 1 else ''
+        symbols, symbol_origins = _extract_symbols(page.get('api', []))
 
         index.append({
             'id': path.replace('/', '--'),
@@ -88,7 +160,8 @@ def _build_search_index(all_pages: list[dict]) -> list[dict]:
             'path': path,
             'breadcrumb': breadcrumb,
             'readme': _strip_html(page.get('readme', '')),
-            'symbols': _extract_symbols(page.get('api', [])),
+            'symbols': symbols,
+            'symbolOrigins': symbol_origins,
             'hasReadme': bool(page.get('readme', '')),
         })
     return index

@@ -34,6 +34,49 @@ const resolvedNeutral = computed(() => {
 
 const STYLE_ID = 'app-theme-colors';
 
+export type ThemeMode = 'system' | 'light' | 'dark';
+
+const THEME_STORAGE_KEY = 'vhal-theme';
+const mode = ref<ThemeMode>('system');
+const prefersDark = ref<boolean>(false);
+const resolvedMode = computed<'light' | 'dark'>(() => {
+	if (mode.value === 'system') {
+		return prefersDark.value ? 'dark' : 'light';
+	}
+	return mode.value;
+});
+let modeInitialized = false;
+
+function applyModeToDocument(): void {
+	if (typeof document === 'undefined') {
+		return;
+	}
+	document.documentElement.classList.toggle('dark', resolvedMode.value === 'dark');
+	document.documentElement.style.colorScheme = resolvedMode.value;
+}
+
+function initializeMode(): void {
+	if (modeInitialized || typeof window === 'undefined') {
+		return;
+	}
+	modeInitialized = true;
+	try {
+		const storedMode: string | null = window.localStorage.getItem(THEME_STORAGE_KEY);
+		if (storedMode === 'system' || storedMode === 'light' || storedMode === 'dark') {
+			mode.value = storedMode;
+		}
+	} catch {
+		// Theme controls remain available when storage access is blocked.
+	}
+
+	const mediaQuery: MediaQueryList = window.matchMedia('(prefers-color-scheme: dark)');
+	prefersDark.value = mediaQuery.matches;
+	mediaQuery.addEventListener('change', (event: MediaQueryListEvent) => {
+		prefersDark.value = event.matches;
+	});
+	watch(resolvedMode, applyModeToDocument, { immediate: true });
+}
+
 function applyToCSS() {
 	const lines: string[] = [];
 
@@ -63,6 +106,18 @@ function applyToCSS() {
 let watchStarted = false;
 
 export function useTheme() {
+	initializeMode();
+
+	function setMode(value: ThemeMode): void {
+		mode.value = value;
+		applyModeToDocument();
+		try {
+			window.localStorage.setItem(THEME_STORAGE_KEY, value);
+		} catch {
+			// Theme changes remain available when storage access is blocked.
+		}
+	}
+
 	if (!watchStarted) {
 		watchStarted = true;
 		watch([resolvedPrimary, resolvedNeutral, resolvedColors], applyToCSS, { immediate: true });
@@ -87,6 +142,9 @@ export function useTheme() {
 	}
 
 	return {
+		mode,
+		setMode,
+		resolvedMode,
 		config: themeConfig as Ref<ThemeConfig>,
 		primary: resolvedPrimary,
 		neutral: resolvedNeutral,

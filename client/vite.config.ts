@@ -4,9 +4,13 @@ import ui from '@nuxt/ui/vite'
 
 export default defineConfig({
   base: '/VHAL/',
+  cacheDir: process.env.VHAL_TEST_CACHE_DIR === '1' ? 'node_modules/.vite-e2e' : undefined,
+  worker: { format: 'es' },
+  optimizeDeps: { include: ['@huggingface/transformers'] },
   plugins: [
     vue(),
     ui({
+      colorMode: false,
       ui: {
         colors: {
           primary: 'primary',

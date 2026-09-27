@@ -4,12 +4,17 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "generate": "cd ../generator && .venv/Scripts/python generate.py --vhal-root ../../VHAL --output ../client/src/generated --docs-root ../../VHAL/.wiki",
+    "generate": "cd ../generator && \".venv/Scripts/python\" generate.py --vhal-root ../../VHAL --output ../client/src/generated --docs-root ../../VHAL/.wiki",
+    "generate:semantic": "node --experimental-strip-types scripts/generate-semantic.ts",
     "dev": "vite",
-    "build": "npm run generate && vue-tsc -b && vite build",
+    "typecheck": "vue-tsc -b",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test:e2e": "playwright test",
+    "build": "npm run generate && npm run generate:semantic && vue-tsc -b && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@huggingface/transformers": "3.8.1",
     "@nuxt/ui": "^4.5.1",
     "@tailwindcss/typography": "^0.5.19",
     "@vueuse/core": "^14.2.1",
@@ -19,10 +24,16 @@
     "vue": "^3.5.25",
     "vue-router": "^4.6.4"
   },
+  "overrides": {
+    "esbuild": "0.28.2",
+    "sharp": "0.35.5"
+  },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/node": "^24.10.1",
     "@vitejs/plugin-vue": "^6.0.2",
     "@vue/tsconfig": "^0.8.1",
+    "happy-dom": "^20.14.5",
     "typescript": "~5.9.3",
     "vite": "^7.3.1",
     "vue-tsc": "^3.1.5"

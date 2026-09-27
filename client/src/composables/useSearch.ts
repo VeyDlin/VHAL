@@ -1,8 +1,14 @@
-import { ref, computed } from 'vue'
+import { ref, computed, type Ref } from 'vue'
 import MiniSearch from 'minisearch'
 import searchData from '../generated/search-index.json'
+import { createSearchTarget, type SearchTarget } from '../utils/search-target'
+import { rankSearchResults } from '../utils/search-ranking'
+import { fuseSearchResults, lexicalQuery } from '../search/semantic-ranking.ts'
+import { useSemanticSearch } from './useSemanticSearch'
+
 
 export type MatchSource = 'docs' | 'api' | 'both'
+
 
 export interface SearchResult {
   id: string
@@ -13,9 +19,12 @@ export interface SearchResult {
   score: number
   match: Record<string, string[]>
   snippet: string
-  /** where the match was found */
   source: MatchSource
+  target: SearchTarget
+  exactMatch?: boolean
+  meaningOnly?: boolean
 }
+
 
 interface SearchDoc {
   id: string
@@ -27,6 +36,7 @@ interface SearchDoc {
   hasReadme: boolean
 }
 
+
 const miniSearch = new MiniSearch<SearchDoc>({
   fields: ['title', 'symbols', 'breadcrumb', 'readme'],
   storeFields: ['title', 'path', 'breadcrumb', 'readme', 'hasReadme'],
@@ -35,85 +45,85 @@ const miniSearch = new MiniSearch<SearchDoc>({
     fuzzy: 0.2,
     prefix: true,
     combineWith: 'OR',
-    boostDocument: (_id, _term, storedFields) => {
-      return (storedFields as any)?.hasReadme ? 2 : 1
-    },
+    boostDocument: (...args): number => args[2]?.hasReadme ? 2 : 1,
   },
 })
 
 miniSearch.addAll(searchData as SearchDoc[])
 
-const query = ref('')
-const isSearchActive = computed(() => query.value.trim().length > 0)
-
-function extractSnippet(text: string, terms: string[], maxLen = 160): string {
-  if (!text || terms.length === 0) return ''
-
-  const lower = text.toLowerCase()
-  let bestPos = -1
-
-  for (const term of terms) {
-    const pos = lower.indexOf(term.toLowerCase())
-    if (pos !== -1) {
-      bestPos = pos
-      break
-    }
-  }
-
-  if (bestPos === -1) return text.slice(0, maxLen)
-
-  const start = Math.max(0, bestPos - 60)
-  const end = Math.min(text.length, start + maxLen)
-  let snippet = text.slice(start, end)
-
-  if (start > 0) snippet = '...' + snippet
-  if (end < text.length) snippet += '...'
-
-  return snippet
-}
-
-function getMatchSource(match: Record<string, string[]>): MatchSource {
-  const allFields = new Set(Object.values(match).flat())
-  const hasApi = allFields.has('symbols')
-  const hasDocs = allFields.has('readme') || allFields.has('title') || allFields.has('breadcrumb')
-  if (hasApi && hasDocs) return 'both'
-  if (hasApi) return 'api'
-  return 'docs'
-}
+const query: Ref<string> = ref('')
+const isSearchActive = computed<boolean>(() => query.value.trim().length > 0)
+const pendingSelection: Ref<SearchTarget | null> = ref(null)
+const { state: semanticState, retry: retrySemantic } = useSemanticSearch(query)
+const documentsByPath: Map<string, SearchDoc> = new Map((searchData as SearchDoc[]).map((document: SearchDoc) => [document.path, document]))
 
 const results = computed<SearchResult[]>(() => {
-  const q = query.value.trim()
-  if (!q) return []
+  const text: string = query.value.trim()
+  if (!text) {
+    return []
+  }
 
-  const raw = miniSearch.search(q)
+  const ranked: SearchResult[] = miniSearch.search(lexicalQuery(text)).map((result): SearchResult => {
+    const target: SearchTarget = createSearchTarget({
+      path: result.path as string,
+      title: result.title as string,
+      readme: result.readme as string,
+      hasReadme: result.hasReadme as boolean,
+    }, result.match)
+    const fields: Set<string> = new Set(Object.values(result.match).flat())
+    const source: MatchSource = fields.has('readme') && fields.has('symbols') ? 'both' : target.tab
 
-  return raw.map(r => ({
-    id: r.id as string,
-    title: r.title as string,
-    path: r.path as string,
-    breadcrumb: r.breadcrumb as string,
-    terms: r.terms,
-    score: r.score,
-    match: r.match,
-    snippet: extractSnippet(r.readme as string, r.terms),
-    source: getMatchSource(r.match),
-  }))
+    return {
+      id: result.id as string,
+      title: result.title as string,
+      path: result.path as string,
+      breadcrumb: result.breadcrumb as string,
+      terms: result.terms,
+      score: result.score,
+      match: result.match,
+      snippet: target.snippet,
+      source,
+      target,
+      exactMatch: !/\s/u.test(text) && Object.entries(result.match).some(([term, fields]: [string, string[]]) => (
+        term.toLowerCase() === text.toLowerCase() && fields.includes('symbols')
+      )),
+    }
+  })
+
+  const lexicalResults = rankSearchResults(ranked, text)
+  if (semanticState.value.query !== text || semanticState.value.hits.length === 0) {
+    return lexicalResults
+  }
+  const semanticResults: SearchResult[] = semanticState.value.hits.flatMap((hit): SearchResult[] => {
+    const document = documentsByPath.get(hit.path)
+    if (!document) {
+      return []
+    }
+    const terms = hit.headingOnly ? [document.title] : [hit.anchor]
+    const snippet = hit.text.slice(0, 180)
+    return [{
+      id: document.id,
+      title: document.title,
+      path: document.path,
+      breadcrumb: document.breadcrumb,
+      terms,
+      score: hit.score,
+      match: {},
+      snippet,
+      source: hit.tab,
+      target: {
+        path: hit.path, tab: hit.tab, terms, snippet, headingOnly: hit.headingOnly,
+        ...(hit.sourceKey ? { sourceKey: hit.sourceKey } : {}),
+      },
+      meaningOnly: true,
+    }]
+  })
+  return fuseSearchResults(lexicalResults, semanticResults, text)
 })
 
-/** Set of page paths that have search matches — for sidebar filtering */
-const matchedPaths = computed<Set<string>>(() => {
-  return new Set(results.value.map(r => r.path))
-})
+const matchedPaths = computed<Set<string>>(() => new Set(results.value.map((result: SearchResult) => result.path)))
 
-/** Set by SearchResults before navigation, consumed by DocPage on mount */
-const pendingTab = ref<string | null>(null)
 
 export function useSearch() {
-  return {
-    query,
-    results,
-    isSearchActive,
-    matchedPaths,
-    pendingTab,
-  }
+  return { query, results, isSearchActive, matchedPaths, pendingSelection, semanticState, retrySemantic }
 }

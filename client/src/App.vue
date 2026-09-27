@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import AppSidebar from './components/AppSidebar.vue'
 import SearchResults from './components/SearchResults.vue'
+import ThemeSwitcher from './components/ThemeSwitcher.vue'
 import { useTheme } from './composables/useTheme'
 import { useSearch } from './composables/useSearch'
 import { useRoute } from 'vue-router'
@@ -21,7 +22,7 @@ watch(() => route.path, () => {
 
 <template>
   <UApp>
-    <div class="flex min-h-screen overflow-x-hidden">
+    <div class="flex min-h-screen overflow-x-clip">
       <!-- Desktop sidebar -->
       <aside class="hidden lg:flex w-72 shrink-0 border-r border-[var(--ui-border)] bg-[var(--ui-bg)] sticky top-0 h-screen overflow-hidden flex-col">
         <div class="flex items-center gap-2 px-4 py-3 border-b border-[var(--ui-border)]">
@@ -31,21 +32,24 @@ watch(() => route.path, () => {
             <UIcon name="i-lucide-github" class="size-5" />
           </a>
         </div>
+        <ThemeSwitcher />
         <AppSidebar />
       </aside>
 
       <!-- Mobile header + slideover -->
-      <div class="lg:hidden fixed top-0 left-0 right-0 z-50 flex items-center gap-2 px-4 py-3 border-b border-[var(--ui-border)] bg-[var(--ui-bg)]">
+      <div class="mobile-header lg:hidden fixed top-0 left-0 right-0 z-50 flex items-center gap-2 px-3 sm:px-4 py-3 border-b border-[var(--ui-border)] bg-[var(--ui-bg)]">
         <UButton
           icon="i-lucide-menu"
           color="neutral"
           variant="ghost"
           size="sm"
+          aria-label="Open navigation"
           @click="mobileMenuOpen = true"
         />
         <span class="text-lg font-bold text-[var(--ui-text-highlighted)]">VHAL</span>
         <span class="text-xs text-[var(--ui-text-dimmed)]">docs</span>
-        <a href="https://github.com/VeyDlin/VHAL" target="_blank" class="ml-auto text-[var(--ui-text-dimmed)] hover:text-[var(--ui-text)] transition-colors">
+        <ThemeSwitcher compact class="ml-auto" />
+        <a href="https://github.com/VeyDlin/VHAL" target="_blank" aria-label="VHAL on GitHub" class="text-[var(--ui-text-dimmed)] hover:text-[var(--ui-text)] transition-colors">
           <UIcon name="i-lucide-github" class="size-5" />
         </a>
       </div>

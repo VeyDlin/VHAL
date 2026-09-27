@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
+import { isNavigationFailure, NavigationFailureType, useRouter } from 'vue-router'
 import { useSearch } from '../composables/useSearch'
 import type { SearchResult } from '../composables/useSearch'
 
 const router = useRouter()
-const { query, results, pendingTab } = useSearch()
+const { query, results, pendingSelection } = useSearch()
 
-function navigate(result: SearchResult) {
-  pendingTab.value = result.source === 'api' ? 'api' : null
+async function navigate(result: SearchResult): Promise<void> {
   const target = result.path === '__home' ? '/' : '/docs/' + result.path
+  const failure = await router.push(target)
+  if (failure && !isNavigationFailure(failure, NavigationFailureType.duplicated)) {
+    return
+  }
+  pendingSelection.value = { ...result.target }
   query.value = ''
-  router.push(target)
 }
 
 const sourceLabel: Record<string, string> = {
@@ -29,7 +32,6 @@ function highlightText(text: string, terms: string[]): string {
   if (!text || terms.length === 0) return escapeHtml(text)
 
   const escaped = terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-  const pattern = new RegExp(`(${escaped.join('|')})`, 'gi')
 
   return escapeHtml(text).replace(
     new RegExp(`(${escaped.map(e => escapeHtml(e)).join('|')})`, 'gi'),
@@ -63,7 +65,7 @@ function escapeHtml(str: string): string {
       <button
         v-for="result in results"
         :key="result.id"
-        class="w-full text-left p-4 rounded-lg border border-[var(--ui-border)] bg-[var(--ui-bg)] hover:bg-[var(--ui-bg-elevated)] transition-colors cursor-pointer"
+        class="w-full text-left p-4 rounded-lg border border-[var(--ui-border)] bg-[var(--ui-bg)] hover:bg-[var(--ui-bg-elevated)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ui-primary)] transition-colors cursor-pointer"
         @click="navigate(result)"
       >
         <div class="flex items-center gap-2 mb-1">
@@ -73,7 +75,7 @@ function escapeHtml(str: string): string {
           />
           <span class="ml-auto flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-[var(--ui-bg-elevated)] text-[var(--ui-text-dimmed)]">
             <UIcon :name="sourceIcon[result.source]" class="size-3" />
-            {{ sourceLabel[result.source] }}
+            {{ result.meaningOnly ? 'Related meaning' : sourceLabel[result.source] }}
           </span>
         </div>
 

@@ -8,7 +8,12 @@ Headings get id anchors and a clickable link icon (like GitHub).
 
 import re
 import html as html_module
+from typing import Any
+
 from markdown_it import MarkdownIt
+from markdown_it.renderer import RendererHTML
+from markdown_it.token import Token
+from markdown_it.utils import OptionsDict
 
 
 def _slugify(text: str) -> str:
@@ -61,6 +66,22 @@ def _heading_close_renderer(self, tokens, idx, options, env):
     return f' <a href="#{slug}" class="anchor-link" aria-hidden="true">#</a></{tag}>'
 
 
+def renderLinkOpen(
+    renderer: RendererHTML,
+    tokens: list[Token],
+    index: int,
+    options: OptionsDict,
+    env: dict[str, Any]
+) -> str:
+    """Resolve root-relative documentation routes under the GitHub Pages base."""
+    token: Token = tokens[index]
+    href: str = token.attrGet("href") or ""
+    if href.startswith("/docs/"):
+        token.attrSet("href", "/VHAL" + href)
+
+    return renderer.renderToken(tokens, index, options, env)
+
+
 def parse_readme(file_path: str) -> str:
     """Returns HTML string from README.md with raw code blocks."""
     with open(file_path, "r", encoding="utf-8") as f:
@@ -72,6 +93,7 @@ def parse_readme(file_path: str) -> str:
     md.add_render_rule("fence", _fence_renderer)
     md.add_render_rule("heading_open", _heading_open_renderer)
     md.add_render_rule("heading_close", _heading_close_renderer)
+    md.add_render_rule("link_open", renderLinkOpen)
 
     return md.render(text)
 

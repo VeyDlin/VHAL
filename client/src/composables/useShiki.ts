@@ -2,14 +2,22 @@ import { createHighlighter, type Highlighter } from 'shiki'
 
 let highlighterPromise: Promise<Highlighter> | null = null
 
-function getHighlighter(): Promise<Highlighter> {
+export function getHighlighter(): Promise<Highlighter> {
   if (!highlighterPromise) {
     highlighterPromise = createHighlighter({
-      themes: ['github-dark'],
+      themes: ['github-light', 'github-dark'],
       langs: ['cpp', 'c', 'python', 'bash', 'json', 'yaml', 'cmake', 'makefile', 'markdown'],
     })
   }
   return highlighterPromise
+}
+
+export async function yieldAfterPaint(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => {
+      setTimeout(resolve, 0)
+    })
+  })
 }
 
 /**
@@ -28,7 +36,11 @@ export async function highlightHtmlString(html: string): Promise<string> {
   const matches: { full: string; lang: string; code: string }[] = []
   let match: RegExpExecArray | null
   while ((match = pattern.exec(html)) !== null) {
-    matches.push({ full: match[0], lang: match[1], code: match[2] })
+    const lang: string | undefined = match[1]
+    const code: string | undefined = match[2]
+    if (lang !== undefined && code !== undefined) {
+      matches.push({ full: match[0], lang, code })
+    }
   }
 
   if (matches.length === 0) return html
@@ -47,7 +59,10 @@ export async function highlightHtmlString(html: string): Promise<string> {
       }
     }
 
-    const highlighted = highlighter.codeToHtml(decoded, { lang: m.lang, theme: 'github-dark' })
+    const highlighted = highlighter.codeToHtml(decoded, {
+      lang: m.lang,
+      themes: { light: 'github-light', dark: 'github-dark' },
+    })
 
     // Strip inline styles from the shiki <pre> and add our class
     const processed = highlighted

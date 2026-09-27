@@ -4,6 +4,7 @@ import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import ui from '@nuxt/ui/vue-plugin'
 import App from './App.vue'
+import { useSearch } from './composables/useSearch'
 
 const router = createRouter({
   routes: [
@@ -18,6 +19,10 @@ const router = createRouter({
   ],
   history: createWebHistory('/VHAL/'),
   scrollBehavior(to) {
+    const { isSearchActive, pendingSelection } = useSearch()
+    if (isSearchActive.value || pendingSelection.value) {
+      return false
+    }
     if (to.hash) {
       return { el: to.hash, behavior: 'smooth' }
     }
