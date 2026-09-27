@@ -51,6 +51,7 @@ test('keeps the mobile header controls visible at 390 pixels', async ({ page }) 
 test('allows wide documentation tables to scroll inside the mobile viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('docs/Periphery/Adapter/TIMAdapter.h')
+  await expect(page.locator('.doc-content pre.shiki-highlighted').first()).toBeVisible()
 
   const table = page.locator('.doc-content table').first()
   await expect(table).toBeVisible()
