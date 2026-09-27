@@ -20,209 +20,75 @@ VHAL is not a code generator. It is a set of portable C++ abstractions — adapt
 
 ## Quick Example
 
-A complete application that reads an ADC voltage, smoothly animates an LED brightness to match, applies gamma correction for a natural brightness curve, and accepts commands over UART via a register map.
+This application fragment reads an ADC value and updates a PWM output. It assumes a board-specific `BSP.h` and an initialized RTOS. It is not a complete board project: the BSP must configure clocks, pins, interrupts, ADC regular channel selection/calibration, and the timer output-compare channel before this code runs. See the projects in `.demo/` for board startup and build configuration.
 
-### BSP — hardware wiring
+### ADC to PWM
 
-```cpp
-// BSP.h
-#pragma once
-#include <VHAL.h>
-
-class BSP {
-public:
-    static AUART  serial;
-    static AADC   adc;
-    static ATIM   pwmTimer;
-    static AGPIO  ledPin; // status LED (optional)
-
-    static void Init();
-
-private:
-    static void InitClock();
-    static void InitSystemTick(uint32 ms, uint32 tickPriority);
-    static void InitAdapterPeripheryEvents();
-};
-```
+`ATIM::Channel::C1` is the STM32G0/G4 channel spelling. Check your selected port before reusing a channel identifier.
 
 ```cpp
-// BSP.cpp
-#include "BSP.h"
-
-AUART BSP::serial   = { USART1 };
-AADC  BSP::adc      = { ADC1 };
-ATIM  BSP::pwmTimer = { TIM1, SystemCoreClock };
-AGPIO BSP::ledPin   = { GPIOC, 6 };
-
-void BSP::Init() {
-    InitClock();
-    InitSystemTick(1, 0);
-    System::Init();
-    InitAdapterPeripheryEvents();
-}
-
-void BSP::InitAdapterPeripheryEvents() {
-    serial.beforePeripheryInit = []() {
-        LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_USART1);
-        AGPIO::AlternateInit({ GPIOA, 9,  1, AGPIO::Pull::Up, AGPIO::Speed::VeryHigh }); // TX
-        AGPIO::AlternateInit({ GPIOA, 10, 1, AGPIO::Pull::Up, AGPIO::Speed::VeryHigh }); // RX
-        NVIC_SetPriority(USART1_IRQn, 0);
-        NVIC_EnableIRQ(USART1_IRQn);
-        return ResultStatus::ok;
-    };
-
-    adc.beforePeripheryInit = []() {
-        LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_ADC);
-        AGPIO::AnalogInit({ GPIOA, 0 });
-        NVIC_SetPriority(ADC1_IRQn, 2);
-        NVIC_EnableIRQ(ADC1_IRQn);
-        return ResultStatus::ok;
-    };
-
-    pwmTimer.beforePeripheryInit = []() {
-        LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_TIM1);
-        AGPIO::AlternateInit({ GPIOA, 8, 2, AGPIO::Pull::None, AGPIO::Speed::VeryHigh });
-        return ResultStatus::ok;
-    };
-}
-```
-
-```cpp
-// IRQ/DeviceIrq.cpp
-#include "BSP.h"
-
-void USART1_IRQHandler() { BSP::serial.IrqHandler(); }
-void ADC1_IRQHandler()   { BSP::adc.IrqHandler(); }
-void TIM1_CC_IRQHandler(){ BSP::pwmTimer.IrqHandler(); }
-```
-
-### Application — the interesting part
-
-```cpp
-#include <Application.h>
 #include <BSP.h>
-#include <AnimationRTOS.h>
-#include <Colors.h>
-#include <Math/IQMath/IQ.h>
-#include <Data/RegisterMap/RegisterMap.h>
 #include <Adapter/Helper/TIM/TIMOutputCompareHelper.h>
-
-using namespace OS;
-using namespace Colors;
-
-using iq = IQ<16>;
+#include <Utilities/Data/Colors/Colors.h>
 
 
-class MainTask : public ThreadStatic<512> {
-    // PWM helper — IQ fixed-point math for MCUs without FPU
-    TIMOutputCompareHelper<iq> pwm;
-
-    // Animation — runs on its own RTOS thread, auto-updates at ~60 FPS
-    AnimationRTOS<iq, 128> brightness;
-
-    // Gamma correction — converts linear brightness to perceptually correct PWM
-    GammaProfile gamma = GammaProfile::sRGB();
-
-    // Register map — serial command interface
-    RegisterMap<uint8, 8, 64> registers;
-    RegisterData<0x01, uint16> adcValueReg;       // Read: current ADC value
-    RegisterData<0x02, uint16> brightnessReg;      // Write: target brightness (0..4095)
-    RegisterData<0x03, uint8>  animSpeedReg;       // Write: animation speed (ms / 10)
-
-    uint16 currentAdcValue = 0;
-    uint16 animDurationMs = 500;
-
-
-    void Execute() override {
-        InitPeripherals();
-        InitAnimation();
-        InitRegisterMap();
-        InitSerialReceive();
-
-        while (true) {
-            // Read ADC voltage
-            auto result = BSP::adc.Read<uint16>();
-            if (result.IsOk()) {
-                currentAdcValue = result.Value();
-                adcValueReg.Set(currentAdcValue);
-
-                // Map 12-bit ADC (0..4095) → brightness (0..1)
-                iq target = iq(currentAdcValue) / 4095;
-                brightness.Tween(target, std::chrono::milliseconds(animDurationMs));
-            }
-
-            Sleep(50ms);
-        }
+// Call only after BSP::adc and BSP::pwmTimer have been configured.
+void UpdateLedFromAdc(TIMOutputCompareHelper<float>& pwm) {
+    Result<uint16> result = BSP::adc.Read<uint16>();
+    if (!result.IsOk()) {
+        return;
     }
 
+    // Assumes a 12-bit ADC; the PWM helper accepts duty in percent.
+    float level = static_cast<float>(result.Value()) / 4095.0f;
+    Colors::GammaProfile gamma = Colors::GammaProfile::sRGB();
+    Colors::FRgb corrected = gamma.Apply(Colors::FRgb(level, level, level));
+    pwm.SetDuty(corrected.r * 100.0f);
+}
 
-    void InitPeripherals() {
-        // UART
-        BSP::serial.SetParameters({ .baudRate = 115200 });
 
-        // ADC
-        BSP::adc.SetParameters({
-            .resolution = AADC::Resolution::B12,
-            .dataAlignment = AADC::DataAlignment::Right
-        });
-        BSP::adc.ConfigRegularGroup(
-            { .continuousMode = AADC::ContinuousMode::Single },
-            { { .channel = 0, .maxSamplingTimeNs = 5000 } }
-        );
-        BSP::adc.Calibration();
+// Run this from an application task after board initialization.
+void RunLedTask() {
+    TIMOutputCompareHelper<float> pwm(BSP::pwmTimer, ATIM::Channel::C1);
+    pwm.SetFrequencyInfo({ .frequencyHz = 20000.0f, .duty = 0.0f });
+    pwm.SetState(true);
+    pwm.EnableCounter(true);
 
-        // PWM — 20 kHz via helper
-        pwm = { BSP::pwmTimer, ATIM::Channel::Ch1 };
-        pwm.SetFrequencyInfo({ .frequencyHz = iq(20000), .duty = iq(0) });
-        pwm.SetState(true);
+    while (true) {
+        UpdateLedFromAdc(pwm);
+        OS::IThread::Sleep(std::chrono::milliseconds(50));
     }
-
-
-    void InitAnimation() {
-        brightness.SetEasing(Easing<iq>::Curve::EaseInOut);
-
-        brightness.onUpdateValue = [this](iq linear) {
-            // Apply gamma: IQ → float for color lib → back to IQ for PWM
-            FRgb corrected = gamma.Apply(FRgb(linear.ToFloat(), linear.ToFloat(), linear.ToFloat()));
-
-            // Set PWM duty from corrected brightness
-            pwm.SetDuty(iq(corrected.r * 100.0f));
-        };
-    }
-
-
-    void InitRegisterMap() {
-        adcValueReg.ReadOnly();
-        registers.LinkRegisterData(&adcValueReg);
-
-        brightnessReg.SetEvents([this](const uint16& val) {
-            // External command: animate to specific brightness
-            iq target = iq(val) / 4095;
-            brightness.Tween(target, std::chrono::milliseconds(animDurationMs));
-            return true;
-        }, nullptr);
-        registers.LinkRegisterData(&brightnessReg);
-
-        animSpeedReg.SetEvents([this](const uint8& val) {
-            animDurationMs = val * 10;
-            return true;
-        }, nullptr);
-        registers.LinkRegisterData(&animSpeedReg);
-    }
-
-
-    void InitSerialReceive() {
-        BSP::serial.onInterrupt = [this](AUART::Irq irq) {
-            if (irq == AUART::Irq::Rx) {
-                uint8 byte = BSP::serial.GetLastRxData();
-                // Simple protocol: [address] [data_high] [data_low]
-                registers.UpdateMemory(byte, &byte, 1);
-            }
-        };
-        BSP::serial.SetContinuousAsyncRxMode(true);
-    }
-};
+}
 ```
+
+For eased transitions, use [Animation](https://veydlin.github.io/VHAL/docs/Common/Utilities/Animation/) with `float` or an IQ fixed-point type. The PWM helper currently clamps a zero compare value to one tick; use the port's output-disable mechanism when a guaranteed off state is required.
+
+### Register-backed commands
+
+Register entries must be attached through the public `RegisterData(...)` method. `LinkRegisterData(...)` is an internal, protected hook. A map update must contain the full payload for the selected register; receiving one UART byte is not a complete register-write operation.
+
+```cpp
+#include <Utilities/Data/RegisterMap/RegisterMap.h>
+
+
+RegisterMap<uint8, 8, 64> registers;
+RegisterData<0x02, uint16> brightnessReg;
+
+
+void InitRegisters() {
+    brightnessReg.SetEvents([](const uint16& value) -> bool {
+        return value <= 4095;
+    });
+    registers.RegisterData(brightnessReg);
+}
+
+
+bool SetBrightness(uint16 value) {
+    return brightnessReg.Set(value);
+}
+```
+
+Call `InitRegisters()` once before accessing the entry. UART framing, byte-order conversion, and scheduling belong to the application or a protocol driver; they are intentionally omitted here. For a framed transport, see [ReliableProtocolCOBS](https://veydlin.github.io/VHAL/docs/Common/Drivers/Interface/User/ProtocolCOBS/). Register callbacks run in the caller's context and must synchronize any shared application state.
 
 ## Architecture
 
@@ -247,13 +113,15 @@ Application (your code)
 
 ## Supported Platforms
 
-| Platform | Status | Adapters |
-|----------|--------|----------|
-| STM32G0 | Production | UART, SPI, I2C, ADC, TIM, GPIO, DAC, DMA, IWDG, FLASH, COMP |
-| STM32G4 | Production | UART, SPI, I2C, ADC, TIM, GPIO, DAC, DMA, IWDG, COMP |
-| STM32F4 | Production | UART, SPI, I2C, ADC, TIM, GPIO, DAC, DMA, IWDG, I2S, DSI |
-| ENS001 | Production | UART, SPI, I2C, ADC, TIM, GPIO, IWDG, FLASH, COMP, WaveGenerator, Boost, PGA, PMU |
-| ESP32 | In progress | UART, SPI, I2C, GPIO, GPTimer, LEDC, MCPWM |
+The table lists adapters selected by the current port headers, not a hardware validation matrix. Availability depends on the selected chip, build flags, and implemented operations; check returned status values for unsupported features.
+
+| Platform | Adapters |
+|----------|----------|
+| STM32G0 | UART, I2C, ADC, TIM, GPIO, DAC, DMA, IWDG |
+| STM32G4 | UART, ADC, TIM, GPIO, DAC, DMA, IWDG, COMP |
+| STM32F4 | UART, SPI, I2C, ADC, TIM, GPIO, DAC, IWDG, FLASH |
+| ENS001 | UART, SPI, I2C, ADC, TIM, GPIO, IWDG, FLASH, COMP, WaveGenerator, Boost, PGA, PMU |
+| ESP32 | UART, SPI, I2C, ADC, DAC, I2S, GPIO, GPTimer, LEDC, MCPWM, DSI, PPA, LDO |
 
 ## Getting Started
 

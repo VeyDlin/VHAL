@@ -37,6 +37,9 @@ jobs:
       - name: Install generator dependencies
         run: pip install -r site/generator/requirements.txt
 
+      - name: Test generator
+        run: python -m unittest discover -s site/generator -p "test_*.py" -v
+
       - name: Generate docs data
         run: |
           python site/generator/generate.py \
@@ -55,8 +58,32 @@ jobs:
         run: npm ci
         working-directory: site/client
 
+      - name: Cache semantic model
+        uses: actions/cache@v4
+        with:
+          path: site/client/.cache/transformers
+          key: semantic-all-MiniLM-L6-v2-q8-751bff37182d3f1213fa05d7196b954e230abad9-transformers-3.8.1-${{ hashFiles('site/client/package-lock.json') }}
+
+      - name: Generate semantic embeddings
+        run: npm run generate:semantic
+        working-directory: site/client
+
+      - name: Test client
+        run: npm test
+        working-directory: site/client
+
       - name: Build
-        run: npx vite build
+        run: |
+          npx vue-tsc -b
+          npx vite build
+        working-directory: site/client
+
+      - name: Install browser test runtime
+        run: npx playwright install --with-deps chromium
+        working-directory: site/client
+
+      - name: Test browser interactions
+        run: npm run test:e2e
         working-directory: site/client
 
       - name: Upload artifact

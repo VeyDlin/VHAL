@@ -147,6 +147,8 @@ reg.SetEvents(
 
 Both callbacks are optional (pass `nullptr` to skip).
 
+The `onWrite` callback runs before the map enters its critical section to copy the accepted value. The map does not serialize calls to this callback; protect shared callback state if writes can come from multiple execution contexts. The memory copy itself is protected by a critical section.
+
 ### Read / Write
 
 ```cpp

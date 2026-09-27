@@ -57,10 +57,18 @@ struct Parameters {
 | `SetTimeout(uint32 time)` | `void` | Set timeout for sync operations (ms) |
 | `Await()` | `ResultStatus` | Block until async operation completes |
 | `SetSlaveLiisten(bool mode)` | `ResultStatus` | Enable/disable slave listen mode |
-| `CheckDevice(uint8 addr, uint16 repeat)` | `ResultStatus` | Ping a device address |
-| `CheckDeviceAsync(uint8 addr, uint16 repeat)` | `ResultStatus` | Async device check |
+| `CheckDevice(uint8 addr, uint16 repeat = 1)` | `ResultStatus` | Ping a device address |
+| `CheckDeviceAsync(uint8 addr, uint16 repeat = 1)` | `ResultStatus` | Async device check |
 | `Scan(uint8* list, uint8 size)` | `Result<uint8>` | Scan bus, returns number of found devices |
 | `ScanAsync(uint8* list, uint8 size)` | `Result<uint8>` | Async bus scan |
+| `Write<DataType, AddressType>(uint8 device, AddressType address, DataType data)` | `ResultStatus` | Write one typed value to a register |
+| `WriteArray<DataType, AddressType>(uint8 device, AddressType address, DataType* buffer, uint32 size)` | `ResultStatus` | Write a typed array to a register |
+| `Read<DataType, AddressType>(uint8 device, AddressType address, uint32 size = 1)` | `Result<DataType>` | Read a typed value from a register |
+| `ReadArray<DataType, AddressType>(uint8 device, AddressType address, DataType* buffer, uint32 size = 1)` | `ResultStatus` | Read a typed array from a register |
+| `WriteAsync<DataType, AddressType>(uint8 device, AddressType address, DataType data)` | `ResultStatus` | Start an async typed write |
+| `WriteArrayAsync<DataType, AddressType>(uint8 device, AddressType address, DataType* buffer, uint32 size)` | `ResultStatus` | Start an async typed array write |
+| `ReadAsync<DataType, AddressType>(uint8 device, AddressType address, uint32 size = 1)` | `Result<DataType>` | Start an async typed read |
+| `ReadArrayAsync<DataType, AddressType>(uint8 device, AddressType address, DataType* buffer, uint32 size = 1)` | `ResultStatus` | Start an async typed array read |
 | `WriteByteArray(uint8 device, uint16 addr, uint8 addrSize, uint8* data, uint32 size)` | `ResultStatus` | Write to device register |
 | `ReadByteArray(uint8 device, uint16 addr, uint8 addrSize, uint8* data, uint32 size)` | `ResultStatus` | Read from device register |
 | `WriteByteArrayAsync(...)` | `ResultStatus` | Async write |
@@ -119,11 +127,13 @@ BSP::i2c1.SetParameters({
     .mode = AI2C::Mode::Master
 });
 
-// Read WHO_AM_I register from sensor at address 0x68
-uint8 whoAmI;
-BSP::i2c1.ReadByteArray(0x68, 0x75, 1, &whoAmI, 1);
+// Read WHO_AM_I register from a sensor at address 0x68
+Result<uint8> whoAmIResult = BSP::i2c1.Read<uint8>(0x68, static_cast<uint8>(0x75));
+if (whoAmIResult.IsOk()) {
+    uint8 whoAmI = whoAmIResult.Value();
+}
 
 // Write configuration register
 uint8 config = 0x01;
-BSP::i2c1.WriteByteArray(0x68, 0x6B, 1, &config, 1);
+BSP::i2c1.Write<uint8>(0x68, static_cast<uint8>(0x6B), config);
 ```

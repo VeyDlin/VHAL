@@ -27,14 +27,14 @@ uint8 encoded[128];
 uint8 decoded[128];
 
 // Encode
-auto encResult = cobs.Encode(input, sizeof(input), encoded, sizeof(encoded));
-if (!encResult.IsError()) {
-    size_t encodedLength = encResult.data;
+Result<size_t> encResult = cobs.Encode(input, sizeof(input), encoded, sizeof(encoded));
+if (encResult.IsOk()) {
+    size_t encodedLength = encResult.Value();
 
     // Decode
-    auto decResult = cobs.Decode(encoded, encodedLength, decoded, sizeof(decoded));
-    if (!decResult.IsError()) {
-        size_t decodedLength = decResult.data;
+    Result<size_t> decResult = cobs.Decode(encoded, encodedLength, decoded, sizeof(decoded));
+    if (decResult.IsOk()) {
+        size_t decodedLength = decResult.Value();
         // decoded now matches input
     }
 }
@@ -91,7 +91,7 @@ Returns a copy of the current configuration.
 ### Encode
 
 ```cpp
-Status::info<size_t> Encode(const uint8* data, size_t length, uint8* output, size_t maxOutputLength) const;
+Result<size_t> Encode(const uint8* data, size_t length, uint8* output, size_t maxOutputLength) const;
 ```
 
 Encodes raw data into a COBS-framed packet.
@@ -104,7 +104,7 @@ Encodes raw data into a COBS-framed packet.
 | `output` | Pointer to the output buffer |
 | `maxOutputLength` | Size of the output buffer |
 
-**Returns:** `Status::info<size_t>` containing the number of bytes written to `output`, or an error status.
+**Returns:** `Result<size_t>` containing the number of bytes written to `output`, or an error status.
 
 **Output format:** `[startByte] [COBS-encoded escaped payload] [stopByte]`
 
@@ -114,18 +114,18 @@ COBS<128> cobs({ });
 uint8 payload[] = { 0x01, 0x02, 0x03 };
 uint8 frame[128];
 
-auto result = cobs.Encode(payload, 3, frame, sizeof(frame));
-if (!result.IsError()) {
+Result<size_t> result = cobs.Encode(payload, 3, frame, sizeof(frame));
+if (result.IsOk()) {
     // frame[0]              == 0xFF (startByte)
-    // frame[result.data - 1] == 0x00 (stopByte)
-    // Send frame, result.data bytes total
+    // frame[result.Value() - 1] == 0x00 (stopByte)
+    // Send frame, result.Value() bytes total
 }
 ```
 
 ### Decode
 
 ```cpp
-Status::info<size_t> Decode(const uint8* data, size_t length, uint8* output, size_t maxOutputLength) const;
+Result<size_t> Decode(const uint8* data, size_t length, uint8* output, size_t maxOutputLength) const;
 ```
 
 Decodes a COBS-framed packet back into raw data.
@@ -138,28 +138,28 @@ Decodes a COBS-framed packet back into raw data.
 | `output` | Pointer to the output buffer for decoded data |
 | `maxOutputLength` | Size of the output buffer |
 
-**Returns:** `Status::info<size_t>` containing the number of decoded bytes, or an error status.
+**Returns:** `Result<size_t>` containing the number of decoded bytes, or an error status.
 
 ```cpp
 COBS<128> cobs({ });
 
 // Assume 'frame' and 'frameLen' come from Encode or a serial port
 uint8 decoded[128];
-auto result = cobs.Decode(frame, frameLen, decoded, sizeof(decoded));
-if (!result.IsError()) {
-    // Use decoded, result.data bytes
+Result<size_t> result = cobs.Decode(frame, frameLen, decoded, sizeof(decoded));
+if (result.IsOk()) {
+    // Use result.Value() decoded bytes
 }
 ```
 
 ## Error Handling
 
-All public methods return `Status::info<size_t>`. Check for errors with `IsError()` before accessing `.data`.
+`Encode` and `Decode` return `Result<size_t>`. Check `IsOk()` before accessing the byte count with `Value()`; use `Error()` to retrieve the `ResultStatus` when the operation fails.
 
 | Error | Condition |
 |---|---|
-| `Status::bufferOverflow` | Input exceeds `TempBufferSize`, or output buffer is too small |
-| `Status::invalidArgument` | Frame is shorter than 2 bytes, or missing start/stop markers |
-| `Status::dataCorrupted` | COBS block structure is invalid, or escape sequence is malformed |
+| `ResultStatus::bufferOverflow` | Input exceeds `TempBufferSize`, or output buffer is too small |
+| `ResultStatus::invalidArgument` | Frame is shorter than 2 bytes, or missing start/stop markers |
+| `ResultStatus::dataCorrupted` | COBS block structure is invalid, or escape sequence is malformed |
 
 ## Template Parameter
 
@@ -171,5 +171,5 @@ class COBS;
 `TempBufferSize` sets the size of a stack-allocated intermediate buffer used during encoding and decoding. It must be at least as large as the escaped payload. The default is 256 bytes. Increase it if you need to handle larger packets:
 
 ```cpp
-COBS<1024> cobs({ }); // Supports payloads up to 1024 bytes (before escaping)
+COBS<1024> cobs({ }); // Intermediate capacity: up to 1024 bytes after escaping
 ```

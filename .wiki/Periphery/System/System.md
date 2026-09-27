@@ -111,7 +111,7 @@ In debug builds (`USE_FULL_ASSERT`), `SystemAssert` logs the file, line, and mes
 System::CriticalError("Buffer overflow", __FILE__, __LINE__);
 ```
 
-Calls the `criticalErrorHandle` callback (if set), logs to console (if `VHAL_SYSTEM_CONSOLE` enabled), then calls `Abort()` which disables interrupts and halts in an infinite loop.
+When `VHAL_SYSTEM_CONSOLE` is enabled, `CriticalError()` writes the diagnostic to the console whether or not a handler is registered. It then calls `criticalErrorHandle` if set, followed by `Abort()`, which disables interrupts and halts in an infinite loop. Without `VHAL_SYSTEM_CONSOLE`, only the optional handler receives the error details before the halt.
 
 Set the handler in your application init to save errors to flash or log:
 

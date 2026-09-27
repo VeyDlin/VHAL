@@ -26,6 +26,7 @@ Platform-specific options defined via the `IOption`/`IOptionDouble` pattern:
 | `OutputTriggerOption2` | `IOption<uint32>` | Second trigger output |
 | `ChannelOption` | `IOptionDouble<uint32>` | Channel identifier (primary + complementary) |
 | `InterruptOption` | `IOption<uint8>` | Interrupt source selector |
+| `DMARequestOption` | `IOption<uint8>` | Timer DMA request selector (platform-specific) |
 | `InputPrescalerOption` | `IOption<uint32>` | Input capture prescaler |
 | `InputFilterOption` | `IOption<uint32>` | Input capture digital filter |
 | `InputRemappingOption` | `IOption<uint32>` | Input capture remapping |
@@ -93,6 +94,10 @@ struct InputCaptureParameters {
 | `ConfigBreakAndDeadTimeParameters(initializer_list)` | `ResultStatus` | Configure break/dead-time |
 | `EnableInterrupt(initializer_list<InterruptOption>)` | `ResultStatus` | Enable interrupts |
 | `DisableInterrupt(initializer_list<InterruptOption>)` | `ResultStatus` | Disable interrupts |
+| `EnableDMARequest(initializer_list<DMARequestOption>)` | `ResultStatus` | Enable timer DMA requests |
+| `DisableDMARequest(initializer_list<DMARequestOption>)` | `ResultStatus` | Disable timer DMA requests |
+
+Timer DMA request support is port-specific. The base implementation returns `ResultStatus::notSupported`; STM32 G4 provides request options for capture/compare channels 1–4, update, trigger, and commutation.
 
 ## Runtime API
 

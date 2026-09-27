@@ -23,7 +23,7 @@ struct Parameters {
     ClockPhase clockPhase = ClockPhase::Edge1;
     FirstBit firstBit = FirstBit::MSB;
     uint32 maxSpeedHz = 100;
-    GPIOAdapter *chipSelectPin = nullptr;
+    GPIOAdapter<> *chipSelectPin = nullptr;
     ChipSelect chipSelect = ChipSelect::Low;
 };
 ```
@@ -36,7 +36,7 @@ struct Parameters {
 | `clockPhase` | `Edge1`, `Edge2` | `Edge1` | Data sampling edge (CPHA) |
 | `firstBit` | `MSB`, `LSB` | `MSB` | Bit transmission order |
 | `maxSpeedHz` | any `uint32` | `100` | Maximum SPI clock frequency |
-| `chipSelectPin` | `GPIOAdapter*` | `nullptr` | GPIO pin for software CS (null = hardware CS) |
+| `chipSelectPin` | `GPIOAdapter<>*` | `nullptr` | GPIO pin for software CS (null = no software CS control) |
 | `chipSelect` | `Low`, `High` | `Low` | Active level for chip select |
 
 ## Enums

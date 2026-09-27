@@ -82,6 +82,8 @@ struct InjecteChannel {
 | `AbortInjected()` | `void` | Abort injected group |
 | `AbortAll()` | `void` | Abort all conversions |
 
+On STM32 G0, attach the DMA adapter with `SetDMA()` before starting a DMA-backed read. `SetDMA()` installs the DMA completion and error callbacks used by the ADC adapter. DMA behavior is port-specific; this wiring is not provided by every ADC port.
+
 ## Callbacks
 
 | Callback | Type | Description |
@@ -137,6 +139,9 @@ BSP::adc1.ConfigRegularGroup(
 );
 
 BSP::adc1.Calibration();
+
+// After configuring BSP::dma1ch1 for the ADC transfer, attach it on STM32 G0.
+BSP::adc1.SetDMA(&BSP::dma1ch1);
 
 // Single conversion
 auto result = BSP::adc1.Read<uint16>();

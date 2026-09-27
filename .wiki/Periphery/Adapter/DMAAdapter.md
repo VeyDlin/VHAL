@@ -27,6 +27,7 @@ struct Parameters {
     bool circularMode = false;
     bool enableTransferCompleteIT = true;
     DataWidth dataWidth = DataWidth::B8;
+    DataWidth periphDataWidth = static_cast<DataWidth>(0);
     uint32 priority = 0;
 };
 ```
@@ -39,7 +40,10 @@ struct Parameters {
 | `circularMode` | `bool` | `false` | Auto-restart when transfer completes |
 | `enableTransferCompleteIT` | `bool` | `true` | Interrupt on transfer complete |
 | `dataWidth` | `B8`, `B16`, `B32` | `B8` | Transfer unit size |
+| `periphDataWidth` | `0`, `B8`, `B16`, `B32` | `0` | Peripheral-side transfer width; `0` uses `dataWidth` where supported |
 | `priority` | `uint32` | `0` | DMA channel priority |
+
+Separate peripheral and memory widths are currently implemented by the STM32 G4 DMA adapter. Other ports may ignore this field.
 
 ## API
 

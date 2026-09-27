@@ -26,6 +26,10 @@ A lightweight, stream-style console I/O library for embedded systems (VHAL). Pro
 
 Console console;
 
+// Explicit labels also work around swapped warning/error defaults in VHAL 0.2.1.
+console.warningMark = "[WARNING]";
+console.errorMark = "[ERROR]";
+
 // Attach a write handler (e.g. UART transmit)
 console.SetWriteHandler([](const char* data, size_t size) {
     UART_Transmit(data, size);
@@ -230,11 +234,13 @@ Outputs the raw system tick value:
 console << Console::tick << Console::endl;          // e.g. "1234567\r\n"
 ```
 
-#### info / debug / error
+#### verbose / debug / info / warning / error
 
 Stream-style log level prefixes with timestamp:
 
 ```cpp
+console.warningMark = "[WARNING]";
+console.errorMark = "[ERROR]";
 console << Console::info  << "Boot complete"  << Console::endl;
 console << Console::debug << "x=" << 42       << Console::endl;
 console << Console::error << "Fault detected" << Console::endl;
@@ -249,11 +255,19 @@ console << Console::error << "Fault detected" << Console::endl;
 Direct logging methods that automatically prepend level and timestamp:
 
 ```cpp
+console.warningMark = "[WARNING]";
+console.errorMark = "[ERROR]";
+console.Verbose("Trace enabled");
+console.Warning("Low battery");
 console.Info("System ready");      // "[INFO] [00:00:01:000] System ready\r\n"
 console.Debug("Entering loop");    // "[DEBUG] [00:00:01:001] Entering loop\r\n"
 console.Error("Overtemperature");  // "[ERROR] [00:00:01:002] Overtemperature\r\n"
 console.Log("[WARN]", "Low batt"); // "[WARN] [00:00:01:003] Low batt\r\n"
 ```
+
+All five levels use public, configurable label fields: `verboseMark`, `debugMark`, `infoMark`, `warningMark`, and `errorMark`. The corresponding stream manipulators use the same fields. Labels must point to strings that remain valid while the console uses them.
+
+**VHAL 0.2.1 caveat:** the current source initializes `warningMark` to `"[ERROR]"` and `errorMark` to `"[WARNING]"`. Set them explicitly as above when conventional labels are required. The documentation does not imply that these defaults have been fixed in the library.
 
 ### Reading Input
 
@@ -306,9 +320,11 @@ float fval = console.Read<float>();
 | `SetWriteHandler(fn)` | Set the output callback |
 | `SetReadHandler(fn)` | Set the input callback (returns `int`, EOF on no data) |
 | `Log(level, message)` | Print `level + timestamp + message` |
-| `Info(message)` | Log with `[INFO]` prefix |
-| `Debug(message)` | Log with `[DEBUG]` prefix |
-| `Error(message)` | Log with `[ERROR]` prefix |
+| `Verbose(message)` | Log with `verboseMark` |
+| `Debug(message)` | Log with `debugMark` |
+| `Info(message)` | Log with `infoMark` |
+| `Warning(message)` | Log with `warningMark` |
+| `Error(message)` | Log with `errorMark` |
 | `Read(buf, size)` | Read characters into buffer |
 | `ReadLine(buf, size)` | Read until `\n` or EOF |
 | `Read<T>()` | Read and parse a value of type `T` |
@@ -329,9 +345,11 @@ float fval = console.Read<float>();
 | `Console::separator(str)` | Horizontal line separator |
 | `Console::indent(n)` | Insert `n` spaces |
 | `Console::tick` | Raw system tick value |
-| `Console::info` | `[INFO]` prefix with timestamp |
-| `Console::debug` | `[DEBUG]` prefix with timestamp |
-| `Console::error` | `[ERROR]` prefix with timestamp |
+| `Console::verbose` | `verboseMark` with timestamp |
+| `Console::debug` | `debugMark` with timestamp |
+| `Console::info` | `infoMark` with timestamp |
+| `Console::warning` | `warningMark` with timestamp |
+| `Console::error` | `errorMark` with timestamp |
 
 ### TimestampManipulator::Format
 

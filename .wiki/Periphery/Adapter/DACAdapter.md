@@ -50,6 +50,7 @@ struct Parameters {
 | `DisableTrigger()` | `void` | Disable conversion trigger |
 | `WriteContinuous(uint16* buffer, uint32 count)` | `ResultStatus` | Start continuous DMA output |
 | `StopDMA()` | `ResultStatus` | Stop DMA output |
+| `GetDataRegisterAddress()` | `uint32` | Get the DAC data holding register address for an external DMA source |
 | `IrqHandler()` | `void` | Call from DAC IRQ |
 
 ## Callbacks
@@ -93,5 +94,8 @@ BSP::dac1.Write(2048); // ~Vref/2
 
 // Continuous waveform via DMA
 uint16 sineTable[256] = { /* ... */ };
+// Assuming a compatible DMA adapter has been attached and configured:
 BSP::dac1.WriteContinuous(sineTable, 256);
 ```
+
+`GetDataRegisterAddress()` is public for DMA setups triggered externally, such as a timer-triggered transfer. Continuous output through `WriteContinuous()` uses the attached DMA adapter.

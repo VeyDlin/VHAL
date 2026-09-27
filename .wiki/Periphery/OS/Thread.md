@@ -7,7 +7,7 @@ Base class for RTOS tasks. Inherit from `ThreadStatic<StackSize>` and override `
 | Type | Stack allocation | Use case |
 |------|-----------------|----------|
 | `ThreadStatic<N>` | Static (`std::array` on the object) | Most tasks — no heap, no fragmentation |
-| `Thread<N>` | Dynamic (allocated by FreeRTOS) | When stack size must be decided at runtime |
+| `Thread<N>` | Dynamic (allocated by FreeRTOS) | When task storage should be allocated by the RTOS; `N` is still a compile-time size |
 
 `N` is the stack size in **words** (not bytes). On a 32-bit MCU, 128 words = 512 bytes.
 
@@ -91,7 +91,7 @@ This is ISR-safe — the wrapper automatically detects if called from an interru
 ```cpp
 void Execute() override {
     while (true) {
-        WaitForSignal();          // blocks indefinitely
+        WaitForSignal();          // waits up to the default timeout of 1000 ms
         BSP::ledPin.Toggle();
     }
 }

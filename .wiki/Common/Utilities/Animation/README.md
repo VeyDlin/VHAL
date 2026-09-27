@@ -248,6 +248,8 @@ anim.SetTarget({0, 1, 0});   // retarget to green mid-animation
 - `float`, `double` — standard floating point
 - `IQ<Q>` — fixed-point math (no FPU required)
 
+Integral types such as `int` do not satisfy `RealType`. Tween time is measured in integer milliseconds, but the elapsed-time ratio is calculated in `T`, preserving fractional progress for floating-point and IQ animations.
+
 Implicit conversions from `int` and `float` literals work transparently with IQ — no `T(...)` wrappers needed:
 
 ```cpp
