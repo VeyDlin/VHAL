@@ -19,6 +19,7 @@ Extensible firmware bootloader framework with command protocol, Flash memory sup
 - [AESFLASHBootloader -- Encrypted Bootloader](#aesflashbootloader----encrypted-bootloader)
 - [NRF8001Communication -- BLE Transport](#nrf8001communication----ble-transport)
 - [Firmware Update Workflow](#firmware-update-workflow)
+  - [Retrying after a lost response](#retrying-after-a-lost-response)
 - [API Reference](#api-reference)
 
 ## Architecture
@@ -131,7 +132,7 @@ public:
 Key contract:
 - `Process()` must be non-blocking (< 10 ms).
 - `DataReceivedCallback` should only be called with valid, CRC-checked data, from the same context as `Process()`.
-- An empty span passed to the callback means "the transport lost framing (reconnect)". The bootloader then drops its partial input and the pending response. It does not abort an erase or change the write stream, so a transport may call it on every disconnect.
+- An empty span passed to the callback means "the transport lost framing (reconnect, or a message it could not complete)". The bootloader then drops its partial input and the pending response. It does not abort an erase or change the write stream, so a transport may call it on every disconnect and whenever it gives up on a message (see [NRF8001Communication](#nrf8001communication----ble-transport)).
 - `SendData()` returns `ResultStatus::ok` when the data was sent, `ResultStatus::busy` when the transport cannot take it yet (the bootloader keeps the response and retries once `IsReadyToSend()` is true), `ResultStatus::notReady` when not connected, and any other status when the data was dropped.
 - `GetMaxPacketSize()` returns payload size without protocol overhead.
 
@@ -158,9 +159,9 @@ class IBootloader;
 | `GetInfo` | `0x02` | Returns device info (version, memory layout, protection) |
 | `Erase` | `0x10` | Erases entire firmware area (async). Restarts the write stream (see [Write Stream](#write-stream)) |
 | `Write` | `0x11` | Streams firmware data (auto-increments write position). Retries with the same sequence are answered without writing twice |
-| `Read` | `0x12` | Reads firmware data back (auto-increments read position, only once the response has been sent). Refused with `Protected` in AES mode and under read-out protection |
+| `Read` | `0x12` | Reads firmware data back. Payload length 0: streaming form (auto-increments read position, only once the response has been sent). Payload length 4: optional little-endian `uint32` offset, retry-safe, does not move the read position (see [Read at an offset](#read-at-an-offset)). Any other length answers `InvalidParameters`. Refused with `Protected` in AES mode and under read-out protection |
 | `Verify` | `0x13` | Validates firmware CRC32 against the stored header |
-| `Finalize` | `0x14` | Checks the image against the expected `FirmwareHeader` sent by the host, then writes the header. Payload: 8 bytes (crc32, size, little-endian) |
+| `Finalize` | `0x14` | Checks the image against the expected `FirmwareHeader` sent by the host, then writes the header. Payload: 8 bytes (crc32, size, little-endian). Repeating it after a lost response answers `Success` without rewriting the header when the same header is already stored |
 | `ResetWritePos` | `0x15` | Restarts the write stream at position 0 |
 | `ResetReadPos` | `0x16` | Resets read position to 0 |
 | `GetHash` | `0x17` | Returns SHA256 hash of all raw data sent so far (ciphertext in AES mode) |
@@ -243,12 +244,21 @@ The firmware image is streamed with `Write` commands. The bootloader keeps the s
 - **Finalize and the failure state.** `Finalize` answers the stored write error if the stream failed. It also answers `Error` when an incomplete cipher block is still waiting (for example an AES image whose length is not a multiple of 16), because the image is truncated.
 - **Write alignment.** Only the final chunk of an image may be shorter than the write alignment (`GetWriteAlignment()`). Any write after a short chunk is refused with `Error`. Writes must end at or before the firmware header at the end of the region (`GetFirmwareHeaderAddress()`).
 
+### Read at an Offset
+
+`Read` has two forms, chosen by the payload length:
+
+- **Length 0 (streaming).** Returns the next bytes from the read position and advances it once the response has been sent. This is the original behaviour. A lost response loses that data, so it is not retry-safe; use the offset form after a timeout.
+- **Length 4 (offset).** The payload is a little-endian `uint32` offset into the stored image. The response carries `min(PacketDataMaxSize, bytesWritten - offset)` bytes from that offset, passed through `OnEncryptData()` like the streaming form. The read position is not touched, so the same request can be repeated and returns the same bytes. An offset at or beyond the bytes written answers `EndOfData`. The same refusals apply as for the streaming form (`Protected` in AES mode and under read-out protection).
+
+A host can therefore download the image in `240`-byte steps with offsets `0`, `240`, `480`, and so on, and repeat any step after a lost response.
+
 ### Timing and Transport
 
 - **Partial packets.** `packetTimeoutMs` (public, default `10000`, `0` disables) bounds how long an incomplete packet may wait at the front of the receive buffer. The timer starts when the incomplete packet reaches the front, not from the last byte received, so steady traffic after a stale header does not keep it alive. When the timeout expires, the bootloader drops the `0xAA` byte and resynchronises. Set it longer than the transport needs for one full packet including its retries (CompactStreamingProtocol retries a fragment after 5 s).
-- **Busy transport.** If the transport reports `busy`, the bootloader keeps one pending response and sends it from a later `Process()` once `IsReadyToSend()` is true. While a response is pending, the bootloader does not parse new packets, start an erase step, or perform a deferred Start or Reset. A second response while one is pending is dropped. A queued `Read` advances the read position only when its data is actually sent, so no data is skipped.
+- **Busy transport.** If the transport reports `busy`, the bootloader keeps one pending response and sends it from a later `Process()` once `IsReadyToSend()` is true. While a response is pending, the bootloader does not parse new packets, start an erase step, or perform a deferred Start or Reset. A second response while one is pending is dropped. A queued streaming `Read` (length 0) advances the read position only when its data is actually sent, so no data is skipped.
 - **Start and Reset delay.** `Start` and `Reset` answer `Success` first. The bootloader then waits `150 ms` (an internal constant, `responseFlushDelayMs`) and performs the jump or reset from `Process()`, after the response has been flushed.
-- **Empty-span callback.** An empty span from the transport means the transport lost framing (for example a reconnect). It clears partial input and drops the pending response, including a queued erase completion. It does not change the erase or the write stream, so an erase started before a reconnect still completes on the device. After a reconnect the host should re-query with `GetStatus` to learn the state of an erase.
+- **Empty-span callback.** An empty span from the transport means the transport lost framing (for example a reconnect, or an abandoned message). It clears partial input and drops the pending response, including a queued erase completion. It does not change the erase or the write stream, so an erase started before a reconnect still completes on the device. After a reconnect the host should re-query with `GetStatus` to learn the state of an erase.
 
 ### Virtual Methods to Implement
 
@@ -497,22 +507,41 @@ Receive path:
 Transmit path:
 - `IsReadyToSend()` is `true` only while connected and no fragment transfer is in progress. The bootloader holds its response until then.
 - `SendData()` returns `notReady` when not connected, `busy` while the protocol is transmitting, and `error` when the protocol fails. It returns `ok` once the protocol has accepted the message, even if the first fragment could not be handed to the BLE stack yet: the protocol retries that fragment from its timer.
-- A TX timeout does not reset the bootloader. Lost fragments are retransmitted by the protocol.
+- A TX timeout does not reset the bootloader by itself. Lost fragments are retransmitted by the protocol. Only a message that is abandoned after its retries triggers the empty-span callback (see below).
 
 Receive path, CRC failures: a fragment whose CRC does not match drops one byte and the parser scans on, so a valid fragment directly behind a corrupted one is delivered in the same pass without waiting for a retransmission.
 
-Known limitations of the transport:
-- Acknowledgements carry only the fragment index. A late ACK for a previous message can be taken for the first fragment of the next message.
-- A message abandoned after its retries (about 20 s) is dropped without notice to the bootloader. The host recovers by retrying the command.
+Abandoned messages (both directions):
+- Outgoing: a fragment that is not acknowledged within its retries (about 20 s: four timeouts of 5 s) abandons the message. The protocol reports `Timeout` and the transport calls the bootloader with an empty span, which drops partial input and the pending response. The erase and the write stream are not changed. The host sees no response to the command and retries it.
+- Incoming: a message that stops before its last fragment is closed when the next message starts. The transport calls the bootloader with an empty span at that point, so the partial input is dropped before the new message is parsed.
 
-### Message Toggle Flag
+### Fragment Format (v2)
 
-`CompactStreamingProtocol` uses a toggle bit, bit 1 of the fragment `typeAndFlags` byte (bit 0 is the packet type). The device uses it to tell a retransmitted fragment (its ACK was lost) from a new message:
+Every fragment has the same layout: `typeAndFlags` (1 byte), `payloadSize` (1 byte), `fragmentIndex` (1 byte), payload (up to 16 bytes with 20-byte BLE packets), CRC8. An ACK has no payload.
 
-- A fragment is treated as a duplicate only when its fragment index and its toggle bit match the last accepted fragment.
-- A host that flips the bit for every new message can send an identical short command twice (for example `Ping` twice, one after the other) and both sends are accepted. A retransmission of the same fragment keeps the bit and is still filtered.
-- A host that never sets the bit behaves exactly as it did before this flag existed.
-- The device transmits this bit as 0.
+`typeAndFlags` bit table:
+
+| Bits | Field | Value |
+|-|-|-|
+| 0 | Packet type | `0` = Data, `1` = Ack |
+| 1 | Last fragment | `1` on the final data fragment of a message (also on the only fragment of a one-fragment message). Always `0` in ACKs |
+| 2..7 | Message id | `0..63`. Data fragments carry the id of their message. An ACK carries the id of the fragment it acknowledges |
+
+`fragmentIndex` counts the fragments of one message from `0`. An ACK echoes the index of the fragment it acknowledges.
+
+This format is not compatible with the previous one, in which bit 1 was a message toggle and the message id did not exist. Hosts must implement this format on both sides.
+
+Sender rules:
+- Each new message takes the next message id, incremented modulo 64. A reset does not restart the count.
+- Every data fragment of the message carries its id. The final fragment also carries the last flag. A retransmission is byte-identical to the original fragment.
+- An ACK is accepted only while a message is in progress and its message id and fragment index equal the message and the fragment just sent. Any other ACK (a stale ACK for an earlier message or fragment) is ignored.
+
+Receiver rules, for each data fragment with a valid CRC, in this order:
+1. Retransmission: the id and index equal those of the last accepted fragment. The fragment is ACKed again and nothing else happens. The payload is not delivered twice.
+2. Index 0: a new message. If the previous message never got its last fragment, the receive reset happens first (the bootloader gets an empty span). Then the fragment is ACKed, its payload is delivered if it is not empty, and it opens the new message.
+3. Index greater than 0: accepted only while a message is open, with the same id, and the index is the next expected one. Then it is ACKed and delivered. Otherwise the fragment is out of sequence: no ACK, nothing delivered, no state change. The sender then retransmits and eventually abandons the message.
+
+The ACK is sent before the payload is delivered. Empty fragments follow the same sequencing but deliver nothing.
 
 ## Firmware Update Workflow
 
@@ -528,6 +557,19 @@ A typical update sequence from the host side:
 8. **Start** or **Reset** -- launch new firmware. The device answers first and acts about 150 ms later
 
 Legacy hosts that cannot compute the CRC can send an empty `Finalize` payload when the device has `requireFinalizeChecksum = false`. That writes the header without a checksum check, so the integrity check is lost. Keep `requireFinalizeChecksum = true` unless every host is updated.
+
+### Retrying after a lost response
+
+A command whose response is lost can be sent again. Whether that is safe depends on the command:
+
+| Command | Safe to repeat | How |
+|-|-|-|
+| `Write` | Yes | Resend the same sequence. A duplicate sequence is answered without writing the data twice |
+| `Read` | Yes, offset form only | Use the offset form (length 4) with the same offset. The streaming form (length 0) is not retry-safe: it advances the read position |
+| `Finalize` | Yes | Send the same header again. The device answers `Success` without rewriting an identical stored header |
+| `Erase` | Yes, but it restarts the upload | A repeated `Erase` restarts the write stream. Poll `GetStatus` until `Idle`, then send the whole image again |
+| `Ping`, `GetInfo`, `GetStatus`, `GetHash`, `Verify` | Yes | Idempotent. Send again |
+| `ResetWritePos`, `ResetReadPos` | Yes | Idempotent as long as no `Write` was accepted in between. A repeated `ResetWritePos` after a `Write` discards that data |
 
 ## API Reference
 
