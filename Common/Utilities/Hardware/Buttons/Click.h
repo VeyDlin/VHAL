@@ -1,5 +1,4 @@
 ﻿#pragma once
-#include "Core.h"
 #include "Button.h"
 #include <initializer_list>
 #include <array>

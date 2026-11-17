@@ -83,6 +83,24 @@ public:
         }
         
         // Process all events
+        std::array<ClickDefault*, MaxEvents * 8> updatedClicks = {};
+        size_t updatedCount = 0;
+        for (size_t index = 0; index < eventCount; index++) {
+            if (events[index] == nullptr || !events[index]->IsEnabled()) {
+                continue;
+            }
+            events[index]->ForEachClick([&](ClickDefault* click) {
+                for (size_t previous = 0; previous < updatedCount; previous++) {
+                    if (updatedClicks[previous] == click) {
+                        return;
+                    }
+                }
+                if (updatedCount < updatedClicks.size()) {
+                    click->Update(currentTime);
+                    updatedClicks[updatedCount++] = click;
+                }
+            });
+        }
         for (size_t i = 0; i < eventCount; i++) {
             if (events[i] && events[i]->IsEnabled()) {
                 events[i]->Update(currentTime, deltaTime);

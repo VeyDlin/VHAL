@@ -1,5 +1,4 @@
 ﻿#pragma once
-#include "Core.h"
 #include "Click.h"
 #include "Action.h"
 #include <initializer_list>
@@ -14,10 +13,12 @@ class Event {
 public:
     template<size_t ClickMaxButtons = 4>
     struct ClickAction {
-        Click<ClickMaxButtons>* click;
+        Click<ClickMaxButtons>* click = nullptr;
         Action action;
-        std::array<Button*, 4> holdConditions;
+        std::array<Button*, 4> holdConditions = {};
         size_t holdCount = 0;
+
+        ClickAction() = default;
         
         ClickAction(Click<ClickMaxButtons>& clickRef, Action& actionRef) : click(&clickRef), action(actionRef) {
             holdConditions.fill(nullptr);
@@ -144,6 +145,72 @@ public:
     
     State GetState() const { return currentState; }
     bool IsEnabled() const { return enabled; }
+
+
+    template<typename Func>
+    void ForEachClick(Func func) {
+        for (size_t index = 0; index < sequenceCount; index++) {
+            if (clickActions[index].click != nullptr) {
+                func(clickActions[index].click);
+            }
+        }
+    }
+
+
+    void Update(std::chrono::milliseconds currentTime, std::chrono::milliseconds deltaTime) {
+        (void)deltaTime;
+        if (!enabled || sequenceCount == 0) {
+            return;
+        }
+        if (currentState == State::Completed || currentState == State::Failed) {
+            Reset();
+        }
+        ClickAction<>& current = clickActions[currentSequenceIndex];
+        if (current.click == nullptr) {
+            return;
+        }
+        if (currentState == State::WaitingForSequence &&
+            (currentTime - lastActivityTime > timeout ||
+             (currentClickCount > 0 && !current.click->IsPressed() &&
+              currentTime - lastActivityTime > multiClickGap))) {
+            currentState = State::Failed;
+            if (onFailedHandle) {
+                onFailedHandle();
+            }
+            return;
+        }
+        if (!AreGlobalHoldConditionsMet() || !current.AreHoldConditionsMet()) {
+            Reset();
+            return;
+        }
+        if (current.click->WasJustPressed()) {
+            currentState = State::WaitingForSequence;
+            lastActivityTime = currentTime;
+        }
+        if (currentState != State::WaitingForSequence || !current.click->WasJustReleased()) {
+            return;
+        }
+        if (!current.action.IsValidDuration(current.click->GetPressDuration(), shortThreshold, longThreshold)) {
+            currentState = State::Failed;
+            if (onFailedHandle) {
+                onFailedHandle();
+            }
+            return;
+        }
+        lastActivityTime = currentTime;
+        currentClickCount++;
+        if (currentClickCount < current.action.GetClicksCount()) {
+            return;
+        }
+        currentClickCount = 0;
+        currentSequenceIndex++;
+        if (currentSequenceIndex == sequenceCount) {
+            currentState = State::Completed;
+            if (onDoneHandle) {
+                onDoneHandle();
+            }
+        }
+    }
     
     // Iterate through all buttons used in this event
     template<typename Func>
@@ -172,20 +239,6 @@ public:
     }
     
 private:
-    void StartSequence(std::chrono::milliseconds currentTime) {
-        if (currentSequenceIndex < sequenceCount) {
-            // Check global hold conditions first
-            if (!AreGlobalHoldConditionsMet()) return;
-            
-            auto& currentCA = clickActions[currentSequenceIndex];
-            if (currentCA.click->WasJustPressed()) {
-                currentState = State::WaitingForSequence;
-                currentClickCount = 1;
-                lastActivityTime = currentTime;
-            }
-        }
-    }
-    
     bool AreGlobalHoldConditionsMet() const {
         for (size_t i = 0; i < globalHoldCount; i++) {
             if (!globalHoldConditions[i]->IsPressed()) {
@@ -195,69 +248,7 @@ private:
         return true;
     }
     
-    void ProcessSequence(std::chrono::milliseconds currentTime) {
-        // Check timeout
-        if (currentTime - lastActivityTime > timeout) {
-            currentState = State::Failed;
-            return;
-        }
-        
-        if (currentSequenceIndex >= sequenceCount) {
-            currentState = State::Completed;
-            return;
-        }
-        
-        // Check global hold conditions
-        if (!AreGlobalHoldConditionsMet()) {
-            currentState = State::Failed;
-            return;
-        }
-        
-        auto& currentCA = clickActions[currentSequenceIndex];
-        
-        // Check if hold conditions are met
-        if (!currentCA.AreHoldConditionsMet()) {
-            // Hold conditions not met - wait but don't fail yet
-            return;
-        }
-        
-        // Check for additional clicks of current sequence item
-        if (currentCA.click->WasJustPressed()) {
-            // For multi-click detection, ensure clicks are within gap
-            if (currentClickCount == 0 || 
-                (currentTime - lastActivityTime) <= multiClickGap) {
-                currentClickCount++;
-                lastActivityTime = currentTime;
-            } else {
-                // Gap too large - this is a new sequence, fail current one
-                currentState = State::Failed;
-                return;
-            }
-        }
-        
-        // Check if click was released and validate duration/count
-        if (currentCA.click->WasJustReleased()) {
-            auto duration = currentCA.click->GetPressDuration();
-            
-            // Validate click type and count
-            if (currentCA.action.IsValidDuration(duration, shortThreshold, longThreshold) && 
-                currentClickCount >= currentCA.action.GetClicksCount()) {
-                
-                // Move to next sequence item
-                currentSequenceIndex++;
-                currentClickCount = 0;
-                lastActivityTime = currentTime;
-                
-                // Check if sequence is complete
-                if (currentSequenceIndex >= sequenceCount) {
-                    currentState = State::Completed;
-                }
-            } else {
-                // Invalid click - reset sequence
-                currentState = State::Failed;
-            }
-        }
-    }
+
 };
 
 using EventDefault = Event<8>;
