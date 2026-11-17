@@ -106,6 +106,8 @@
 	#include "sdkconfig.h"
 	#include "lwip/sockets.h"
 	#include "lwip/netdb.h"
+	#include "esp_netif.h"
+	#include "esp_idf_version.h"
 	#include "esp_tls.h"
 	#if CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
 		#include "esp_crt_bundle.h"

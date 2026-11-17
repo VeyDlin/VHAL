@@ -32,6 +32,10 @@ public:
 
 
 	ResultStatus Open(const char *host, uint16 port) override {
+		if (!IsStackStarted()) {
+			return ResultStatus::noInit;
+		}
+
 		if (host == nullptr || host[0] == '\0') {
 			return ResultStatus::invalidParameter;
 		}
@@ -67,6 +71,10 @@ public:
 
 
 	Result<Ipv4Address> Resolve(const char *host) override {
+		if (!IsStackStarted()) {
+			return ResultStatus::noInit;
+		}
+
 		if (host == nullptr || host[0] == '\0') {
 			return ResultStatus::invalidParameter;
 		}
@@ -176,6 +184,18 @@ protected:
 
 
 private:
+	// Any lwIP call made before esp_netif_init() starts the TCP/IP task fails an assert and resets the chip.
+	// esp_netif_deinit() is documented to return ESP_ERR_NOT_SUPPORTED once the stack is initialised and
+	// ESP_ERR_INVALID_STATE before that. Deinitialisation is not implemented, so the call changes nothing.
+	// If it is ever implemented, this probe has to be replaced. Checked against ESP-IDF 5.5.
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+	#warning "VHAL: SocketAdapterESP::IsStackStarted() probes esp_netif_deinit(); check that it still has no side effects"
+#endif
+	static bool IsStackStarted() {
+		return esp_netif_deinit() == ESP_ERR_NOT_SUPPORTED;
+	}
+
+
 	static timeval MakeTimeval(uint32 milliseconds) {
 		timeval value = {};
 		value.tv_sec = static_cast<time_t>(milliseconds / 1000);

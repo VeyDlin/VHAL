@@ -37,10 +37,10 @@ struct Parameters {
 | `SetParameters(Parameters val)` | `ResultStatus` | Apply protocol and CA certificate. Closes the current connection | `ok`, or the status of the `beforePeripheryInit` hook on the ESP32 port |
 | `GetParameters()` | `const Parameters&` | Current parameters | None |
 | `SetTimeout(uint32 val)` | `void` | Limit for `Open()`, one `Read()` and one `Write()`, in milliseconds (default `10000`). Takes effect on the next `Open()` | None |
-| `Open(const char *host, uint16 port)` | `ResultStatus` | Connect to `host` and `port`. `host` is a name or a dotted IPv4 address. For `Udp`, it fixes the peer for `Write()` and `Read()`. Closes any open connection first | `invalidParameter`, `notFound`, `noConnection`, `timeout`, `notSupported`, `outOfMemory` |
+| `Open(const char *host, uint16 port)` | `ResultStatus` | Connect to `host` and `port`. `host` is a name or a dotted IPv4 address. For `Udp`, it fixes the peer for `Write()` and `Read()`. Closes any open connection first | `noInit`, `invalidParameter`, `notFound`, `noConnection`, `timeout`, `notSupported`, `outOfMemory` |
 | `Close()` | `ResultStatus` | Close the connection. Safe to call when nothing is open | `ok` |
 | `IsOpen()` | `bool` | `true` while a connection exists | None |
-| `Resolve(const char *host)` | `Result<Ipv4Address>` | Look up the IPv4 address of `host` | `invalidParameter`, `notFound` |
+| `Resolve(const char *host)` | `Result<Ipv4Address>` | Look up the IPv4 address of `host` | `noInit`, `invalidParameter`, `notFound` |
 | `WriteByteArray(const uint8 *buffer, uint32 size)` | `ResultStatus` | Send the whole buffer or return an error | `noInit`, `timeout`, `writeError` |
 | `ReadByteArray(uint8 *buffer, uint32 size)` | `Result<uint32>` | Receive 1 to `size` bytes. Value: bytes received | `noInit`, `invalidParameter`, `timeout`, `connectionClosed`, `readError` |
 | `Write<DataType>(const DataType& data)` | `ResultStatus` | Send the bytes of one object | As `WriteByteArray()` |
@@ -66,6 +66,19 @@ SocketAdapterESP();
 
 The copy constructor and copy assignment are deleted. The destructor closes the connection.
 
+### Start Order
+
+The ESP-IDF TCP/IP stack is started by the Wi-Fi adapter. Its `SetParameters()` initializes the driver and starts the stack (see [WiFiAdapter: SetParameters](WiFiAdapter.md#setparameters)). Call the Wi-Fi adapter's `SetParameters()` before any socket call. Connecting the link is a separate step and is not needed for the stack to start.
+
+Until the stack is started, `Open()` and `Resolve()` return `noInit` and do not call lwIP. The adapter does not start the stack itself: ESP-IDF expects `esp_netif_init()` to be called once at application start, so starting it from a socket call would break that rule.
+
+| Call without a started stack | Result |
+|------------------------------|--------|
+| `Open()` | `noInit` |
+| `Resolve()` | `noInit` |
+
+`Connect()` on the Wi-Fi adapter also returns `noInit` when `SetParameters()` was not called, and it does not start the stack.
+
 ### SetParameters
 
 `SetParameters()` runs `beforePeripheryInit` (if set), closes any open connection, then runs `afterPeripheryInit` (if set). A non-`ok` result from the first hook is returned and nothing is closed.
@@ -84,6 +97,8 @@ REQUIRES lwip esp-tls mbedtls
 - The adapter uses the `lwip_*` names on purpose, because the POSIX names may be redefined as macros by the lwIP configuration.
 - Only IPv4 is used: name lookup is `AF_INET`.
 - `Open()` connects with a non-blocking connect limited by the timeout, for `Tcp` and `Udp`. `Udp` sets the peer with `connect()` and sends and receives on that socket.
+- A name lookup is not limited by the timeout. `Open()` with a name and `Resolve()` wait for the lwIP DNS client, which retries on its own timers: a few seconds with the lwIP defaults, longer if the DNS server is slow. A dotted IPv4 address is parsed without a DNS query.
+- Without an IP address (link up but DHCP not finished, or no link), no DNS server is set. A name lookup then returns `notFound` at once. `Open()` with a dotted IPv4 address fails with `noConnection` when there is no route to the peer.
 - `Read()` and `Write()` on `Tls` use the TLS connection. A `Write()` that times out on TLS is returned as `timeout` and is not retried, because the TLS state is then unknown.
 - `Close()` is always `ok`.
 
@@ -102,13 +117,15 @@ A failed handshake, including a failed verification, is returned as `noConnectio
 
 | Method | Status | When |
 |--------|--------|------|
-| `Open()` | `invalidParameter` | `host` is `nullptr` or empty |
+| `Open()` | `noInit` | TCP/IP stack not started. See [Start Order](#start-order) |
+| | `invalidParameter` | `host` is `nullptr` or empty |
 | | `notFound` | Name lookup failed (`Tcp` and `Udp`) |
 | | `noConnection` | Socket could not be created, `Tcp` connect refused or failed, socket timeout could not be set, or TLS handshake failed (including verification) |
 | | `timeout` | `Tcp` connect did not complete within the timeout |
 | | `notSupported` | `Tls` with `caCertificate` `nullptr` and no certificate bundle |
 | | `outOfMemory` | `Tls` could not allocate the TLS connection |
-| `Resolve()` | `invalidParameter` | `host` is `nullptr` or empty |
+| `Resolve()` | `noInit` | TCP/IP stack not started. See [Start Order](#start-order) |
+| | `invalidParameter` | `host` is `nullptr` or empty |
 | | `notFound` | Lookup failed or returned no IPv4 address |
 | `Read()` | `noInit` | No connection open |
 | | `invalidParameter` | `size` is `0` |
