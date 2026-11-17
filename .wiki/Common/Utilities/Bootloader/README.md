@@ -552,19 +552,18 @@ bleCom.Process();
 
 ### Wire compatibility with NRF8001Communication
 
-Same: service and characteristic UUIDs, `CompactStreamingProtocol<20, MaxPacketCount>` framing, 20-byte packets, a 256-byte send limit, the empty-span reset signal to the bootloader on a stream error, the protocol reset on connect, and the cleared transmit flag on connect and disconnect.
+Same: service and characteristic UUIDs, `CompactStreamingProtocol<20, MaxPacketCount>` framing, 20-byte packets, and the protocol's 512-byte send limit. A larger `SendData()` returns `error` in both. The protocol is reset on connect and on disconnect, and the bootloader receives the empty-span reset signal at those same two points. The message toggle flag and its duplicate filter come from the shared protocol. `IsReadyToSend()` is `true` only while connected and not transmitting, in both.
 
 Different, and why:
 
 - No `0x2901` descriptors. The adapter has no descriptor API, so the user descriptions "Bootloader", "RX" and "TX" are not published.
 - The RX characteristic also accepts writes without response. The nRF8001 side accepted only writes with response. Clients that write with response still work.
 - Advertising is restarted after each disconnect. The NRF8001 driver does this itself, and the ESP32 port does not, so this class does it.
-- An empty `SendData()` returns `ok` and does nothing. NRF8001Communication marks the transmission as busy and never clears the mark until the next connection.
-- Receiving the peer's empty end-of-stream packet clears the transmit flag. NRF8001Communication does the same; it is kept because it follows from the protocol's stream-complete callback.
+- The receive queue holds whole writes, not bytes. NRF8001Communication stages received bytes in a ring buffer of `BufferSize` bytes. This class holds `RxQueuePackets` writes, because the host task cannot wait for the application task. A write that does not fit, or a write longer than 20 bytes, is dropped and counted by `GetDroppedPackets()`. The dropped fragment is not acknowledged, so the client retransmits it.
 
 ### Threading model
 
-- `onWrite` (RX) and `onEvent` run in the BLE host task. They only copy a value into a fixed queue of `RxQueuePackets` packets, or set a flag. The copy is the only code inside the critical section.
+- `onWrite` (RX) and `onEvent` run in the BLE host task. `onWrite` copies a value into a fixed queue of `RxQueuePackets` packets. `onEvent` empties that queue and sets a flag on connect and disconnect, so a packet from an old link never reaches the next one. The critical sections cover only the queue updates.
 - If the queue is full, the packet is dropped and counted. `GetDroppedPackets()` returns the count. The protocol's retries recover the stream.
 - `Process()`, `SendData()` and the data callback run in the application task. The protocol is used from that task only.
 
@@ -578,7 +577,7 @@ The constructor sets `ble.onEvent`, because the adapter has one event slot. An a
 - The object owns the GATT objects that the adapter points to. It must outlive the radio, and it is not copyable or movable.
 - Only `Connected` and `Disconnected` are used. Other events are forwarded to `onEvent`.
 - A disconnect and a reconnect that both happen between two `Process()` calls look like one unbroken link, so the protocol is not reset. `NRF8001Communication` has the same limit.
-- Compiled, not yet run on hardware. The ESP32 harness check `CheckBleCommunication.cpp` builds it, and the main project builds.
+- The echo test ran on hardware before the refactor. The refactored version has been compiled (the ESP32 harness check `CheckBleCommunication.cpp` and the main project) but not yet run on hardware. The hardware re-run is still to do.
 
 ## Firmware Update Workflow
 

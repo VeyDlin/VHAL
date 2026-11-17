@@ -18,8 +18,9 @@
 // The constructor takes over ble.onEvent. An application that needs the events sets the onEvent member of this class
 // instead, which runs after this class has handled the event.
 //
-// Threading: onWrite and onEvent run in the BLE host task and only enqueue a packet or set a flag. Process(), SendData()
-// and the data callback run in the application's task, and the protocol is used from that task only.
+// Threading: onWrite and onEvent run in the BLE host task. They copy packets into a fixed queue, and onEvent empties
+// that queue on connect and disconnect. Process(), SendData() and the data callback run in the application's task,
+// and the protocol is used from that task only.
 template<size_t MaxPacketCount = 4, size_t RxQueuePackets = 16>
 class BLECommunication : public ICommunication {
 	static_assert(RxQueuePackets > 0, "BLECommunication needs at least one receive packet");
@@ -39,8 +40,6 @@ private:
 		size_t length = 0;
 	};
 
-	// Same limit as NRF8001Communication: the bootloader's largest command plus response header and padding.
-	static constexpr size_t maxSendSize = 256;
 	static constexpr const char *serviceUuidText = "00004242-0000-1000-8000-00805F9B34FB";
 	static constexpr const char *rxUuidText = "00004243-0000-1000-8000-00805F9B34FB";
 	static constexpr const char *txUuidText = "00004244-0000-1000-8000-00805F9B34FB";
@@ -67,7 +66,6 @@ private:
 	bool advertising = false;
 	BLEAdapter::AdvertisingConfig advertisingConfig;
 	DataReceivedCallback dataCallback;
-	bool txInProgress = false;
 	Protocol protocol;
 
 
@@ -86,10 +84,8 @@ public:
 			[this](uint8, std::span<const uint8> data) -> bool {
 				return HandleReceivedData(data);
 			},
-			// Stream complete callback
-			[this](typename Protocol::StreamResult result) -> void {
-				HandleStreamComplete(result);
-			}
+			// No stream completion handler: a TX timeout must not reset the bootloader
+			nullptr
 		) {
 		rxCharacteristic.onWrite = [this](BLEAdapter::ConnectionHandle) {
 			OnRxWritten();
@@ -149,27 +145,12 @@ public:
 			return ResultStatus::notReady;
 		}
 
-		if (txInProgress) {
-			return ResultStatus::busy;
-		}
-
-		if (data.size() > maxSendSize) {
-			return ResultStatus::noBufferSpaceAvailable;
-		}
-
-		// The protocol reports an empty send as done without a stream-complete callback, so the flag would never clear.
-		if (data.empty()) {
-			return ResultStatus::ok;
-		}
-
-		txInProgress = true;
 		typename Protocol::SendResult result = protocol.Send(data);
+
 		if (result.status == Protocol::SendStatus::Success) {
-			// The stream-complete callback clears txInProgress when the peer has acknowledged everything.
 			return ResultStatus::ok;
 		}
 
-		txInProgress = false;
 		if (result.status == Protocol::SendStatus::Busy) {
 			return ResultStatus::busy;
 		}
@@ -189,8 +170,8 @@ public:
 
 
 	bool IsReadyToSend() const override {
-		// The protocol manages its own buffers, so connection is the only condition, as in NRF8001Communication.
-		return connected;
+		// Ready only when connected and the protocol is not sending a message, as in NRF8001Communication.
+		return connected && !protocol.IsTransmitting();
 	}
 
 
@@ -246,17 +227,28 @@ private:
 	}
 
 
-	// Host task.
+	// Host task. The queue is emptied before the link flag changes, so a packet written on the old link cannot reach
+	// the protocol of the next one, even if the application task has not run Process() yet.
 	void OnBleEvent(BLEAdapter::Event event, BLEAdapter::ConnectionHandle connection) {
 		if (event == BLEAdapter::Event::Connected) {
+			ClearReceivedPackets();
 			linkUp = true;
 		} else if (event == BLEAdapter::Event::Disconnected) {
+			ClearReceivedPackets();
 			linkUp = false;
 		}
 
 		if (onEvent != nullptr) {
 			onEvent(event, connection);
 		}
+	}
+
+
+	void ClearReceivedPackets() {
+		System::CriticalSection(true);
+		rxHead = 0;
+		rxCount = 0;
+		System::CriticalSection(false);
 	}
 
 
@@ -284,25 +276,23 @@ private:
 	}
 
 
-	void ClearReceivedPackets() {
-		System::CriticalSection(true);
-		rxHead = 0;
-		rxCount = 0;
-		System::CriticalSection(false);
+	// Transport lost framing: reset the protocol and tell the bootloader to drop partial input
+	void ResetTransport() {
+		protocol.Reset();
+
+		if (dataCallback != nullptr) {
+			dataCallback(std::span<const uint8>());
+		}
 	}
 
 
 	void OnConnected() {
-		// A new connection starts with a fresh protocol state, as in NRF8001Communication. The bootloader is not reset.
-		protocol.Reset();
-		txInProgress = false;
+		ResetTransport();
 	}
 
 
 	void OnDisconnected() {
-		// Packets from the old link must not reach the protocol of the next one.
-		ClearReceivedPackets();
-		txInProgress = false;
+		ResetTransport();
 
 		// The NRF8001 driver restarts advertising after a disconnect. The ESP32 port does not, so this class does it.
 		if (advertising) {
@@ -330,22 +320,15 @@ private:
 
 
 	bool HandleReceivedData(std::span<const uint8> data) {
-		// An empty span is the reset signal to the bootloader, passed on unchanged as in NRF8001Communication.
+		// Empty fragments are ACKed by the protocol and carry no data
+		if (data.empty()) {
+			return true;
+		}
+
 		if (dataCallback != nullptr) {
 			dataCallback(data);
 		}
 
 		return true;
-	}
-
-
-	void HandleStreamComplete(typename Protocol::StreamResult result) {
-		if (result != Protocol::StreamResult::Success) {
-			if (dataCallback != nullptr) {
-				dataCallback(std::span<const uint8>());
-			}
-		}
-
-		txInProgress = false;
 	}
 };
