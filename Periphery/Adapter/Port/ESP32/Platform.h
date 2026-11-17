@@ -1,5 +1,6 @@
 #pragma once
 
+#include "soc/soc_caps.h"
 #include "driver/gpio.h"
 
 #ifdef VHAL_ESP32_UART
@@ -32,6 +33,7 @@
 
 #ifdef VHAL_ESP32_I2S
 	#include "driver/i2s_std.h"
+	#include "driver/i2s_pdm.h"
 	#include "driver/i2s_tdm.h"
 #endif
 
@@ -43,6 +45,8 @@
 
 #ifdef VHAL_ESP32_ADC
 	#include "esp_adc/adc_oneshot.h"
+	#include "esp_adc/adc_cali.h"
+	#include "esp_adc/adc_cali_scheme.h"
 #endif
 
 #ifdef VHAL_ESP32_PPA

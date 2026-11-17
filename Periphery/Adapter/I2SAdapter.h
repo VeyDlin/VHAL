@@ -9,7 +9,7 @@ class I2SAdapter : public IAdapter {
 public:
 	enum class Mode { Master, Slave };
 	enum class Direction { Tx, Rx, TxRx };
-	enum class Standard { Philips, MSB, LSB, PCMShort, PCMLong };
+	enum class Standard { Philips, MSB, LSB, PCMShort, PCMLong, PDM };
 	enum class DataFormat { B16, B16Extended, B24, B32 };
 	enum class ClockPolarity { Low, High };
 
@@ -26,6 +26,8 @@ public:
 
 	struct SlotOption : IOptionFlag<uint32> {
 		using IOptionFlag::IOptionFlag;
+		// operator| returns the base type; without this a combination such as S0 | S1 cannot initialize a SlotOption.
+		constexpr SlotOption(const IOptionFlag<uint32>& flags) noexcept : IOptionFlag(flags) { }
 	};
 
 	struct Parameters {

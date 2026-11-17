@@ -12,15 +12,21 @@ public:
 
 
 protected:
-	uart_port_t port;
-	int txPin;
-	int rxPin;
-	int rtsPin;
-	int ctsPin;
-	uint32 bufferSize;
+	uart_port_t port = UART_NUM_0;
+	int txPin = UART_PIN_NO_CHANGE;
+	int rxPin = UART_PIN_NO_CHANGE;
+	int rtsPin = UART_PIN_NO_CHANGE;
+	int ctsPin = UART_PIN_NO_CHANGE;
+	uint32 bufferSize = defaultBufferSize;
+	bool driverInstalled = false;
 
 	QueueHandle_t eventQueue = nullptr;
 	TaskHandle_t rxTaskHandle = nullptr;
+
+
+private:
+	static constexpr uint32 rxTaskStackSize = 4096;
+	static constexpr uint32 rxTaskPriority = 10;
 
 
 public:
@@ -30,8 +36,11 @@ public:
 		: port(uartPort), txPin(tx), rxPin(rx), rtsPin(rts), ctsPin(cts), bufferSize(bufSize) { }
 
 	~UARTAdapterESP() {
-		StopContinuousAsyncRxMode();
-		uart_driver_delete(port);
+		StopRxTask();
+		if (driverInstalled) {
+			uart_driver_delete(port);
+			driverInstalled = false;
+		}
 	}
 
 
@@ -39,6 +48,9 @@ public:
 
 	void AbortReceive() override {
 		uart_flush_input(port);
+		rxDataPointer = nullptr;
+		rxDataNeed = 0;
+		rxDataCounter = 0;
 		rxState = ResultStatus::ready;
 	}
 
@@ -55,7 +67,18 @@ protected:
 			return status;
 		}
 
-		uart_driver_delete(port);
+		StopRxTask();
+		if (driverInstalled) {
+			uart_driver_delete(port);
+			driverInstalled = false;
+		}
+
+		// The receive task is gone, so an unfinished read or continuous mode cannot complete: start clean.
+		rxState = ResultStatus::ready;
+		rxDataPointer = nullptr;
+		rxDataNeed = 0;
+		rxDataCounter = 0;
+		continuousAsyncRxMode = false;
 
 		uart_config_t uart_config = {};
 		uart_config.baud_rate = parameters.baudRate;
@@ -76,6 +99,7 @@ protected:
 		if (uart_driver_install(port, bufferSize, bufferSize, eventQueueSize, &eventQueue, 0) != ESP_OK) {
 			return ResultStatus::error;
 		}
+		driverInstalled = true;
 
 		return AfterInitialization();
 	}
@@ -125,50 +149,51 @@ protected:
 
 
 	ResultStatus ReadByteArrayAsync(uint8* buffer, uint32 size) override {
-		rxState = ResultStatus::busy;
+		if (continuousAsyncRxMode) {
+			return ResultStatus::notAvailable;
+		}
+
+		if (rxState == ResultStatus::busy) {
+			return ResultStatus::busy;
+		}
+
+		if (!driverInstalled) {
+			return ResultStatus::noInit;
+		}
+
 		rxDataPointer = buffer;
 		rxDataNeed = size;
 		rxDataCounter = 0;
+		rxState = ResultStatus::busy;
 
-		int read = uart_read_bytes(port, buffer, size, 0);
-		if (read < 0) {
-			rxState = ResultStatus::error;
-			return ResultStatus::error;
-		}
-
-		if (static_cast<uint32>(read) >= size) {
-			rxDataCounter = read;
+		ResultStatus taskStatus = EnsureRxTask();
+		if (taskStatus != ResultStatus::ok) {
 			rxState = ResultStatus::ready;
-			CallInterrupt(Irq::Rx);
+			return taskStatus;
 		}
+
+		uart_event_t event = {};
+		event.type = UART_DATA;
+		xQueueSend(eventQueue, &event, 0);
 
 		return ResultStatus::ok;
 	}
 
 
 	ResultStatus StartContinuousAsyncRxMode() override {
-		if (rxTaskHandle) {
-			return ResultStatus::ok;
+		if (rxState == ResultStatus::busy) {
+			return ResultStatus::busy;
 		}
 
-		auto created = xTaskCreate(
-			RxEventTask,
-			"uart_rx",
-			2048,
-			this,
-			10,
-			&rxTaskHandle
-		);
+		if (!driverInstalled) {
+			return ResultStatus::noInit;
+		}
 
-		return (created == pdTRUE) ? ResultStatus::ok : ResultStatus::error;
+		return EnsureRxTask();
 	}
 
 
 	ResultStatus StopContinuousAsyncRxMode() override {
-		if (rxTaskHandle) {
-			vTaskDelete(rxTaskHandle);
-			rxTaskHandle = nullptr;
-		}
 		return ResultStatus::ok;
 	}
 
@@ -198,6 +223,32 @@ private:
 		}
 	}
 
+	ResultStatus EnsureRxTask() {
+		if (rxTaskHandle) {
+			return ResultStatus::ok;
+		}
+
+		BaseType_t created = xTaskCreate(
+			RxEventTask,
+			"uart_rx",
+			rxTaskStackSize,
+			this,
+			rxTaskPriority,
+			&rxTaskHandle
+		);
+
+		return (created == pdTRUE) ? ResultStatus::ok : ResultStatus::error;
+	}
+
+
+	void StopRxTask() {
+		if (rxTaskHandle) {
+			vTaskDelete(rxTaskHandle);
+			rxTaskHandle = nullptr;
+		}
+	}
+
+
 	static void RxEventTask(void *arg) {
 		auto *self = static_cast<UARTAdapterESP*>(arg);
 		uart_event_t event;
@@ -209,19 +260,22 @@ private:
 
 			switch (event.type) {
 				case UART_DATA:
-					self->lastRxData = 0;
-					if (self->rxDataPointer && self->rxDataNeed > 0) {
-						int read = uart_read_bytes(self->port, self->rxDataPointer + self->rxDataCounter,
-							self->rxDataNeed - self->rxDataCounter, 0);
+					if (self->continuousAsyncRxMode) {
+						uint8 byte = 0;
+						while (uart_read_bytes(self->port, &byte, 1, 0) >= 1) {
+							self->lastRxData = byte;
+							self->CallInterrupt(Irq::Rx);
+						}
+					} else if (self->rxState == ResultStatus::busy && self->rxDataPointer) {
+						uint32 remaining = static_cast<uint32>(self->rxDataNeed - self->rxDataCounter);
+						int read = uart_read_bytes(self->port, self->rxDataPointer + self->rxDataCounter, remaining, 0);
 						if (read > 0) {
-							self->rxDataCounter += read;
+							self->rxDataCounter = static_cast<uint16>(self->rxDataCounter + read);
 						}
 						if (self->rxDataCounter >= self->rxDataNeed) {
 							self->rxState = ResultStatus::ready;
 							self->CallInterrupt(Irq::Rx);
 						}
-					} else {
-						self->CallInterrupt(Irq::Rx);
 					}
 				break;
 

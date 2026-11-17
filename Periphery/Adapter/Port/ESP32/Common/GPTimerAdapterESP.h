@@ -129,7 +129,10 @@ private:
 		return GPTIMER_COUNT_UP;
 	}
 
-	static bool IRAM_ATTR AlarmCallback(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx) {
+	// Deliberately not IRAM_ATTR: it calls onAlarm, which lives in flash anyway, and an in-class function placed in
+	// IRAM fails to link on Xtensa as soon as it needs a literal that the linker cannot relax away. This rules out
+	// CONFIG_GPTIMER_ISR_CACHE_SAFE, which requires the whole callback chain to be in IRAM.
+	static bool AlarmCallback(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx) {
 		auto *self = static_cast<GPTimerAdapterESP*>(user_ctx);
 		if (self->onAlarm) {
 			self->onAlarm();

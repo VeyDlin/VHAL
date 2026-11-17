@@ -21,6 +21,7 @@ public:
 		int pin = -1;
 		uint32 duty = 0;
 		uint32 hpoint = 0;
+		bool invert = false;
 	};
 
 

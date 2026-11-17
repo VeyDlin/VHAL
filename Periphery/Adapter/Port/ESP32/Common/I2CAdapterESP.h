@@ -12,9 +12,9 @@ protected:
 	static constexpr uint8 maxDevices = 128;
 	i2c_master_dev_handle_t devHandles[maxDevices] = {};
 
-	i2c_port_num_t port;
-	int sdaPin;
-	int sclPin;
+	i2c_port_num_t port = I2C_NUM_0;
+	int sdaPin = -1;
+	int sclPin = -1;
 
 
 public:
@@ -40,6 +40,10 @@ public:
 
 
 	ResultStatus CheckDevice(uint8 address, uint16 repeat = 1) override {
+		if (busHandle == nullptr) {
+			return ResultStatus::noInit;
+		}
+
 		for (uint16 i = 0; i < repeat; i++) {
 			if (i2c_master_probe(busHandle, address, timeout) != ESP_OK) {
 				return ResultStatus::error;
@@ -55,6 +59,10 @@ public:
 
 
 	Result<uint8> Scan(uint8 *listBuffer, uint8 size) override {
+		if (busHandle == nullptr) {
+			return ResultStatus::noInit;
+		}
+
 		uint8 count = 0;
 
 		for (uint8 addr = 1; addr < 128 && count < size; addr++) {
@@ -73,6 +81,10 @@ public:
 
 
 	ResultStatus WriteByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
+		if (busHandle == nullptr) {
+			return ResultStatus::noInit;
+		}
+
 		i2c_master_dev_handle_t handle;
 		auto status = EnsureDeviceHandle(device, handle);
 		if (status != ResultStatus::ok) {
@@ -86,17 +98,28 @@ public:
 			return ResultStatus::ok;
 		}
 
-		uint8 txBuf[2 + dataSize];
-		uint32 offset = 0;
+		uint8 addrBuf[2];
+		uint32 addrLen = 0;
 
 		if (addressSize == 2) {
-			txBuf[offset++] = (address >> 8) & 0xFF;
+			addrBuf[addrLen++] = (address >> 8) & 0xFF;
 		}
-		txBuf[offset++] = address & 0xFF;
+		addrBuf[addrLen++] = address & 0xFF;
 
-		memcpy(&txBuf[offset], writeData, dataSize);
+		if (dataSize == 0) {
+			if (i2c_master_transmit(handle, addrBuf, addrLen, timeout) != ESP_OK) {
+				return ResultStatus::error;
+			}
+			return ResultStatus::ok;
+		}
 
-		if (i2c_master_transmit(handle, txBuf, offset + dataSize, timeout) != ESP_OK) {
+		i2c_master_transmit_multi_buffer_info_t bufferInfo[2];
+		bufferInfo[0].write_buffer = addrBuf;
+		bufferInfo[0].buffer_size = addrLen;
+		bufferInfo[1].write_buffer = writeData;
+		bufferInfo[1].buffer_size = dataSize;
+
+		if (i2c_master_multi_buffer_transmit(handle, bufferInfo, 2, timeout) != ESP_OK) {
 			return ResultStatus::error;
 		}
 
@@ -105,6 +128,10 @@ public:
 
 
 	ResultStatus ReadByteArray(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
+		if (busHandle == nullptr) {
+			return ResultStatus::noInit;
+		}
+
 		i2c_master_dev_handle_t handle;
 		auto status = EnsureDeviceHandle(device, handle);
 		if (status != ResultStatus::ok) {
@@ -151,6 +178,10 @@ protected:
 			return status;
 		}
 
+		if (parameters.mode == Mode::Slave) {
+			return ResultStatus::notSupported;
+		}
+
 		if (busHandle) {
 			for (uint8 i = 0; i < maxDevices; i++) {
 				if (devHandles[i]) {
@@ -168,6 +199,9 @@ protected:
 		bus_config.scl_io_num = static_cast<gpio_num_t>(sclPin);
 		bus_config.clk_source = I2C_CLK_SRC_DEFAULT;
 		bus_config.glitch_ignore_cnt = 7;
+		if (parameters.digitalFilter != 0) {
+			bus_config.glitch_ignore_cnt = parameters.digitalFilter;
+		}
 		bus_config.flags.enable_internal_pullup = !parameters.analogFilter;
 
 		if (i2c_new_master_bus(&bus_config, &busHandle) != ESP_OK) {
@@ -180,6 +214,10 @@ protected:
 
 private:
 	ResultStatus EnsureDeviceHandle(uint8 address, i2c_master_dev_handle_t &handle) {
+		if (address >= maxDevices) {
+			return ResultStatus::badAddress;
+		}
+
 		if (devHandles[address]) {
 			handle = devHandles[address];
 			return ResultStatus::ok;
