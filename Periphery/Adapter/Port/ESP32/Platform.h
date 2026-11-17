@@ -18,6 +18,10 @@
 	#include "driver/gptimer.h"
 #endif
 
+#ifdef VHAL_ESP32_IWDG
+	#include "esp_task_wdt.h"
+#endif
+
 #ifdef VHAL_ESP32_LEDC
 	#include "driver/ledc.h"
 #endif

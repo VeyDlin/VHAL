@@ -34,6 +34,10 @@
 	#include <Adapter/Port/ESP32/Common/GPTimerAdapterESP.h>
 #endif
 
+#ifdef VHAL_ESP32_IWDG
+	#include <Adapter/Port/ESP32/Common/IWDGAdapterESP.h>
+#endif
+
 #ifdef VHAL_ESP32_LEDC
 	#include <Adapter/Port/ESP32/Common/LEDCAdapterESP.h>
 #endif

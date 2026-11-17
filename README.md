@@ -253,9 +253,16 @@ Application (your code)
 | STM32G4 | Production | UART, SPI, I2C, ADC, TIM, GPIO, DAC, DMA, IWDG, COMP |
 | STM32F4 | Production | UART, SPI, I2C, ADC, TIM, GPIO, DAC, DMA, IWDG, I2S, DSI |
 | ENS001 | Production | UART, SPI, I2C, ADC, TIM, GPIO, IWDG, FLASH, COMP, WaveGenerator, Boost, PGA, PMU |
-| ESP32 | In progress | UART, SPI, I2C, GPIO, GPTimer, LEDC, MCPWM |
+| ESP32 | In progress | UART, SPI, I2C, GPIO, GPTimer, LEDC, MCPWM, IWDG |
 
 ## Getting Started
+
+Project templates:
+
+- [STM32G0](.demo/STM32G0/README.md): standalone CMake and ARM GCC.
+- [ESP32](.demo/ESP32/README.md): ESP-IDF, with the same Application/task structure as the STM32 example; ESP32-C3 by default.
+
+For ESP32, follow the ESP-IDF build instructions in its template. For STM32:
 
 1. Install the required tools (CMake, Ninja, ARM GCC, OpenOCD)
 2. Clone the repository with submodules
