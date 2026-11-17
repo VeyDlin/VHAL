@@ -57,3 +57,15 @@
 #ifdef VHAL_ESP32_LDO
 	#include <Adapter/Port/ESP32/Common/LDOAdapterESP.h>
 #endif
+
+#ifdef VHAL_ESP32_WIFI
+	#include <Adapter/Port/ESP32/Common/WiFiAdapterESP.h>
+#endif
+
+#ifdef VHAL_ESP32_BLE
+	#include <Adapter/Port/ESP32/Common/BLEAdapterESP.h>
+#endif
+
+#ifdef VHAL_ESP32_SOCKET
+	#include <Adapter/Port/ESP32/Common/SocketAdapterESP.h>
+#endif
