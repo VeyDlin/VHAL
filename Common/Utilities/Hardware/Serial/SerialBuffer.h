@@ -11,7 +11,7 @@ private:
 
 
 public:
-	SerialBuffer(UARTAdapter &uart): serial(&uart)  {
+	SerialBuffer(AUART &uart): serial(&uart)  {
 		serial->onInterrupt = [this](auto type) {
 			if(type == AUART::Irq::Rx) {
 				buffer.Push(serial->GetLastRxData());
@@ -27,7 +27,7 @@ public:
 
 
 	inline bool IsReady() {
-		return buffer.IsReady();
+		return !buffer.IsEmpty();
 	}
 
 

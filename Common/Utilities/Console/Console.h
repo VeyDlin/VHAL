@@ -21,8 +21,8 @@ public:
     const char* verboseMark = "[VERBOSE]";
     const char* debugMark = "[DEBUG]";
     const char* infoMark = "[INFO]";
-    const char* warningMark = "[ERROR]";
-    const char* errorMark = "[WARNING]";
+    const char* warningMark = "[WARNING]";
+    const char* errorMark = "[ERROR]";
 
 
 

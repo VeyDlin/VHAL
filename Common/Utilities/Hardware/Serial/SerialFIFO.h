@@ -1,20 +1,20 @@
 #pragma once
 #include <VHAL.h>
-#include <Utilities/Data/FIFO/StaticFifo.h>
+#include <Utilities/Buffer/StaticFifo.h>
 
 
 template <size_t ElementsCount>
 class SerialFIFO {
 private:
-	StaticFifo<1, ElementsCount> fifo;
+	StaticFifo<ElementsCount, uint8> fifo;
 	AUART *serial;
 
 public:
-	SerialFIFO(UARTAdapter &uart): serial(&uart)  {
+	SerialFIFO(AUART &uart): serial(&uart)  {
 		serial->onInterrupt = [this](auto type) {
 			if(type == AUART::Irq::Rx) {
 				uint8 data = static_cast<uint8>(serial->GetLastRxData());
-				fifo.Push<uint8>(data);
+				fifo.Push(data);
 			}
 		};
 	}
@@ -26,7 +26,8 @@ public:
 
 
 	inline bool IsReady() {
-		return fifo.IsReady();
+		// StaticFifo::IsReady() reports "not busy", which is true for an empty queue too.
+		return fifo.GetCount() != 0;
 	}
 
 
