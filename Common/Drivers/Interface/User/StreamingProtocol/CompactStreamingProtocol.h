@@ -26,6 +26,13 @@ public:
     static constexpr size_t CRC_SIZE = 1;
     static constexpr size_t MAX_PAYLOAD_SIZE = MaxPacketSize - HEADER_SIZE - CRC_SIZE;
 
+    // Capacity of the transmit buffer; Send() refuses a message that does not fit
+    static constexpr size_t TX_BUFFER_SIZE = 512;
+
+    // Fragment index and fragment count are uint8 on the wire and in txTotalFragments
+    static_assert(MaxPacketSize > HEADER_SIZE + CRC_SIZE, "MaxPacketSize must leave room for a payload");
+    static_assert((TX_BUFFER_SIZE + MAX_PAYLOAD_SIZE - 1) / MAX_PAYLOAD_SIZE <= 255, "Fragment count must fit in uint8");
+
     // Bit 1 of typeAndFlags. The sender flips it for every new message, so a retransmitted fragment
     // (same toggle) can be told apart from an identical new message (flipped toggle).
     static constexpr uint8 messageToggleFlag = 0x02;
@@ -65,7 +72,7 @@ private:
     size_t lastFragmentSize = 0;
     
     // Fragment transmission state
-    std::array<uint8, 512> txBuffer;
+    std::array<uint8, TX_BUFFER_SIZE> txBuffer;
     size_t txDataSize = 0;
     uint8 txTotalFragments = 0;
     uint8 txCurrentFragment = 0;
@@ -74,6 +81,7 @@ private:
     
     // Retry state
     uint32 txFragmentSentTime = 0;
+    bool txTimerArmed = false; // True while txFragmentSentTime marks a transmitted, unacknowledged fragment
     uint8 txRetries = 0;
     static constexpr uint8 MAX_RETRIES = 3;
     static constexpr uint32 FRAGMENT_TIMEOUT_MS = 5000; // 5 seconds
@@ -109,6 +117,7 @@ public:
         txTotalFragments = 0;
         txDataSize = 0;
         txFragmentSentTime = 0;
+        txTimerArmed = false;
         txRetries = 0;
     }
 
@@ -117,7 +126,7 @@ public:
         ProcessIncoming();
         
         // Check for fragment timeout during transmission
-        if (txInProgress && txFragmentSentTime > 0) {
+        if (txInProgress && txTimerArmed) {
             uint32 currentTime = System::GetMs();
             if (currentTime - txFragmentSentTime > FRAGMENT_TIMEOUT_MS) {
                 // Fragment timeout - retry or fail
@@ -128,6 +137,7 @@ public:
                 } else {
                     // Max retries exceeded
                     txInProgress = false;
+                    txTimerArmed = false;
                     if (streamCompleteCallback) {
                         streamCompleteCallback(StreamResult::Timeout);
                     }
@@ -192,24 +202,27 @@ private:
                 break; // Not enough data
             }
             
-            // Extract full packet
+            // Peek the candidate packet; it is consumed only when its CRC matches
             uint8 packet[MaxPacketSize];
-            for (size_t i = 0; i < totalSize; i++) {
-                Result<uint8> byte = receiveBuffer.Pop();
-                if (byte.IsOk()) {
-                    packet[i] = byte.Value();
-                } else {
-                    return;
-                }
+            uint16 peeked = receiveBuffer.PeekMultiple(packet, static_cast<uint16>(totalSize));
+            if (peeked != totalSize) {
+                break;
             }
             
-            // Verify CRC
+            // Verify CRC of the candidate packet
             size_t dataSize = totalSize - CRC_SIZE;
             uint8 receivedCrc = packet[dataSize];
             uint8 calculatedCrc = CalculateCRC8(std::span<const uint8>(packet, dataSize));
             
             if (receivedCrc != calculatedCrc) {
+                // Corrupted packet: drop one byte and resynchronise on the next header
+                receiveBuffer.Pop();
                 continue;
+            }
+
+            // Valid packet: consume it
+            for (size_t i = 0; i < totalSize; i++) {
+                receiveBuffer.Pop();
             }
             
             ProcessPacket(reinterpret_cast<CompactPacketHeader*>(packet), 
@@ -297,9 +310,11 @@ private:
         txInProgress = true;
         txRetries = 0;
         txFragmentSentTime = 0;
+        txTimerArmed = false;
         
-        // Send first fragment
-        return SendNextFragment();
+        // Send first fragment. A refused transmit is not fatal: the fragment timer retries it
+        SendNextFragment();
+        return true;
     }
     
     bool SendNextFragment() {
@@ -328,12 +343,14 @@ private:
 
         if (!transmitCallback(std::span<const uint8>(packet, totalSize))) {
             // Don't abort transmission - let timeout/retry mechanism handle this
-            txFragmentSentTime = System::GetMs(); // Still set timeout for retry
+            txFragmentSentTime = System::GetMs();
+            txTimerArmed = true; // Still set timeout for retry
             return false; // Return false to indicate failure, but keep txInProgress = true
         }
         
         // Record send time for timeout detection
         txFragmentSentTime = System::GetMs();
+        txTimerArmed = true;
         
         return true;
     }
@@ -364,12 +381,14 @@ private:
 
         if (!transmitCallback(std::span<const uint8>(packet, totalSize))) {
             // Don't abort transmission - let timeout/retry mechanism handle this
-            txFragmentSentTime = System::GetMs(); // Still set timeout for retry
+            txFragmentSentTime = System::GetMs();
+            txTimerArmed = true; // Still set timeout for retry
             return false; // Return false to indicate failure, but keep txInProgress = true
         }
         
         // Record send time for timeout detection
         txFragmentSentTime = System::GetMs();
+        txTimerArmed = true;
 
         return true;
     }
@@ -384,12 +403,14 @@ private:
             // Reset retry counter for next fragment
             txRetries = 0;
             txFragmentSentTime = 0;
+            txTimerArmed = false;
             
             txCurrentFragment++;
             
             if (txCurrentFragment >= txTotalFragments) {
                 // All fragments sent successfully
                 txInProgress = false;
+                txTimerArmed = false;
                 
                 if (streamCompleteCallback) {
                     streamCompleteCallback(StreamResult::Success);
