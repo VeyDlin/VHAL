@@ -1,5 +1,5 @@
 ﻿#pragma once
-#include "Core.h"
+#include <VHAL.h>
 #include <chrono>
 
 namespace Buttons {
