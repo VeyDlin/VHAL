@@ -1,4 +1,5 @@
 #pragma once
+#include <cstring>
 #include <Adapter/FLASHAdapter.h>
 
 
@@ -79,20 +80,29 @@ public:
 			return ResultStatus::error;
 		}
 
-		const uint32 *src = static_cast<const uint32*>(data);
+		// Never read past 'size' bytes of the source: full words are copied with memcpy,
+		// a trailing partial word is padded with 0xFF (erased flash state)
+		const uint8 *src = static_cast<const uint8*>(data);
 		uint32 *dst = address;
-		size_t wordCount = (size + 3) / 4;
+		size_t fullWordCount = size / 4;
+		size_t tailSize = size % 4;
 
-		for (size_t i = 0; i < wordCount; i++) {
-			while (IsBusy());
-			ClearStatusFlags();
-			FLASH->CR &= ~(FLASH_CR_PSIZE);
-			FLASH->CR |= FLASH_PSIZE_WORD;
-			FLASH->CR |= FLASH_CR_PG;
-			*dst++ = *src++;
-			while (IsBusy());
-			FLASH->CR &= ~FLASH_CR_PG;
-			if (GetStatus() != ResultStatus::ok) {
+		for (size_t i = 0; i < fullWordCount; i++) {
+			uint32 word = 0;
+			std::memcpy(&word, src, sizeof(word));
+			if (ProgramWord(dst, word) != ResultStatus::ok) {
+				return ResultStatus::error;
+			}
+			dst++;
+			src += sizeof(word);
+		}
+
+		if (tailSize != 0) {
+			uint8 tailBytes[4] = { 0xFF, 0xFF, 0xFF, 0xFF };
+			std::memcpy(tailBytes, src, tailSize);
+			uint32 word = 0;
+			std::memcpy(&word, tailBytes, sizeof(word));
+			if (ProgramWord(dst, word) != ResultStatus::ok) {
 				return ResultStatus::error;
 			}
 		}
@@ -333,5 +343,21 @@ protected:
 		if (address < 0x08060000) return 6;  // 128KB
 		if (address < 0x08080000) return 7;  // 128KB
 		return 0xFF; // Invalid sector
+	}
+
+private:
+	// Programs one 32-bit word at 'address' using the STM32F4 word program sequence
+	ResultStatus ProgramWord(uint32 *address, uint32 word) {
+		while (IsBusy()) {
+		}
+		ClearStatusFlags();
+		FLASH->CR &= ~(FLASH_CR_PSIZE);
+		FLASH->CR |= FLASH_PSIZE_WORD;
+		FLASH->CR |= FLASH_CR_PG;
+		*address = word;
+		while (IsBusy()) {
+		}
+		FLASH->CR &= ~FLASH_CR_PG;
+		return GetStatus();
 	}
 };
