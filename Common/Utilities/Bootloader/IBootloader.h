@@ -86,8 +86,10 @@ public:
 
     bool checkFirmware = true;
 
-    // Partial packet timeout in ms (0 disables). A packet that stalls longer is dropped byte by byte
-    uint32 packetTimeoutMs = 2000;
+    // Partial packet timeout in ms (0 disables). Measured from the moment an incomplete packet reaches the front of the
+    // receive buffer; its header byte is dropped once this time has passed. Must be longer than the transport needs for
+    // one full packet including its retries (CompactStreamingProtocol retries a fragment after 5 s)
+    uint32 packetTimeoutMs = 10000;
 
     // Finalize must carry the expected FirmwareHeader. false allows legacy hosts that send an empty payload
     bool requireFinalizeChecksum = true;
@@ -161,8 +163,9 @@ protected:
     uint8 lastWriteSequence = 0;
     BootloaderStatus lastWriteStatus = BootloaderStatus::Success;
 
-    // Time of the last received byte in ms (uint32 keeps the store atomic on 32-bit MCUs)
-    uint32 lastByteMs = 0;
+    // Incomplete packet at the front of the receive buffer and the time it was first seen (ms)
+    bool partialPacketPending = false;
+    uint32 partialPacketSinceMs = 0;
 
     // Start is answered first and executed after the response had time to leave (0 = no start scheduled)
     uint64 startTime = 0;
@@ -172,6 +175,9 @@ protected:
     bool hasPendingResponse = false;
     ResponsePacket pendingResponse{};
     size_t pendingResponseSize = 0;
+
+    // Read size to advance once the queued Read response is actually sent (0 = no Read is queued)
+    uint32 pendingReadAdvance = 0;
     
     // User data handler
     UserDataHandler userDataHandler;
@@ -485,11 +491,11 @@ protected:
     void OnDataReceived(std::span<const uint8> data) {
         if (data.empty()) {
             receiveBuffer.Clear();
+            partialPacketPending = false;
             hasPendingResponse = false;
+            pendingReadAdvance = 0;
             return;
         }
-        
-        lastByteMs = static_cast<uint32>(System::GetMs());
 
         for (uint8 byte : data) {
             receiveBuffer.Push(byte);
@@ -513,6 +519,7 @@ protected:
                 break;
             }
             receiveBuffer.Pop();
+            partialPacketPending = false;
         }
 
         if (receiveBuffer.Size() == 0) {
@@ -528,6 +535,7 @@ protected:
         if (static_cast<size_t>(receiveBuffer[3]) > PacketDataMaxSize) {
             uint8 sequence = receiveBuffer[1];
             receiveBuffer.Pop();
+            partialPacketPending = false;
             SendError(sequence, BootloaderStatus::InvalidParameters);
             return true;
         }
@@ -537,24 +545,34 @@ protected:
             return DropStalledPacket();
         }
 
+        partialPacketPending = false;
         ProcessCommand(packet);
         return true;
     }
 
 
     // Called for a header that is not followed by a complete packet yet.
-    // Once the packet stalled longer than packetTimeoutMs, its header byte is dropped so the parser resynchronises
+    // The packet is timed from the moment it first reached the front of the buffer, not from the last received byte,
+    // so steady traffic behind a stale header cannot keep it alive. Once it stalled longer than packetTimeoutMs,
+    // its header byte is dropped so the parser resynchronises
     bool DropStalledPacket() {
+        uint32 now = static_cast<uint32>(System::GetMs());
+        if (!partialPacketPending) {
+            partialPacketPending = true;
+            partialPacketSinceMs = now;
+            return false;
+        }
+
         if (packetTimeoutMs == 0) {
             return false;
         }
         
-        uint32 now = static_cast<uint32>(System::GetMs());
-        if (static_cast<uint32>(now - lastByteMs) <= packetTimeoutMs) {
+        if (static_cast<uint32>(now - partialPacketSinceMs) <= packetTimeoutMs) {
             return false;
         }
         
         receiveBuffer.Pop();
+        partialPacketPending = false;
         return true;
     }
     
@@ -896,7 +914,12 @@ protected:
             else if (encryptedData.size() <= PacketDataMaxSize) {
                 // Advance only when the response was accepted, a dropped one is requested again
                 if (SendResponse(BootloaderStatus::Success, encryptedData)) {
-                    readPosition += sizeToRead;
+                    if (hasPendingResponse) {
+                        // Queued: the position moves when FlushPendingResponse() really sends it
+                        pendingReadAdvance = sizeToRead;
+                    } else {
+                        readPosition += sizeToRead;
+                    }
                 }
             } else {
                 SendError(currentSequence, BootloaderStatus::Error);
@@ -1001,6 +1024,12 @@ protected:
 
 
     void HandleStart() {
+        // Jumping while an erase runs would leave the flash half erased
+        if (state == State::Processing || asyncOp.type != AsyncOperation::None) {
+            SendError(currentSequence, BootloaderStatus::Busy);
+            return;
+        }
+
         if (checkFirmware && !CheckFirmware()) {
             SendError(currentSequence, BootloaderStatus::Error);
             return;
@@ -1157,9 +1186,17 @@ protected:
             pendingResponseSize
         ));
 
-        if (sendStatus != ResultStatus::busy) {
-            hasPendingResponse = false;
+        if (sendStatus == ResultStatus::busy) {
+            return;
         }
+
+        // Sent: a queued Read moves the position now. Dropped (other error): the host asks again
+        if (sendStatus == ResultStatus::ok) {
+            readPosition += pendingReadAdvance;
+        }
+
+        hasPendingResponse = false;
+        pendingReadAdvance = 0;
     }
     
 
