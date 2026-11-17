@@ -67,7 +67,7 @@ namespace OS {
 
 
 		template<typename Rtos, typename T>
-		static inline void wCreateThreadStatic(T &thread, const char *pName, ThreadPriority prior, const std::uint16_t stackDepth, tStack *pStack) {
+		static inline void wCreateThreadStatic(T &thread, const char *pName, ThreadPriority prior, const std::uint32_t stackDepth, tStack *pStack) {
 #if (configSUPPORT_STATIC_ALLOCATION == 1)
 			if(pStack != nullptr) {
 				thread.handle = xTaskCreateStatic(
@@ -87,7 +87,7 @@ namespace OS {
 
 
 		template<typename Rtos, typename T>
-		static inline void wCreateThread(T &thread, const char *pName, ThreadPriority prior, const std::uint16_t stackDepth) {
+		static inline void wCreateThread(T &thread, const char *pName, ThreadPriority prior, const std::uint32_t stackDepth) {
 			thread.handle = (xTaskCreate(
 				Rtos::Run,
 				pName,
@@ -226,10 +226,7 @@ namespace OS {
 
 
 		inline static tEventBits wWaitEvent(tEventHandle const &eventHandle, const tEventBits mask, tTime timeOut, OS::EventMode mode) {
-			BaseType_t xWaitForAllBits = pdFALSE;
-			if (mode == OS::EventMode::waitAnyBits) {
-				xWaitForAllBits = pdFALSE;
-			}
+			BaseType_t xWaitForAllBits = (mode == OS::EventMode::waitAllBits) ? pdTRUE : pdFALSE;
 			return xEventGroupWaitBits(eventHandle, mask, pdTRUE, xWaitForAllBits, timeOut);
 		}
 
@@ -253,7 +250,8 @@ namespace OS {
 				BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 				auto status = xSemaphoreTakeFromISR(handle,  &xHigherPriorityTaskWoken);
 			    if (status != pdFAIL) {
-			    	portEND_SWITCHING_ISR(xHigherPriorityTaskWoken);
+			    	// portYIELD_FROM_ISR exists in every FreeRTOS port; portEND_SWITCHING_ISR is missing in ESP-IDF.
+			    	portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 			    }
 			    return static_cast<bool>(status);
 			} else {

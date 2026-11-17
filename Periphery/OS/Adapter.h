@@ -16,7 +16,7 @@
 #endif
 
 #if defined(VHAL_RTOS_MAILBOX)
-    #include "Mailbox.h"
+    #include "MailBox.h"
 #endif
 
 #if defined(VHAL_RTOS_MUTEX)
