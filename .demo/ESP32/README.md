@@ -35,7 +35,7 @@ MyProject/
 
 Inside the VHAL repository the demo uses the enclosing checkout. In your own project, place VHAL in `VHAL/` or pass its path: `idf.py -D VHAL_DIR=/path/to/VHAL build`.
 
-An adapter may need its ESP-IDF component in the `REQUIRES` list of `main/CMakeLists.txt`. The verified case is `esp_adc` for `VHAL_ESP32_ADC`.
+An adapter may need its ESP-IDF component in the `REQUIRES` list of `main/CMakeLists.txt`. The verified case is `esp_adc` for `VHAL_ESP32_ADC`. The Wi-Fi and socket adapters need `esp_wifi esp_netif esp_event nvs_flash` for `VHAL_ESP32_WIFI`, `lwip esp-tls mbedtls` for `VHAL_ESP32_SOCKET`, and `bt nvs_flash` for `VHAL_ESP32_BLE`. The BLE adapter also needs NimBLE enabled in sdkconfig (`CONFIG_BT_NIMBLE_ENABLED`).
 
 
 ## VHALConfig.h

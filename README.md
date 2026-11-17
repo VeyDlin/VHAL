@@ -121,7 +121,7 @@ The table lists adapters selected by the current port headers, not a hardware va
 | STM32G4 | UART, I2C, ADC, TIM, GPIO, DAC, DMA, IWDG, COMP |
 | STM32F4 | UART, SPI, I2C, ADC, TIM, GPIO, DAC, IWDG, FLASH |
 | ENS001 | UART, SPI, I2C, ADC, TIM, GPIO, IWDG, FLASH, COMP, WaveGenerator, Boost, PGA, PMU |
-| ESP32 | UART, SPI, I2C, ADC, DAC, I2S, GPIO, GPTimer, LEDC, MCPWM, DSI, PPA, LDO, IWDG |
+| ESP32 | UART, SPI, I2C, ADC, DAC, I2S, GPIO, GPTimer, LEDC, MCPWM, DSI, PPA, LDO, IWDG, WiFi, Socket, BLE |
 
 ## Getting Started
 
