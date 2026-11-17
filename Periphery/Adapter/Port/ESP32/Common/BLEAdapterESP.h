@@ -20,6 +20,7 @@ public:
 	static constexpr uint8 maxServices = 8;
 	static constexpr uint8 maxCharacteristics = 32;
 	static constexpr uint8 maxAdvertisedUuids = 8;
+	static constexpr uint8 maxSubscriptions = 16;
 	static constexpr uint16 minIntervalMs = 20;
 	static constexpr uint16 maxIntervalMs = 10240;
 
@@ -33,13 +34,32 @@ protected:
 
 
 private:
+	// One peer's subscription to one value handle. Only subscriptions with notify or indicate set are kept.
+	struct Subscription {
+		ConnectionHandle connection;
+		uint16 valueHandle;
+		bool notify;
+		bool indicate;
+	};
+
+
 	static constexpr uint32 hostSyncTimeoutMs = 5000;
+
+	// The longest value a notification can carry: the ATT attribute length limit.
+	static constexpr uint16 maxValueSize = BLE_ATT_ATTR_MAX_LEN;
 
 	// The power levels of the ESP32 controller, from -12 dBm (index 0) to +9 dBm (index 7), in 3 dBm steps.
 	static constexpr int8 txPowerDbm[8] = { -12, -9, -6, -3, 0, 3, 6, 9 };
 
 	volatile bool hostSynced = false;
 	static inline BLEAdapterESP *instance = nullptr;
+
+	// Written in the host task and read by Notify() in the application task. Every access is inside a critical section.
+	Subscription subscriptions[maxSubscriptions] = {};
+	uint8 subscriptionCount = 0;
+
+	// Subscriptions that did not fit into the table. Notify() does not reach those peers. The other peers are unaffected.
+	uint32 refusedSubscriptions = 0;
 
 
 public:
@@ -188,8 +208,33 @@ public:
 			return ResultStatus::notExist;
 		}
 
-		ble_gatts_chr_updated(characteristic.valueHandle);
-		return ResultStatus::ok;
+		uint16 length = characteristic.GetLength();
+		if (length > maxValueSize) {
+			return ResultStatus::outOfRange;
+		}
+
+		Subscription targets[maxSubscriptions] = {};
+		uint8 targetCount = CopySubscriptions(characteristic.valueHandle, targets);
+		if (targetCount == 0) {
+			return ResultStatus::ok;
+		}
+
+		// One copy for every peer, so they all get the same bytes. NimBLE reads from the copy only after this returns.
+		uint8 snapshot[maxValueSize] = {};
+		if (length > 0) {
+			std::memcpy(snapshot, characteristic.GetValue(), length);
+		}
+
+		// Every peer is tried. The first failure is returned, so one failing peer does not stop the others.
+		ResultStatus result = ResultStatus::ok;
+		for (uint8 i = 0; i < targetCount; i++) {
+			ResultStatus status = SendTo(targets[i], snapshot, length);
+			if (status != ResultStatus::ok && result == ResultStatus::ok) {
+				result = status;
+			}
+		}
+
+		return result;
 	}
 
 
@@ -544,6 +589,7 @@ private:
 				return 0;
 
 			case BLE_GAP_EVENT_DISCONNECT:
+				RemoveConnection(event->disconnect.conn.conn_handle);
 				CallEvent(Event::Disconnected, event->disconnect.conn.conn_handle);
 				return 0;
 
@@ -586,10 +632,108 @@ private:
 
 
 	void HandleSubscribe(struct ble_gap_event *event) {
+		StoreSubscription(event->subscribe.conn_handle, event->subscribe.attr_handle, event->subscribe.cur_notify != 0, event->subscribe.cur_indicate != 0);
+
 		Characteristic *characteristic = FindCharacteristic(event->subscribe.attr_handle);
 		if (characteristic != nullptr && characteristic->onSubscribe != nullptr) {
 			characteristic->onSubscribe(event->subscribe.conn_handle, event->subscribe.cur_notify != 0, event->subscribe.cur_indicate != 0);
 		}
+	}
+
+
+	// Copies the entries of one value handle out of the table, so that the NimBLE calls run without the lock.
+	uint8 CopySubscriptions(uint16 valueHandle, Subscription *targets) {
+		uint8 count = 0;
+
+		System::CriticalSection(true);
+		for (uint8 i = 0; i < subscriptionCount; i++) {
+			if (subscriptions[i].valueHandle == valueHandle) {
+				targets[count] = subscriptions[i];
+				count++;
+			}
+		}
+		System::CriticalSection(false);
+
+		return count;
+	}
+
+
+	// Builds a fresh mbuf for one peer. NimBLE consumes the mbuf on every path once it is handed over, so it is never
+	// freed here after the call: notify at ble_gattc.c:5565-5573 (early exit at 5516-5519), indicate at
+	// ble_gattc.c:6084-6089 and 6157-6166. A peer subscribed to both gets a notification, which has no
+	// one-indication-at-a-time limit.
+	static ResultStatus SendTo(const Subscription& target, const uint8 *value, uint16 length) {
+		struct os_mbuf *om = ble_hs_mbuf_from_flat(value, length);
+		if (om == nullptr) {
+			return ResultStatus::outOfMemory;
+		}
+
+		int rc = 0;
+		if (target.notify) {
+			rc = ble_gatts_notify_custom(target.connection, target.valueHandle, om);
+		} else {
+			rc = ble_gatts_indicate_custom(target.connection, target.valueHandle, om);
+		}
+
+		return MapError(rc);
+	}
+
+
+	// Called in the NimBLE host task on every subscription change. With neither flag set, the entry is removed.
+	void StoreSubscription(ConnectionHandle connection, uint16 valueHandle, bool notify, bool indicate) {
+		System::CriticalSection(true);
+		int index = FindSubscription(connection, valueHandle);
+		if (!notify && !indicate) {
+			if (index >= 0) {
+				RemoveSubscription(static_cast<uint8>(index));
+			}
+		} else if (index >= 0) {
+			subscriptions[index].notify = notify;
+			subscriptions[index].indicate = indicate;
+		} else if (subscriptionCount < maxSubscriptions) {
+			subscriptions[subscriptionCount].connection = connection;
+			subscriptions[subscriptionCount].valueHandle = valueHandle;
+			subscriptions[subscriptionCount].notify = notify;
+			subscriptions[subscriptionCount].indicate = indicate;
+			subscriptionCount++;
+		} else {
+			refusedSubscriptions++;
+		}
+		System::CriticalSection(false);
+	}
+
+
+	// Called in the NimBLE host task when a connection ends. Its subscriptions go with it.
+	void RemoveConnection(ConnectionHandle connection) {
+		System::CriticalSection(true);
+		uint8 index = 0;
+		while (index < subscriptionCount) {
+			if (subscriptions[index].connection == connection) {
+				RemoveSubscription(index);
+			} else {
+				index++;
+			}
+		}
+		System::CriticalSection(false);
+	}
+
+
+	// The caller holds the critical section. The last entry takes the place of the removed one.
+	int FindSubscription(ConnectionHandle connection, uint16 valueHandle) {
+		for (uint8 i = 0; i < subscriptionCount; i++) {
+			if (subscriptions[i].connection == connection && subscriptions[i].valueHandle == valueHandle) {
+				return i;
+			}
+		}
+
+		return -1;
+	}
+
+
+	// The caller holds the critical section.
+	void RemoveSubscription(uint8 index) {
+		subscriptionCount--;
+		subscriptions[index] = subscriptions[subscriptionCount];
 	}
 
 

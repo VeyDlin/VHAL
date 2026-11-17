@@ -304,7 +304,7 @@ The adapter does not restart advertising after a disconnect. The application cal
 | `Stop()` | `ResultStatus` | Turn the radio off | `notSupported` on ESP32 |
 | `StartAdvertising(const AdvertisingConfig& config)` | `ResultStatus` | Start advertising | `noInit`, `invalidParameter`, `outOfRange`, `busy`, `error`, `outOfMemory` |
 | `StopAdvertising()` | `ResultStatus` | Stop advertising. `ok` when not advertising | `noInit`, `error`, and the NimBLE mapping |
-| `Notify(Characteristic& characteristic)` | `ResultStatus` | Send the current value to every subscribed peer, as a notification or an indication according to the peer's subscription | `ok`, `noInit`, `notExist` |
+| `Notify(Characteristic& characteristic)` | `ResultStatus` | Send the current value to every subscribed peer, as a notification or an indication according to the peer's subscription | `ok`, `noInit`, `notExist`, and the ESP32 statuses in [Return Values](#return-values) |
 | `Disconnect(ConnectionHandle connection)` | `ResultStatus` | Terminate a connection | `noInit`, `noConnection`, `invalidParameter`, `error` |
 | `GetRssi(ConnectionHandle connection)` | `Result<int8>` | Signal strength of a connection, in dBm | `noInit`, `noConnection`, `invalidParameter`, `error` |
 | `GetMtu(ConnectionHandle connection)` | `Result<uint16>` | ATT MTU of a connection | `noInit`, `noConnection` |
@@ -390,8 +390,10 @@ The compile-only check's `sdkconfig.defaults` also sets the controller to BLE on
 | Scan window | Not `0`, and not above the interval | `StartScan()`, `invalidParameter` |
 | Device name in advertising | Not above 255 bytes | `StartAdvertising()`, `invalidParameter` |
 | Host sync | 5000 ms | `SetParameters()`, `timeout` |
+| Subscriptions | `maxSubscriptions` `16`, one per connection and value handle | Not reported: a subscription beyond the table is not reached by `Notify()`, see [Behaviour](#behaviour) |
+| Notification value | `512` bytes, `BLE_ATT_ATTR_MAX_LEN` | `Notify()`, `outOfRange` |
 
-The static limits are `BLEAdapterESP::maxServices`, `maxCharacteristics`, `maxAdvertisedUuids`, `minIntervalMs` and `maxIntervalMs`.
+The static limits are `BLEAdapterESP::maxServices`, `maxCharacteristics`, `maxAdvertisedUuids`, `maxSubscriptions`, `minIntervalMs` and `maxIntervalMs`.
 
 ### Value Ranges
 
@@ -433,6 +435,15 @@ Some calls return the NimBLE result through this mapping:
 | | `ok` | Not advertising |
 | `Notify()` | `noInit` | The radio is not started |
 | | `notExist` | The characteristic has no value handle yet, because it is not in the table |
+| | `outOfRange` | The stored value is longer than 512 bytes |
+| | `outOfMemory` | No mbuf for a PDU, or the stack returns `BLE_HS_ENOMEM` |
+| | `busy` | The stack returns `EALREADY` or `EBUSY`. For an indication, the peer has one not yet confirmed |
+| | `invalidParameter` | The stack returns `EINVAL` or `EMSGSIZE`, for example a value that does not fit the MTU |
+| | `noConnection` | The stack returns `ENOTCONN` |
+| | `error` | Any other NimBLE error |
+| | `ok` | No peer is subscribed, or the PDU of every subscribed peer was accepted by the stack |
+
+Every subscribed peer is tried, even after a failure. The status returned is the first failure, so one failing peer does not stop the others.
 | `Disconnect()` | `noInit` | The radio is not started |
 | `GetMtu()` | `noInit` | The radio is not started |
 | | `noConnection` | No MTU for the connection handle |
@@ -456,7 +467,12 @@ Some calls return the NimBLE result through this mapping:
 - `SetParameters()` on a started radio returns `busy` and changes nothing: `GetParameters()` keeps reporting the parameters the radio uses, and `beforePeripheryInit` does not run.
 - A device name that does not fit the advertisement is sent in the scan response. The advertisement carries the flags for general discovery, with BR/EDR not supported.
 - A write longer than the characteristic's capacity is refused with an ATT error. The stored value is not changed. A shorter or equal write is stored straight into the buffer.
-- `Notify()` does not check the `notify` and `indicate` flags. The stack decides what is sent to each peer.
+- `Notify()` queues the current bytes immediately: one PDU per subscribed connection. Each PDU holds a copy of the value taken at the call, so a later `SetValue()` does not change it. Consecutive calls each send their own PDU, and none replaces another.
+- A subscription is served as a notification when the peer subscribed to notifications, and as an indication when it subscribed only to indications. A peer subscribed to both gets a notification.
+- Subscriptions come from the stack's subscribe events. A subscription is removed when the peer clears its flags, and when the connection ends.
+- The subscription table holds `maxSubscriptions` (16) entries. A subscription that does not fit is counted in a private counter, and `Notify()` does not reach that peer. The other peers are unaffected, and no status reports it.
+- The value is copied once per call, before any PDU is built, so every peer gets the same bytes. The copy takes 512 bytes of stack in the calling task. The port does not lock `SetValue()`, so a `SetValue()` from another task during the copy can still leave a mix of old and new bytes. Within one task that cannot happen.
+- The stack allows one indication in flight per connection. A `Notify()` to an indicating peer while its earlier indication is not yet confirmed returns `busy` for that peer, and the PDU is not queued. Use notifications for bursts of data.
 - `Disconnect()` terminates the connection with the reason "remote user terminated connection".
 - `GetPeerAddress()` returns the peer's identity address, not its over-the-air address.
 - Passkey: only the display action is handled. The port generates a random number below 1000000, injects it into the pairing, and reports it through `onPasskeyDisplay`. Numeric comparison, keyboard entry and out-of-band data are not handled, so a pairing that needs them waits until the stack times out.
@@ -472,6 +488,7 @@ Some calls return the NimBLE result through this mapping:
 - Only the passkey display pairing action is handled.
 - The adapter does not restart advertising after a disconnect.
 - Only one scan at a time.
+- Indications are one in flight per connection. A burst of `Notify()` to an indicating peer returns `busy` for every PDU after the first, until the peer confirms. Notifications have no such limit.
 - The limits in [Limits](#limits) are fixed.
 
 ## BSP Configuration Example
