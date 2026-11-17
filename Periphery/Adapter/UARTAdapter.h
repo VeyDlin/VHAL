@@ -140,7 +140,7 @@ public:
 
 	template <typename DataType>
 	inline ResultStatus WriteArrayAsync(const DataType* buffer, uint32 size) {
-		return WriteArrayAsync<DataType>(buffer, size);
+		return WriteByteArrayAsync(const_cast<uint8*>(reinterpret_cast<const uint8*>(buffer)), sizeof(DataType) * size);
 	}
 
 
@@ -187,9 +187,9 @@ public:
 
 
 public:
-	void SetParameters(Parameters val) {
+	ResultStatus SetParameters(Parameters val) {
 		parameters = val;
-		Initialization();
+		return Initialization();
 	}
 
 

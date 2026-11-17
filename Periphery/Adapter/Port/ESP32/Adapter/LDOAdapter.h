@@ -6,7 +6,11 @@
 
 class LDOAdapter : public IAdapter {
 public:
-	struct FlagOption : IOptionFlag<uint32> { using IOptionFlag::IOptionFlag; };
+	struct FlagOption : IOptionFlag<uint32> {
+		using IOptionFlag::IOptionFlag;
+		// operator| returns the base type; without this a combination of flags cannot initialize a FlagOption.
+		constexpr FlagOption(const IOptionFlag<uint32>& flags) noexcept : IOptionFlag(flags) { }
+	};
 
 	struct Parameters {
 		uint8 channelId = 0;

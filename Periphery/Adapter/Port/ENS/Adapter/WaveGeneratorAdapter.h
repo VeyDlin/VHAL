@@ -8,7 +8,9 @@ template<typename HandleType>
 class WaveGeneratorAdapter : public IAdapter {
 public:
 	struct ConfigOption : IOptionFlag<uint8> { 
-		using IOptionFlag::IOptionFlag; 
+		using IOptionFlag::IOptionFlag;
+		// operator| returns the base type; without this a combination of flags cannot initialize a ConfigOption.
+		constexpr ConfigOption(const IOptionFlag<uint8>& flags) noexcept : IOptionFlag(flags) { }
 	};
 	
 	struct CurrentSelectOption : IOption<uint8> { 

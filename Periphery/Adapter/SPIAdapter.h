@@ -189,7 +189,7 @@ public:
 
 	template <typename DataType>
 	inline ResultStatus WriteArrayAsync(const DataType* buffer, uint32 size) {
-		return WriteArray<DataType>(const_cast<DataType*>(buffer), size);
+		return WriteArrayAsync<DataType>(const_cast<DataType*>(buffer), size);
 	}
 
 
