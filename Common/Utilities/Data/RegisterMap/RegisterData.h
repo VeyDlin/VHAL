@@ -2,6 +2,7 @@
 #include <VHAL.h>
 #include <utility>
 #include <functional>
+#include <limits>
 #include "IRegisterData.h"
 
 
@@ -39,19 +40,19 @@ public:
         return *this;
     }
 
-    inline bool CanOnWrite() override {
+	inline bool CanOnWrite() const override {
         return onWrite != nullptr;
     }
 
-    inline bool CanOnRead() override {
+	inline bool CanOnRead() const override {
         return onRead != nullptr;
     }
 
-    inline size_t DataTypeSize() override {
+	inline size_t DataTypeSize() const override {
         return sizeof(RawDataType);
     }
 
-    inline uint32 Addres() override {
+	inline uint32 Addres() const override {
         return Address;
     }
 
@@ -90,7 +91,7 @@ public:
         return onWrite(data);
     }
 
-    size_t GetUnsafe(uint8* outData) override {
+	size_t GetUnsafe(uint8* outData) const override {
     	auto dataMemory = map->GetMemoryUnsafe(Address);
     	if (dataMemory == nullptr) {
     		return 0;
@@ -142,17 +143,17 @@ public:
     RegisterDataMutator(
         std::function<DataType(const RawDataType&)> readMut = nullptr,
         std::function<RawDataType(const DataType&)> writeMut = nullptr,
-        std::function<void(const RawDataType&)> event = nullptr
-    ) :
-        RegisterData<Address, RawDataType>(std::move(event)),
-        readMutator(std::move(readMut)),
-        writeMutator(std::move(writeMut)) {
-    }
+		std::function<bool(const RawDataType&)> event = nullptr
+	) :
+		readMutator(std::move(readMut)),
+		writeMutator(std::move(writeMut)) {
+		this->onWrite = std::move(event);
+	}
 
-    DataType Get() const {
-        auto data = this->template GetData<RawDataType>();
-        return readMutator ? readMutator(data) : *static_cast<DataType*>(&data);
-    }
+	DataType Get() const {
+		auto data = this->template GetData<RawDataType>();
+		return readMutator ? readMutator(data) : static_cast<DataType>(data);
+	}
 
     bool Set(const DataType& value) {
         RawDataType transformedValue = writeMutator ? writeMutator(value) : static_cast<RawDataType>(value);
@@ -174,7 +175,7 @@ public:
 template <uint32 Address, typename DataType = int16_t, uint32 Accuracy = 100>
 class RegisterDataFloat : public RegisterDataMutator<Address, float, DataType> {
 public:
-    RegisterDataFloat(std::function<void(const float&)> event = nullptr)
+	RegisterDataFloat(std::function<bool(const DataType&)> event = nullptr)
         : RegisterDataMutator<Address, float, DataType>(&ReadMutator, &WriteMutator, std::move(event)) {}
 
     inline RegisterDataFloat& operator=(const float& value) {
@@ -190,7 +191,16 @@ private:
         return static_cast<float>(rawValue) / static_cast<float>(Accuracy);
     }
 
-    static DataType WriteMutator(const float& value) {
-        return static_cast<DataType>(value * static_cast<float>(Accuracy));
-    }
+	// Round half away from zero, then saturate to the raw type's range
+	static DataType WriteMutator(const float& value) {
+		float scaled = value * static_cast<float>(Accuracy);
+		float rounded = scaled < 0.0f ? scaled - 0.5f : scaled + 0.5f;
+		if (rounded <= static_cast<float>(std::numeric_limits<DataType>::min())) {
+			return std::numeric_limits<DataType>::min();
+		}
+		if (rounded >= static_cast<float>(std::numeric_limits<DataType>::max())) {
+			return std::numeric_limits<DataType>::max();
+		}
+		return static_cast<DataType>(rounded);
+	}
 };

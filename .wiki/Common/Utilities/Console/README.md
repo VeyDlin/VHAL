@@ -75,8 +75,9 @@ Integers can be printed in decimal (default), hexadecimal, octal, or binary:
 ```cpp
 console.Write(255);                            // "255"
 console.Write(255, Print::Format::Hex);        // "FF"
-console.Write(255, Print::Format::Bin);        // "0000000011111111" (full width for type)
+console.Write(255, Print::Format::Bin);        // "00000000000000000000000011111111" (32 digits: int is 32 bits)
 console.Write(255, Print::Format::Oct);        // "377"
+console.Write(static_cast<int8>(-1), Print::Format::Hex); // "FF" (hex, oct and bin use the type's width)
 console.WriteLine(-42);                        // "-42\r\n"
 ```
 
@@ -84,9 +85,14 @@ console.WriteLine(-42);                        // "-42\r\n"
 
 ```cpp
 console.Write(3.14159f);                       // "3.14" (default precision 2)
-console.Write(3.14159f, 4);                    // "3.1415"
+console.Write(3.14159f, 4);                    // "3.1416"
+console.Write(0.999, 2);                       // "1.00"
 console.WriteLine(0.5);                        // "0.50\r\n"
+console.Write(1e20, 2);                        // "1.00e+20"
+console.Write(-1e300, 2);                      // "-1.00e+300"
 ```
+
+Values are rounded to the requested precision, half away from zero, and carry into the integer part (`9.999` with precision 2 gives `10.00`). The rounding acts on the exact binary value, so `0.995` (stored just below the tie) gives `0.99`. Magnitudes of 2^64 and above print in scientific notation with the mantissa at the requested precision; they are never `Inf`. Only values above the largest double, and the infinities, print `Inf` / `-Inf`; NaN prints `NaN`. Precision is capped at 40 digits.
 
 ### Buffer / Hex Dump
 
@@ -180,7 +186,7 @@ Force a specific format for a single number without changing the default:
 ```cpp
 console << Console::hex(255)  << Console::endl;   // "FF"
 console << Console::dec(255)  << Console::endl;   // "255"
-console << Console::bin(255)  << Console::endl;   // "0000000011111111"
+console << Console::bin(255)  << Console::endl;   // "00000000000000000000000011111111" (int is 32 bits)
 console << Console::oct(255)  << Console::endl;   // "377"
 ```
 

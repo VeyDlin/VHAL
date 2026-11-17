@@ -54,7 +54,7 @@ protected:
     }
 
 public:
-    size_t GetUnsafe(uint32 address, uint8* outData) override {
+	size_t GetUnsafe(uint32 address, uint8* outData) const override {
         auto [registerData, offset] = FindRegisterData(address, 0);
         if (registerData == nullptr) {
             return 0;

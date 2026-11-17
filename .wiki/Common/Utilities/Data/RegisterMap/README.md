@@ -86,7 +86,7 @@ Abstract base class for all register entries. Provides the interface that `Regis
 | `virtual bool WriteEvent(const uint8* buffer)` | Called before a write is committed; return `false` to reject |
 | `virtual bool CanOnWrite()` | Whether an `onWrite` callback is set |
 | `virtual bool CanOnRead()` | Whether an `onRead` callback is set |
-| `virtual size_t GetUnsafe(uint8* outData)` | Copies register data to the output buffer |
+| `virtual size_t GetUnsafe(uint8* outData) const` | Copies register data to the output buffer |
 
 ---
 
@@ -103,7 +103,7 @@ All arguments must derive from `IRegisterData` (enforced via `static_assert`).
 
 | Member | Description |
 |---|---|
-| `virtual size_t GetUnsafe(uint32 address, uint8* outData)` | Read raw bytes from a register by address |
+| `virtual size_t GetUnsafe(uint32 address, uint8* outData) const` | Read raw bytes from a register by address |
 | `virtual bool UpdateMemory(uint32 address, const uint8* buffer, size_t length)` | Write raw bytes to a register by address |
 | `void RegisterData(Args&... args)` | Link one or more `IRegisterData` instances to this map |
 
@@ -203,7 +203,9 @@ template <uint32 Address, typename DataType = int16_t, uint32 Accuracy = 100>
 class RegisterDataFloat : public RegisterDataMutator<Address, float, DataType>;
 ```
 
-A convenience specialization of `RegisterDataMutator` that stores a float as a fixed-point integer. The `Accuracy` template parameter defines the scaling factor.
+A convenience specialization of `RegisterDataMutator` that stores a float as a fixed-point integer. The `Accuracy` template parameter defines the scaling factor. A write rounds to the nearest raw value (half away from zero) and saturates to the range of `DataType`.
+
+The optional constructor argument is the write hook of `RegisterData`: `std::function<bool(const DataType&)>`, called with the raw value; return `false` to reject the write.
 
 ```cpp
 // Store temperature as int16, scaled by 100 (2 decimal digits)

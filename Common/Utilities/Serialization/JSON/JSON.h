@@ -233,8 +233,8 @@ public:
 		}
 
 
-		// Print::FloatToString truncates instead of rounding (3.14159 -> 3.141589), so the digits are produced here.
-		// Returns 0 when the value cannot be represented.
+		// JSON needs its own fixed-point formatting (no exponent form, its own range limit), so the digits are produced
+		// here rather than through Print. Returns 0 when the value cannot be represented.
 		static size_t FormatFixed(std::span<char> output, double value, int precision) {
 			if (!std::isfinite(value)) {
 				return 0;

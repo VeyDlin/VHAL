@@ -107,7 +107,7 @@ heap.FragmentationPercent();  // free bytes within data region, 0–100
 
 ### PoolAllocator
 
-Fixed-size block allocator. O(1) alloc/dealloc via free list. Implements `IAllocator`.
+Fixed-size block allocator. O(1) alloc/dealloc via free list. Implements `IAllocator`. `BlockSize` is the minimum usable size of a block: blocks are laid out at a stride rounded up to pointer alignment, so any `BlockSize` works. `GetBlockSize()` returns the requested `BlockSize`.
 
 ```cpp
 VSTD::PoolAllocator<64, 16> pool;   // 16 blocks of 64 bytes each
