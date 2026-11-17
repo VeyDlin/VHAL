@@ -17,7 +17,7 @@ public:
     };
 
     struct CompactPacketHeader {
-        uint8 typeAndFlags;      // 1 bit type (0=data, 1=ack) + 7 bits flags/reserved
+        uint8 typeAndFlags;      // bit 0: type (0=data, 1=ack), bit 1: message toggle, other bits reserved
         uint8 payloadSize;       // 0-255 bytes
         uint8 fragmentIndex;     // 0-255 cycling fragment number
     } _APacked;
@@ -25,6 +25,10 @@ public:
     static constexpr size_t HEADER_SIZE = sizeof(CompactPacketHeader);
     static constexpr size_t CRC_SIZE = 1;
     static constexpr size_t MAX_PAYLOAD_SIZE = MaxPacketSize - HEADER_SIZE - CRC_SIZE;
+
+    // Bit 1 of typeAndFlags. The sender flips it for every new message, so a retransmitted fragment
+    // (same toggle) can be told apart from an identical new message (flipped toggle).
+    static constexpr uint8 messageToggleFlag = 0x02;
 
     enum class SendStatus : uint8 {
         Success = 0,
@@ -56,6 +60,7 @@ private:
     
     // Fragment tracking for incoming data (streaming) with deduplication
     uint8 lastReceivedFragment = 255; // Initialize to invalid value  
+    bool lastReceivedToggle = false;  // Toggle bit of the last accepted fragment
     std::array<uint8, MAX_PAYLOAD_SIZE> lastFragmentData;
     size_t lastFragmentSize = 0;
     
@@ -97,6 +102,7 @@ public:
     void Reset() {
         receiveBuffer.Clear();
         lastReceivedFragment = 255;
+        lastReceivedToggle = false;
         lastFragmentSize = 0;
         txInProgress = false;
         txCurrentFragment = 0;
@@ -109,15 +115,6 @@ public:
     void Process() {
         // Process incoming data and timeouts
         ProcessIncoming();
-        
-        // Debug: Show that Process() is being called during transmission
-        if (txInProgress) {
-            static uint32 lastDebugTime = 0;
-            uint32 currentTime = System::GetMs();
-            if (currentTime - lastDebugTime > 1000) { // Every 1 second
-                lastDebugTime = currentTime;
-            }
-        }
         
         // Check for fragment timeout during transmission
         if (txInProgress && txFragmentSentTime > 0) {
@@ -164,6 +161,11 @@ public:
         ProcessIncoming();
     }
 
+    // True while a message is being transmitted and has not been acknowledged completely
+    bool IsTransmitting() const {
+        return txInProgress;
+    }
+
 private:
 
 
@@ -176,6 +178,14 @@ private:
             }
             
             CompactPacketHeader* header = reinterpret_cast<CompactPacketHeader*>(header_bytes);
+
+            // A payload that does not fit the packet buffer cannot be a valid fragment:
+            // drop one byte and resynchronise on the next header
+            if (header->payloadSize > MAX_PAYLOAD_SIZE) {
+                receiveBuffer.Pop();
+                continue;
+            }
+
             size_t totalSize = HEADER_SIZE + header->payloadSize + CRC_SIZE;
             
             if (receiveBuffer.Size() < totalSize) {
@@ -185,7 +195,7 @@ private:
             // Extract full packet
             uint8 packet[MaxPacketSize];
             for (size_t i = 0; i < totalSize; i++) {
-                auto byte = receiveBuffer.Pop();
+                Result<uint8> byte = receiveBuffer.Pop();
                 if (byte.IsOk()) {
                     packet[i] = byte.Value();
                 } else {
@@ -219,9 +229,17 @@ private:
         // For data packets - always send ACK first
         SendAck(header->fragmentIndex);
         
+        // Empty fragments carry no data and do not complete a stream: they are acknowledged and ignored
+        if (payload.empty()) {
+            return;
+        }
+
+        bool toggle = (header->typeAndFlags & messageToggleFlag) != 0;
+
         // Check for duplicate fragments - prevent data corruption from retries
         bool isDuplicate = false;
         if (header->fragmentIndex == lastReceivedFragment && 
+            toggle == lastReceivedToggle &&
             payload.size() == lastFragmentSize &&
             payload.size() <= MAX_PAYLOAD_SIZE &&
             std::equal(payload.begin(), payload.end(), lastFragmentData.begin())) {
@@ -232,6 +250,7 @@ private:
         if (!isDuplicate) {
             // New fragment - save it and pass to callback
             lastReceivedFragment = header->fragmentIndex;
+            lastReceivedToggle = toggle;
             lastFragmentSize = payload.size();
             if (payload.size() <= MAX_PAYLOAD_SIZE) {
                 std::copy(payload.begin(), payload.end(), lastFragmentData.begin());
@@ -241,14 +260,6 @@ private:
             if (dataReceivedCallback) {
                 dataReceivedCallback(header->fragmentIndex, payload);
             }
-        }
-        
-        // Stream completion detection can be done by:
-        // 1. Empty payload (end marker)
-        // 2. Timeout in upper layer
-        // 3. Application-specific logic
-        if (!isDuplicate && payload.empty() && streamCompleteCallback) {
-            streamCompleteCallback(StreamResult::Success);
         }
     }
 
@@ -384,14 +395,9 @@ private:
                     streamCompleteCallback(StreamResult::Success);
                 }
             } else {
-                // Send next fragment
-                if (!SendNextFragment()) {
-                    txInProgress = false;
-                    
-                    if (streamCompleteCallback) {
-                        streamCompleteCallback(StreamResult::Error);
-                    }
-                }
+                // Send next fragment. A refused transmit is not fatal: txInProgress stays set
+                // and the fragment timer in Process() retries the fragment
+                SendNextFragment();
             }
         } else {
             // ACK for wrong fragment
