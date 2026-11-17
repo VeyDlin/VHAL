@@ -92,6 +92,12 @@ public:
     // Finalize must carry the expected FirmwareHeader. false allows legacy hosts that send an empty payload
     bool requireFinalizeChecksum = true;
 
+    // Erase/Write/Finalize while read-out protection is active (IsMemoryProtected(), e.g. RDP Level 1).
+    // Off by default: the images are not authenticated (the AES modes encrypt but do not authenticate), so anyone on
+    // the transport could install code that reads out the rest of the flash, including the bootloader and its keys.
+    // Enable only when the images are authenticated, for example by a signature checked in OnFinalizeFirmware().
+    bool allowUpdatesWhenReadProtected = false;
+
 protected:
     // Communication interface
     ICommunication& communication;
@@ -214,8 +220,12 @@ public:
             // If application didn't start, continue with bootloader
         }
         
-        // Access level is not a reason to skip the communication: command handlers refuse
-        // with AccessDenied and GetInfo reports it, so the transport always starts
+        // When the access level forbids flash changes (e.g. RDP Level 2) the bootloader does not start its transport
+        ResultStatus accessStatus = OnCheckAccessLevel();
+        if (accessStatus != ResultStatus::ok) {
+            return accessStatus;
+        }
+
         ResultStatus status = communication.Initialize();
         if (status != ResultStatus::ok) {
             return status;
@@ -708,19 +718,34 @@ protected:
     
 
 
+    // Erase, Write and Finalize change the image. Answers the refusal and returns true when the access level forbids
+    // flash changes, or when read-out protection is active and allowUpdatesWhenReadProtected is not set.
+    bool RefuseImageChange() {
+        if (OnCheckAccessLevel() == ResultStatus::accessError) {
+            SendError(currentSequence, BootloaderStatus::AccessDenied);
+            return true;
+        }
+
+        if (!allowUpdatesWhenReadProtected && IsMemoryProtected()) {
+            SendError(currentSequence, BootloaderStatus::Protected);
+            return true;
+        }
+
+        return false;
+    }
+
+
+
     void HandleErase(const CommandPacket& packet) {
         if (state == State::Processing || asyncOp.type != AsyncOperation::None) {
             SendError(currentSequence, BootloaderStatus::Busy);
             return;
         }
         
-        // Check access level (RDP Level 2 blocks Flash operations)
-        auto accessStatus = OnCheckAccessLevel();
-        if (accessStatus == ResultStatus::accessError) {
-            SendError(currentSequence, BootloaderStatus::AccessDenied);
+        if (RefuseImageChange()) {
             return;
         }
-        
+
         // No parameters needed - always erase entire firmware area
         uint32 address = GetMemoryStartAddress();
         uint32 size = GetMemorySize();
@@ -752,13 +777,10 @@ protected:
             return;
         }
         
-        // Check access level (RDP Level 2 blocks Flash operations)
-        ResultStatus accessStatus = OnCheckAccessLevel();
-        if (accessStatus == ResultStatus::accessError) {
-            SendError(currentSequence, BootloaderStatus::AccessDenied);
+        if (RefuseImageChange()) {
             return;
         }
-        
+
         // Simple format: just data (no address/offset parameters)
         size_t dataSize = packet.length;
         
@@ -899,13 +921,10 @@ protected:
 
 
     void HandleFinalize(const CommandPacket& packet) {
-        // Check access
-        ResultStatus accessStatus = OnCheckAccessLevel();
-        if (accessStatus == ResultStatus::accessError) {
-            SendError(currentSequence, BootloaderStatus::AccessDenied);
+        if (RefuseImageChange()) {
             return;
         }
-        
+
         // A failed write stream is never finalized
         if (writeStreamFailed) {
             SendError(currentSequence, writeStreamError);

@@ -204,9 +204,9 @@ A packet with `length` greater than `PacketDataMaxSize` is invalid. The bootload
 | `InvalidParameters` | `0x03` | Bad parameters (bad length, accumulator overflow, unaligned write, wrong Finalize payload) |
 | `Busy` | `0x04` | Device busy (an erase is running) |
 | `NotReady` | `0x05` | Not ready |
-| `Protected` | `0x06` | Memory protected: `Read` under read-out protection (RDP Level 1) or in AES mode |
+| `Protected` | `0x06` | Memory protected: `Read` under read-out protection (RDP Level 1) or in AES mode; `Erase`, `Write` and `Finalize` under read-out protection unless `allowUpdatesWhenReadProtected` is set |
 | `CryptoError` | `0x07` | Decryption failure (the decryption hook returned no data) |
-| `AccessDenied` | `0x08` | Refused by the access policy (RDP Level 2: updates are refused) |
+| `AccessDenied` | `0x08` | Refused by the access policy (`OnCheckAccessLevel()` returns `accessError`) |
 | `EndOfData` | `0x09` | No more data to read |
 | `ChecksumMismatch` | `0x0A` | Image in flash does not match the checksum sent by the host at Finalize. The header is not written |
 
@@ -269,11 +269,11 @@ The firmware image is streamed with `Write` commands. The bootloader keeps the s
 | Method | Default | Purpose |
 |-|-|-|
 | `OnBeforeInitialize()` | No-op | Early init (e.g., Flash setup). Return an error to make `Initialize()` fail (for example a wrong AES key size) |
-| `OnCheckAccessLevel()` | Allow | Check RDP protection level. Refused commands answer `AccessDenied`; `GetInfo` still works |
+| `OnCheckAccessLevel()` | Allow | Whether flash changes are allowed at all. When it returns an error, `Initialize()` returns that error before the transport starts (FLASHBootloader: RDP Level 2) |
 | `OnInitialize()` | No-op | Post-check initialization |
 | `OnProcess()` | Runs async ops | Main loop hook |
 | `GetProtectionLevel()` | `nullopt` | Return RDP level for `GetInfo` |
-| `IsMemoryProtected()` | `false` | Read-out protection. Gates `Read` and `UnlockDevice` only |
+| `IsMemoryProtected()` | `false` | Read-out protection. Refuses `Read` and, unless `allowUpdatesWhenReadProtected` is set, `Erase`, `Write` and `Finalize`; `UnlockDevice` is needed only while it returns `true` |
 | `IsReadBackAllowed()` | `true` | Return `false` to refuse `Read` with `Protected` (used by AES mode) |
 | `GetWriteAlignment()` | `1` | Required alignment of write addresses and of all chunks except the last one (see [Write Stream](#write-stream)) |
 | `OnStreamReset()` | No-op | Called when the write stream restarts (`Erase`, `ResetWritePos`). Restore per-image state such as a decryption chain |
@@ -310,6 +310,7 @@ void SetBootloaderVersion(uint64 version);
 | `checkFirmware` | `true` | `Start` checks the stored firmware header first and answers `Error` when it is invalid |
 | `packetTimeoutMs` | `2000` | Partial packet timeout in ms; `0` disables it (see [Timing and Transport](#timing-and-transport)) |
 | `requireFinalizeChecksum` | `true` | When `false`, `Finalize` with an empty payload is accepted and writes the header without a checksum check. Use only for legacy hosts that do not send the expected header |
+| `allowUpdatesWhenReadProtected` | `false` | Allows `Erase`, `Write` and `Finalize` while read-out protection is active. Images are not authenticated (the AES modes encrypt but do not authenticate), so with this flag anyone on the transport can install code that reads out the rest of the flash, including the bootloader and its keys. Enable it only when the images are authenticated, for example by a signature checked in `OnFinalizeFirmware()` |
 
 #### UserData Handler
 
@@ -352,7 +353,7 @@ FLASHBootloader(
 | Parameter | Description |
 |-|-|
 | `startAddr`, `size` | Firmware region. The last 8 bytes hold the `FirmwareHeader` |
-| `writeAlignment` | Write granularity in bytes. Default `4`. `0` is treated as `1`. Values above `maxWriteAlignment` (16) make `Initialize()` fail with `invalidParameter`. Set it to the flash word size of the target |
+| `writeAlignment` | Write granularity in bytes. Default `4`. `0` is treated as `1`. Must be a power of two up to `maxWriteAlignment` (8, the header size), and `startAddr` and `size` must be multiples of it; otherwise `Initialize()` fails with `invalidParameter`. Set it to the flash programming unit of the target (4 on STM32F4, 8 on STM32G0/G4) |
 
 Write alignment:
 - `OnWriteMemory` requires an aligned address. The aligned part of a chunk is written directly.
@@ -366,8 +367,8 @@ Write alignment:
 
 Protection levels from the Flash adapter are mapped automatically:
 - `Level0` -- no protection, full access
-- `Level1` -- read-out protection: `Erase` and `Write` work, `Read` answers `Protected`. Unlocking (`OnUnlockDevice`) removes it
-- `Level2` -- updates are refused by policy, commands answer `AccessDenied`
+- `Level1` -- read-out protection: `Read` answers `Protected`; `Erase`, `Write` and `Finalize` answer `Protected` unless `allowUpdatesWhenReadProtected` is set. Unlocking (`OnUnlockDevice`) removes the protection
+- `Level2` -- flash changes are refused by policy: `Initialize()` returns `accessError` and the transport is not started
 
 #### Unlocking Read-Out Protection
 
@@ -509,7 +510,7 @@ Transmit path:
 A typical update sequence from the host side:
 
 1. **Ping** -- verify connection
-2. **GetInfo** -- read memory layout, check protection level and access (`accessDenied` means updates are refused)
+2. **GetInfo** -- read memory layout and protection level. Under read-out protection `Erase`, `Write` and `Finalize` answer `Protected` unless the device sets `allowUpdatesWhenReadProtected`
 3. **Erase** -- erase firmware area (async, poll with `GetStatus` until `Idle`). Restarts the write stream and the AES chain
 4. **Write** (repeated) -- stream firmware data in chunks. Only the final chunk may be shorter than the write alignment. Resend the same sequence after a lost response; the device does not write the data twice
 5. **GetHash** -- verify SHA256 of the raw data sent (ciphertext in AES mode)

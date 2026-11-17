@@ -73,8 +73,8 @@ protected:
                 return ResultStatus::ok;
                 
             case AFLASH::FlashProtectionLevel::Level1:
-                // Limited protection - bootloader can work but with restrictions
-                // External debugger access is blocked but bootloader operations should work
+                // Read-out protection: the level itself does not forbid flash changes. Erase/Write/Finalize are
+                // still refused through IsMemoryProtected() unless allowUpdatesWhenReadProtected is set
                 return ResultStatus::ok;
                 
             case AFLASH::FlashProtectionLevel::Level2:
