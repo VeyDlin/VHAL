@@ -158,13 +158,13 @@ class IBootloader;
 | `GetInfo` | `0x02` | Returns device info (version, memory layout, protection) |
 | `Erase` | `0x10` | Erases entire firmware area (async). Restarts the write stream (see [Write Stream](#write-stream)) |
 | `Write` | `0x11` | Streams firmware data (auto-increments write position). Retries with the same sequence are answered without writing twice |
-| `Read` | `0x12` | Reads firmware data back (auto-increments read position). Refused with `Protected` in AES mode and under read-out protection |
+| `Read` | `0x12` | Reads firmware data back (auto-increments read position, only once the response has been sent). Refused with `Protected` in AES mode and under read-out protection |
 | `Verify` | `0x13` | Validates firmware CRC32 against the stored header |
 | `Finalize` | `0x14` | Checks the image against the expected `FirmwareHeader` sent by the host, then writes the header. Payload: 8 bytes (crc32, size, little-endian) |
 | `ResetWritePos` | `0x15` | Restarts the write stream at position 0 |
 | `ResetReadPos` | `0x16` | Resets read position to 0 |
 | `GetHash` | `0x17` | Returns SHA256 hash of all raw data sent so far (ciphertext in AES mode) |
-| `Start` | `0x20` | Answers `Success`, then launches the application about 150 ms later so the response is sent first |
+| `Start` | `0x20` | Answers `Success`, then launches the application about 150 ms later so the response is sent first. Answers `Error` when `checkFirmware` finds no valid image, and `Busy` while an erase is running |
 | `Reset` | `0x21` | Answers `Success`, then resets the device about 150 ms later |
 | `GetStatus` | `0x30` | Returns current state and bytes received (see [API Reference](#api-reference)) |
 | `UnlockDevice` | `0x40` | Removes read protection (requires password; implemented by the inheritor, see `UnlockWithPassword`) |
@@ -199,9 +199,9 @@ A packet with `length` greater than `PacketDataMaxSize` is invalid. The bootload
 | Status | Code | Meaning |
 |-|-|-|
 | `Success` | `0x00` | OK |
-| `Error` | `0x01` | General error (for example: erase failed, flash write failed, image not aligned to a cipher block at Finalize) |
+| `Error` | `0x01` | General error (for example: erase failed, flash write failed, unaligned write, image not aligned to a cipher block at Finalize) |
 | `InvalidCommand` | `0x02` | Unknown command |
-| `InvalidParameters` | `0x03` | Bad parameters (bad length, accumulator overflow, unaligned write, wrong Finalize payload) |
+| `InvalidParameters` | `0x03` | Bad parameters (bad length, accumulator overflow, wrong Finalize payload) |
 | `Busy` | `0x04` | Device busy (an erase is running) |
 | `NotReady` | `0x05` | Not ready |
 | `Protected` | `0x06` | Memory protected: `Read` under read-out protection (RDP Level 1) or in AES mode; `Erase`, `Write` and `Finalize` under read-out protection unless `allowUpdatesWhenReadProtected` is set |
@@ -245,10 +245,10 @@ The firmware image is streamed with `Write` commands. The bootloader keeps the s
 
 ### Timing and Transport
 
-- **Partial packets.** `packetTimeoutMs` (public, default `2000`, `0` disables) sets how long a partial packet may wait for its remaining bytes. When the timeout expires, the bootloader drops the `0xAA` byte and resynchronises. The timer starts from the last byte received.
-- **Responses are never lost.** If the transport reports `busy`, the bootloader keeps one pending response and sends it from a later `Process()` once `IsReadyToSend()` is true. While a response is pending, the bootloader does not parse new packets, start an erase step, or perform a deferred Start or Reset. A second response while one is pending is dropped.
+- **Partial packets.** `packetTimeoutMs` (public, default `10000`, `0` disables) bounds how long an incomplete packet may wait at the front of the receive buffer. The timer starts when the incomplete packet reaches the front, not from the last byte received, so steady traffic after a stale header does not keep it alive. When the timeout expires, the bootloader drops the `0xAA` byte and resynchronises. Set it longer than the transport needs for one full packet including its retries (CompactStreamingProtocol retries a fragment after 5 s).
+- **Busy transport.** If the transport reports `busy`, the bootloader keeps one pending response and sends it from a later `Process()` once `IsReadyToSend()` is true. While a response is pending, the bootloader does not parse new packets, start an erase step, or perform a deferred Start or Reset. A second response while one is pending is dropped. A queued `Read` advances the read position only when its data is actually sent, so no data is skipped.
 - **Start and Reset delay.** `Start` and `Reset` answer `Success` first. The bootloader then waits `150 ms` (an internal constant, `responseFlushDelayMs`) and performs the jump or reset from `Process()`, after the response has been flushed.
-- **Empty-span callback.** An empty span from the transport means the transport lost framing (for example a reconnect). It clears partial input and the pending response. It does not change the erase or the write stream, so an erase started before a reconnect still completes.
+- **Empty-span callback.** An empty span from the transport means the transport lost framing (for example a reconnect). It clears partial input and drops the pending response, including a queued erase completion. It does not change the erase or the write stream, so an erase started before a reconnect still completes on the device. After a reconnect the host should re-query with `GetStatus` to learn the state of an erase.
 
 ### Virtual Methods to Implement
 
@@ -308,7 +308,7 @@ void SetBootloaderVersion(uint64 version);
 | Member | Default | Description |
 |-|-|-|
 | `checkFirmware` | `true` | `Start` checks the stored firmware header first and answers `Error` when it is invalid |
-| `packetTimeoutMs` | `2000` | Partial packet timeout in ms; `0` disables it (see [Timing and Transport](#timing-and-transport)) |
+| `packetTimeoutMs` | `10000` | Partial packet timeout in ms, measured per packet from when it reaches the front of the receive buffer; `0` disables it (see [Timing and Transport](#timing-and-transport)) |
 | `requireFinalizeChecksum` | `true` | When `false`, `Finalize` with an empty payload is accepted and writes the header without a checksum check. Use only for legacy hosts that do not send the expected header |
 | `allowUpdatesWhenReadProtected` | `false` | Allows `Erase`, `Write` and `Finalize` while read-out protection is active. Images are not authenticated (the AES modes encrypt but do not authenticate), so with this flag anyone on the transport can install code that reads out the rest of the flash, including the bootloader and its keys. Enable it only when the images are authenticated, for example by a signature checked in `OnFinalizeFirmware()` |
 
@@ -374,11 +374,14 @@ Protection levels from the Flash adapter are mapped automatically:
 
 The `UnlockWithPassword` helper checks a password in constant time and then calls `flashAdapter.DisableReadProtection()`. There is no default password. The expected value must come from the application's own secure storage.
 
+The protocol requires at least 16 password bytes (a shorter `UnlockDevice` answers `InvalidParameters`), and the helper requires the password to have exactly the size of the expected value. The example therefore uses a 16-byte `std::array`:
+
 ```cpp
 class MyBootloader : public FLASHBootloader<> {
 protected:
     ResultStatus OnUnlockDevice(std::span<const uint8> password) override {
-        static const std::array<uint8, 8> expectedPassword = { /* from secure storage */ };
+        // 16 bytes is the minimum the protocol accepts; the value comes from secure storage
+        static const std::array<uint8, 16> expectedPassword = { /* from secure storage */ };
         return UnlockWithPassword(password, expectedPassword);
     }
 };
@@ -493,8 +496,14 @@ Receive path:
 
 Transmit path:
 - `IsReadyToSend()` is `true` only while connected and no fragment transfer is in progress. The bootloader holds its response until then.
-- `SendData()` returns `notReady` when not connected, `busy` while the protocol is transmitting, and `error` when the protocol fails.
+- `SendData()` returns `notReady` when not connected, `busy` while the protocol is transmitting, and `error` when the protocol fails. It returns `ok` once the protocol has accepted the message, even if the first fragment could not be handed to the BLE stack yet: the protocol retries that fragment from its timer.
 - A TX timeout does not reset the bootloader. Lost fragments are retransmitted by the protocol.
+
+Receive path, CRC failures: a fragment whose CRC does not match drops one byte and the parser scans on, so a valid fragment directly behind a corrupted one is delivered in the same pass without waiting for a retransmission.
+
+Known limitations of the transport:
+- Acknowledgements carry only the fragment index. A late ACK for a previous message can be taken for the first fragment of the next message.
+- A message abandoned after its retries (about 20 s) is dropped without notice to the bootloader. The host recovers by retrying the command.
 
 ### Message Toggle Flag
 
