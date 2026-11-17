@@ -118,12 +118,19 @@ The table lists adapters selected by the current port headers, not a hardware va
 | Platform | Adapters |
 |----------|----------|
 | STM32G0 | UART, I2C, ADC, TIM, GPIO, DAC, DMA, IWDG |
-| STM32G4 | UART, ADC, TIM, GPIO, DAC, DMA, IWDG, COMP |
+| STM32G4 | UART, I2C, ADC, TIM, GPIO, DAC, DMA, IWDG, COMP |
 | STM32F4 | UART, SPI, I2C, ADC, TIM, GPIO, DAC, IWDG, FLASH |
 | ENS001 | UART, SPI, I2C, ADC, TIM, GPIO, IWDG, FLASH, COMP, WaveGenerator, Boost, PGA, PMU |
-| ESP32 | UART, SPI, I2C, ADC, DAC, I2S, GPIO, GPTimer, LEDC, MCPWM, DSI, PPA, LDO |
+| ESP32 | UART, SPI, I2C, ADC, DAC, I2S, GPIO, GPTimer, LEDC, MCPWM, DSI, PPA, LDO, IWDG |
 
 ## Getting Started
+
+Project templates:
+
+- [STM32G0](.demo/STM32G0/README.md): standalone CMake and ARM GCC.
+- [ESP32](.demo/ESP32/README.md): ESP-IDF, with the same Application/task structure as the STM32 example; ESP32-C3 by default.
+
+For ESP32, follow the ESP-IDF build instructions in its template. For STM32:
 
 1. Install the required tools (CMake, Ninja, ARM GCC, OpenOCD)
 2. Clone the repository with submodules
