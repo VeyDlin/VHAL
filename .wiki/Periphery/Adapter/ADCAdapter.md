@@ -91,6 +91,43 @@ On STM32 G0, attach the DMA adapter with `SetDMA()` before starting a DMA-backed
 | `onInterrupt` | `std::function<void(Irq, uint8 channel)>` | Conversion complete (with channel number) |
 | `onError` | `std::function<void(Error)>` | Conversion error |
 
+## ESP32 Port
+
+`AADC` is `ADCAdapterESP` (`Periphery/Adapter/Port/ESP32/Common/ADCAdapterESP.h`), built on the ESP-IDF `esp_adc` oneshot and calibration API. `HandleType` is `void`.
+
+```cpp
+AADC(adc_unit_t unit);
+```
+
+The project must list the `esp_adc` ESP-IDF component in `REQUIRES` of its `main/CMakeLists.txt`.
+
+- Resolution: `SetParameters()` returns `ResultStatus::notSupported` when the resolution is outside `SOC_ADC_RTC_MIN_BITWIDTH` to `SOC_ADC_RTC_MAX_BITWIDTH`. On classic ESP32 this range is 9 to 12 bits. Samples wider than 8 bits are read as 16-bit values.
+- Regular groups hold up to 8 channels. `ConfigInjectedGroup()` returns `notSupported`. `maxSamplingTimeNs` is not used on ESP32.
+- `SetAttenuation(AttenuationOption val)` takes one of `AADC::Attenuation::Db0`, `Db2_5`, `Db6`, `Db12` (default `Db12`). The value applies to channels configured after the call, so call it before `ConfigRegularGroup()`. Channels already configured keep their attenuation.
+- `Calibration()` creates calibration data for every configured channel of the regular group. Call it after `ConfigRegularGroup()`. It returns `noInit` before `SetParameters()`, `notReady` when no channel is configured, `notSupported` when the ESP-IDF build has no calibration scheme, and `error` on driver failure. Reconfiguring a rank discards its calibration, so run `Calibration()` again.
+- `ReadVoltage(uint8 rank = 1)` converts the channel of the given rank and returns `Result<uint32>` in millivolts. Errors: `noInit` before `SetParameters()`, `outOfRange` when the rank is not configured, `notReady` when that rank has no calibration, `error` on driver failure.
+- `RawToVoltage(uint32 raw, uint8 rank = 1)` converts a raw sample for the given rank without starting a conversion and returns `Result<uint32>` in millivolts. Errors: `outOfRange`, `notReady`, `error`.
+- `ReadByteArrayAsync` (`ReadAsync`, `ReadArrayAsync`) returns `notSupported`.
+
+Reading a voltage in millivolts:
+
+```cpp
+AADC adc1(ADC_UNIT_1);
+
+adc1.SetParameters({
+    .resolution = AADC::Resolution::B12
+});
+
+adc1.SetAttenuation(AADC::Attenuation::Db12);
+adc1.ConfigRegularGroup({ .continuousMode = AADC::ContinuousMode::Single }, { { 0, 0 } }); // ADC1 channel 0
+adc1.Calibration();
+
+Result<uint32> voltage = adc1.ReadVoltage(1);
+if (voltage.IsOk()) {
+    uint32 millivolts = voltage.Value();
+}
+```
+
 ## BSP Configuration Example
 
 ```cpp

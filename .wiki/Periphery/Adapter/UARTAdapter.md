@@ -66,7 +66,7 @@ struct Parameters {
 
 | Method | Return | Description |
 |--------|--------|-------------|
-| `SetParameters(Parameters val)` | `void` | Apply configuration and reinitialize |
+| `SetParameters(Parameters val)` | `ResultStatus` | Apply configuration and reinitialize |
 | `SetTimeout(uint32 val)` | `void` | Set timeout for synchronous operations (ms) |
 | `SetContinuousAsyncTxMode(bool)` | `ResultStatus` | Enable/disable continuous TX interrupt mode |
 | `SetContinuousAsyncRxMode(bool)` | `ResultStatus` | Enable/disable continuous RX interrupt mode |
@@ -84,6 +84,29 @@ struct Parameters {
 |----------|------|-------------|
 | `onInterrupt` | `std::function<void(Irq irqType)>` | Called when TX/RX completes asynchronously |
 | `onError` | `std::function<void(Error errorType)>` | Called on communication error |
+
+## ESP32 Port
+
+`AUART` is `UARTAdapterESP` (`Periphery/Adapter/Port/ESP32/Common/UARTAdapterESP.h`), built on the ESP-IDF UART driver. `HandleType` is `void`.
+
+```cpp
+AUART(uart_port_t uartPort, int tx, int rx, int rts = UART_PIN_NO_CHANGE, int cts = UART_PIN_NO_CHANGE, uint32 bufSize = 1024);
+```
+
+- `bufSize` is the driver RX and TX ring buffer size in bytes.
+- `Parameters::mode` and `Parameters::overSampling` are not applied on ESP32. `baudRate`, `stopBits`, `parity` and `flowControl` are applied.
+- `IrqHandler()` does nothing on ESP32. The driver handles its own interrupts.
+- `SetContinuousAsyncTxMode()` returns `notSupported`.
+- `ReadArrayAsync` (`ReadAsync`, `ReadArrayAsync`):
+  - Returns `notAvailable` while continuous RX mode is on.
+  - Returns `busy` while a read is in progress.
+  - Returns `noInit` before `SetParameters()` has installed the driver.
+  - Fills the buffer in the background. `onInterrupt(Irq::Rx)` is called once, when the buffer is full.
+- Continuous RX mode (`SetContinuousAsyncRxMode(true)`): `onInterrupt(Irq::Rx)` is called for every received byte. Read the byte with `GetLastRxData()` in the callback. `SetContinuousAsyncRxMode(true)` returns `busy` while an asynchronous read is in progress.
+- RX callbacks and `onError` run in a background FreeRTOS task (`uart_rx`), not in an interrupt context. The task is created on first use and stopped when `SetParameters()` reinitializes the port.
+- `WriteArrayAsync` and the other asynchronous writes copy the data into the driver TX buffer and call `onInterrupt(Irq::Tx)` from the calling context before returning.
+- `onError` reports `Error::Overrun` (FIFO overflow or buffer full), `Error::Frame` and `Error::Parity`. `Error::Noise` is not reported.
+- Synchronous `Read` returns `timeout` when fewer bytes than requested arrive within the timeout. Synchronous `Write` returns `timeout` when the TX buffer does not drain within the timeout.
 
 ## BSP Configuration Example (STM32)
 

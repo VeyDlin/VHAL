@@ -115,6 +115,35 @@ AGPIO::AnalogInit({ GPIOA, 0 });
 | `interruptPeripheryInit` | `std::function<ResultStatus()>` | Custom interrupt initialization |
 | `eventPeripheryInit` | `std::function<ResultStatus()>` | Custom event initialization |
 
+## ESP32 Port
+
+`AGPIO` is `GPIOAdapterESP` (`Periphery/Adapter/Port/ESP32/Common/GPIOAdapterESP.h`). `PortType` is `void`, so the pin is given as a number:
+
+```cpp
+AGPIO(uint8 gpioPin, bool gpioInversion = false);
+```
+
+- `Output` and `OpenDrain` keep the input enabled, so `GetState()` returns the real pad level. `Toggle()` flips the last value written with `Set`/`Reset`/`SetState`, not the pad reading.
+- `Mode::Alternate`, `Mode::AlternateOpenDrain` and the `Mode::Event*` modes return `ResultStatus::notSupported`.
+- The three interrupt modes (`InterruptRising`, `InterruptFalling`, `InterruptRisingFalling`) register a handler through the shared ESP-IDF GPIO ISR service, which is installed on first use. `onInterrupt` runs in interrupt context.
+- `interruptPeripheryInit` is optional on ESP32. When it is not set, initialization succeeds without calling it.
+- A copied `AGPIO` does not take over the interrupt handler of the original. The copy starts without an attached interrupt; assignment detaches the interrupt of the target before copying.
+
+Button interrupt:
+
+```cpp
+AGPIO button(0);
+
+button.SetParameters({
+    .mode = AGPIO::Mode::InterruptFalling,
+    .pull = AGPIO::Pull::Up
+});
+
+button.onInterrupt = [](bool state) {
+    // Interrupt context: keep the handler short and non-blocking
+};
+```
+
 ## BSP Configuration Example
 
 ```cpp

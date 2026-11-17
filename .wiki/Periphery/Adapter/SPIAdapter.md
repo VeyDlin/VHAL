@@ -88,6 +88,27 @@ struct Parameters {
 | `onInterrupt` | `std::function<void(Irq)>` | Called on async TX/RX completion |
 | `onError` | `std::function<void(Error)>` | Called on SPI error |
 
+## ESP32 Port
+
+`ASPI` is `SPIAdapterESP` (`Periphery/Adapter/Port/ESP32/Common/SPIAdapterESP.h`), built on the ESP-IDF SPI master driver. `HandleType` is `void`.
+
+```cpp
+ASPI(spi_host_device_t spiHost, int mosi, int miso, int sclk, int cs = -1, uint32 maxTransfer = 4096);
+```
+
+- `maxTransfer` is the largest transfer the bus accepts, default 4096 bytes. It is limited by the driver's maximum transaction length for the bus.
+- Synchronous transfers larger than the limit are split into chunks automatically. If `cs >= 0` (hardware chip select), the bus is acquired for the whole transfer, so chip select stays asserted across the chunks.
+- Two adapters may share one SPI host. The first adapter that initializes the host defines the bus limit; a later adapter keeps its own limit, capped by the bus limit.
+- Asynchronous transfers (`WriteAsync`, `ReadAsync`, `WriteReadAsync` and the array variants):
+  - Only one transfer is in flight at a time. If the previous one has not finished, the call returns `busy`.
+  - Asynchronous transfers are not chunked. A size above the limit returns `outOfRange`.
+- `onInterrupt` is called from the ESP-IDF post-transaction callback (interrupt context) when an asynchronous transfer completes. Synchronous transfers do not call it.
+- A synchronous call waits for a pending asynchronous transfer first. If it does not finish within the timeout, the call returns `timeout`.
+- `Direction::Tx` marks the device as transmit-only. The driver then does not limit the clock to what the read path can sample, which is required above 26.6 MHz on pins routed through the GPIO matrix (for example a 40 MHz display).
+- If the device cannot be added (for example an unsupported clock), `SetParameters()` returns `error` and the bus stays allocated until reset; a later `SetParameters()` with valid parameters reuses it.
+- `Mode::Slave` returns `ResultStatus::notSupported`.
+- Transfers return `noInit` until `SetParameters()` has initialized the device.
+
 ## BSP Configuration Example
 
 ```cpp

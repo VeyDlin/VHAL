@@ -25,8 +25,8 @@ SerialBuffer<128> rxBuffer(uart1);
 // Later, in your main loop:
 while (rxBuffer.IsReady()) {
     auto result = rxBuffer.Pop();
-    if (result.type == Status::ok) {
-        uint8 byte = result.data;
+    if (result.IsOk()) {
+        uint8 byte = result.Value();
         // process byte
     }
 }
@@ -37,9 +37,9 @@ while (rxBuffer.IsReady()) {
 ## SerialBuffer
 
 **Header:** `SerialBuffer.h`
-**Depends on:** `RingBuffer<uint8, BufferSize>`
+**Depends on:** `RingBuffer<uint8, BufferSize>` (`Utilities/Buffer/RingBuffer.h`)
 
-A template class that wraps a `RingBuffer` and hooks into a `UARTAdapter`'s Rx interrupt to collect incoming bytes automatically.
+A template class that wraps a `RingBuffer` and hooks into an `AUART` (platform UART adapter) Rx interrupt to collect incoming bytes automatically.
 
 ### Template Parameters
 
@@ -53,7 +53,7 @@ A template class that wraps a `RingBuffer` and hooks into a `UARTAdapter`'s Rx i
 SerialBuffer<256> rxBuf(uart1);
 ```
 
-Accepts a `UARTAdapter&`. Registers an interrupt callback that pushes every received byte into the internal ring buffer.
+Accepts an `AUART&`. Registers an interrupt callback that pushes every received byte into the internal ring buffer.
 
 ### Usage Example
 
@@ -64,8 +64,8 @@ SerialBuffer<64> rxBuf(uart2);
 void processSerial() {
     while (rxBuf.IsReady()) {
         auto result = rxBuf.Pop();
-        if (result.type == Status::ok) {
-            handleByte(result.data);
+        if (result.IsOk()) {
+            handleByte(result.Value());
         }
     }
 }
@@ -82,9 +82,9 @@ uint16 pending = rxBuf.Size();
 ## SerialFIFO
 
 **Header:** `SerialFIFO.h`
-**Depends on:** `StaticFifo<1, ElementsCount>`
+**Depends on:** `StaticFifo<ElementsCount, uint8>` (`Utilities/Buffer/StaticFifo.h`)
 
-A template class that wraps a `StaticFifo` (element size 1 byte) and hooks into a `UARTAdapter`'s Rx interrupt to collect incoming bytes automatically.
+A template class that wraps a `StaticFifo` of `uint8` elements and hooks into an `AUART` (platform UART adapter) Rx interrupt to collect incoming bytes automatically.
 
 ### Template Parameters
 
@@ -98,7 +98,7 @@ A template class that wraps a `StaticFifo` (element size 1 byte) and hooks into 
 SerialFIFO<256> rxFifo(uart1);
 ```
 
-Accepts a `UARTAdapter&`. Registers an interrupt callback that pushes every received byte into the internal FIFO.
+Accepts an `AUART&`. Registers an interrupt callback that pushes every received byte into the internal FIFO.
 
 ### Usage Example
 
@@ -109,8 +109,8 @@ SerialFIFO<128> rxFifo(uart3);
 void processSerial() {
     while (rxFifo.IsReady()) {
         auto result = rxFifo.Pop();
-        if (result.type == Status::ok) {
-            handleByte(result.data);
+        if (result.IsOk()) {
+            handleByte(result.Value());
         }
     }
 }
@@ -130,19 +130,19 @@ size_t pending = rxFifo.Count();
 
 | Method      | Return Type        | Description                                      |
 |-------------|--------------------|--------------------------------------------------|
-| `Clear()`   | `Status::statusType` | Clears all data from the buffer                |
+| `Clear()`   | `ResultStatus`     | Clears all data from the buffer                  |
 | `IsReady()` | `bool`             | Returns `true` if there is data available to read |
 | `Size()`    | `uint16`           | Returns the number of bytes currently buffered   |
-| `Pop()`     | `Status::info<uint8>` | Removes and returns the oldest byte (`.data`) with a status (`.type`) |
+| `Pop()`     | `Result<uint8>`    | Removes and returns the oldest byte (`Value()`) with a status (`IsOk()`, `Error()`) |
 
 ### SerialFIFO\<ElementsCount\>
 
 | Method      | Return Type        | Description                                      |
 |-------------|--------------------|--------------------------------------------------|
-| `Clear()`   | `Status::statusType` | Clears all data from the FIFO                  |
+| `Clear()`   | `ResultStatus`     | Clears all data from the FIFO                    |
 | `IsReady()` | `bool`             | Returns `true` if there is data available to read |
 | `Count()`   | `size_t`           | Returns the number of bytes currently in the FIFO |
-| `Pop()`     | `Status::info<uint8>` | Removes and returns the oldest byte (`.data`) with a status (`.type`) |
+| `Pop()`     | `Result<uint8>`    | Removes and returns the oldest byte (`Value()`) with a status (`IsOk()`, `Error()`) |
 
 ---
 

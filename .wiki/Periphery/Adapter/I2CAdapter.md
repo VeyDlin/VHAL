@@ -86,6 +86,21 @@ struct Parameters {
 | `onError` | `std::function<void(Error)>` | Communication error |
 | `onComplete` | `std::function<void()>` | Async operation completed |
 
+## ESP32 Port
+
+`AI2C` is `I2CAdapterESP` (`Periphery/Adapter/Port/ESP32/Common/I2CAdapterESP.h`), built on the ESP-IDF I2C master driver. `HandleType` is `void`.
+
+```cpp
+AI2C(i2c_port_num_t port, int sda, int scl);
+```
+
+- Master only. `Mode::Slave` returns `ResultStatus::notSupported`.
+- Operations return `noInit` until `SetParameters()` has created the bus.
+- Read and write calls with a device address of 128 or more return `ResultStatus::badAddress`. The address is compared against 128 only in these calls; `CheckDevice` and `Scan` do not check it.
+- `digitalFilter`: when non-zero it is used as the glitch filter width. When zero, the driver uses 7.
+- Asynchronous methods (`CheckDeviceAsync`, `ScanAsync`, `WriteByteArrayAsync`, `ReadByteArrayAsync`) return `ResultStatus::notSupported`.
+- Internal pull-ups: the bus is created with the internal pull-ups enabled when `analogFilter` is `false`, and with them disabled when `analogFilter` is `true`.
+
 ## BSP Configuration Example
 
 ```cpp

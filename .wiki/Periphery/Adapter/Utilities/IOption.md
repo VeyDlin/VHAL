@@ -81,6 +81,8 @@ A bitmask option. Supports bitwise OR to combine flags and `Has()` to check if a
 ```cpp
 struct ConfigOption : IOptionFlag<uint8> {
     using IOptionFlag::IOptionFlag;
+    // operator| returns IOptionFlag<uint8>; this constructor lets a combination such as EnableDMA | EnableIRQ initialize ConfigOption
+    constexpr ConfigOption(const IOptionFlag<uint8>& flags) noexcept : IOptionFlag(flags) { }
 };
 
 struct Config {
@@ -90,6 +92,8 @@ struct Config {
     static constexpr ConfigOption EnableBoth{EnableDMA | EnableIRQ};
 };
 ```
+
+`operator|` and `operator&` return the base type `IOptionFlag<CodeType>`, not the derived type. A derived flag type therefore declares a converting constructor from `IOptionFlag<CodeType>`, as `ConfigOption` does above. The I2S adapter's `SlotOption` (`Periphery/Adapter/I2SAdapter.h`) uses the same declaration.
 
 ### API
 
@@ -101,7 +105,7 @@ struct Config {
 | `operator CodeType()` | Implicit conversion |
 | `operator\|`, `operator\|=` | Combine flags |
 | `operator&` | Mask flags |
-| `Has(IOptionFlag flag)` | Check if all bits in `flag` are set |
+| `Has(const IOptionFlag& flag)` | Check if all bits in `flag` are set |
 | `operator==`, `operator!=` | Exact comparison |
 
 ### Usage

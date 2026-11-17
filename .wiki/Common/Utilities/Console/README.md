@@ -267,8 +267,6 @@ console.Log("[WARN]", "Low batt"); // "[WARN] [00:00:01:003] Low batt\r\n"
 
 All five levels use public, configurable label fields: `verboseMark`, `debugMark`, `infoMark`, `warningMark`, and `errorMark`. The corresponding stream manipulators use the same fields. Labels must point to strings that remain valid while the console uses them.
 
-**VHAL 0.2.1 caveat:** the current source initializes `warningMark` to `"[ERROR]"` and `errorMark` to `"[WARNING]"`. Set them explicitly as above when conventional labels are required. The documentation does not imply that these defaults have been fixed in the library.
-
 ### Reading Input
 
 ```cpp
