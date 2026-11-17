@@ -114,12 +114,8 @@ public:
 
 
     void PushBack(const T& value) {
-        if (size_ >= capacity_) Grow(size_ + 1);
-        T* data = RawData();
-        if (data) {
-            new (&data[size_]) T(value);
-            size_++;
-        }
+		// value may refer into our own buffer, which Grow can free
+		PushBack(T(value));
     }
 
     void PushBack(T&& value) {
@@ -151,13 +147,14 @@ public:
 
     void Insert(std::size_t index, const T& value) {
         if (index > size_) return;
-        if (size_ >= capacity_) Grow(size_ + 1);
+		T copy(value);
+		if (size_ >= capacity_) Grow(size_ + 1);
         T* data = RawData();
         for (std::size_t i = size_; i > index; i--) {
             new (&data[i]) T(static_cast<T&&>(data[i - 1]));
             data[i - 1].~T();
         }
-        new (&data[index]) T(value);
+		new (&data[index]) T(static_cast<T&&>(copy));
         size_++;
     }
 

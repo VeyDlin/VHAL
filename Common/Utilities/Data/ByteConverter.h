@@ -9,7 +9,7 @@ public:
 	// Copy data from FROM_DATA to TO_ARRAY starting at startToCopyPosition
 	template <typename TO_ARRAY, typename FROM_DATA>
 	static void ToArrayFromDataCopy(TO_ARRAY &array, FROM_DATA &copyData, uint16 startToCopyPosition = 0) {
-		memcpy(&array + startToCopyPosition, &copyData, sizeof(FROM_DATA));
+		memcpy(reinterpret_cast<uint8*>(&array) + startToCopyPosition, &copyData, sizeof(FROM_DATA));
 	}
 
 
@@ -64,7 +64,7 @@ public:
 	template<typename dataType>
 	static void SetByte(dataType& data, uint8 val, uint8 bytePosition) {
 		SystemAssert(sizeof(dataType) > bytePosition);
-		*(static_cast<uint8*>(data) + bytePosition) = val;
+		*(reinterpret_cast<uint8*>(&data) + bytePosition) = val;
 	}
 
 
@@ -109,7 +109,7 @@ public:
 
 	// Sets the low 16 bits of a uint32
 	static inline void SetLow(uint32 &to, uint16 set) {
-		 to &= 0xFF << 16;
+		 to &= 0xFFFF0000u;
 		 to |= set;
 	}
 

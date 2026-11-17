@@ -40,7 +40,7 @@ protected:
             if(data != nullptr) {
                 if(data->Addres() == address && 
                     (
-                        length == 0 ||
+						(length == 0 && currentOffset + data->DataTypeSize() <= Size()) ||
 						(data->DataTypeSize() == length &&
 						currentOffset + length <= Size())
 				    )

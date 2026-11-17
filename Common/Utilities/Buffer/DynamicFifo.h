@@ -38,6 +38,10 @@ public:
 
     template <typename dataType>
     bool Push(const dataType& data, dataSizeType dataSize) {
+		if (dataSize > sizeof(dataType)) {
+			return false;
+		}
+
         System::CriticalSection(true);
         if (!isReady) {
             System::CriticalSection(false);

@@ -26,10 +26,7 @@ A lightweight, stream-style console I/O library for embedded systems (VHAL). Pro
 
 Console console;
 
-// Explicit labels also work around swapped warning/error defaults in VHAL 0.2.1.
-console.warningMark = "[WARNING]";
-console.errorMark = "[ERROR]";
-
+// The default labels are [WARNING] and [ERROR]; reassign them only to customize.
 // Attach a write handler (e.g. UART transmit)
 console.SetWriteHandler([](const char* data, size_t size) {
     UART_Transmit(data, size);
@@ -265,7 +262,7 @@ console.Error("Overtemperature");  // "[ERROR] [00:00:01:002] Overtemperature\r\
 console.Log("[WARN]", "Low batt"); // "[WARN] [00:00:01:003] Low batt\r\n"
 ```
 
-All five levels use public, configurable label fields: `verboseMark`, `debugMark`, `infoMark`, `warningMark`, and `errorMark`. The corresponding stream manipulators use the same fields. Labels must point to strings that remain valid while the console uses them.
+All five levels use public, configurable label fields: `verboseMark`, `debugMark`, `infoMark`, `warningMark`, and `errorMark`. Their defaults are `[VERBOSE]`, `[DEBUG]`, `[INFO]`, `[WARNING]`, and `[ERROR]`. The corresponding stream manipulators use the same fields. Labels must point to strings that remain valid while the console uses them.
 
 ### Reading Input
 

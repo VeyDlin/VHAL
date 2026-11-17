@@ -38,7 +38,7 @@ URgb c = URgb::Red();  // {0xFF, 0x00, 0x00}
 
 ```cpp
 FRgb linear(1.0f, 0.5f, 0.0f);
-URgb bytes(linear);              // → {255, 128, 0} (with rounding)
+URgb bytes(linear);              // → {255, 128, 0} (with rounding; channels outside 0.0–1.0 are clamped)
 
 URgb raw(200, 100, 50);
 FRgb normalized(raw);            // → {0.784, 0.392, 0.196}

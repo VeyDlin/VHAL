@@ -41,7 +41,7 @@ Buffer layout:
 ```cpp
 VSTD::Handle h = heap.Allocate(64);
 void* ptr = h.Data();       // resolve current pointer
-std::size_t sz = h.Size();  // allocation size
+std::size_t sz = h.Size();  // allocation size, rounded up to a multiple of 8 bytes
 bool ok = h.IsValid();      // check if alive
 ```
 

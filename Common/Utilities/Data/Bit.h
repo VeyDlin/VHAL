@@ -114,7 +114,7 @@ public:
 	template<typename T, typename T1, typename T2>
 	static inline void ClearAt(T &value, T1 bits, T2 position) {
 		SystemAssert((sizeof(T) * 8U) > position);
-		value ^= ~(static_cast<T>(static_cast<T>(bits) << static_cast<T>(position)));
+		value &= ~(static_cast<T>(static_cast<T>(bits) << static_cast<T>(position)));
 	}
 
 	// Writes a bit at a specific position

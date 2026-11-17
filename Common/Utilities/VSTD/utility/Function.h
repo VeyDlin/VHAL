@@ -20,18 +20,17 @@ private:
 
     struct ICallable {
         virtual Ret Invoke(Args... args) = 0;
-        virtual void Destroy() = 0;
         virtual ~ICallable() = default;
     };
 
     template<typename F>
     struct Callable : ICallable {
         F func;
-        Callable(F&& f) : func(static_cast<F&&>(f)) {}
+		template<typename G>
+		Callable(G&& f) : func(static_cast<G&&>(f)) {}
         Ret Invoke(Args... args) override {
             return func(static_cast<Args&&>(args)...);
         }
-        void Destroy() override { func.~F(); }
     };
 
     alignas(std::max_align_t) unsigned char sbo_[SboSize];
@@ -123,7 +122,6 @@ private:
 
     void Cleanup() {
         if (callable_) {
-            callable_->Destroy();
             callable_->~ICallable();
             callable_ = nullptr;
         }

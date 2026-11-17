@@ -2,6 +2,7 @@
 
 #include "Vector.h"
 #include "StringView.h"
+#include <cstdint>
 #include <string.h>
 
 namespace VSTD {
@@ -75,6 +76,13 @@ public:
         std::size_t len = strlen(str);
         if (len == 0) return;
 
+		// str may point into our own buffer, which growth below would free
+		if (IsInOwnBuffer(str)) {
+			String copy(str);
+			Append(copy.Data());
+			return;
+		}
+
         if (!data_.Empty() && data_.Back() == '\0') {
             data_.PopBack();
         }
@@ -124,7 +132,7 @@ public:
     void Erase(std::size_t index, std::size_t count = 1) {
         std::size_t len = Length();
         if (index >= len || count == 0) return;
-        if (index + count > len) count = len - index;
+		if (count > len - index) count = len - index;
         data_.EraseRange(index, count);
     }
 
@@ -177,7 +185,7 @@ public:
     String Substr(std::size_t pos, std::size_t count = Npos) const {
         std::size_t len = Length();
         if (pos >= len) return String();
-        if (count == Npos || pos + count > len) count = len - pos;
+		if (count == Npos || count > len - pos) count = len - pos;
         String result;
         result.data_.Reserve(count + 1);
         const char* d = Data();
@@ -224,6 +232,13 @@ public:
     }
 
 private:
+	bool IsInOwnBuffer(const char* str) const {
+		if (data_.Empty()) return false;
+		std::uintptr_t begin = reinterpret_cast<std::uintptr_t>(data_.Data());
+		std::uintptr_t address = reinterpret_cast<std::uintptr_t>(str);
+		return address >= begin && address < begin + data_.Size();
+	}
+
     void EnsureNullTerminated() {
         if (data_.Empty() || data_.Back() != '\0') {
             data_.PushBack('\0');

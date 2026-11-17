@@ -132,7 +132,7 @@ public:
         if constexpr (std::is_signed_v<T>) {
             if (number < 0 && format == Format::Dec) {
                 isNegative = true;
-                unsignedNumber = static_cast<uint64>(-static_cast<int64_t>(number));
+				unsignedNumber = static_cast<uint64>(-(static_cast<int64_t>(number) + 1)) + 1;
             } else {
                 unsignedNumber = static_cast<uint64>(number);
             }
@@ -420,7 +420,7 @@ private:
         }
         
         if (negative) {
-            result = -static_cast<int64_t>(uResult);
+			result = static_cast<int64_t>(0 - uResult);
         } else {
             result = static_cast<int64_t>(uResult);
         }

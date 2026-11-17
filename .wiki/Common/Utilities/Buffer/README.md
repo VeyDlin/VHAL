@@ -229,7 +229,7 @@ fifo.Clear();
 
 | Method | Return | Description |
 |---|---|---|
-| `Push(const dataType&, dataSizeType)` | `bool` | Push `dataSize` bytes from `data`. Returns false if not enough space or busy. |
+| `Push(const dataType&, dataSizeType)` | `bool` | Push `dataSize` bytes from `data`. Returns false if not enough space, busy, or `dataSize` is larger than `sizeof(dataType)`. |
 | `Pop(dataType&)` | `size_t` | Pop the oldest entry into `data`. Returns the byte count, or 0 if empty/busy. |
 | `Clear()` | `bool` | Empty the buffer. Returns false if busy. |
 | `GetCount()` | `size_t` | Total bytes currently occupied in the heap (including size prefixes). |
