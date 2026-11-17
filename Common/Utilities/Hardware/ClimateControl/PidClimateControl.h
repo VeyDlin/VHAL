@@ -9,19 +9,22 @@ class PidClimateControl: public IClimateControl<Type> {
 	using typename Base::WorkMode;
 	using typename Base::ControlMode;
 	using Base::timeStep;
-	using Base::onUpdateState;
 	using Base::workMode;
 	using Base::controlMode;
 	using Base::holdTemperature;
 	using Base::waitHold;
-	using Base::onHold;
 
 public:
+	using Base::onUpdateState;
+	using Base::onHold;
+
     static constexpr Type temperatureTolerance = Type(0.5f);
 
 
 private:
     PidController<Type> pidController;
+    bool stabilizationEnabled = false;  // When true, the stabilization event is the only trigger for onHold
+    bool holdReported = false;          // onHold has already fired for the current hold
 
 
 public:
@@ -48,14 +51,15 @@ public:
 
 
     void SetStabilizationDetection(Type errorTolerance, uint32 timeMs) {
+        stabilizationEnabled = true;
         pidController.SetStabilizedEvent({
             .enable = true,
             .errorMax = errorTolerance,
             .errorMin = -errorTolerance,
             .timeMs = Type(static_cast<int>(timeMs)),
-            .onStabilized = [this](PidController<Type>& pid) {
-                if (!waitHold && onHold) {
-                    onHold();
+            .onStabilized = [this](PidController<Type>&) {
+                if (!waitHold) {
+                    NotifyHold();
                 }
             }
         });
@@ -73,7 +77,10 @@ public:
             Type currentTemp = onUpdateState(Type(0));
 
             pidController.SetReference(holdTemperature);
-            pidController.SetFeedback(currentTemp, 1000 / timeStep.count());
+            // A zero period has no frequency; the PID then keeps its previous output.
+            std::chrono::milliseconds::rep periodMs = timeStep.count();
+            uint32 frequency = periodMs > 0 ? static_cast<uint32>(1000 / periodMs) : 0;
+            pidController.SetFeedback(currentTemp, frequency);
             pidController.Resolve();
 
             Type pidOutput = pidController.Get();
@@ -129,8 +136,19 @@ private:
                 break;
         }
 
-        if(wasWaitingHold && !waitHold && onHold) {
-            onHold();
+        // With stabilization detection enabled, the stabilization callback is the single trigger.
+        if (wasWaitingHold && !waitHold && !stabilizationEnabled) {
+            NotifyHold();
         }
+    }
+
+
+    // Fires onHold at most once per hold.
+    void NotifyHold() {
+        if (holdReported || !onHold) {
+            return;
+        }
+        holdReported = true;
+        onHold();
     }
 };

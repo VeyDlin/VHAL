@@ -69,6 +69,9 @@ For FOC, `IQ<24>` is recommended (precision comparable to float, range of ±128 
 iq24 a = 3.14f;
 iq24 b(1.5);
 
+// Out-of-range float/double saturate to the type's maximum or minimum; NaN converts to 0.
+iq24 big(1e30);   // raw = INT32_MAX
+
 // From integer — explicit conversion
 iq24 c(IQ<24>(5));
 
@@ -134,7 +137,7 @@ iq24 s = sin(angle);  // ≈ 1.0
 iq24 c = cos(angle);  // ≈ 0.0
 ```
 
-Argument is in radians, any range (automatic normalization to [0, 2π)).
+Argument is in radians, any range (automatic normalization to [0, 2π)). The normalization uses a 2π constant with 32 fractional bits, so large arguments stay accurate.
 
 Precision depends on the LUT size (default is 256 points ≈ 14 bits). See [LUT Configuration](#lut-configuration).
 
@@ -148,6 +151,10 @@ iq24 root = sqrt(val);  // ≈ 1.4142
 ```
 
 Returns 0 for negative and zero arguments.
+
+Division by zero does not trap: `x / 0` saturates to the maximum for positive `x` and to the minimum for negative `x`; `0 / 0` returns 0. Results that do not fit the type also saturate.
+
+Negating or taking `abs` of the most negative raw value saturates to the maximum.
 
 ### atan2
 

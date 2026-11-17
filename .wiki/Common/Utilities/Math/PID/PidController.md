@@ -217,6 +217,8 @@ All setter methods return `PidController&`, enabling method chaining.
 | `SetFeedback(Type, uint32)` | Set feedback and frequency together |
 | `SetFrequency(uint32)` | Set the sampling frequency in Hz |
 
+A sampling frequency of 0 has no sampling period. `Resolve()` then does nothing: the output (`Get()`), the last error and all internal state keep their previous values. No NaN or infinity is produced.
+
 ### Coefficient Setters
 
 | Method | Description |

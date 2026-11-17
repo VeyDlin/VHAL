@@ -18,7 +18,9 @@ private:
 	} in;
 
 public:
-  	LowPassFilter() { }
+  	LowPassFilter() {
+			UpdateCoefficients();
+		}
 
 	LowPassFilter(Type frequencyTime, Type samplingTime) {
 		in.frequencyTime = frequencyTime;

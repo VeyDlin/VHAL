@@ -53,20 +53,20 @@ template<int Size>
 inline constexpr SinLUT<Size> sinLut{};
 
 
-// Lookup sin from quarter-wave table with linear interpolation
+// Lookup sin from quarter-wave table with linear interpolation.
+// The angle has 32 fractional bits: a 2*pi constant kept at Q bits loses about one LSB per turn, which is visible for large angles.
 template<int Q, int L>
-IQ<Q, L> SinLookup(IQ<Q, L> angle) {
+IQ<Q, L> SinLookupQ32(int64_t angle32) {
 	const auto& lut = sinLut<L>;
 
-	constexpr int32_t two_pi_raw = static_cast<int32_t>(6.283185307179586 * (int32_t(1) << Q));
+	constexpr int64_t two_pi32 = static_cast<int64_t>(6.283185307179586 * 4294967296.0);
 	constexpr int32_t pi_raw = static_cast<int32_t>(3.141592653589793 * (int32_t(1) << Q));
 	constexpr int32_t half_pi_raw = static_cast<int32_t>(1.5707963267948966 * (int32_t(1) << Q));
 
-	int32_t a = angle.raw;
-
-	// Reduce to [0, 2*pi)
-	a = a % two_pi_raw;
-	if (a < 0) a += two_pi_raw;
+	// Reduce to [0, 2*pi) in Q32, then drop to Q
+	angle32 = angle32 % two_pi32;
+	if (angle32 < 0) angle32 += two_pi32;
+	int32_t a = static_cast<int32_t>(angle32 >> (32 - Q));
 
 	// Determine quadrant and reduce to [0, pi/2]
 	bool negate = false;
@@ -100,17 +100,17 @@ IQ<Q, L> SinLookup(IQ<Q, L> angle) {
 	return IQ<Q, L>::FromRaw(negate ? -result : result);
 }
 
-} 
+}
 
 
 // ADL-compatible free functions
 template<int Q, int L>
 IQ<Q, L> sin(IQ<Q, L> x) {
-	return IQDetail::SinLookup(x);
+	return IQDetail::SinLookupQ32<Q, L>(static_cast<int64_t>(x.raw) * (int64_t(1) << (32 - Q)));
 }
 
 template<int Q, int L>
 IQ<Q, L> cos(IQ<Q, L> x) {
-	constexpr int32_t half_pi_raw = static_cast<int32_t>(1.5707963267948966 * (int32_t(1) << Q));
-	return IQDetail::SinLookup(IQ<Q, L>::FromRaw(x.raw + half_pi_raw));
+	constexpr int64_t half_pi32 = static_cast<int64_t>(1.5707963267948966 * 4294967296.0);
+	return IQDetail::SinLookupQ32<Q, L>(static_cast<int64_t>(x.raw) * (int64_t(1) << (32 - Q)) + half_pi32);
 }

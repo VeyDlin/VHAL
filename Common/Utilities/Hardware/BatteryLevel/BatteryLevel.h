@@ -1,5 +1,6 @@
 #pragma once
 #include <VHAL.h>
+#include <vector>
 #include <Utilities/Math/Filter/Hysteresis.h>
 #include <Utilities/Math/MathUtilities.h>
 #include <Utilities/Math/IQMath/IQ.h>
@@ -20,7 +21,7 @@ private:
     uint8 cells;                     // Number of cells in the battery pack
     uint16 divisions;                // Number of charge level divisions
     uint16 profileCount;             // Number of points in the battery profile
-    BatteryProfilePoint* profile;    // Array of battery profile points
+    std::vector<BatteryProfilePoint> profile;  // Battery profile points, owned by the object
 
 
 public:
@@ -28,9 +29,8 @@ public:
 		cells = cellsQuantity;
 		divisions = divisionsQuantity;
 
-		profileCount = batteryProfile.size();
-		profile = new BatteryProfilePoint[profileCount];
-		std::copy(batteryProfile.begin(), batteryProfile.end(), profile);
+		profile.assign(batteryProfile.begin(), batteryProfile.end());
+		profileCount = static_cast<uint16>(profile.size());
 
 		if (jitter <= Type(0)) {
 			Type maxVoltage = profile[0].voltage * Type(static_cast<int>(cells));

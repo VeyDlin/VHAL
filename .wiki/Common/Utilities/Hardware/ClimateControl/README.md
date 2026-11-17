@@ -90,7 +90,7 @@ climate.onUpdateState = [](float dirty) -> float {
 };
 ```
 
-**`onHold`** -- Called once when the current temperature first reaches the hold target.
+**`onHold`** -- Called once per hold. In PID mode without stabilization detection, it fires when the temperature first reaches the hold target. With stabilization detection enabled, the stabilization event is the only trigger.
 
 ```cpp
 climate.onHold = []() {
@@ -201,7 +201,7 @@ climate.SetStabilizationDetection(
 );
 ```
 
-The stabilization callback triggers `onHold` when conditions are met.
+The stabilization callback triggers `onHold` when conditions are met. `onHold` fires at most once per hold, even if the temperature stabilizes again later. `SwitchClimateControl` is not affected by this rule and keeps firing `onHold` when its hold condition is reached.
 
 ## API Reference
 

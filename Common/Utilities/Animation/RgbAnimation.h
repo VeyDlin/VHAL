@@ -1,20 +1,21 @@
 #pragma once
-#include <Utilities/Data/Colors.h>
+#include <concepts>
+#include <Utilities/Data/Colors/Colors.h>
 #include "Animation.h"
 
 
-template<RealType T = float, typename AnimationType = Animation<T>>
+template<std::floating_point T = float, typename AnimationType = Animation<T>>
 class RgbAnimation {
 public:
-	std::function<void(Colors::IRgb<T>)> onUpdateValue;
-	std::function<void(Colors::IRgb<T>)> onStart;
-	std::function<void(Colors::IRgb<T>)> onStop;
+	std::function<void(Colors::FRgb)> onUpdateValue;
+	std::function<void(Colors::FRgb)> onStart;
+	std::function<void(Colors::FRgb)> onStop;
 
 
 private:
 	AnimationType progress;
-	Colors::IRgb<T> from{};
-	Colors::IRgb<T> to{};
+	Colors::FRgb from{};
+	Colors::FRgb to{};
 
 
 public:
@@ -46,13 +47,13 @@ public:
 
 	// ==================== Tween ====================
 
-	void Tween(Colors::IRgb<T> target, std::chrono::milliseconds duration) {
+	void Tween(Colors::FRgb target, std::chrono::milliseconds duration) {
 		from = Lerp(from, to, progress.GetValue());
 		to = target;
 		progress.Tween(0, 1, duration);
 	}
 
-	void Tween(Colors::IRgb<T> start, Colors::IRgb<T> target, std::chrono::milliseconds duration) {
+	void Tween(Colors::FRgb start, Colors::FRgb target, std::chrono::milliseconds duration) {
 		from = start;
 		to = target;
 		progress.Tween(0, 1, duration);
@@ -69,7 +70,7 @@ public:
 		progress.SetSpringEpsilon(eps);
 	}
 
-	void SetTarget(Colors::IRgb<T> target) {
+	void SetTarget(Colors::FRgb target) {
 		from = Lerp(from, to, progress.GetValue());
 		to = target;
 		progress.SetValue(0);
@@ -116,15 +117,15 @@ public:
 		return progress.IsActive();
 	}
 
-	Colors::IRgb<T> GetValue() const {
+	Colors::FRgb GetValue() const {
 		return Lerp(from, to, progress.GetValue());
 	}
 
-	Colors::IRgb<T> GetEndValue() const {
+	Colors::FRgb GetEndValue() const {
 		return to;
 	}
 
-	void SetValue(Colors::IRgb<T> val) {
+	void SetValue(Colors::FRgb val) {
 		from = val;
 		to = val;
 		progress.SetValue(0);
@@ -132,11 +133,11 @@ public:
 
 
 private:
-	static Colors::IRgb<T> Lerp(const Colors::IRgb<T>& a, const Colors::IRgb<T>& b, T t) {
+	static Colors::FRgb Lerp(const Colors::FRgb& a, const Colors::FRgb& b, T t) {
 		return {
-			a.r + (b.r - a.r) * t,
-			a.g + (b.g - a.g) * t,
-			a.b + (b.b - a.b) * t
+			static_cast<float>(a.r + (b.r - a.r) * t),
+			static_cast<float>(a.g + (b.g - a.g) * t),
+			static_cast<float>(a.b + (b.b - a.b) * t)
 		};
 	}
 };

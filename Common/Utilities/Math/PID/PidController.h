@@ -111,8 +111,9 @@ public:
         output = _output;
     }
 
+    // A sampling frequency of 0 has no sampling period, so the controller keeps its previous output and state.
     PidController& Resolve() {
-        if (state.frozen) {
+        if (state.frozen || input.frequency == 0) {
             return *this;
         }
 
@@ -166,8 +167,7 @@ public:
 
     PidController& SetRoll(Roll val) {
         roll = val;
-        using std::abs;
-        calculatedValues.fullRoll = roll.maxInput + abs(roll.minInput);
+        calculatedValues.fullRoll = roll.maxInput - roll.minInput;
         calculatedValues.halfRoll = calculatedValues.fullRoll / Type(2);
         return *this;
     }
