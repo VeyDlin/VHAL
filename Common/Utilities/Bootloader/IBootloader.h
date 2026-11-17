@@ -370,6 +370,14 @@ protected:
         header.size = bytesWritten;
         header.crc32 = *crc;
 
+        // A repeated Finalize (lost response) finds the same header already in flash: do not program it again,
+        // programming a non-erased word fails on flash such as STM32G0/G4
+        std::array<uint8, sizeof(FirmwareHeader)> currentHeader{};
+        if (OnReadMemory(GetFirmwareHeaderAddress(), currentHeader) == ResultStatus::ok &&
+            std::memcmp(currentHeader.data(), &header, sizeof(FirmwareHeader)) == 0) {
+            return ResultStatus::ok;
+        }
+
         return OnWriteMemory(
             GetFirmwareHeaderAddress(),
             std::span<const uint8>(reinterpret_cast<const uint8*>(&header), sizeof(FirmwareHeader))
@@ -860,7 +868,7 @@ protected:
     
 
 
-    void HandleRead(const CommandPacket& /*packet*/) {
+    void HandleRead(const CommandPacket& packet) {
         if (state == State::Processing) {
             SendError(currentSequence, BootloaderStatus::Busy);
             return;
@@ -875,6 +883,27 @@ protected:
         // Read-out protection (RDP)
         if (IsMemoryProtected()) {
             SendError(currentSequence, BootloaderStatus::Protected);
+            return;
+        }
+        
+        // Offset form: 4-byte little-endian offset, retry-safe, does not move the streaming position
+        if (packet.length == sizeof(uint32)) {
+            uint32 offset = 0;
+            std::memcpy(&offset, packet.data.data(), sizeof(uint32));
+
+            if (bytesWritten == 0 || offset >= bytesWritten) {
+                SendResponse(BootloaderStatus::EndOfData);
+                return;
+            }
+
+            uint32 sizeAtOffset = std::min(bytesWritten - offset, static_cast<uint32>(PacketDataMaxSize));
+            SendFlashData(offset, sizeAtOffset);
+            return;
+        }
+
+        // Streaming form (no data) is the only other valid length
+        if (packet.length != 0) {
+            SendError(currentSequence, BootloaderStatus::InvalidParameters);
             return;
         }
         
@@ -893,7 +922,23 @@ protected:
         // Calculate how much data we can read
         uint32 remainingData = bytesWritten - readPosition;
         uint32 sizeToRead = std::min(remainingData, static_cast<uint32>(PacketDataMaxSize));
-        uint32 address = GetApplicationStartAddress() + readPosition;
+
+        // The position moves only when the response was accepted; a queued one moves it when it is really sent
+        if (SendFlashData(readPosition, sizeToRead)) {
+            if (hasPendingResponse) {
+                pendingReadAdvance = sizeToRead;
+            } else {
+                readPosition += sizeToRead;
+            }
+        }
+    }
+
+
+    // Sends sizeToRead bytes of the image starting at stream offset 'offset' as a Success response, or an error.
+    // Returns true when the response was sent or queued
+    bool SendFlashData(uint32 offset, uint32 sizeToRead) {
+        uint32 address = GetApplicationStartAddress() + offset;
+        bool sent = false;
         
         state = State::Processing;
         
@@ -912,15 +957,7 @@ protected:
             }
             // Check that encrypted data will fit in response
             else if (encryptedData.size() <= PacketDataMaxSize) {
-                // Advance only when the response was accepted, a dropped one is requested again
-                if (SendResponse(BootloaderStatus::Success, encryptedData)) {
-                    if (hasPendingResponse) {
-                        // Queued: the position moves when FlushPendingResponse() really sends it
-                        pendingReadAdvance = sizeToRead;
-                    } else {
-                        readPosition += sizeToRead;
-                    }
-                }
+                sent = SendResponse(BootloaderStatus::Success, encryptedData);
             } else {
                 SendError(currentSequence, BootloaderStatus::Error);
             }
@@ -929,6 +966,7 @@ protected:
         }
         
         state = State::Idle;
+        return sent;
     }
     
 
