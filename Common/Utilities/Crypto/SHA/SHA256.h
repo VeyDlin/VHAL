@@ -59,8 +59,9 @@ public:
         buffer[count % 64] = 0x80;
         count++;
 
-        // If not enough space for length, add another block
-        if (count % 64 > 56) {
+        // If not enough space for length, add another block. count % 64 == 0 means the 0x80 byte filled the block
+        // (message length 63 mod 64): that block must be processed before the length block is built.
+        if (count % 64 == 0 || count % 64 > 56) {
             while (count % 64 != 0) {
                 buffer[count % 64] = 0;
                 count++;
