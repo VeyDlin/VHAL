@@ -87,6 +87,10 @@
 		#include <Adapter/Port/STM32/G4/DMAAdapterG4.h>
 	#endif
 
+	#ifdef VHAL_STM32_G4_I2C
+		#include <Adapter/Port/STM32/G4/I2CAdapterG4.h>
+	#endif
+
 	#ifdef VHAL_STM32_G4_TIM
 		#include <Adapter/Port/STM32/G4/TIMAdapterG4.h>
 	#endif

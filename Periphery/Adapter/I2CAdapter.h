@@ -68,6 +68,8 @@ public:
 	std::function<void()> onSlaveEndTransfer;
 	std::function<void(Error errorType)> onError;
 	std::function<void()> onComplete;
+	std::function<void(bool isRead)> onSlaveAddressMatch;
+	std::function<void(bool wasRead)> onSlaveStop;
 	// TODO: [VHAL] [I2C] [ADAPTER] [ADD] Add CheckDevice and ScanAsync
 
 
@@ -230,6 +232,22 @@ protected:
 	virtual inline void CallSlaveEndTransfer() {
 		if(onSlaveEndTransfer != nullptr) {
 			onSlaveEndTransfer();
+		}
+	}
+
+
+
+	virtual inline void CallSlaveAddressMatch(bool isRead) {
+		if(onSlaveAddressMatch != nullptr) {
+			onSlaveAddressMatch(isRead);
+		}
+	}
+
+
+
+	virtual inline void CallSlaveStop(bool wasRead) {
+		if(onSlaveStop != nullptr) {
+			onSlaveStop(wasRead);
 		}
 	}
 
