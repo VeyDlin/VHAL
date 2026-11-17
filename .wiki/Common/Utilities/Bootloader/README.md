@@ -16,6 +16,7 @@ Extensible firmware bootloader framework with command protocol, Flash memory sup
 - [FLASHBootloader -- Flash Memory Bootloader](#flashbootloader----flash-memory-bootloader)
 - [AESFLASHBootloader -- Encrypted Bootloader](#aesflashbootloader----encrypted-bootloader)
 - [NRF8001Communication -- BLE Transport](#nrf8001communication----ble-transport)
+- [BLECommunication -- BLE Transport](#blecommunication----ble-transport)
 - [Firmware Update Workflow](#firmware-update-workflow)
 - [API Reference](#api-reference)
 
@@ -397,6 +398,81 @@ bleCom.Process();  // Polls BLE stack, handles connections, processes data
 | `00004244-...` | TX characteristic (BLENotify) |
 
 The transport handles BLE connection/disconnection events, protocol state reset on reconnection, and asynchronous multi-packet transmission via `CompactStreamingProtocol`.
+
+## BLECommunication -- BLE Transport
+
+`ICommunication` implementation over the generic `BLEAdapter` (`Periphery/Adapter/BLEAdapter.h`). It works with any port of that adapter, such as `ABLE` on ESP32, and does not depend on a particular chip. It is wire-compatible with `NRF8001Communication`: the same clients talk to either one.
+
+```cpp
+template<size_t MaxPacketCount = 4, size_t RxQueuePackets = 16>
+class BLECommunication : public ICommunication;
+```
+
+Header: `#include <Utilities/Bootloader/Communication/BLECommunication.h>`
+
+### Usage
+
+```cpp
+static ABLE bleAdapter;
+static BLECommunication<> bleCom(bleAdapter);
+
+bleCom.RegisterService();                       // 1. GATT table, before the radio starts
+bleAdapter.SetParameters({ .deviceName = "MyDevice" });   // 2. radio starts
+BLEAdapter::AdvertisingConfig advertising;
+bleCom.StartAdvertising(advertising);           // 3. advertises the bootloader service UUID
+
+// In the main loop
+bleCom.Process();
+```
+
+`Initialize()` does the same as `RegisterService()` and is safe to call again.
+
+### Setup order
+
+| Step | Call | Notes |
+|-|-|-|
+| 1 | `RegisterService()` | Must run before the radio starts. Returns `busy` once `SetParameters()` has started it |
+| 2 | `ble.SetParameters()` | Builds the GATT table and starts the radio |
+| 3 | `StartAdvertising()` | Advertises the bootloader UUID unless the config gives `serviceUuids`. Keep the manufacturer data alive while advertising |
+| 4 | `Process()` | Call it regularly. It handles connection changes, drains received packets and runs the protocol timeouts |
+
+### BLE Service Layout
+
+| UUID | Role |
+|-|-|
+| `00004242-...` | Bootloader service |
+| `00004243-...` | RX characteristic (write with and without response) |
+| `00004244-...` | TX characteristic (notify) |
+
+### Wire compatibility with NRF8001Communication
+
+Same: service and characteristic UUIDs, `CompactStreamingProtocol<20, MaxPacketCount>` framing, 20-byte packets, a 256-byte send limit, the empty-span reset signal to the bootloader on a stream error, the protocol reset on connect, and the cleared transmit flag on connect and disconnect.
+
+Different, and why:
+
+- No `0x2901` descriptors. The adapter has no descriptor API, so the user descriptions "Bootloader", "RX" and "TX" are not published.
+- The RX characteristic also accepts writes without response. The nRF8001 side accepted only writes with response. Clients that write with response still work.
+- Advertising is restarted after each disconnect. The NRF8001 driver does this itself, and the ESP32 port does not, so this class does it.
+- An empty `SendData()` returns `ok` and does nothing. NRF8001Communication marks the transmission as busy and never clears the mark until the next connection.
+- Receiving the peer's empty end-of-stream packet clears the transmit flag. NRF8001Communication does the same; it is kept because it follows from the protocol's stream-complete callback.
+
+### Threading model
+
+- `onWrite` (RX) and `onEvent` run in the BLE host task. They only copy a value into a fixed queue of `RxQueuePackets` packets, or set a flag. The copy is the only code inside the critical section.
+- If the queue is full, the packet is dropped and counted. `GetDroppedPackets()` returns the count. The protocol's retries recover the stream.
+- `Process()`, `SendData()` and the data callback run in the application task. The protocol is used from that task only.
+
+### onEvent takeover
+
+The constructor sets `ble.onEvent`, because the adapter has one event slot. An application that needs the events sets `BLECommunication::onEvent` instead. It runs in the host task, after this class has handled the event. Do not set `ble.onEvent` after the constructor, or this class stops seeing connections.
+
+### Limits and notes
+
+- Call `RegisterService()` before `SetParameters()`. After that the GATT table is fixed.
+- The object owns the GATT objects that the adapter points to. It must outlive the radio, and it is not copyable or movable.
+- Only `Connected` and `Disconnected` are used. Other events are forwarded to `onEvent`.
+- A disconnect and a reconnect that both happen between two `Process()` calls look like one unbroken link, so the protocol is not reset. `NRF8001Communication` has the same limit.
+- Compiled, not yet run on hardware. The ESP32 harness check `CheckBleCommunication.cpp` builds it, and the main project builds.
 
 ## Firmware Update Workflow
 
