@@ -173,7 +173,7 @@ The internal timer thread is **started automatically** when an animation begins 
 AnimationRTOS<float, 256> anim;
 
 // Set update rate
-anim.SetFps(60);                        // 60 FPS (~17ms interval); clamped to 1..1000 fps
+anim.SetFps(60);                        // 60 FPS (16 ms interval, whole milliseconds); clamped to 1..1000 fps
 anim.SetInterval(std::chrono::milliseconds(10));  // or explicit interval
 
 // Use like regular Animation — timer starts/stops automatically
@@ -196,7 +196,7 @@ Animation finishes or Stop() called → timer.Stop() → thread suspended again
 
 ## RgbAnimation
 
-Animates `Colors::FRgb` color values (from `Utilities/Data/Colors/Colors.h`, three `float` channels `r`, `g`, `b`) using a single internal `Animation<T>` as a 0→1 progress driver. Lightweight — one animation instance, not three. `T` must be `float` or `double`; the channels are stored as `float`.
+Animates `Colors::FRgb` color values (from `Utilities/Data/Colors/Colors.h`, three `float` channels `r`, `g`, `b`) using a single internal `Animation<T>` as a 0→1 progress driver. Lightweight — one animation instance, not three. `T` must be a floating-point type such as `float` or `double`; the channels are stored as `float`.
 
 ```cpp
 #include <Utilities/Animation/RgbAnimation.h>

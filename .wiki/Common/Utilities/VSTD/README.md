@@ -107,7 +107,7 @@ heap.FragmentationPercent();  // free bytes within data region, 0–100
 
 ### PoolAllocator
 
-Fixed-size block allocator. O(1) alloc/dealloc via free list. Implements `IAllocator`. `BlockSize` is the minimum usable size of a block: blocks are laid out at a stride rounded up to pointer alignment, so any `BlockSize` works. `GetBlockSize()` returns the requested `BlockSize`.
+Fixed-size block allocator. O(1) alloc/dealloc via free list. Implements `IAllocator`. `BlockSize` is the minimum usable size of a block: blocks are laid out at a stride rounded up to pointer alignment, so any `BlockSize` of at least `sizeof(void*)` works. `GetBlockSize()` returns the requested `BlockSize`.
 
 ```cpp
 VSTD::PoolAllocator<64, 16> pool;   // 16 blocks of 64 bytes each
@@ -291,19 +291,19 @@ opt.Reset();          // destroy value
 Type-safe tagged union. Stack-only.
 
 ```cpp
-VSTD::Variant<int, float, VSTD::String> v;
+VSTD::Variant<int, float, VSTD::String> v;   // holds int 0 by default
 
-v.Set<int>(42);
-v.Is<int>();           // true
-v.Get<int>();          // 42
+v = 42;
+VSTD::HoldsAlternative<int>(v);   // true
+VSTD::Get<int>(v);                // 42
 
-v.Set<float>(3.14f);
-v.Index();             // 1 (index of float in type list)
+v.Emplace<float>(3.14f);
+v.Index();                        // 1 (index of float in type list)
 
 // Visit pattern
-v.Visit([](auto& val) {
+VSTD::Visit([](auto& val) {
     // val is the active type
-});
+}, v);
 ```
 
 ### UniquePtr
@@ -312,12 +312,12 @@ Exclusive ownership smart pointer. Heap-backed through handles.
 
 ```cpp
 auto ptr = VSTD::MakeUnique<int>(42);
-auto ptr2 = VSTD::MakeUnique<MyStruct>(&pool, arg1, arg2);  // with allocator
+auto ptr2 = VSTD::MakeUnique<MyStruct>(static_cast<VSTD::IAllocator*>(&pool), arg1, arg2);  // with allocator
 
 *ptr;            // 42
 ptr->Method();
 ptr.Get();       // raw pointer (or nullptr)
-bool ok = ptr;   // true if valid
+bool ok = static_cast<bool>(ptr);   // true if valid
 
 ptr.Reset();     // destroy and deallocate
 Handle h = ptr.Release();  // release ownership, return handle
@@ -353,7 +353,7 @@ Type-erased callable wrapper. Small-buffer optimization (32 bytes) with heap fal
 VSTD::Function<int(int, int)> fn = [](int a, int b) { return a + b; };
 int result = fn(2, 3);  // 5
 
-bool callable = fn;     // true if holds a callable
+bool callable = static_cast<bool>(fn);   // true if holds a callable
 
 // Lambdas with captures
 int x = 10;
@@ -379,7 +379,7 @@ auto d3 = VSTD::Delegate<int()>::Bind<MyClass, &MyClass::GetValue>(&obj);
 auto d4 = VSTD::Delegate<void()>::FromRaw(myStub, context);
 
 d2();             // call
-bool ok = d2;     // true if bound
+bool ok = static_cast<bool>(d2);   // true if bound
 d2.Reset();       // unbind
 ```
 

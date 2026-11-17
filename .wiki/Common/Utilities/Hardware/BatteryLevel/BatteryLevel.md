@@ -47,7 +47,7 @@ struct BatteryProfilePoint {
 };
 ```
 
-Points must be ordered from **highest voltage/level to lowest**. The class walks the array from the bottom up and uses linear extrapolation between adjacent points.
+Points must be ordered from **highest voltage/level to lowest**. The class walks the array from the bottom up and uses linear interpolation between the two adjacent points that enclose the voltage.
 
 ## Constructor
 
@@ -82,6 +82,8 @@ uint8 div = battery.GetDivision(7.6f); // internally divides by 2
 ```
 
 **Auto-calculated jitter:** With profile voltages 4.2 V and 3.0 V, 1 cell, and 10 divisions, the jitter is `(4.2 - 3.0) / 10 / 2 = 0.06 V`.
+
+**Memory:** The constructor copies the profile points into a `std::vector` that the object owns. Construction allocates heap memory, and so does each copy of the object. The memory is freed when the object is destroyed. The initializer list does not need to outlive the constructor call.
 
 ## GetDivision
 

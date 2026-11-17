@@ -64,7 +64,7 @@ template <typename Type = float>
 class PidController;
 ```
 
-`Type` must be `float`, `double`, or `long double`. Defaults to `float`.
+`Type` must satisfy the `RealType` concept: `float`, `double`, `long double`, or a fixed-point `IQ<Q, L>` type such as `iq24` (see [IQMath](../IQMath/README.md)). Defaults to `float`.
 
 ```cpp
 PidController<>      pidFloat;   // float (default)
@@ -135,7 +135,7 @@ struct Roll {
 };
 ```
 
-When enabled, the controller computes the shortest-path error across the wrap boundary. For example, with a 0-360 range, an error from 350 to 10 degrees is computed as +20 rather than -340.
+When enabled, the controller computes the shortest-path error across the wrap boundary. For example, with a 0-360 range, an error from 350 to 10 degrees is computed as +20 rather than -340. The cycle length is `maxInput - minInput`, so the range does not have to start at zero: `{true, 180.0f, -180.0f}` gives a -180 to 180 degree cycle.
 
 ### RollDeadZone
 

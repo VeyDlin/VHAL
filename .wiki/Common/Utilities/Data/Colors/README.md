@@ -82,10 +82,12 @@ Typical values for common RGB LEDs:
 
 ## Animation + Gamma
 
-`FRgb` and `URgb` are compatible with `Animation<T>` (support `+`, `-`, `*`, `Magnitude()`, `Normalized()`). Always animate in linear space, apply gamma only at the PWM output:
+`RgbAnimation` (from `Utilities/Animation/RgbAnimation.h`) animates `FRgb` values. `Animation<T>` only accepts a `RealType` (`float`, `double` or `IQ<Q>`), so it cannot take a color. Always animate in linear space, apply gamma only at the PWM output:
 
 ```cpp
-Animation<FRgb> anim;
+using namespace Colors;
+
+RgbAnimation<float> anim;
 GammaProfile gamma = { ... };
 
 anim.onUpdateValue = [&](FRgb color) {

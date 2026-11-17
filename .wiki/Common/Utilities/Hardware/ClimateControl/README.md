@@ -81,7 +81,7 @@ climate.SetControlMode(IClimateControl<>::ControlMode::Cooling);
 **`onUpdateState`** -- Called each control cycle. Receives the control output (`dirty`) as a float and must return the current temperature.
 
 - In `SwitchClimateControl`: `dirty` is `1`, `-1`, or `0`.
-- In `PidClimateControl`: `dirty` is a continuous value in the configured output range.
+- In `PidClimateControl`: `dirty` is a continuous value in the configured output range. Each cycle the controller first calls `onUpdateState(0)` to read the temperature (its return value is used), then calls it again with the output only when the output is non-zero (that return value is ignored).
 
 ```cpp
 climate.onUpdateState = [](float dirty) -> float {
@@ -90,7 +90,7 @@ climate.onUpdateState = [](float dirty) -> float {
 };
 ```
 
-**`onHold`** -- Called once per hold. In PID mode without stabilization detection, it fires when the temperature first reaches the hold target. With stabilization detection enabled, the stabilization event is the only trigger.
+**`onHold`** -- Called at most once; the controller never re-arms it. In PID mode without stabilization detection, it fires when the temperature first comes within `temperatureTolerance` of the hold target. With stabilization detection enabled, the stabilization event is the only trigger.
 
 ```cpp
 climate.onHold = []() {
@@ -201,7 +201,7 @@ climate.SetStabilizationDetection(
 );
 ```
 
-The stabilization callback triggers `onHold` when conditions are met. `onHold` fires at most once per hold, even if the temperature stabilizes again later. `SwitchClimateControl` is not affected by this rule and keeps firing `onHold` when its hold condition is reached.
+The stabilization callback triggers `onHold` when conditions are met. `onHold` fires at most once, even if the temperature stabilizes again later. `SwitchClimateControl` is not affected by this rule: it also calls `onHold` at most once, when its own hold condition is reached.
 
 ## API Reference
 

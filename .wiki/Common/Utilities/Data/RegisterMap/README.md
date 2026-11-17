@@ -81,11 +81,11 @@ Abstract base class for all register entries. Provides the interface that `Regis
 | `bool write` | Write access flag (default `true`) |
 | `bool read` | Read access flag (default `true`) |
 | `void LinkToMap(IRegisterMap&)` | Binds this register to a map instance |
-| `virtual size_t DataTypeSize()` | Size of the stored data type in bytes |
-| `virtual uint32 Addres()` | Returns the register address |
+| `virtual size_t DataTypeSize() const` | Size of the stored data type in bytes |
+| `virtual uint32 Addres() const` | Returns the register address |
 | `virtual bool WriteEvent(const uint8* buffer)` | Called before a write is committed; return `false` to reject |
-| `virtual bool CanOnWrite()` | Whether an `onWrite` callback is set |
-| `virtual bool CanOnRead()` | Whether an `onRead` callback is set |
+| `virtual bool CanOnWrite() const` | Whether an `onWrite` callback is set |
+| `virtual bool CanOnRead() const` | Whether an `onRead` callback is set |
 | `virtual size_t GetUnsafe(uint8* outData) const` | Copies register data to the output buffer |
 
 ---
@@ -194,6 +194,8 @@ reg = 3.14f;          // stored as 314 (int16)
 float v = reg.Get();  // returns 3.14f
 ```
 
+The optional third constructor argument is the write hook, `std::function<bool(const RawDataType&)>`, called with the raw value before the write commits; return `false` to reject it.
+
 ---
 
 ## RegisterDataFloat
@@ -203,7 +205,7 @@ template <uint32 Address, typename DataType = int16_t, uint32 Accuracy = 100>
 class RegisterDataFloat : public RegisterDataMutator<Address, float, DataType>;
 ```
 
-A convenience specialization of `RegisterDataMutator` that stores a float as a fixed-point integer. The `Accuracy` template parameter defines the scaling factor. A write rounds to the nearest raw value (half away from zero) and saturates to the range of `DataType`.
+A convenience specialization of `RegisterDataMutator` that stores a float as a fixed-point integer. The `Accuracy` template parameter defines the scaling factor. A write multiplies by `Accuracy` in `float`, rounds to the nearest raw value (half away from zero), and saturates to the range of `DataType`.
 
 The optional constructor argument is the write hook of `RegisterData`: `std::function<bool(const DataType&)>`, called with the raw value; return `false` to reject the write.
 

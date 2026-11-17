@@ -65,7 +65,7 @@ Declare the writer with braces (`JSON::Writer writer{std::span(buffer)};`). The 
 
 ## Writer
 
-`JSON::Writer` streams JSON output into a fixed-size `std::span<char>` buffer. All methods return `Writer&`, enabling a fluent chaining API. Nothing is allocated; when the buffer is full the writer sets `HasError()` and stops writing.
+`JSON::Writer` streams JSON output into a fixed-size `std::span<char>` buffer. All writing methods return `Writer&`, enabling a fluent chaining API. Nothing is allocated; when the buffer is full the writer sets `HasError()` and stops writing.
 
 ### Basic Object
 
@@ -155,7 +155,7 @@ w.StartObject()
 
 ### Error Handling
 
-If the buffer overflows, writing stops and `HasError()` returns `true`. The writer never writes a partial token.
+If the buffer overflows, writing stops and `HasError()` returns `true`. Characters that fit are kept, so the token that overflows may be partly written; check `HasError()` before using `GetResult()`.
 
 ```cpp
 std::array<char, 10> smallBuffer{};
@@ -375,7 +375,7 @@ Lookups and `ParseString` validate what they read:
 - Strings: escapes, `\u` sequences, raw control characters, termination.
 - Numbers and the literals `true`, `false`, `null`: the JSON grammar, and a delimiter must follow them.
 - Bracket balance of every object and array that is traversed.
-- A top-level object or array passed to a lookup must be closed. A truncated object yields no members.
+- A top-level object or array passed to a lookup must be closed. A truncated object yields no members: `GetString`, `GetNumber` and `GetBool` return `false`, and `GetRaw`, `GetArrayElement` and `FindValue` return an empty view.
 
 Not checked: the placement of `:` and `,` inside objects and arrays that are not otherwise read, and whether `}` closes a `[`. Malformed separators are rejected when they are reached during a lookup, but a document with such an error in an unrelated member is not reported as a whole.
 

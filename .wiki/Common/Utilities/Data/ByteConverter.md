@@ -21,6 +21,11 @@ uint32 val32 = ByteConverter::Create(uint16(0x1234), uint16(0x5678));  // 0x1234
 ByteConverter::SetHigh(val, uint8(0xFF));  // 0xFFCD
 ByteConverter::SetLow(val, uint8(0x00));   // 0xFF00
 
+// Set the low or high 16 bits of a uint32 in place
+uint32 wide = 0xAABBCCDD;
+ByteConverter::SetLow(wide, uint16(0x1234));   // 0xAABB1234
+ByteConverter::SetHigh(wide, uint16(0x5678));  // 0x56781234
+
 // Extract typed value from byte array
 uint8 buffer[] = {0x01, 0x02, 0x03, 0x04};
 uint32 data = ByteConverter::GetType<uint32>(buffer);
@@ -34,6 +39,10 @@ uint8 byte3 = ByteConverter::GetByte(word, 3);  // 0xAA (MSB)
 // Reverse byte order (endian swap)
 ByteConverter::ReverseArray(word);  // 0xDDCCBBAA
 
+// SetByte writes memory order: position 0 is the least significant byte on a little-endian host
+uint32 target = 0xAABBCCDD;
+ByteConverter::SetByte(target, uint8(0x11), 1);  // 0xAABB11DD
+
 // Copy between arrays and structs
 struct Packet { uint16 id; uint8 flags; };
 uint8 raw[16];
@@ -42,3 +51,5 @@ ByteConverter::ToDataFromArrayCopy(pkt, raw);        // array → struct
 ByteConverter::ToArrayFromDataCopy(raw, pkt);         // struct → array
 Packet pkt2 = ByteConverter::FromArray<Packet>(raw);  // array → struct (returns copy)
 ```
+
+The optional `startToCopyPosition` argument has different units. For `ToArrayFromDataCopy` it is a byte offset into the array. For `ToDataFromArrayCopy` and `FromArray` it is added to the source array pointer, so it counts elements of the source array (bytes for a `uint8` array).

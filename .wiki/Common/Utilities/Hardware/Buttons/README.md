@@ -414,7 +414,7 @@ Constructors cannot return a value, so an overflow in a constructor is recorded 
 
 - `Click({...})` keeps the first `MaxButtons` buttons. `IsComplete()` is `false` when any were dropped.
 - `Event({...})` keeps the first `MaxSequences` steps. `IsComplete()` is `false` when any were dropped, or a step is not complete.
-- `MakeClickActionWithHold({...})` keeps the first 4 hold buttons. The returned action's `IsComplete()` is `false` when any were dropped.
+- `MakeClickActionWithHold({...})` adds none of the hold buttons when they do not all fit in 4 slots. The returned action's `IsComplete()` is `false` in that case.
 - `Action(type, 0)` is invalid: `IsValid()` is `false`.
 
 `Core::AddEvent` and `Core::RegisterClick` refuse any of these, so an incomplete object cannot reach the update loop.
@@ -429,7 +429,7 @@ Constructors cannot return a value, so an overflow in a constructor is recorded 
 
 | Change | Action needed |
 |--------|---------------|
-| Active-low buttons are read through `AGPIO` inversion | Declare active-low buttons with `inversion = true` on the `AGPIO`. A button declared with `inversion = false` on active-low wiring is now inverted. |
+| Active-low buttons are read through `AGPIO` inversion | Declare active-low buttons with `inversion = true` on the `AGPIO`. A button declared with `inversion = false` on active-low wiring is now read as released while pressed. |
 | `AddEvent` rejects an event that is already registered | Do not register the same event twice. |
 | Sequence timeouts are idle time only | A long `VeryLong` or `Infinitely` hold no longer fails the event while held. |
 | `Core` has a second template parameter | `Core<N>` still works (`MaxClicks` defaults to 8). |

@@ -92,7 +92,7 @@ console.Write(1e20, 2);                        // "1.00e+20"
 console.Write(-1e300, 2);                      // "-1.00e+300"
 ```
 
-Values are rounded to the requested precision, half away from zero, and carry into the integer part (`9.999` with precision 2 gives `10.00`). The rounding acts on the exact binary value, so `0.995` (stored just below the tie) gives `0.99`. Magnitudes of 2^64 and above print in scientific notation with the mantissa at the requested precision; they are never `Inf`. Only values above the largest double, and the infinities, print `Inf` / `-Inf`; NaN prints `NaN`. Precision is capped at 40 digits.
+Values are rounded to the requested precision, half away from zero, and carry into the integer part (`9.999` with precision 2 gives `10.00`). The digits are produced by repeated multiplication by 10 in `double`, so rounding can differ from the exact decimal value: `0.15` (stored just below the tie) gives `0.2` with precision 1, while `0.995` gives `0.99`. Magnitudes of 2^64 and above print in scientific notation with the mantissa at the requested precision; they are never `Inf`. Only values above the largest double, and the infinities, print `Inf` / `-Inf`; NaN prints `NaN`. Precision is capped at 40 digits.
 
 ### Buffer / Hex Dump
 

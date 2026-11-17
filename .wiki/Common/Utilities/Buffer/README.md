@@ -127,7 +127,7 @@ uint16 pending = buf.GetUncommittedCount();
 |---|---|---|
 | `Push(const ElementType)` | `Status::statusType` | Push element by value. Returns `Status::filled` if full. |
 | `Push(const ElementType*)` | `Status::statusType` | Push element by pointer. Returns `Status::error` if null. |
-| `Pop()` | `Status::info<ElementType>` | Remove and return the oldest element. Returns `Status::empty` if empty, and `Status::busy` (nothing removed) while elements are marked by `MarkRead`; call `CommitReads` or `RollbackReads` first. |
+| `Pop()` | `Result<ElementType>` | Remove and return the oldest element. Returns `ResultStatus::empty` if empty, and `ResultStatus::busy` (nothing removed) while elements are marked by `MarkRead`; call `CommitReads` or `RollbackReads` first. |
 | `Peek()` | `Status::info<ElementType>` | Return the oldest element without removing it. |
 | `PeekMultiple(out, count, offset)` | `uint16` | Copy up to `count` elements starting at `offset` into `out`. Returns actual count. |
 | `operator[](uint16)` | `ElementType` | Access element by index (0 = oldest). Asserts if out of range. |
