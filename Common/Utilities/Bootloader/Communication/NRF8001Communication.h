@@ -64,11 +64,20 @@ public:
             },
             // Data received callback - pass to ICommunication callback
             [this](uint8 fragmentIndex, std::span<const uint8> data) -> bool {
-                // Retransmitted fragments are filtered by the protocol (fragment index + toggle flag)
+                // Retransmitted fragments are filtered by the protocol (message id + fragment index)
                 return this->HandleReceivedData(fragmentIndex, data);
             },
-            // No stream completion handler: a TX timeout must not reset the bootloader
-            nullptr
+            // Stream completion: an abandoned or failed outgoing message lost its tail, so the bootloader
+            // must drop partial input and the pending response
+            [this](typename Protocol::StreamResult result) -> void {
+                if (result != Protocol::StreamResult::Success) {
+                    this->NotifyBootloaderFramingLost();
+                }
+            },
+            // Receive reset: a new message started while the previous incoming one was incomplete
+            [this]() -> void {
+                this->NotifyBootloaderFramingLost();
+            }
         ),
         deviceName(customDeviceName)
     { }
@@ -214,7 +223,12 @@ private:
     void ResetTransport() {
         protocol.Reset();
         rxStaging.Clear();
+        NotifyBootloaderFramingLost();
+    }
             
+    // The empty span means "the transport lost framing": the bootloader drops its partial input and any
+    // pending response. It does not abort an erase or change the write stream (see IBootloader.h, A3).
+    void NotifyBootloaderFramingLost() {
         if (dataCallback) {
             dataCallback(std::span<const uint8>());
         }

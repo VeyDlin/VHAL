@@ -35,6 +35,7 @@ public:
         ResetWritePos = 0x15, // Reset write position to 0
         ResetReadPos = 0x16,  // Reset read position to 0
         GetHash = 0x17,      // Get SHA256 hash of raw data sent so far
+        SetIV = 0x18,        // Set the IV/initial counter of the next image (AES bootloaders)
         Start = 0x20,        // Start application
         Reset = 0x21,        // Reset device
         GetStatus = 0x30,    // Get current status
@@ -59,11 +60,11 @@ public:
 
     // Simplified firmware header - only CRC32 and size
     // PURPOSE: minimal structure for firmware validation
-    // LOCATION: at application memory start address (e.g. 0x08020000)
-    // LOGIC: if size is correct and CRC32 matches - firmware is valid
+    // LOCATION: the last 8 bytes of the application region (GetFirmwareHeaderAddress())
+    // LOGIC: crc32 and size cover the image that starts at the region start; if size is correct and CRC32 matches - firmware is valid
     struct FirmwareHeader {
-        uint32 crc32;        // CRC32 checksum of all firmware data (after this header)
-        uint32 size;         // Firmware size in bytes (excluding this header)
+        uint32 crc32;        // CRC32 checksum of the image, counted from the region start
+        uint32 size;         // Image size in bytes (the header itself is not included)
     } _APacked;
 
     // Command packet
@@ -86,11 +87,19 @@ public:
 
     bool checkFirmware = true;
 
-    // Partial packet timeout in ms (0 disables). A packet that stalls longer is dropped byte by byte
-    uint32 packetTimeoutMs = 2000;
+    // Partial packet timeout in ms (0 disables). Measured from the moment an incomplete packet reaches the front of the
+    // receive buffer; its header byte is dropped once this time has passed. Must be longer than the transport needs for
+    // one full packet including its retries (CompactStreamingProtocol retries a fragment after 5 s)
+    uint32 packetTimeoutMs = 10000;
 
     // Finalize must carry the expected FirmwareHeader. false allows legacy hosts that send an empty payload
     bool requireFinalizeChecksum = true;
+
+    // Erase/Write/Finalize while read-out protection is active (IsMemoryProtected(), e.g. RDP Level 1).
+    // Off by default: the images are not authenticated (the AES modes encrypt but do not authenticate), so anyone on
+    // the transport could install code that reads out the rest of the flash, including the bootloader and its keys.
+    // Enable only when the images are authenticated, for example by a signature checked in OnFinalizeFirmware().
+    bool allowUpdatesWhenReadProtected = false;
 
 protected:
     // Communication interface
@@ -155,8 +164,9 @@ protected:
     uint8 lastWriteSequence = 0;
     BootloaderStatus lastWriteStatus = BootloaderStatus::Success;
 
-    // Time of the last received byte in ms (uint32 keeps the store atomic on 32-bit MCUs)
-    uint32 lastByteMs = 0;
+    // Incomplete packet at the front of the receive buffer and the time it was first seen (ms)
+    bool partialPacketPending = false;
+    uint32 partialPacketSinceMs = 0;
 
     // Start is answered first and executed after the response had time to leave (0 = no start scheduled)
     uint64 startTime = 0;
@@ -166,6 +176,9 @@ protected:
     bool hasPendingResponse = false;
     ResponsePacket pendingResponse{};
     size_t pendingResponseSize = 0;
+
+    // Read size to advance once the queued Read response is actually sent (0 = no Read is queued)
+    uint32 pendingReadAdvance = 0;
     
     // User data handler
     UserDataHandler userDataHandler;
@@ -214,8 +227,12 @@ public:
             // If application didn't start, continue with bootloader
         }
         
-        // Access level is not a reason to skip the communication: command handlers refuse
-        // with AccessDenied and GetInfo reports it, so the transport always starts
+        // When the access level forbids flash changes (e.g. RDP Level 2) the bootloader does not start its transport
+        ResultStatus accessStatus = OnCheckAccessLevel();
+        if (accessStatus != ResultStatus::ok) {
+            return accessStatus;
+        }
+
         ResultStatus status = communication.Initialize();
         if (status != ResultStatus::ok) {
             return status;
@@ -295,6 +312,17 @@ protected:
 
 
     virtual std::optional<uint8> GetProtectionLevel() const { return std::nullopt; }
+
+
+
+    // Cipher reported by GetInfo: 0 = none/unknown, 1 = AES-ECB, 2 = AES-CBC, 3 = AES-CTR
+    virtual uint8 GetCipherId() const { return 0; }
+
+
+
+    // Custom command hook for inheritors. Returns false when the command is not handled here; the base class then
+    // answers InvalidCommand. A handler that returns true answers the host itself
+    virtual bool OnCommand(const CommandPacket& /*packet*/) { return false; }
     
 
 
@@ -353,6 +381,14 @@ protected:
         FirmwareHeader header{};
         header.size = bytesWritten;
         header.crc32 = *crc;
+
+        // A repeated Finalize (lost response) finds the same header already in flash: do not program it again,
+        // programming a non-erased word fails on flash such as STM32G0/G4
+        std::array<uint8, sizeof(FirmwareHeader)> currentHeader{};
+        if (OnReadMemory(GetFirmwareHeaderAddress(), currentHeader) == ResultStatus::ok &&
+            std::memcmp(currentHeader.data(), &header, sizeof(FirmwareHeader)) == 0) {
+            return ResultStatus::ok;
+        }
 
         return OnWriteMemory(
             GetFirmwareHeaderAddress(),
@@ -475,11 +511,11 @@ protected:
     void OnDataReceived(std::span<const uint8> data) {
         if (data.empty()) {
             receiveBuffer.Clear();
+            partialPacketPending = false;
             hasPendingResponse = false;
+            pendingReadAdvance = 0;
             return;
         }
-        
-        lastByteMs = static_cast<uint32>(System::GetMs());
 
         for (uint8 byte : data) {
             receiveBuffer.Push(byte);
@@ -503,6 +539,7 @@ protected:
                 break;
             }
             receiveBuffer.Pop();
+            partialPacketPending = false;
         }
 
         if (receiveBuffer.Size() == 0) {
@@ -518,6 +555,7 @@ protected:
         if (static_cast<size_t>(receiveBuffer[3]) > PacketDataMaxSize) {
             uint8 sequence = receiveBuffer[1];
             receiveBuffer.Pop();
+            partialPacketPending = false;
             SendError(sequence, BootloaderStatus::InvalidParameters);
             return true;
         }
@@ -527,24 +565,34 @@ protected:
             return DropStalledPacket();
         }
 
+        partialPacketPending = false;
         ProcessCommand(packet);
         return true;
     }
 
 
     // Called for a header that is not followed by a complete packet yet.
-    // Once the packet stalled longer than packetTimeoutMs, its header byte is dropped so the parser resynchronises
+    // The packet is timed from the moment it first reached the front of the buffer, not from the last received byte,
+    // so steady traffic behind a stale header cannot keep it alive. Once it stalled longer than packetTimeoutMs,
+    // its header byte is dropped so the parser resynchronises
     bool DropStalledPacket() {
+        uint32 now = static_cast<uint32>(System::GetMs());
+        if (!partialPacketPending) {
+            partialPacketPending = true;
+            partialPacketSinceMs = now;
+            return false;
+        }
+
         if (packetTimeoutMs == 0) {
             return false;
         }
         
-        uint32 now = static_cast<uint32>(System::GetMs());
-        if (static_cast<uint32>(now - lastByteMs) <= packetTimeoutMs) {
+        if (static_cast<uint32>(now - partialPacketSinceMs) <= packetTimeoutMs) {
             return false;
         }
         
         receiveBuffer.Pop();
+        partialPacketPending = false;
         return true;
     }
     
@@ -654,8 +702,12 @@ protected:
                 HandleUserData(packet);
                 break;
                 
+            // SetIV is handled by AES bootloaders only; OnCommand() decides for it and for unknown commands
+            case Command::SetIV:
             default:
-                SendError(packet.sequence, BootloaderStatus::InvalidCommand);
+                if (!OnCommand(packet)) {
+                    SendError(packet.sequence, BootloaderStatus::InvalidCommand);
+                }
                 break;
         }
     }
@@ -677,7 +729,8 @@ protected:
             uint32 memorySize;
             uint8 protectionLevel;  // RDP level: 0 = Level0, 1 = Level1, 2 = Level2, 255 = Unknown
             uint8 accessDenied;     // Access status: 0 = allowed, 1 = denied
-            uint8 reserved[2];      // Alignment
+            uint8 packetDataMaxSize; // Largest packet data length (PacketDataMaxSize, capped at 255)
+            uint8 cipher;           // 0 = none/unknown, 1 = AES-ECB, 2 = AES-CBC, 3 = AES-CTR
         } info;
         
         info.bootloaderVersion = bootloaderVersionValue;
@@ -701,11 +754,30 @@ protected:
             info.protectionLevel = 255; // Unknown/Not implemented
         }
         
-        info.reserved[0] = info.reserved[1] = 0;
+        info.packetDataMaxSize = static_cast<uint8>(std::min<size_t>(PacketDataMaxSize, 255));
+        info.cipher = GetCipherId();
         
         SendResponse(BootloaderStatus::Success, std::span(reinterpret_cast<const uint8*>(&info), sizeof(info)));
     }
     
+
+
+    // Erase, Write and Finalize change the image. Answers the refusal and returns true when the access level forbids
+    // flash changes, or when read-out protection is active and allowUpdatesWhenReadProtected is not set.
+    bool RefuseImageChange() {
+        if (OnCheckAccessLevel() == ResultStatus::accessError) {
+            SendError(currentSequence, BootloaderStatus::AccessDenied);
+            return true;
+        }
+
+        if (!allowUpdatesWhenReadProtected && IsMemoryProtected()) {
+            SendError(currentSequence, BootloaderStatus::Protected);
+            return true;
+        }
+
+        return false;
+    }
+
 
 
     void HandleErase(const CommandPacket& packet) {
@@ -714,13 +786,10 @@ protected:
             return;
         }
         
-        // Check access level (RDP Level 2 blocks Flash operations)
-        auto accessStatus = OnCheckAccessLevel();
-        if (accessStatus == ResultStatus::accessError) {
-            SendError(currentSequence, BootloaderStatus::AccessDenied);
+        if (RefuseImageChange()) {
             return;
         }
-        
+
         // No parameters needed - always erase entire firmware area
         uint32 address = GetMemoryStartAddress();
         uint32 size = GetMemorySize();
@@ -752,13 +821,10 @@ protected:
             return;
         }
         
-        // Check access level (RDP Level 2 blocks Flash operations)
-        ResultStatus accessStatus = OnCheckAccessLevel();
-        if (accessStatus == ResultStatus::accessError) {
-            SendError(currentSequence, BootloaderStatus::AccessDenied);
+        if (RefuseImageChange()) {
             return;
         }
-        
+
         // Simple format: just data (no address/offset parameters)
         size_t dataSize = packet.length;
         
@@ -820,7 +886,7 @@ protected:
     
 
 
-    void HandleRead(const CommandPacket& /*packet*/) {
+    void HandleRead(const CommandPacket& packet) {
         if (state == State::Processing) {
             SendError(currentSequence, BootloaderStatus::Busy);
             return;
@@ -835,6 +901,27 @@ protected:
         // Read-out protection (RDP)
         if (IsMemoryProtected()) {
             SendError(currentSequence, BootloaderStatus::Protected);
+            return;
+        }
+        
+        // Offset form: 4-byte little-endian offset, retry-safe, does not move the streaming position
+        if (packet.length == sizeof(uint32)) {
+            uint32 offset = 0;
+            std::memcpy(&offset, packet.data.data(), sizeof(uint32));
+
+            if (bytesWritten == 0 || offset >= bytesWritten) {
+                SendResponse(BootloaderStatus::EndOfData);
+                return;
+            }
+
+            uint32 sizeAtOffset = std::min(bytesWritten - offset, static_cast<uint32>(PacketDataMaxSize));
+            SendFlashData(offset, sizeAtOffset);
+            return;
+        }
+
+        // Streaming form (no data) is the only other valid length
+        if (packet.length != 0) {
+            SendError(currentSequence, BootloaderStatus::InvalidParameters);
             return;
         }
         
@@ -853,7 +940,23 @@ protected:
         // Calculate how much data we can read
         uint32 remainingData = bytesWritten - readPosition;
         uint32 sizeToRead = std::min(remainingData, static_cast<uint32>(PacketDataMaxSize));
-        uint32 address = GetApplicationStartAddress() + readPosition;
+
+        // The position moves only when the response was accepted; a queued one moves it when it is really sent
+        if (SendFlashData(readPosition, sizeToRead)) {
+            if (hasPendingResponse) {
+                pendingReadAdvance = sizeToRead;
+            } else {
+                readPosition += sizeToRead;
+            }
+        }
+    }
+
+
+    // Sends sizeToRead bytes of the image starting at stream offset 'offset' as a Success response, or an error.
+    // Returns true when the response was sent or queued
+    bool SendFlashData(uint32 offset, uint32 sizeToRead) {
+        uint32 address = GetApplicationStartAddress() + offset;
+        bool sent = false;
         
         state = State::Processing;
         
@@ -872,10 +975,7 @@ protected:
             }
             // Check that encrypted data will fit in response
             else if (encryptedData.size() <= PacketDataMaxSize) {
-                // Advance only when the response was accepted, a dropped one is requested again
-                if (SendResponse(BootloaderStatus::Success, encryptedData)) {
-                    readPosition += sizeToRead;
-                }
+                sent = SendResponse(BootloaderStatus::Success, encryptedData);
             } else {
                 SendError(currentSequence, BootloaderStatus::Error);
             }
@@ -884,6 +984,7 @@ protected:
         }
         
         state = State::Idle;
+        return sent;
     }
     
 
@@ -899,13 +1000,16 @@ protected:
 
 
     void HandleFinalize(const CommandPacket& packet) {
-        // Check access
-        ResultStatus accessStatus = OnCheckAccessLevel();
-        if (accessStatus == ResultStatus::accessError) {
-            SendError(currentSequence, BootloaderStatus::AccessDenied);
+        // During an erase the image is being cleared: a header written now would be erased or would mark garbage valid
+        if (state == State::Processing) {
+            SendError(currentSequence, BootloaderStatus::Busy);
             return;
         }
-        
+
+        if (RefuseImageChange()) {
+            return;
+        }
+
         // A failed write stream is never finalized
         if (writeStreamFailed) {
             SendError(currentSequence, writeStreamError);
@@ -982,6 +1086,12 @@ protected:
 
 
     void HandleStart() {
+        // Jumping while an erase runs would leave the flash half erased
+        if (state == State::Processing || asyncOp.type != AsyncOperation::None) {
+            SendError(currentSequence, BootloaderStatus::Busy);
+            return;
+        }
+
         if (checkFirmware && !CheckFirmware()) {
             SendError(currentSequence, BootloaderStatus::Error);
             return;
@@ -1138,9 +1248,17 @@ protected:
             pendingResponseSize
         ));
 
-        if (sendStatus != ResultStatus::busy) {
-            hasPendingResponse = false;
+        if (sendStatus == ResultStatus::busy) {
+            return;
         }
+
+        // Sent: a queued Read moves the position now. Dropped (other error): the host asks again
+        if (sendStatus == ResultStatus::ok) {
+            readPosition += pendingReadAdvance;
+        }
+
+        hasPendingResponse = false;
+        pendingReadAdvance = 0;
     }
     
 

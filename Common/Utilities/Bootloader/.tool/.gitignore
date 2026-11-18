@@ -1,0 +1,6 @@
+node_modules/
+sim/build/
+out/
+*.key
+*.vbp
+*.log

@@ -182,6 +182,61 @@ protected:
 
 
 
+    virtual uint8 GetCipherId() const override {
+        switch (aesMode) {
+            case AESMode::ECB:
+                return 1;
+
+            case AESMode::CBC:
+                return 2;
+
+            case AESMode::CTR:
+                return 3;
+        }
+        return 0;
+    }
+
+
+
+    // Handles SetIV: the host sends the IV of the next image before Erase (or ResetWritePos).
+    // Refused while an erase runs, while read-out protection or the access level forbids image changes, and in ECB
+    // mode, which has no IV
+    virtual bool OnCommand(const typename Base::CommandPacket& packet) override {
+        if (packet.command != Base::Command::SetIV) {
+            return false;
+        }
+
+        if (this->state == Base::State::Processing) {
+            this->SendError(this->currentSequence, Base::BootloaderStatus::Busy);
+            return true;
+        }
+
+        if (this->RefuseImageChange()) {
+            return true;
+        }
+
+        if (aesMode == AESMode::ECB) {
+            this->SendError(this->currentSequence, Base::BootloaderStatus::InvalidCommand);
+            return true;
+        }
+
+        if (static_cast<size_t>(packet.length) != AES<KeySize>::BLOCK_SIZE) {
+            this->SendError(this->currentSequence, Base::BootloaderStatus::InvalidParameters);
+            return true;
+        }
+
+        typename AES<KeySize>::IV newIV{};
+        std::copy_n(packet.data.begin(), AES<KeySize>::BLOCK_SIZE, newIV.begin());
+        SetIV(newIV);
+
+        // A new IV starts a new image, the same as Erase does
+        this->ResetWriteStream();
+        this->SendResponse(Base::BootloaderStatus::Success);
+        return true;
+    }
+
+
+
 private:
     static typename AES<KeySize>::Key MakeKey(std::span<const uint8> keyData) {
         typename AES<KeySize>::Key key{};
