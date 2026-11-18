@@ -21,6 +21,9 @@ EXCLUDE_DIRS = {
     "Drivers/CMSIS",
     "Drivers/HAL",
     "FreeRTOS/Kernel",
+    # Host tools: installed npm packages and the bootloader simulator are not library code
+    "node_modules",
+    "Bootloader/.tool/sim",
 }
 
 # Directories under Port/ that contain vendor device/startup files
