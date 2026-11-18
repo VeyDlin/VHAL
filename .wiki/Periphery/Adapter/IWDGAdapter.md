@@ -32,6 +32,17 @@ struct Parameters {
 | `Reset()` | `void` | Refresh the watchdog counter (must be called before deadline) |
 | `GetDeadlineMs()` | `uint32` | Get the actual configured deadline (ms) |
 
+## ESP32 Port
+
+`AIWDG` is `IWDGAdapterESP` (`Periphery/Adapter/Port/ESP32/Common/IWDGAdapterESP.h`). It is not a hardware IWDG: it uses the ESP-IDF task watchdog (TWDT). `HandleType` is `void`, so the BSP declares it as `static AIWDG mcuWatchDog;` and passes no peripheral.
+
+- `SetParameters()` sets the TWDT timeout to `minDeadlineMs` and watches the idle task of every core, so a task that starves the CPU also trips it. A missed deadline panics, which resets the chip.
+- `GetDeadlineMs()` returns `minDeadlineMs` unchanged. The TWDT has no prescaler, so there is no rounding.
+- If ESP-IDF already runs the TWDT (`CONFIG_ESP_TASK_WDT_INIT`), `SetParameters()` reconfigures it. The timeout is global: it also applies to every other task subscribed to the TWDT.
+- `Start()` subscribes the calling task and feeds the TWDT once. Call `Start()` from the task that will call `Reset()`. `Reset()` feeds the TWDT for the calling task only, so a call from another task does not keep this one alive.
+- `Start()` cannot be undone. An ESP-IDF error in `Start()` or `Reset()` aborts through `ESP_ERROR_CHECK`.
+- The demo's watchdog task is off by default (`Application::useWatchDog`), see `.demo/ESP32/README.md`.
+
 ## BSP Configuration Example
 
 ```cpp
