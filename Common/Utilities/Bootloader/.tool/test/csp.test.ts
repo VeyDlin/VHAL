@@ -369,6 +369,22 @@ describe("CompactStreamingProtocol sender", (): void => {
         await assert.rejects(pending, TransportError);
     });
 
+
+    it("refuses a message longer than the device's 512-byte limit without sending anything", asyncTestOptions, async (): Promise<void> => {
+        const link: FakePacketLink = new FakePacketLink();
+        const csp: CompactStreamingProtocol = new CompactStreamingProtocol(link, createOptions({}));
+
+        await assert.rejects(csp.send(new Uint8Array(513)), TransportError);
+        await flush();
+        assert.equal(link.written.length, 0);
+
+        const accepted: Promise<void> = csp.send(new Uint8Array(512));
+        await flush();
+        assert.equal(link.written.length, 1);
+        csp.reset();
+        await assert.rejects(accepted, TransportError);
+    });
+
     it("encodes a queued message from its own copy, not from the caller's later changes", asyncTestOptions, async (): Promise<void> => {
         const link: FakePacketLink = new FakePacketLink();
         const csp: CompactStreamingProtocol = new CompactStreamingProtocol(link, createOptions({}));
