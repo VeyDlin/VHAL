@@ -32,7 +32,8 @@ public:
 		profile.assign(batteryProfile.begin(), batteryProfile.end());
 		profileCount = static_cast<uint16>(profile.size());
 
-		if (jitter <= Type(0)) {
+		// Without a profile there is no voltage range to derive the jitter from
+		if (jitter <= Type(0) && profileCount > 0) {
 			Type maxVoltage = profile[0].voltage * Type(static_cast<int>(cells));
 			Type minVoltage = profile[profileCount - 1].voltage * Type(static_cast<int>(cells));
 			jitter = ((maxVoltage - minVoltage) / Type(static_cast<int>(divisions))) / Type(2);
@@ -45,6 +46,11 @@ public:
 	uint8 GetDivision(Type batteryVoltage) {
 		Type voltage = voltageLevel.Get(batteryVoltage);
 		voltage /= Type(static_cast<int>(cells));
+
+		// An empty profile has no curve to read; the level is reported as 0
+		if (profileCount == 0) {
+			return 0;
+		}
 
 		if (voltage >= profile[0].voltage) {
 			return divisions;

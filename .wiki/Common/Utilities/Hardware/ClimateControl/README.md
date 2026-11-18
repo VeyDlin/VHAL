@@ -90,7 +90,7 @@ climate.onUpdateState = [](float dirty) -> float {
 };
 ```
 
-**`onHold`** -- Called at most once; the controller never re-arms it. In PID mode without stabilization detection, it fires when the temperature first comes within `temperatureTolerance` of the hold target. With stabilization detection enabled, the stabilization event is the only trigger.
+**`onHold`** -- Called at most once per hold target. `onHold` re-arms only when the target changes: setting a different value with `SetHoldTemperature` starts a new target and can fire `onHold` again. Re-setting the same target does not fire `onHold` again. In PID mode without stabilization detection, it fires when the temperature first comes within `temperatureTolerance` of the hold target. With stabilization detection enabled, the stabilization event is the only trigger, except for a manual hold, which fires `onHold` directly.
 
 ```cpp
 climate.onHold = []() {
@@ -105,7 +105,7 @@ When `WorkMode::Manual` is active, the automatic loop is paused and you can push
 ```cpp
 climate.SetWorkMode(IClimateControl<>::WorkMode::Manual);
 climate.SetManualDirty(0.75f);  // directly sets output via onUpdateState
-climate.SetManualHold();        // triggers onHold callback once
+climate.SetManualHold();        // fires onHold once for the current target
 ```
 
 ### Time Step
@@ -201,7 +201,7 @@ climate.SetStabilizationDetection(
 );
 ```
 
-The stabilization callback triggers `onHold` when conditions are met. `onHold` fires at most once, even if the temperature stabilizes again later. `SwitchClimateControl` is not affected by this rule: it also calls `onHold` at most once, when its own hold condition is reached.
+The stabilization callback triggers `onHold` when conditions are met. `onHold` fires at most once per hold target, even if the temperature stabilizes again later. `SwitchClimateControl` follows the same rule: it calls `onHold` at most once per target, when its own hold condition is reached.
 
 ## API Reference
 
@@ -210,7 +210,7 @@ The stabilization callback triggers `onHold` when conditions are met. `onHold` f
 | Method | Description |
 |--------|-------------|
 | `Start()` | Creates the RTOS thread and begins the control loop |
-| `SetHoldTemperature(float)` | Sets the target temperature |
+| `SetHoldTemperature(float)` | Sets the target temperature; `onHold` re-arms only when the value changes. Re-setting the same target does not fire `onHold` again |
 | `GetHoldTemperature() -> float` | Returns the current target temperature |
 | `SetWorkMode(WorkMode)` | Sets `Disable`, `Manual`, or `Auto` |
 | `GetWorkMode() -> WorkMode` | Returns the current work mode |
@@ -219,7 +219,7 @@ The stabilization callback triggers `onHold` when conditions are met. `onHold` f
 | `SetTimeStep(milliseconds)` | Sets the control loop period |
 | `GetTimeStep() -> milliseconds` | Returns the control loop period |
 | `SetManualDirty(float)` | Sends a manual output value (Manual mode only) |
-| `SetManualHold()` | Triggers `onHold` callback once (Manual mode only) |
+| `SetManualHold()` | Fires `onHold` once for the current target (Manual mode only); call `SetHoldTemperature` with a new value before calling it again to fire again |
 
 ### SwitchClimateControl
 

@@ -209,6 +209,10 @@ A convenience specialization of `RegisterDataMutator` that stores a float as a f
 
 The optional constructor argument is the write hook of `RegisterData`: `std::function<bool(const DataType&)>`, called with the raw value; return `false` to reject the write.
 
+The write hook of `RegisterDataFloat` receives the **raw** value that is about to be stored, not the float: the value after scaling by `Accuracy`, rounding, and saturation to the range of `DataType`. For example, `temperature = 0.29f` with `Accuracy` 100 calls the hook with `29`. Validate the raw value in the hook.
+
+A NaN value has no raw representation, so `Set` (and `operator=`) rejects it: `Set` returns `false` and the stored value is unchanged. `+Inf` and `-Inf` saturate to the range of `DataType` like any other out-of-range value.
+
 ```cpp
 // Store temperature as int16, scaled by 100 (2 decimal digits)
 RegisterDataFloat<0x00, int16_t, 100> temperature;

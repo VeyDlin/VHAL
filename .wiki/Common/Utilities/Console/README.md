@@ -92,7 +92,7 @@ console.Write(1e20, 2);                        // "1.00e+20"
 console.Write(-1e300, 2);                      // "-1.00e+300"
 ```
 
-Values are rounded to the requested precision, half away from zero, and carry into the integer part (`9.999` with precision 2 gives `10.00`). The digits are produced by repeated multiplication by 10 in `double`, so rounding can differ from the exact decimal value: `0.15` (stored just below the tie) gives `0.2` with precision 1, while `0.995` gives `0.99`. Magnitudes of 2^64 and above print in scientific notation with the mantissa at the requested precision; they are never `Inf`. Only values above the largest double, and the infinities, print `Inf` / `-Inf`; NaN prints `NaN`. Precision is capped at 40 digits.
+Values are rounded to the requested precision, half away from zero, and carry into the integer part (`9.999` with precision 2 gives `10.00`). Rounding uses the exact binary value of the `double`, not its decimal look: `0.15` is stored just below the tie, so it gives `0.1` with precision 1; `2.675` gives `2.67` and `1.005` gives `1.00` with precision 2; `0.995` gives `0.99`. A tie that is exact in binary, such as `0.125` or `0.25`, rounds away from zero (`0.13`, `0.3`), which differs from `printf`, that rounds such ties to even. Magnitudes of 2^64 and above print in scientific notation with the mantissa at the requested precision; they are never `Inf`. The digits of these values come from their exact decimal expansion and round the same way: half away from zero on the exact value (`DBL_MAX` at precision 17 is `1.79769313486231571e+308`). Only values above the largest double, and the infinities, print `Inf` / `-Inf`; NaN prints `NaN`. Precision is capped at 40 digits.
 
 ### Buffer / Hex Dump
 

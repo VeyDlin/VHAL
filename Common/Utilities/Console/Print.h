@@ -319,8 +319,85 @@ private:
     }
     
     
+	// Unsigned integer of 192 bits, enough for a 53-bit mantissa times 10^40
+	struct WideUint {
+		static constexpr size_t limbCount = 6;
+		uint32_t limbs[limbCount] = {};
+
+		void MultiplyBy10() {
+			uint64_t carry = 0;
+			for (size_t i = 0; i < limbCount; ++i) {
+				uint64_t product = static_cast<uint64_t>(limbs[i]) * 10 + carry;
+				limbs[i] = static_cast<uint32_t>(product);
+				carry = product >> 32;
+			}
+		}
+
+		bool Bit(uint32_t index) const {
+			size_t limb = index / 32;
+			return limb < limbCount && ((limbs[limb] >> (index % 32)) & 1u) != 0;
+		}
+
+		void ShiftRight(uint32_t bits) {
+			size_t limbShift = bits / 32;
+			uint32_t bitShift = bits % 32;
+			uint32_t shifted[limbCount] = {};
+			for (size_t i = 0; i + limbShift < limbCount; ++i) {
+				uint64_t low = limbs[i + limbShift];
+				uint64_t high = i + limbShift + 1 < limbCount ? limbs[i + limbShift + 1] : 0;
+				shifted[i] = static_cast<uint32_t>(((high << 32) | low) >> bitShift);
+			}
+			for (size_t i = 0; i < limbCount; ++i) {
+				limbs[i] = shifted[i];
+			}
+		}
+
+		void Increment() {
+			for (size_t i = 0; i < limbCount; ++i) {
+				if (++limbs[i] != 0) {
+					break;
+				}
+			}
+		}
+
+		// Divides by 10 in place and returns the remainder
+		uint32_t DivideBy10() {
+			uint64_t remainder = 0;
+			for (size_t i = limbCount; i > 0; --i) {
+				uint64_t current = (remainder << 32) | limbs[i - 1];
+				limbs[i - 1] = static_cast<uint32_t>(current / 10);
+				remainder = current % 10;
+			}
+			return static_cast<uint32_t>(remainder);
+		}
+
+		bool IsZero() const {
+			for (size_t i = 0; i < limbCount; ++i) {
+				if (limbs[i] != 0) {
+					return false;
+				}
+			}
+			return true;
+		}
+	};
+
+
 	// Float output keeps at most this many digits after the decimal point
 	static constexpr uint8_t kMaxFractionDigits = 40;
+
+	// A finite double is below 2^1024, which has 309 decimal digits
+	static constexpr size_t kIntegerLimbs = 32;
+	static constexpr size_t kMaxDecimalDigits = 320;
+
+
+	static bool LimbsAreZero(const uint32_t* limbs, size_t count) {
+		for (size_t i = 0; i < count; ++i) {
+			if (limbs[i] != 0) {
+				return false;
+			}
+		}
+		return true;
+	}
 
 
 	// Writes value in decimal, returns the number of characters written (no terminator)
@@ -341,32 +418,43 @@ private:
 
 
 	// Rounds value (0 <= value < 2^64) to digitCount decimal places, half away from zero.
+	// Works on the exact binary value: repeated multiplication by 10 would round at every step.
 	// Stores the fraction digits in fractionDigits and returns the integer part, which
 	// becomes one larger when rounding carries into it.
 	static uint64_t RoundFixed(double value, uint8_t digitCount, uint8_t* fractionDigits) {
 		uint64_t integerPart = static_cast<uint64_t>(value);
 		double fraction = value - static_cast<double>(integerPart);
 
+		// Doubling is exact, so afterwards fraction == mantissa / 2^fractionBits exactly
+		uint32_t fractionBits = 0;
+		while (fraction != std::floor(fraction)) {
+			fraction *= 2;
+			++fractionBits;
+		}
+		uint64_t mantissa = static_cast<uint64_t>(fraction);
+
+		// numerator = mantissa * 10^digitCount; the scaled fraction is numerator / 2^fractionBits
+		WideUint numerator;
+		numerator.limbs[0] = static_cast<uint32_t>(mantissa);
+		numerator.limbs[1] = static_cast<uint32_t>(mantissa >> 32);
 		for (uint8_t i = 0; i < digitCount; ++i) {
-			fraction *= 10;
-			uint8_t digit = static_cast<uint8_t>(fraction);
-			fractionDigits[i] = digit;
-			fraction -= digit;
+			numerator.MultiplyBy10();
 		}
 
-		if (fraction >= 0.5) {
-			bool carry = true;
-			for (uint8_t i = digitCount; i > 0 && carry; --i) {
-				fractionDigits[i - 1]++;
-				if (fractionDigits[i - 1] == 10) {
-					fractionDigits[i - 1] = 0;
-				} else {
-					carry = false;
-				}
-			}
-			if (carry) {
-				integerPart++;
-			}
+		// The bit just below the scaled binary point is set exactly when the remainder is at least one half
+		bool roundUp = fractionBits > 0 && numerator.Bit(fractionBits - 1);
+		numerator.ShiftRight(fractionBits);
+		if (roundUp) {
+			numerator.Increment();
+		}
+
+		for (uint8_t i = digitCount; i > 0; --i) {
+			fractionDigits[i - 1] = static_cast<uint8_t>(numerator.DivideBy10());
+		}
+
+		// Only a carry into the integer part leaves a non-zero value here
+		if (!numerator.IsZero()) {
+			integerPart++;
 		}
 		return integerPart;
 	}
@@ -388,31 +476,69 @@ private:
 	}
 
 
-	// Writes d.ddde+N for finite values of at least 2^64; the mantissa has the requested precision
+	// Writes d.ddde+N for finite values of at least 2^64. The value is an integer, so its exact
+	// decimal digits are known; the digit after the requested precision decides the rounding,
+	// which is half away from zero on the exact value.
 	static size_t ScientificDigits(char* out, size_t capacity, double value, uint8_t precision) {
 		uint8_t digitCount = precision < kMaxFractionDigits ? precision : kMaxFractionDigits;
-		uint8_t fractionDigits[kMaxFractionDigits] = {};
 
-		uint64_t exponent = 0;
-		double mantissa = value;
-		while (mantissa >= 10.0) {
-			mantissa /= 10.0;
-			exponent++;
+		// value == mantissa * 2^shift exactly, with mantissa below 2^53
+		int binaryExponent = 0;
+		double fraction = std::frexp(value, &binaryExponent);
+		uint64_t mantissa = static_cast<uint64_t>(std::ldexp(fraction, 53));
+		int shift = binaryExponent - 53;
+
+		uint32_t limbs[kIntegerLimbs] = {};
+		for (int bit = 0; bit < 53; ++bit) {
+			if (((mantissa >> bit) & 1u) != 0) {
+				size_t target = static_cast<size_t>(shift + bit);
+				limbs[target / 32] |= 1u << (target % 32);
+			}
 		}
 
-		uint64_t leadDigit = RoundFixed(mantissa, digitCount, fractionDigits);
-		if (leadDigit == 10) {
-			// Rounding carried out of the mantissa; all fraction digits are already 0
-			leadDigit = 1;
-			exponent++;
+		// Decimal digits of the integer, least significant first
+		char reversed[kMaxDecimalDigits] = {};
+		size_t total = 0;
+		do {
+			uint64_t remainder = 0;
+			for (size_t i = kIntegerLimbs; i > 0; --i) {
+				uint64_t current = (remainder << 32) | limbs[i - 1];
+				limbs[i - 1] = static_cast<uint32_t>(current / 10);
+				remainder = current % 10;
+			}
+			reversed[total++] = static_cast<char>('0' + remainder);
+		} while (!LimbsAreZero(limbs, kIntegerLimbs));
+
+		// digits[0] is the leading digit; positions past the integer's length are 0
+		uint8_t digits[kMaxFractionDigits + 2] = {};
+		for (size_t i = 0; i <= digitCount + 1u; ++i) {
+			digits[i] = i < total ? static_cast<uint8_t>(reversed[total - 1 - i] - '0') : 0;
+		}
+
+		uint64_t exponent = total - 1;
+		if (digits[digitCount + 1] >= 5) {
+			bool carry = true;
+			for (size_t i = digitCount + 1; i > 0 && carry; --i) {
+				if (digits[i - 1] == 9) {
+					digits[i - 1] = 0;
+				} else {
+					digits[i - 1]++;
+					carry = false;
+				}
+			}
+			if (carry) {
+				// 9.99... rounded up: the mantissa is now 1.00... with one more exponent step
+				digits[0] = 1;
+				exponent++;
+			}
 		}
 
 		size_t len = 0;
-		out[len++] = static_cast<char>('0' + leadDigit);
+		out[len++] = static_cast<char>('0' + digits[0]);
 		if (digitCount > 0) {
 			out[len++] = '.';
-			for (uint8_t i = 0; i < digitCount; ++i) {
-				out[len++] = static_cast<char>('0' + fractionDigits[i]);
+			for (uint8_t i = 1; i <= digitCount; ++i) {
+				out[len++] = static_cast<char>('0' + digits[i]);
 			}
 		}
 		out[len++] = 'e';

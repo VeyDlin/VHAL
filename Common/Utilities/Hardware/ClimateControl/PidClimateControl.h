@@ -13,6 +13,7 @@ class PidClimateControl: public IClimateControl<Type> {
 	using Base::controlMode;
 	using Base::holdTemperature;
 	using Base::waitHold;
+	using Base::NotifyHold;
 
 public:
 	using Base::onUpdateState;
@@ -24,7 +25,6 @@ public:
 private:
     PidController<Type> pidController;
     bool stabilizationEnabled = false;  // When true, the stabilization event is the only trigger for onHold
-    bool holdReported = false;          // onHold has already fired for the current hold
 
 
 public:
@@ -140,15 +140,5 @@ private:
         if (wasWaitingHold && !waitHold && !stabilizationEnabled) {
             NotifyHold();
         }
-    }
-
-
-    // Fires onHold at most once per hold.
-    void NotifyHold() {
-        if (holdReported || !onHold) {
-            return;
-        }
-        holdReported = true;
-        onHold();
     }
 };

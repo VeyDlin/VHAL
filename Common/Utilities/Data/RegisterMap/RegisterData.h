@@ -2,6 +2,7 @@
 #include <VHAL.h>
 #include <utility>
 #include <functional>
+#include <cmath>
 #include <limits>
 #include "IRegisterData.h"
 
@@ -178,6 +179,14 @@ public:
 	RegisterDataFloat(std::function<bool(const DataType&)> event = nullptr)
         : RegisterDataMutator<Address, float, DataType>(&ReadMutator, &WriteMutator, std::move(event)) {}
 
+    // NaN has no raw value, so the write is rejected and the stored value is kept
+    inline bool Set(const float& value) {
+        if (std::isnan(value)) {
+            return false;
+        }
+        return RegisterDataMutator<Address, float, DataType>::Set(value);
+    }
+
     inline RegisterDataFloat& operator=(const float& value) {
         this->Set(value);
         return *this;
@@ -191,7 +200,7 @@ private:
         return static_cast<float>(rawValue) / static_cast<float>(Accuracy);
     }
 
-	// Round half away from zero, then saturate to the raw type's range
+	// Round half away from zero, then saturate to the raw type's range (+-Inf saturates)
 	static DataType WriteMutator(const float& value) {
 		float scaled = value * static_cast<float>(Accuracy);
 		float rounded = scaled < 0.0f ? scaled - 0.5f : scaled + 0.5f;

@@ -12,6 +12,7 @@ class SwitchClimateControl: public IClimateControl<Type> {
 	using Base::controlMode;
 	using Base::holdTemperature;
 	using Base::waitHold;
+	using Base::NotifyHold;
 
 public:
 	using Base::onUpdateState;
@@ -81,8 +82,8 @@ private:
 			break;
 		}
 
-		if(!waitHold && onHold) {
-			onHold();
+		if(!waitHold) {
+			NotifyHold();
 		}
 	}
 };

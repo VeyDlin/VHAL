@@ -20,8 +20,12 @@ namespace Colors {
 			, b(ClampToByte(rgb.b * 255.0f))
 		{}
 
-		URgb operator+(const URgb& o) const { return {uint8(r + o.r), uint8(g + o.g), uint8(b + o.b)}; }
-		URgb operator-(const URgb& o) const { return {uint8(r - o.r), uint8(g - o.g), uint8(b - o.b)}; }
+		URgb operator+(const URgb& o) const {
+			return {AddSaturated(r, o.r), AddSaturated(g, o.g), AddSaturated(b, o.b)};
+		}
+		URgb operator-(const URgb& o) const {
+			return {SubSaturated(r, o.r), SubSaturated(g, o.g), SubSaturated(b, o.b)};
+		}
 		URgb operator*(float s) const {
 			return {
 				ClampToByte(r * s),
@@ -30,8 +34,18 @@ namespace Colors {
 			};
 		}
 
-		URgb& operator+=(const URgb& o) { r += o.r; g += o.g; b += o.b; return *this; }
-		URgb& operator-=(const URgb& o) { r -= o.r; g -= o.g; b -= o.b; return *this; }
+		URgb& operator+=(const URgb& o) {
+			r = AddSaturated(r, o.r);
+			g = AddSaturated(g, o.g);
+			b = AddSaturated(b, o.b);
+			return *this;
+		}
+		URgb& operator-=(const URgb& o) {
+			r = SubSaturated(r, o.r);
+			g = SubSaturated(g, o.g);
+			b = SubSaturated(b, o.b);
+			return *this;
+		}
 		URgb& operator*=(float s) {
 			r = ClampToByte(r * s);
 			g = ClampToByte(g * s);
@@ -65,6 +79,15 @@ namespace Colors {
 		static constexpr URgb White()   { return {0xFF, 0xFF, 0xFF}; }
 
 	private:
+		static uint8 AddSaturated(uint8 a, uint8 b) {
+			int sum = a + b;
+			return sum > 255 ? uint8(255) : uint8(sum);
+		}
+
+		static uint8 SubSaturated(uint8 a, uint8 b) {
+			return a > b ? uint8(a - b) : uint8(0);
+		}
+
 		// Rounds to nearest and saturates; written so NaN maps to 0
 		static uint8 ClampToByte(float value) {
 			if (!(value > 0.0f)) {

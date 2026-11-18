@@ -39,7 +39,7 @@ uint8 byte3 = ByteConverter::GetByte(word, 3);  // 0xAA (MSB)
 // Reverse byte order (endian swap)
 ByteConverter::ReverseArray(word);  // 0xDDCCBBAA
 
-// SetByte writes memory order: position 0 is the least significant byte on a little-endian host
+// SetByte and GetByte use the same numbering on every host: position 0 is the least significant byte
 uint32 target = 0xAABBCCDD;
 ByteConverter::SetByte(target, uint8(0x11), 1);  // 0xAABB11DD
 

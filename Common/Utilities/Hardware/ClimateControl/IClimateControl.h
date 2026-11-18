@@ -23,6 +23,8 @@ protected:
 	std::chrono::milliseconds timeStep = 1s;
 
 	bool waitHold = true;
+	// onHold has fired for the current hold target; a new target re-arms it
+	bool holdReported = false;
 
 
 public:
@@ -37,7 +39,12 @@ public:
 
 
 	void SetHoldTemperature(Type temperature) {
+		if (temperature == holdTemperature) {
+			return;
+		}
 		holdTemperature = temperature;
+		waitHold = true;
+		holdReported = false;
 	}
 
 
@@ -86,7 +93,18 @@ public:
 	void SetManualHold() {
 		if(workMode == WorkMode::Manual && onHold != nullptr && waitHold) {
 			waitHold = false;
-			onHold();
+			NotifyHold();
 		}
+	}
+
+
+protected:
+	// Fires onHold at most once per hold target
+	void NotifyHold() {
+		if (holdReported || !onHold) {
+			return;
+		}
+		holdReported = true;
+		onHold();
 	}
 };
