@@ -86,6 +86,10 @@ struct Parameters {
 | `onError` | `std::function<void(Error)>` | Communication error |
 | `onComplete` | `std::function<void()>` | Async operation completed |
 
+## Bus Recovery
+
+A slave that is reset in the middle of a transfer can keep SDA low after the master has restarted, and every later transaction then times out. Ports should release a held bus at initialisation, before the peripheral takes over the pins: clock SCL with SDA released, then send a STOP. The ESP32 port does this in `SetParameters()` and returns `ResultStatus::error` when SDA stays low.
+
 ## ESP32 Port
 
 `AI2C` is `I2CAdapterESP` (`Periphery/Adapter/Port/ESP32/Common/I2CAdapterESP.h`), built on the ESP-IDF I2C master driver. `HandleType` is `void`.
@@ -100,6 +104,8 @@ AI2C(i2c_port_num_t port, int sda, int scl);
 - `digitalFilter`: when non-zero it is used as the glitch filter width. When zero, the driver uses 7.
 - Asynchronous methods (`CheckDeviceAsync`, `ScanAsync`, `WriteByteArrayAsync`, `ReadByteArrayAsync`) return `ResultStatus::notSupported`.
 - Internal pull-ups: the bus is created with the internal pull-ups enabled when `analogFilter` is `false`, and with them disabled when `analogFilter` is `true`.
+- Bus recovery: `SetParameters()` releases a held bus before it creates the driver bus. It sends nine SCL pulses with SDA released, then a STOP, on the same pins (bit-banged through GPIO). The nine pulses are sent even when SDA is already high, because a slave reset in the middle of a byte can release SDA between two bits and still expect the clocks. If SDA or SCL is still low after the pulses, `SetParameters()` returns `ResultStatus::error` and no bus is created.
+- Recovery runs only when `SetParameters()` is called, so a sensor that hangs later in the session is not released until the next `SetParameters()`.
 
 ## BSP Configuration Example
 

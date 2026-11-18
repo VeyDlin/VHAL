@@ -12,6 +12,9 @@ SCL 22) at address 0x68, and `WHO_AM_I` (0x75) reads 0x19.
   and no interrupt is configured. The FIFO is drained on a timer instead.
 - The caller starts the bus before `Init`: `imuBus.SetParameters({ .speed = AI2C::Speed::Fast })`. The driver does not
   reconfigure the bus.
+- A reset of the ESP32 alone (the RTS line when the serial port is opened) does not reset the sensor. If it was in the middle
+  of a burst read, it can keep SDA low after the reboot. `SetParameters` releases such a bus before the ESP32 bus is created
+  (see the I2C adapter page), so `Init` does not time out on it.
 - GPIO 23 must never be configured (it hangs the chip). The driver does not touch it.
 
 ## API

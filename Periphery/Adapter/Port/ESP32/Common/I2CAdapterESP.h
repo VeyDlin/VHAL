@@ -193,6 +193,10 @@ protected:
 			busHandle = nullptr;
 		}
 
+		if (RecoverBus() != ResultStatus::ok) {
+			return ResultStatus::error;
+		}
+
 		i2c_master_bus_config_t bus_config = {};
 		bus_config.i2c_port = port;
 		bus_config.sda_io_num = static_cast<gpio_num_t>(sdaPin);
@@ -209,6 +213,52 @@ protected:
 		}
 
 		return AfterInitialization();
+	}
+
+
+	// A slave cut off mid-byte by a reset can hold SDA low, and every transaction then times out. Clocking SCL with SDA
+	// released lets the slave finish its byte, and a STOP returns the bus to idle. This must run before the driver
+	// creates the bus, because the driver owns the pins from then on.
+	ResultStatus RecoverBus() {
+		gpio_num_t sda = static_cast<gpio_num_t>(sdaPin);
+		gpio_num_t scl = static_cast<gpio_num_t>(sclPin);
+		const uint32 halfPeriodUs = 5;
+		const uint8 pulseCount = 9;
+
+		gpio_set_direction(scl, GPIO_MODE_INPUT_OUTPUT_OD);
+		gpio_set_direction(sda, GPIO_MODE_INPUT_OUTPUT_OD);
+		if (parameters.analogFilter) {
+			gpio_pullup_dis(sda);
+			gpio_pullup_dis(scl);
+		} else {
+			gpio_pullup_en(sda);
+			gpio_pullup_en(scl);
+		}
+		gpio_set_level(scl, 1);
+		gpio_set_level(sda, 1);
+		esp_rom_delay_us(halfPeriodUs);
+
+		// Nine clocks even when SDA already reads high: a slave reset in the middle of a byte can release SDA between two
+		// bits and still need the clocks to finish the byte and its ACK slot.
+		for (uint8 pulse = 0; pulse < pulseCount; pulse++) {
+			gpio_set_level(scl, 0);
+			esp_rom_delay_us(halfPeriodUs);
+			gpio_set_level(scl, 1);
+			esp_rom_delay_us(halfPeriodUs);
+		}
+
+		if (gpio_get_level(sda) == 0 || gpio_get_level(scl) == 0) {
+			return ResultStatus::error;
+		}
+
+		gpio_set_level(scl, 0);
+		gpio_set_level(sda, 0);
+		esp_rom_delay_us(halfPeriodUs);
+		gpio_set_level(scl, 1);
+		esp_rom_delay_us(halfPeriodUs);
+		gpio_set_level(sda, 1);
+		esp_rom_delay_us(halfPeriodUs);
+		return ResultStatus::ok;
 	}
 
 
