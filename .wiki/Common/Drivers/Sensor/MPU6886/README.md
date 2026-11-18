@@ -25,6 +25,7 @@ imu.Init();                          // default Config, or Init(config)
 imu.CalibrateGyroBias(100, 10, 2.0f, bias);   // still device: busy if the spread exceeds 2 deg/s
 imu.StartFifo();                     // accelerometer, temperature and gyroscope, 14 bytes per frame
 imu.ReadFifo(frames, count, overflowed);      // at most fifoMaxFrames (16) per call
+imu.Sleep();                                  // SLEEP mode (PWR_MGMT_1 = 0x41); Init wakes the device again
 Result<MPU6886::Sample> s = imu.Read();       // one burst read of the 14 data bytes
 ```
 
@@ -63,7 +64,7 @@ Verified against the datasheet (DS-000193 Rev 1.1, M5Stack copy; see Sources):
 | ACCEL_XOUT_H..GYRO_ZOUT_L | 0x3B..0x48 | 14-byte burst: accel X, Y, Z, temperature, gyro X, Y, Z; each 16-bit, high byte first |
 | FIFO_EN | 0x23 | bit 4 GYRO_FIFO_EN, bit 3 ACCEL_FIFO_EN (0x18 = both: 14-byte frames, same layout as the burst) |
 | USER_CTRL | 0x6A | bit 6 FIFO_EN, bit 2 FIFO_RST (self-clearing) |
-| PWR_MGMT_1 | 0x6B | bit 7 DEVICE_RESET (self-clearing), bits 2:0 CLKSEL (001 = PLL) |
+| PWR_MGMT_1 | 0x6B | bit 7 DEVICE_RESET (self-clearing), bit 6 SLEEP, bits 2:0 CLKSEL (001 = PLL) |
 | PWR_MGMT_2 | 0x6C | bits 5:0: standby per axis (0 = on) |
 | FIFO_COUNTH/L | 0x72, 0x73 | byte count; reading the high byte latches both |
 | FIFO_R_W | 0x74 | FIFO data, read burst |
@@ -108,7 +109,11 @@ measured x 1.026, y 0.874, z 0.134 deg/s on the board (lying still).
 `tools/vhal-host-tests/motion/run.sh` (`[HOST] motion.mpu6886.*`). The driver compiles against `stubs/VHAL.h`, a simulated
 device with a register file, a write log, the FIFO, read-to-clear INT_STATUS and FIFO_RST. The tests check the write
 sequence of `Init`, a dropped configuration write (readback mismatch), wrong `WHO_AM_I`, the burst decode and scaling,
-gyroscope bias calibration (and that it rejects motion), the FIFO drain and the overflow reset. The compile check is
+gyroscope bias calibration (and that it rejects motion), the FIFO drain, the overflow reset and the sleep write (`Sleep`:
+one PWR_MGMT_1 write, 0x41).
+
+`Sleep` stops the accelerometer and gyroscope and keeps the registers, so the caller can put the device to sleep whenever it
+does not need samples. The current drawn in sleep is not measured here. The compile check is
 `tools/vhal-harness/main/checks/CheckMotion.cpp`.
 
 ## Sources

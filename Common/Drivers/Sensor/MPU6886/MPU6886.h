@@ -82,6 +82,8 @@ private:
 
 	static constexpr uint8 pwrMgmt1Reset = 0x80;
 	static constexpr uint8 pwrMgmt1Wake = 0x01;
+	// SLEEP (bit 6) with the PLL kept as the clock, the same clock source that Init selects.
+	static constexpr uint8 pwrMgmt1Sleep = 0x41;
 	static constexpr uint8 pwrMgmt2AllAxes = 0x00;
 	static constexpr uint8 dlpfMask = 0x07;
 	static constexpr uint8 fifoEnGyroAndAccel = 0x18;
@@ -183,6 +185,13 @@ public:
 		accelLsbPerG = AccelLsbPerG(config.accelRange);
 		gyroLsbPerDps = GyroLsbPerDps(config.gyroRange);
 		return ResultStatus::ok;
+	}
+
+
+	// Puts the device in its sleep mode: the accelerometer and gyroscope stop, and the registers keep their values. Init
+	// wakes the device again, as it resets it first.
+	ResultStatus Sleep() {
+		return WriteVerified(regPwrMgmt1, pwrMgmt1Sleep);
 	}
 
 
