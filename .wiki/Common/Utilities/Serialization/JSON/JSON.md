@@ -155,7 +155,9 @@ w.StartObject()
 
 ### Error Handling
 
-If the buffer overflows, writing stops and `HasError()` returns `true`. Characters that fit are kept, so the token that overflows may be partly written; check `HasError()` before using `GetResult()`.
+If the buffer overflows, writing stops and `HasError()` returns `true`. Output is truncated back to the end of the last complete token, so the buffer never holds half a string, key or number. Nothing is written after the error, even when a later token would fit.
+
+When `HasError()` is `true`, `GetResult()` is incomplete JSON. Check `HasError()` before using it.
 
 ```cpp
 std::array<char, 10> smallBuffer{};
@@ -166,7 +168,7 @@ w.StartObject()
  .EndObject();
 
 if (w.HasError()) {
-    // Buffer was too small
+    // w.GetResult() is "{": the key did not fit, so none of it was kept
 }
 ```
 
@@ -211,7 +213,10 @@ Numbers follow the JSON grammar exactly: an optional `-`, no leading `+`, no lea
 
 - The `int64` and `uint64` overloads accept only integer tokens. `1.5`, `1e3` and out-of-range values return `false`.
 - The `double` overload accepts fractions and exponents. A value that overflows the double range (`1e400`) returns `false` instead of becoming infinity.
-- A token is copied into a bounded buffer before conversion: integer tokens of 32 or more characters and floating-point tokens of 64 or more characters are rejected.
+- Token length is not limited, and the value is correctly rounded (`std::from_chars`, locale-free, independent of the token length). `0.` followed by 399 zeros and `1e400` reads as `1`.
+- Subnormal values are read: `1e-320` gives the subnormal value, as `strtod` does. A value below the subnormal range (`1e-400`) reads as `0` and succeeds.
+- Overflow (`1e400`, `1.8e308`) returns `false`.
+- A valid integer token that is out of range for `int64` or `uint64` returns `false` for those overloads. The `double` overload accepts it.
 
 ### Parsing Booleans and Null
 

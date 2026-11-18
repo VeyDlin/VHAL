@@ -3,6 +3,7 @@
 #include <Utilities/Console/Print.h>
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <span>
 #include <string_view>
@@ -67,18 +68,22 @@ public:
 
 
 		Writer& Key(std::string_view key) {
+			size_t mark = position;
 			WriteChar('"');
 			WriteEscapedString(key);
 			WriteChar('"');
 			WriteChar(':');
+			RollBackIfFailed(mark);
 			return *this;
 		}
 
 
 		Writer& String(std::string_view value) {
+			size_t mark = position;
 			WriteChar('"');
 			WriteEscapedString(value);
 			WriteChar('"');
+			RollBackIfFailed(mark);
 			return *this;
 		}
 
@@ -168,7 +173,12 @@ public:
 		}
 
 	private:
+		// Once an error is set nothing more is written: a rolled-back token frees room that a later
+		// token could otherwise fill.
 		void WriteChar(char c) {
+			if (hasError) {
+				return;
+			}
 			if (position < buffer.size()) {
 				buffer[position++] = c;
 			} else {
@@ -177,12 +187,22 @@ public:
 		}
 
 
+		// Every token is all-or-nothing, so the output ends at the last complete token.
 		void WriteString(std::string_view str) {
+			size_t mark = position;
 			for (char c : str) {
 				WriteChar(c);
 				if (hasError) {
 					break;
 				}
+			}
+			RollBackIfFailed(mark);
+		}
+
+
+		void RollBackIfFailed(size_t mark) {
+			if (hasError) {
+				position = mark;
 			}
 		}
 
@@ -1020,23 +1040,68 @@ private:
 	}
 
 
+	// Decimal exponent of the first significant digit, explicit exponent included. Only consulted for a token that
+	// from_chars reports as out of range, to tell underflow (a zero result) from overflow (an error).
+	static int64 DecimalExponentOf(std::string_view token) {
+		std::string_view unsignedToken = !token.empty() && token.front() == '-' ? token.substr(1) : token;
+
+		size_t expPos = unsignedToken.find_first_of("eE");
+		std::string_view mantissa = unsignedToken.substr(0, expPos);
+		std::string_view expPart = expPos == std::string_view::npos ? std::string_view{} : unsignedToken.substr(expPos + 1);
+
+		size_t dotPos = mantissa.find('.');
+		std::string_view intDigits = mantissa.substr(0, dotPos);
+		std::string_view fracDigits = dotPos == std::string_view::npos ? std::string_view{} : mantissa.substr(dotPos + 1);
+
+		int64 exponent = 0;
+		bool expNegative = !expPart.empty() && expPart.front() == '-';
+		size_t expStart = (!expPart.empty() && (expPart.front() == '+' || expPart.front() == '-')) ? 1 : 0;
+		for (size_t i = expStart; i < expPart.size(); ++i) {
+			// Saturates: an exponent this large is out of range whatever the digits are.
+			if (exponent < 100000000) {
+				exponent = exponent * 10 + (expPart[i] - '0');
+			}
+		}
+		if (expNegative) {
+			exponent = -exponent;
+		}
+
+		size_t totalDigits = intDigits.size() + fracDigits.size();
+		size_t first = 0;
+		while (first < totalDigits && (first < intDigits.size() ? intDigits[first] : fracDigits[first - intDigits.size()]) == '0') {
+			++first;
+		}
+		if (first == totalDigits) {
+			return 0;
+		}
+		return exponent + static_cast<int64>(intDigits.size()) - static_cast<int64>(first) - 1;
+	}
+
+
+	// from_chars is correctly rounded, locale-free and reads subnormals; the grammar check above it keeps out the
+	// forms it accepts but JSON does not (leading '+', a bare '.', a leading zero, inf and nan).
 	static bool ParseFloatToken(std::string_view token, double& value) {
 		if (!IsNumberToken(token)) {
 			return false;
 		}
 
-		std::array<char, 64> buffer{};
-		if (token.size() >= buffer.size()) {
-			return false;
-		}
-		std::copy(token.begin(), token.end(), buffer.begin());
-
-		// Magnitudes beyond the double range convert to infinity, which JSON cannot represent.
 		double parsed = 0.0;
-		if (!Print::StringToFloat(buffer.data(), parsed) || !std::isfinite(parsed)) {
+		const char* begin = token.data();
+		const char* end = begin + token.size();
+		std::from_chars_result result = std::from_chars(begin, end, parsed);
+		if (result.ec == std::errc{} && result.ptr == end) {
+			value = parsed;
+			return true;
+		}
+		if (result.ec != std::errc::result_out_of_range) {
 			return false;
 		}
-		value = parsed;
+
+		// Beyond the double range: below it reads as a signed zero, above it cannot be represented.
+		if (DecimalExponentOf(token) >= 0) {
+			return false;
+		}
+		value = !token.empty() && token.front() == '-' ? -0.0 : 0.0;
 		return true;
 	}
 };

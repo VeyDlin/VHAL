@@ -38,7 +38,8 @@ public:
     }
 
 
-    // Copy constructor
+    // Copy constructor. Cannot report failure: when the allocator refuses memory the result is empty.
+    // Use an empty vector and Assign for a checked copy.
     Vector(const Vector& other) : allocator_(other.allocator_) {
         if (other.size_ > 0) {
             auto* alloc = GetAlloc();
@@ -64,33 +65,43 @@ public:
         other.capacity_ = 0;
     }
 
-    // Copy assignment
+    // Copy assignment. Returns nothing, so a refused allocation is silent: use Assign for a checked copy.
     Vector& operator=(const Vector& other) {
-        if (this != &other) {
-            DestroyElements();
-            if (handle_.IsValid()) {
-                auto* alloc = GetAlloc();
-                if (alloc) alloc->Deallocate(handle_);
-                handle_ = Handle{};
-            }
-            capacity_ = 0;
-            allocator_ = other.allocator_;
+        Assign(other);
+        return *this;
+    }
 
-            if (other.size_ > 0) {
-                auto* alloc = GetAlloc();
-                handle_ = alloc->Allocate(other.size_ * sizeof(T));
-                if (handle_.IsValid()) {
-                    capacity_ = other.size_;
-                    T* dst = RawData();
-                    const T* src = other.RawData();
-                    for (std::size_t i = 0; i < other.size_; i++) {
-                        new (&dst[i]) T(src[i]);
-                    }
-                    size_ = other.size_;
-                }
+    // Copies other into this vector and adopts its allocator. Returns false, with this vector unchanged,
+    // when the allocator refuses memory.
+    bool Assign(const Vector& other) {
+        if (this == &other) {
+            return true;
+        }
+
+        // The new buffer is allocated and filled before anything of this vector is touched.
+        Handle fresh;
+        if (other.size_ > 0) {
+            IAllocator* newAlloc = other.GetAlloc();
+            fresh = newAlloc->Allocate(other.size_ * sizeof(T));
+            if (!fresh.IsValid()) {
+                return false;
+            }
+            T* dst = static_cast<T*>(fresh.Data());
+            const T* src = other.RawData();
+            for (std::size_t i = 0; i < other.size_; i++) {
+                new (&dst[i]) T(src[i]);
             }
         }
-        return *this;
+
+        DestroyElements();
+        if (handle_.IsValid()) {
+            GetAlloc()->Deallocate(handle_);
+        }
+        handle_ = fresh;
+        size_ = other.size_;
+        capacity_ = other.size_;
+        allocator_ = other.allocator_;
+        return true;
     }
 
     // Move assignment
@@ -113,27 +124,32 @@ public:
     }
 
 
-    void PushBack(const T& value) {
+    // Growing operations return false, and leave the vector unchanged, when the allocator refuses memory.
+    bool PushBack(const T& value) {
 		// value may refer into our own buffer, which Grow can free
-		PushBack(T(value));
+		return PushBack(T(value));
     }
 
-    void PushBack(T&& value) {
-        if (size_ >= capacity_) Grow(size_ + 1);
-        T* data = RawData();
-        if (data) {
-            new (&data[size_]) T(static_cast<T&&>(value));
-            size_++;
+    bool PushBack(T&& value) {
+        if (size_ >= capacity_ && !Grow(size_ + 1)) {
+            return false;
         }
+        T* data = RawData();
+        new (&data[size_]) T(static_cast<T&&>(value));
+        size_++;
+        return true;
     }
 
+    // Returns the new element, or nullptr when the allocator refuses memory.
     template<typename... Args>
-    T& EmplaceBack(Args&&... args) {
-        if (size_ >= capacity_) Grow(size_ + 1);
+    T* EmplaceBack(Args&&... args) {
+        if (size_ >= capacity_ && !Grow(size_ + 1)) {
+            return nullptr;
+        }
         T* data = RawData();
         T* ptr = new (&data[size_]) T(static_cast<Args&&>(args)...);
         size_++;
-        return *ptr;
+        return ptr;
     }
 
     void PopBack() {
@@ -145,17 +161,23 @@ public:
         }
     }
 
-    void Insert(std::size_t index, const T& value) {
-        if (index > size_) return;
-		T copy(value);
-		if (size_ >= capacity_) Grow(size_ + 1);
+    // Returns false for an index past the end, as well as when the allocator refuses memory.
+    bool Insert(std::size_t index, const T& value) {
+        if (index > size_) {
+            return false;
+        }
+        T copy(value);
+        if (size_ >= capacity_ && !Grow(size_ + 1)) {
+            return false;
+        }
         T* data = RawData();
         for (std::size_t i = size_; i > index; i--) {
             new (&data[i]) T(static_cast<T&&>(data[i - 1]));
             data[i - 1].~T();
         }
-		new (&data[index]) T(static_cast<T&&>(copy));
+        new (&data[index]) T(static_cast<T&&>(copy));
         size_++;
+        return true;
     }
 
     void Erase(std::size_t index) {
@@ -217,13 +239,16 @@ public:
         DestroyElements();
     }
 
-    void Reserve(std::size_t newCapacity) {
-        if (newCapacity > capacity_) {
-            Grow(newCapacity);
+    // Returns false when the allocator refuses memory; the capacity is then unchanged.
+    bool Reserve(std::size_t newCapacity) {
+        if (newCapacity <= capacity_) {
+            return true;
         }
+        return Grow(newCapacity);
     }
 
-    void Resize(std::size_t newSize) {
+    // Returns false when growing fails; the size and elements are then unchanged.
+    bool Resize(std::size_t newSize) {
         if (newSize < size_) {
             if constexpr (!std::is_trivially_destructible_v<T>) {
                 T* data = RawData();
@@ -233,13 +258,16 @@ public:
             }
             size_ = newSize;
         } else if (newSize > size_) {
-            Reserve(newSize);
+            if (!Reserve(newSize)) {
+                return false;
+            }
             T* data = RawData();
             for (std::size_t i = size_; i < newSize; i++) {
                 new (&data[i]) T();
             }
             size_ = newSize;
         }
+        return true;
     }
 
 
@@ -258,16 +286,18 @@ private:
         return static_cast<T*>(handle_.Data());
     }
 
-    void Grow(std::size_t minCapacity) {
+    // On failure the old buffer stays as it was, so the caller keeps its elements and capacity.
+    bool Grow(std::size_t minCapacity) {
         std::size_t newCap = capacity_ == 0 ? 4 : capacity_ * 2;
         if (newCap < minCapacity) newCap = minCapacity;
 
         auto* alloc = GetAlloc();
         Handle newHandle = alloc->Reallocate(handle_, newCap * sizeof(T));
-        if (!newHandle.IsValid()) return;
+        if (!newHandle.IsValid()) return false;
 
         handle_ = newHandle;
         capacity_ = newCap;
+        return true;
     }
 
     void DestroyElements() {
