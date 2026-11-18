@@ -12,6 +12,9 @@ public:
 	enum class Standard { Philips, MSB, LSB, PCMShort, PCMLong, PDM };
 	enum class DataFormat { B16, B16Extended, B24, B32 };
 	enum class ClockPolarity { Low, High };
+	// PDM bits per output sample (the decimation ratio). The PDM clock is sampleRateHz times this ratio, so it also sets the
+	// microphone's clock: at 16 kHz, X64 gives 1.024 MHz and X128 2.048 MHz. Standard::PDM only.
+	enum class PdmDecimation { X64, X128 };
 
 	enum class Irq { TxComplete, TxHalfComplete, RxComplete, RxHalfComplete };
 	enum class Error { None, Overrun, Underrun, FrameError };
@@ -41,6 +44,7 @@ public:
 		bool mclkOutput = true;
 		SlotCountOption slotCount;
 		SlotOption activeSlots;
+		PdmDecimation pdmDecimation = PdmDecimation::X64;
 	};
 
 

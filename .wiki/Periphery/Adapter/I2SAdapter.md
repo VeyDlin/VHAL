@@ -33,6 +33,7 @@ struct Parameters {
     bool mclkOutput = true;
     SlotCountOption slotCount;
     SlotOption activeSlots;
+    PdmDecimation pdmDecimation = PdmDecimation::X64;
 };
 ```
 
@@ -44,6 +45,7 @@ struct Parameters {
 | `dataFormat` | `B16`, `B16Extended`, `B24`, `B32` | `B16` | Sample bit depth |
 | `sampleRateHz` | `uint32` | `44100` | Sample rate |
 | `mclkOutput` | `bool` | `true` | Enable master clock output |
+| `pdmDecimation` | `X64`, `X128` | `X64` | `Standard::PDM` only: PDM bits per output sample. The PDM clock is `sampleRateHz` times the ratio, so at 16 kHz `X64` clocks the microphone at 1.024 MHz and `X128` at 2.048 MHz. Pick a ratio that puts the clock inside the microphone's range (the SPM1423 accepts 1.0 to 3.25 MHz, so `X64` sits at its lower edge); the larger ratio also filters more of the PDM noise. Ports without a PDM decimation choice ignore it |
 
 ## Enums
 
@@ -171,6 +173,7 @@ These checks run before the previous channels are deleted, so a request rejected
 - `activeSlots` on receive: `Slot::Left` selects the left slot, `Slot::Right` the right slot, and both select stereo. When neither is set, the ESP-IDF default applies (left for mono, both for stereo). On transmit the selection is applied only on the classic ESP32 (`SOC_I2S_HW_VERSION_1`); other chips use the ESP-IDF default.
 - `slotCount` of 1 or less selects mono; anything above 1 selects stereo.
 - `clockPolarity` `High` inverts the PDM clock.
+- `pdmDecimation` on receive: `X64` is ESP-IDF's `I2S_PDM_DSR_8S` (its default), `X128` is `I2S_PDM_DSR_16S`.
 - `sampleRateHz` sets the PDM clock. `mclkOutput` and `mclk` are not used.
 - Received samples are 16-bit PCM from the hardware PDM-to-PCM filter (the ESP-IDF default for this chip). Transmitted 16-bit PCM is converted to PDM by the hardware.
 

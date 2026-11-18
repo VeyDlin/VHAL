@@ -526,6 +526,7 @@ private:
 		if (rxHandle) {
 			i2s_pdm_rx_clk_config_t clockConfig = I2S_PDM_RX_CLK_DEFAULT_CONFIG(parameters.sampleRateHz);
 			clockConfig.clk_src = CastClockSource();
+			clockConfig.dn_sample_mode = parameters.pdmDecimation == PdmDecimation::X128 ? I2S_PDM_DSR_16S : I2S_PDM_DSR_8S;
 
 			i2s_pdm_rx_slot_config_t slotConfig = I2S_PDM_RX_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, CastSlotMode());
 			i2s_pdm_slot_mask_t slotMask = CastPdmSlotMask();
