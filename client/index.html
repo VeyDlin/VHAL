@@ -5,23 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <script>
+      // Applies the color mode before the app starts, so the page does not flash in the wrong theme. The key and the
+      // values are those of VueUse useColorMode, which Nuxt UI's UColorModeButton uses ('auto' follows the system).
       (function() {
-        var mode = 'system';
+        var mode = 'auto';
         try {
-          var storedMode = localStorage.getItem('vhal-theme');
-          if (storedMode === 'system' || storedMode === 'light' || storedMode === 'dark') {
+          var storedMode = localStorage.getItem('vueuse-color-scheme');
+          if (storedMode === null) {
+            // Preference saved by the previous theme switcher
+            storedMode = localStorage.getItem('vhal-theme');
+          }
+          if (storedMode === 'light' || storedMode === 'dark') {
             mode = storedMode;
           }
         } catch (error) {
           // Storage may be unavailable in restricted browsing contexts.
         }
-        var media = window.matchMedia('(prefers-color-scheme: dark)');
-        function applyTheme() {
-          var dark = mode === 'dark' || (mode === 'system' && media.matches);
-          document.documentElement.classList.toggle('dark', dark);
-          document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-        }
-        applyTheme();
+        var dark = mode === 'dark' || (mode === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.classList.toggle('dark', dark);
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
       })();
     </script>
     <title>VHAL Documentation</title>

@@ -1,32 +1,53 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 
-test('persists an explicit theme and follows the system only in System mode', async ({ page }) => {
+const colorModeButtonName: RegExp = /switch to (dark|light) mode/i
+
+
+// The color mode button of the visible header (desktop sidebar or mobile header)
+function colorModeButton(page: Page): Locator {
+  return page.getByRole('button', { name: colorModeButtonName }).filter({ visible: true }).first()
+}
+
+
+async function setColorMode(page: Page, mode: 'light' | 'dark'): Promise<void> {
+  const html: Locator = page.locator('html')
+  const isDark: boolean = await html.evaluate((element: HTMLElement) => element.classList.contains('dark'))
+  if (isDark !== (mode === 'dark')) {
+    await colorModeButton(page).click()
+  }
+  if (mode === 'dark') {
+    await expect(html).toHaveClass(/\bdark\b/)
+  } else {
+    await expect(html).not.toHaveClass(/\bdark\b/)
+  }
+}
+
+
+test('follows the system until the button sets a mode, and keeps that mode after a reload', async ({ page }) => {
+  const html: Locator = page.locator('html')
+  await page.emulateMedia({ colorScheme: 'light' })
   await page.goto('./')
-  const theme = page.getByRole('combobox', { name: 'Theme' }).first()
-
-  await expect(theme).toHaveValue('system')
-  await theme.selectOption('dark')
-  await expect(page.locator('html')).toHaveClass(/\bdark\b/)
-  await expect.poll(() => page.evaluate(() => localStorage.getItem('vhal-theme'))).toBe('dark')
+  await expect(html).not.toHaveClass(/\bdark\b/)
 
   await page.emulateMedia({ colorScheme: 'dark' })
+  await expect(html).toHaveClass(/\bdark\b/)
+
+  await colorModeButton(page).click()
+  await expect(html).not.toHaveClass(/\bdark\b/)
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('vueuse-color-scheme'))).toBe('light')
+
   await page.emulateMedia({ colorScheme: 'light' })
-  await expect(page.locator('html')).toHaveClass(/\bdark\b/)
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await expect(html).not.toHaveClass(/\bdark\b/)
 
   await page.reload()
-  await expect(page.locator('html')).toHaveClass(/\bdark\b/)
-  await expect(page.getByRole('combobox', { name: 'Theme' }).first()).toHaveValue('dark')
+  await expect(html).not.toHaveClass(/\bdark\b/)
 
-  await page.getByRole('combobox', { name: 'Theme' }).first().selectOption('light')
-  await page.emulateMedia({ colorScheme: 'dark' })
-  await expect(page.locator('html')).not.toHaveClass(/\bdark\b/)
-
+  await colorModeButton(page).click()
+  await expect(html).toHaveClass(/\bdark\b/)
   await page.emulateMedia({ colorScheme: 'light' })
-  await page.getByRole('combobox', { name: 'Theme' }).first().selectOption('system')
-  await expect(page.locator('html')).not.toHaveClass(/\bdark\b/)
-  await page.emulateMedia({ colorScheme: 'dark' })
-  await expect(page.locator('html')).toHaveClass(/\bdark\b/)
+  await expect(html).toHaveClass(/\bdark\b/)
 })
 
 
@@ -34,17 +55,14 @@ test('keeps the mobile header controls visible at 390 pixels', async ({ page }) 
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('./')
 
-  const header = page.locator('.mobile-header')
-  const theme = header.getByRole('combobox', { name: 'Theme' })
-  const menu = header.getByRole('button', { name: 'Open navigation' })
-  const github = header.getByRole('link', { name: 'VHAL on GitHub' })
+  const header: Locator = page.locator('.mobile-header')
+  const theme: Locator = header.getByRole('button', { name: colorModeButtonName })
+  const menu: Locator = header.getByRole('button', { name: 'Open navigation' })
+  const github: Locator = header.getByRole('link', { name: 'VHAL on GitHub' })
 
-  await expect(theme).toBeVisible()
+  await expect(theme).toBeInViewport()
   await expect(menu).toBeInViewport()
   await expect(github).toBeInViewport()
-  const themeBox = await theme.boundingBox()
-  expect(themeBox?.x).toBeGreaterThanOrEqual(0)
-  expect((themeBox?.x ?? 0) + (themeBox?.width ?? 0)).toBeLessThanOrEqual(390)
 })
 
 
@@ -78,16 +96,16 @@ test('remains usable when browser storage access is denied', async ({ page }) =>
       },
     })
   })
+  await page.emulateMedia({ colorScheme: 'light' })
   await page.goto('./')
 
-  const theme = page.getByRole('combobox', { name: 'Theme' }).first()
-  await theme.selectOption('dark')
-  await expect(page.locator('html')).toHaveClass(/\bdark\b/)
+  await setColorMode(page, 'dark')
   await expect(page.locator('main h1, main h2').first()).toBeVisible()
 })
 
 
 test('keeps documentation and API syntax readable while switching Shiki colors', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' })
   await page.goto('docs/Periphery/Adapter/TIMAdapter.h')
   const proseHeading = page.locator('.doc-content h1')
   const proseBody = page.locator('.doc-content p').first()
@@ -103,7 +121,7 @@ test('keeps documentation and API syntax readable while switching Shiki colors',
   const markdownCode = page.locator('.doc-content pre.shiki-highlighted code').first()
   const markdownHtml: string = await markdownCode.innerHTML()
   const markdownLightColor: string = await markdownToken.evaluate((element: HTMLElement) => getComputedStyle(element).color)
-  await page.getByRole('combobox', { name: 'Theme' }).first().selectOption('dark')
+  await setColorMode(page, 'dark')
   const markdownDarkColor: string = await markdownToken.evaluate((element: HTMLElement) => getComputedStyle(element).color)
   expect(markdownDarkColor).not.toBe(markdownLightColor)
   expect(await markdownCode.innerHTML()).toBe(markdownHtml)
@@ -113,7 +131,7 @@ test('keeps documentation and API syntax readable while switching Shiki colors',
   await expect(apiToken).toBeVisible()
   const apiHtml: string | null = await apiToken.evaluate((element: HTMLElement) => element.parentElement?.innerHTML ?? null)
   const apiDarkColor: string = await apiToken.evaluate((element: HTMLElement) => getComputedStyle(element).color)
-  await page.getByRole('combobox', { name: 'Theme' }).first().selectOption('light')
+  await setColorMode(page, 'light')
   const apiLightColor: string = await apiToken.evaluate((element: HTMLElement) => getComputedStyle(element).color)
   expect(apiLightColor).not.toBe(apiDarkColor)
   expect(await apiToken.evaluate((element: HTMLElement) => element.parentElement?.innerHTML ?? null)).toBe(apiHtml)

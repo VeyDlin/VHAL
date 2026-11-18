@@ -36,7 +36,6 @@ export default defineConfig({
     vue(),
     palettePlugin(),
     ui({
-      colorMode: false,
       ui: {
         colors: theme.appConfig.ui.colors,
         button: {
