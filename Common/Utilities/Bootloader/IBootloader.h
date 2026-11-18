@@ -35,6 +35,7 @@ public:
         ResetWritePos = 0x15, // Reset write position to 0
         ResetReadPos = 0x16,  // Reset read position to 0
         GetHash = 0x17,      // Get SHA256 hash of raw data sent so far
+        SetIV = 0x18,        // Set the IV/initial counter of the next image (AES bootloaders)
         Start = 0x20,        // Start application
         Reset = 0x21,        // Reset device
         GetStatus = 0x30,    // Get current status
@@ -59,11 +60,11 @@ public:
 
     // Simplified firmware header - only CRC32 and size
     // PURPOSE: minimal structure for firmware validation
-    // LOCATION: at application memory start address (e.g. 0x08020000)
-    // LOGIC: if size is correct and CRC32 matches - firmware is valid
+    // LOCATION: the last 8 bytes of the application region (GetFirmwareHeaderAddress())
+    // LOGIC: crc32 and size cover the image that starts at the region start; if size is correct and CRC32 matches - firmware is valid
     struct FirmwareHeader {
-        uint32 crc32;        // CRC32 checksum of all firmware data (after this header)
-        uint32 size;         // Firmware size in bytes (excluding this header)
+        uint32 crc32;        // CRC32 checksum of the image, counted from the region start
+        uint32 size;         // Image size in bytes (the header itself is not included)
     } _APacked;
 
     // Command packet
@@ -311,6 +312,17 @@ protected:
 
 
     virtual std::optional<uint8> GetProtectionLevel() const { return std::nullopt; }
+
+
+
+    // Cipher reported by GetInfo: 0 = none/unknown, 1 = AES-ECB, 2 = AES-CBC, 3 = AES-CTR
+    virtual uint8 GetCipherId() const { return 0; }
+
+
+
+    // Custom command hook for inheritors. Returns false when the command is not handled here; the base class then
+    // answers InvalidCommand. A handler that returns true answers the host itself
+    virtual bool OnCommand(const CommandPacket& /*packet*/) { return false; }
     
 
 
@@ -690,8 +702,12 @@ protected:
                 HandleUserData(packet);
                 break;
                 
+            // SetIV is handled by AES bootloaders only; OnCommand() decides for it and for unknown commands
+            case Command::SetIV:
             default:
-                SendError(packet.sequence, BootloaderStatus::InvalidCommand);
+                if (!OnCommand(packet)) {
+                    SendError(packet.sequence, BootloaderStatus::InvalidCommand);
+                }
                 break;
         }
     }
@@ -713,7 +729,8 @@ protected:
             uint32 memorySize;
             uint8 protectionLevel;  // RDP level: 0 = Level0, 1 = Level1, 2 = Level2, 255 = Unknown
             uint8 accessDenied;     // Access status: 0 = allowed, 1 = denied
-            uint8 reserved[2];      // Alignment
+            uint8 packetDataMaxSize; // Largest packet data length (PacketDataMaxSize, capped at 255)
+            uint8 cipher;           // 0 = none/unknown, 1 = AES-ECB, 2 = AES-CBC, 3 = AES-CTR
         } info;
         
         info.bootloaderVersion = bootloaderVersionValue;
@@ -737,7 +754,8 @@ protected:
             info.protectionLevel = 255; // Unknown/Not implemented
         }
         
-        info.reserved[0] = info.reserved[1] = 0;
+        info.packetDataMaxSize = static_cast<uint8>(std::min<size_t>(PacketDataMaxSize, 255));
+        info.cipher = GetCipherId();
         
         SendResponse(BootloaderStatus::Success, std::span(reinterpret_cast<const uint8*>(&info), sizeof(info)));
     }
@@ -982,6 +1000,12 @@ protected:
 
 
     void HandleFinalize(const CommandPacket& packet) {
+        // During an erase the image is being cleared: a header written now would be erased or would mark garbage valid
+        if (state == State::Processing) {
+            SendError(currentSequence, BootloaderStatus::Busy);
+            return;
+        }
+
         if (RefuseImageChange()) {
             return;
         }
