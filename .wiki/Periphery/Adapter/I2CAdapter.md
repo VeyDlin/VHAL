@@ -83,6 +83,8 @@ struct Parameters {
 | `onSlaveRead` | `std::function<void(uint8 data)>` | Master wrote a byte (slave mode) |
 | `onSlaveWrite` | `std::function<uint8()>` | Master requests a byte (slave mode) |
 | `onSlaveEndTransfer` | `std::function<void()>` | Transfer ended (slave mode) |
+| `onSlaveAddressMatch` | `std::function<void(bool isRead)>` | Own address matched, before the first data byte (slave mode) |
+| `onSlaveStop` | `std::function<void(bool wasRead)>` | STOP condition received (slave mode) |
 | `onError` | `std::function<void(Error)>` | Communication error |
 | `onComplete` | `std::function<void()>` | Async operation completed |
 
@@ -106,6 +108,36 @@ AI2C(i2c_port_num_t port, int sda, int scl);
 - Internal pull-ups: the bus is created with the internal pull-ups enabled when `analogFilter` is `false`, and with them disabled when `analogFilter` is `true`.
 - Bus recovery: `SetParameters()` releases a held bus before it creates the driver bus. It sends nine SCL pulses with SDA released, then a STOP, on the same pins (bit-banged through GPIO). The nine pulses are sent even when SDA is already high, because a slave reset in the middle of a byte can release SDA between two bits and still expect the clocks. If SDA or SCL is still low after the pulses, `SetParameters()` returns `ResultStatus::error` and no bus is created.
 - Recovery runs only when `SetParameters()` is called, so a sensor that hangs later in the session is not released until the next `SetParameters()`.
+
+## STM32 G4 Port
+
+`AI2C` is `I2CAdapterG4` (`Periphery/Adapter/Port/STM32/G4/I2CAdapterG4.h`), on the I2C v2 IP (the same IP as G0). `HandleType` is `I2C_TypeDef`. The port is slave only: the master operations (`Read`, `Write`, `*ByteArray`, `CheckDevice`, `Scan`) return `ResultStatus::notSupported`.
+
+- Slave listen: `SetSlaveLiisten(true)` enables the own address (`Parameters::slaveAddress`, 7-bit), the address, NACK, error and STOP interrupts. Clock stretching follows `clockStretching` and is enabled by default.
+- Callbacks run from the interrupt, in this order for one transaction:
+  - `onSlaveAddressMatch(isRead)` on every address match, before the first data byte. The application resets its TX index here, because the first TXIS follows.
+  - `onSlaveRead(data)` for every byte the master writes.
+  - `onSlaveWrite()` for every byte the master reads, called once per byte.
+  - `onSlaveStop(wasRead)` and `onSlaveEndTransfer()` on every STOP.
+- A bus error, arbitration loss or overrun calls `onError` and aborts the current transfer. The listen state stays armed, so the next transaction is served normally. A STOP callback may not follow the aborted transfer.
+- Timing is computed for a 16 MHz kernel clock (HSI16) with a zero prescaler. Other clock frequencies return `ResultStatus::notSupported` from `SetParameters()`. Only `Standard` (100 kHz) and `Fast` (400 kHz) are accepted.
+- Interrupts: call `IrqHandler()` from one vector that serves both `I2C_EV` and `I2C_ER`. It dispatches to `IrqErrorHandler()` when BERR, ARLO or OVR is set, and to `IrqEventHandler()` otherwise.
+
+```cpp
+BSP::i2c1.SetParameters({
+    .speed = AI2C::Speed::Fast,
+    .mode = AI2C::Mode::Slave,
+    .slaveAddress = 0x2A
+});
+BSP::i2c1.onSlaveAddressMatch = [](bool isRead) {
+    // Start a new transfer: reset the register pointer or TX index here
+};
+BSP::i2c1.SetSlaveLiisten(true);
+
+void I2C1_IRQHandler() {
+    BSP::i2c1.IrqHandler();
+}
+```
 
 ## BSP Configuration Example
 
