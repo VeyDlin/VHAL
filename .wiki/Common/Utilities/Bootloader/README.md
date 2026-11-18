@@ -18,8 +18,8 @@ Extensible firmware bootloader framework with command protocol, Flash memory sup
 - [FLASHBootloader -- Flash Memory Bootloader](#flashbootloader----flash-memory-bootloader)
 - [AESFLASHBootloader -- Encrypted Bootloader](#aesflashbootloader----encrypted-bootloader)
 - [NRF8001Communication -- BLE Transport](#nrf8001communication----ble-transport)
-- [BLECommunication -- BLE Transport](#blecommunication----ble-transport)
 - [Host Tool (vboot)](#host-tool-vboot)
+- [BLECommunication -- BLE Transport](#blecommunication----ble-transport)
 - [Firmware Update Workflow](#firmware-update-workflow)
   - [Retrying after a lost response](#retrying-after-a-lost-response)
 - [API Reference](#api-reference)
@@ -627,7 +627,9 @@ bleCom.Process();
 
 ### Wire compatibility with NRF8001Communication
 
-Same: service and characteristic UUIDs, `CompactStreamingProtocol<20, MaxPacketCount>` framing, 20-byte packets, and the protocol's 512-byte send limit. A larger `SendData()` returns `error` in both. The protocol is reset on connect and on disconnect, and the bootloader receives the empty-span reset signal at those same two points. The message toggle flag and its duplicate filter come from the shared protocol. `IsReadyToSend()` is `true` only while connected and not transmitting, in both.
+Same: service and characteristic UUIDs, `CompactStreamingProtocol<20, MaxPacketCount>` framing, 20-byte packets, and the protocol's 512-byte send limit. A larger `SendData()` returns `error` in both. The protocol is reset on connect and on disconnect, and the bootloader receives the empty-span reset signal at those same two points. The fragment format v2 (message ids, last-fragment flag), its duplicate filter and its receive reset come from the shared protocol. `IsReadyToSend()` is `true` only while connected and not transmitting, in both.
+
+Framing loss is reported the same way in both. An outgoing message abandoned after its retries, and a receive reset (a new message started while the previous incoming one was incomplete), both give the bootloader an empty span. See [Fragment Format (v2)](#fragment-format-v2) and the abandoned-message rules in the NRF8001Communication section.
 
 Different, and why:
 

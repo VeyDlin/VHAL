@@ -84,8 +84,17 @@ public:
 			[this](uint8, std::span<const uint8> data) -> bool {
 				return HandleReceivedData(data);
 			},
-			// No stream completion handler: a TX timeout must not reset the bootloader
-			nullptr
+			// Stream completion: an abandoned or failed outgoing message lost its tail, so the bootloader
+			// must drop partial input and the pending response
+			[this](typename Protocol::StreamResult result) -> void {
+				if (result != Protocol::StreamResult::Success) {
+					NotifyBootloaderFramingLost();
+				}
+			},
+			// Receive reset: a new message started while the previous incoming one was incomplete
+			[this]() -> void {
+				NotifyBootloaderFramingLost();
+			}
 		) {
 		rxCharacteristic.onWrite = [this](BLEAdapter::ConnectionHandle) {
 			OnRxWritten();
@@ -279,7 +288,13 @@ private:
 	// Transport lost framing: reset the protocol and tell the bootloader to drop partial input
 	void ResetTransport() {
 		protocol.Reset();
+		NotifyBootloaderFramingLost();
+	}
 
+
+	// The empty span means "the transport lost framing": the bootloader drops its partial input and any pending
+	// response. It does not abort an erase or change the write stream (see IBootloader.h, A3).
+	void NotifyBootloaderFramingLost() {
 		if (dataCallback != nullptr) {
 			dataCallback(std::span<const uint8>());
 		}
