@@ -56,7 +56,7 @@ if (impulse.IsImpulse()) {
 ```cpp
 #include <Utilities/Math/FOC/RampController.h>
 
-RampController ramp(
+RampController<float> ramp(
     5,       // delayMax — delay between steps (in Resolve calls)
     -1.0f,   // amplitudeMin
     1.0f,    // amplitudeMax
@@ -76,7 +76,7 @@ bool reached    = ramp.Get().equalFlag;  // true when target is reached
 ```cpp
 #include <Utilities/Math/FOC/RampGenerator.h>
 
-RampGenerator rampGen;
+RampGenerator<float> rampGen;
 rampGen.stepAngleMax = 0.001f;  // Maximum angle step per call
 rampGen.outputMin = 0.0f;
 rampGen.outputMax = 1.0f;
@@ -113,15 +113,15 @@ int sector = counter.Get().step;  // 0, 1, 2, 3, 4, 5, 0, ...
 ```cpp
 #include <Utilities/Math/FOC/ClarkeTransformation.h>
 
-ClarkeTransformation clarke;
+ClarkeTransformation<float> clarke;
 
 // Option 1: from two currents (third = -(Ia + Ib))
 clarke.SetPhase({Ia, Ib, 0});
-clarke.Resolve(ClarkeTransformation::CurrentsMode::C2);
+clarke.Resolve(ClarkeTransformation<float>::CurrentsMode::C2);
 
 // Option 2: from three currents
 clarke.SetPhase({Ia, Ib, Ic});
-clarke.Resolve(ClarkeTransformation::CurrentsMode::C3);
+clarke.Resolve(ClarkeTransformation<float>::CurrentsMode::C3);
 
 float iAlpha = clarke.GetClarke().alpha;
 float iBeta  = clarke.GetClarke().beta;
@@ -139,7 +139,7 @@ float Vc = clarke.GetPhase().c;
 ```cpp
 #include <Utilities/Math/FOC/ParkTransformation.h>
 
-ParkTransformation park;
+ParkTransformation<float> park;
 
 // Forward: αβ → dq (requires electrical angle in radians)
 park.SetAxis({iAlpha, iBeta, electricalAngle});
@@ -162,7 +162,7 @@ float vBeta  = park.GetAxis().beta;
 ```cpp
 #include <Utilities/Math/FOC/SpaceVectorGenerator.h>
 
-SpaceVectorGenerator svg;
+SpaceVectorGenerator<float> svg;
 
 // Inputs: normalized αβ voltages (relative to Vdc/2)
 svg.Set(vAlpha_norm, vBeta_norm);
@@ -185,7 +185,7 @@ auto pwm = svg.Get();
 ```cpp
 #include <Utilities/Math/FOC/SVGenMF.h>
 
-SVGenMF svmf;
+SVGenMF<float> svmf;
 svmf.freqMax = 6.0f * baseFreq * Ts;  // Maximum angle step
 
 svmf.Set(
@@ -205,7 +205,7 @@ SetPWM(pwm.phaseA, pwm.phaseB, pwm.phaseC);
 ```cpp
 #include <Utilities/Math/FOC/VoltageCalculator.h>
 
-VoltageCalculator voltCalc;
+VoltageCalculator<float> voltCalc;
 voltCalc.outputOfPhase = true;  // true if PWM is inverted
 
 voltCalc.Set(
@@ -229,7 +229,7 @@ auto v = voltCalc.Get();
 ```cpp
 #include <Utilities/Math/FOC/SpeedCalculator.h>
 
-SpeedCalculator speedCalc;
+SpeedCalculator<float> speedCalc;
 speedCalc.baseSpeedRpm = 3600;  // Base speed for normalization
 
 // Differentiator and LPF coefficients
@@ -251,11 +251,11 @@ int   speedRPM = speedCalc.Get().speedRpm;   // Speed in RPM
 #include <Utilities/Math/FOC/SpeedPeriodCalculator.h>
 
 // Two modes: by event period or by timestamp
-SpeedPeriodCalculator speedPr(
-    100.0f,  // basePeriod — period at base speed (in timer ticks)
-    1800.0f, // baseRpm
-    0x7FFF,  // maxTimerCount
-    SpeedPeriodCalculator::InputSelect::EventPeriod
+SpeedPeriodCalculator<float> speedPr(
+    100.0f,  // speedScaler — scaler converting 1/N cycles to speed
+    1800.0f, // baseRpm — scaler converting per-unit speed to rpm
+    0x7FFF,  // maximumOutput — output clamp (per-unit)
+    SpeedPeriodCalculator<float>::InputSelect::EventPeriod
 );
 
 // On event (Hall/encoder):
@@ -274,7 +274,7 @@ float speedRPM = speedPr.Get().speedRpm;
 #include <Utilities/Math/FOC/SlidingModeObserver.h>
 
 // Step 1: Compute constants from motor parameters
-auto smoConst = SlidingModeObserver::ComputeConstants({
+auto smoConst = SlidingModeObserver<float>::ComputeConstants({
     .Rs = 0.4f,     // Stator resistance [Ohm]
     .Ls = 0.0006f,  // Stator inductance [H]
     .Ib = 3.5f,     // Base current [A]
@@ -283,7 +283,7 @@ auto smoConst = SlidingModeObserver::ComputeConstants({
 });
 
 // Step 2: Configure observer
-SlidingModeObserver smo;
+SlidingModeObserver<float> smo;
 smo.constants = smoConst;
 smo.Kslide = 0.1f;    // Sliding mode gain
 smo.Kslf   = 0.05f;   // Back-EMF filter constant
@@ -301,14 +301,14 @@ float rotorAngle = smo.Get().theta;  // Estimated rotor angle (0..1)
 ```cpp
 #include <Utilities/Math/FOC/CurrentModel.h>
 
-auto cmConst = CurrentModel::ComputeConstants({
+auto cmConst = CurrentModel<float>::ComputeConstants({
     .Rr = 2.0f,     // Rotor resistance [Ohm]
     .Lr = 0.1f,     // Rotor inductance [H]
     .fb = 60.0f,    // Base electrical frequency [Hz]
     .Ts = 0.001f    // Sampling period [s]
 });
 
-CurrentModel curModel;
+CurrentModel<float> curModel;
 curModel.constants = cmConst;
 
 // In loop (all inputs in pu):
@@ -326,7 +326,7 @@ float thetaFlux = curModel.Get().theta;  // Rotor flux angle (0..1)
 ```cpp
 #include <Utilities/Math/FOC/VHzProfile.h>
 
-VHzProfile vhz;
+VHzProfile<float> vhz;
 vhz.parameters = {
     .lowFreq  = 10.0f,   // Lower frequency boundary [pu]
     .highFreq = 50.0f,   // Frequency at rated voltage [pu]
@@ -370,7 +370,7 @@ int32 mechAngle = resolver.Get().mechTheta;  // Mechanical angle (Q24)
 ```cpp
 #include <Utilities/Math/FOC/ACIFluxEstimator.h>
 
-auto feConst = ACIFluxEstimator::ComputeConstants({
+auto feConst = ACIFluxEstimator<float>::ComputeConstants({
     .Rs = 2.0f,     // Stator resistance [Ohm]
     .Rr = 3.0f,     // Rotor resistance [Ohm]
     .Ls = 0.1f,     // Stator inductance [H]
@@ -381,7 +381,7 @@ auto feConst = ACIFluxEstimator::ComputeConstants({
     .Ts = 0.001f    // Sampling period [s]
 });
 
-ACIFluxEstimator fluxEst;
+ACIFluxEstimator<float> fluxEst;
 fluxEst.constants = feConst;
 fluxEst.piGains = { .Kp = 0.01f, .Ki = 0.001f };
 
@@ -399,7 +399,7 @@ float psiQr     = flux.psiQrS;     // Rotor q-flux (pu)
 ```cpp
 #include <Utilities/Math/FOC/ACISpeedEstimator.h>
 
-auto seConst = ACISpeedEstimator::ComputeConstants({
+auto seConst = ACISpeedEstimator<float>::ComputeConstants({
     .Rr = 3.0f,     // Rotor resistance [Ohm]
     .Lr = 0.12f,    // Rotor inductance [H]
     .fb = 60.0f,    // Base frequency [Hz]
@@ -407,7 +407,7 @@ auto seConst = ACISpeedEstimator::ComputeConstants({
     .Ts = 0.001f    // Sampling period [s]
 });
 
-ACISpeedEstimator speedEst;
+ACISpeedEstimator<float> speedEst;
 speedEst.constants = seConst;
 speedEst.baseRpm = 1800;
 
@@ -532,7 +532,7 @@ with phase A:
 void CalibrateEncoder() {
     // 1. Apply voltage vector at angle 0 (phase A)
     //    This is Vd=amplitude, Vq=0, theta=0
-    ParkTransformation invPark;
+    ParkTransformation<float> invPark;
     invPark.SetPark({5.0f, 0.0f, 0.0f});  // Vd=5V, Vq=0, angle=0
     invPark.ResolveInverse();
     auto ab = invPark.GetAxis();
@@ -617,10 +617,10 @@ const uint32 POLE_PAIRS = 4;
 const uint32 PWM_FREQ = 20000;    // 20 kHz
 
 // ===== Global objects (persist between ISR calls) =====
-ClarkeTransformation clarke;
-ParkTransformation park;
-ParkTransformation invPark;
-SpaceVectorGenerator svg;
+ClarkeTransformation<float> clarke;
+ParkTransformation<float> park;
+ParkTransformation<float> invPark;
+SpaceVectorGenerator<float> svg;
 
 // PI controller for d-axis current: keeps Id = 0 (for SPM motors)
 PidController<float> pidId({
@@ -679,7 +679,7 @@ void FOC_ISR() {
 
     // --- 1. Measurement: abc → αβ → dq ---
     clarke.SetPhase({Ia, Ib, Ic});
-    clarke.Resolve(ClarkeTransformation::CurrentsMode::C3);
+    clarke.Resolve(ClarkeTransformation<float>::CurrentsMode::C3);
     auto ab = clarke.GetClarke();
 
     park.SetAxis({ab.alpha, ab.beta, electricalAngle});
@@ -764,10 +764,10 @@ const float PWM_FREQ = 10000.0f;   // 10 kHz
 const float Ts = 1.0f / PWM_FREQ;  // 100 us
 
 // ===== Objects =====
-RampGenerator rampGen;
-VHzProfile vhz;
-SpaceVectorGenerator svg;
-ParkTransformation invPark;
+RampGenerator<float> rampGen;
+VHzProfile<float> vhz;
+SpaceVectorGenerator<float> svg;
+ParkTransformation<float> invPark;
 
 void VHz_Init() {
     // stepAngleMax determines the maximum angle slew rate
@@ -850,12 +850,12 @@ const float Ibase = Irated;
 const float Vbase = Vdc / sqrtf(3.0f);   // Line-to-line → phase
 
 // ===== Objects =====
-SlidingModeObserver smo;
-SpeedCalculator speedCalc;
-ClarkeTransformation clarke;
-ParkTransformation park, invPark;
-VoltageCalculator voltCalc;
-SpaceVectorGenerator svg;
+SlidingModeObserver<float> smo;
+SpeedCalculator<float> speedCalc;
+ClarkeTransformation<float> clarke;
+ParkTransformation<float> park, invPark;
+VoltageCalculator<float> voltCalc;
+SpaceVectorGenerator<float> svg;
 
 // Current PI controllers (same as FOC for PMSM example)
 PidController<float> pidId({.proportional = 5.0f, .integral = 500.0f}, {.max = Vdc/2, .min = -Vdc/2});
@@ -868,7 +868,7 @@ float lastDutyA = 0.5f, lastDutyB = 0.5f, lastDutyC = 0.5f;
 
 void SensorlessFOC_Init() {
     // SMO: constants computed from motor parameters
-    smo.constants = SlidingModeObserver::ComputeConstants({
+    smo.constants = SlidingModeObserver<float>::ComputeConstants({
         .Rs = Rs,
         .Ls = Ls,
         .Ib = Ibase,
@@ -912,7 +912,7 @@ void SensorlessFOC_ISR() {
 
     // --- 2. Clarke: phase currents → αβ ---
     clarke.SetPhase({Ia, Ib, Ic});
-    clarke.Resolve(ClarkeTransformation::CurrentsMode::C3);
+    clarke.Resolve(ClarkeTransformation<float>::CurrentsMode::C3);
     auto ab = clarke.GetClarke();
 
     // --- 3. SMO: rotor angle estimation from back-EMF ---
@@ -984,8 +984,8 @@ const uint32 POLE_PAIRS = 16;    // Pole pairs
 const float Vdc = 24.0f;         // DC bus voltage [V]
 const uint32 ISR_FREQ = 5000;    // 5 kHz (for positioning 1-5 kHz is sufficient)
 
-ParkTransformation invPark;
-SpaceVectorGenerator svg;
+ParkTransformation<float> invPark;
+SpaceVectorGenerator<float> svg;
 
 // Position PID — output = voltage amplitude [V]
 // Roll enabled: correct handling of 359° → 1° transition

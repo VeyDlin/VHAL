@@ -42,8 +42,10 @@ protected:
 
 
 public:
-	AnimationRTOS& SetFps(uint8 val) {
-		timer.interval = std::chrono::milliseconds(1000 / val);
+	// The rate is clamped to 1..1000 fps, so the interval is at least 1 ms and the division never sees 0.
+	AnimationRTOS& SetFps(uint16 val) {
+		uint16 fps = val < 1 ? 1 : (val > 1000 ? 1000 : val);
+		timer.interval = std::chrono::milliseconds(1000 / fps);
 		return *this;
 	}
 

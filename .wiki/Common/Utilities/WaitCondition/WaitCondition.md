@@ -40,14 +40,16 @@ if (!ok) {
 bool WaitCondition::Wait(std::function<bool()> condition, uint32 timeout);
 ```
 
-Polls `condition()` in a busy loop until it returns `true` or the elapsed time since entry exceeds `timeout` ticks (as measured by `System::GetTick()`).
+Polls `condition()` in a busy loop until it returns `true` or the elapsed time since entry reaches `timeout` ticks (as measured by `System::GetTick()`).
+
+`condition()` is evaluated before the timeout is checked. If it returns `true` on entry, `Wait` returns `true` at once, even when `timeout` is `0`. With `timeout` of `0` and a `false` condition, `Wait` evaluates the condition once and returns `false`.
 
 | Parameter   | Type                      | Description                                       |
 |-------------|---------------------------|---------------------------------------------------|
 | `condition` | `std::function<bool()>`   | Callable that returns `true` when the wait is over |
 | `timeout`   | `uint32`                  | Maximum number of ticks to wait                    |
 
-**Returns:** `true` if `condition()` became `true` before the timeout; `false` otherwise.
+**Returns:** `true` if `condition()` is `true` before the timeout; `false` once the timeout has elapsed while `condition()` is still `false`.
 
 ---
 
@@ -61,7 +63,7 @@ bool WaitCondition::WaitDouble(
 );
 ```
 
-Same as `Wait`, but adds a **mandatory condition** that is checked on every iteration. If `mandatoryCondition()` returns `false` at any point, the function exits immediately with `false` -- regardless of the timeout.
+Same as `Wait`, but adds a **mandatory condition** that is checked on every iteration while `condition()` is `false`. If `condition()` is `true` on entry, `mandatoryCondition()` is not called and the function returns `true`. If `mandatoryCondition()` returns `false` while `condition()` is `false`, the function exits immediately with `false`, regardless of the timeout.
 
 | Parameter            | Type                      | Description                                                  |
 |----------------------|---------------------------|--------------------------------------------------------------|
@@ -69,7 +71,7 @@ Same as `Wait`, but adds a **mandatory condition** that is checked on every iter
 | `mandatoryCondition` | `std::function<bool()>`   | Invariant that must stay `true`; violation causes early abort |
 | `timeout`            | `uint32`                  | Maximum number of ticks to wait                               |
 
-**Returns:** `true` if `condition()` became `true` while `mandatoryCondition()` stayed `true` and before the timeout; `false` otherwise.
+**Returns:** `true` if `condition()` is `true` before the timeout. `false` if `mandatoryCondition()` returns `false` while `condition()` is still `false`, or if the timeout elapses first.
 
 ---
 

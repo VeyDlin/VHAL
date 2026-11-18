@@ -46,7 +46,9 @@ public:
         size_t writeIndex = 2;
         size_t blockStart = 1;
 
-        if (escapedLength.Value() + 2 > maxOutputLength) {
+        // Start byte, stop byte, one block code per block, and one extra block code after every 254 data bytes.
+        size_t requiredLength = escapedLength.Value() + escapedLength.Value() / 254 + 3;
+        if (requiredLength > maxOutputLength) {
             return ResultStatus::bufferOverflow;
         }
 
@@ -60,6 +62,11 @@ public:
             }
             else {
                 output[writeIndex++] = tempBuffer[readIndex];
+                // A block code cannot exceed 0xFF; close a full block and start the next one.
+                if (writeIndex - blockStart == 0xFF) {
+                    output[blockStart] = 0xFF;
+                    blockStart = writeIndex++;
+                }
             }
             readIndex++;
         }
@@ -85,6 +92,9 @@ public:
 
         while (readIndex < length - 1) {
             uint8 code = data[readIndex++];
+            if (code == 0) {
+                return ResultStatus::dataCorrupted;
+            }
             for (size_t i = 1; i < code; ++i) {
                 if (readIndex >= length - 1) {
                     return ResultStatus::dataCorrupted;

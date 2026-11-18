@@ -15,27 +15,41 @@ namespace Colors {
 		constexpr URgb(uint8 _r, uint8 _g, uint8 _b) : r(_r), g(_g), b(_b) {}
 
 		URgb(const FRgb& rgb)
-			: r(static_cast<uint8>(rgb.r * 255.0f + 0.5f))
-			, g(static_cast<uint8>(rgb.g * 255.0f + 0.5f))
-			, b(static_cast<uint8>(rgb.b * 255.0f + 0.5f))
+			: r(ClampToByte(rgb.r * 255.0f))
+			, g(ClampToByte(rgb.g * 255.0f))
+			, b(ClampToByte(rgb.b * 255.0f))
 		{}
 
-		URgb operator+(const URgb& o) const { return {uint8(r + o.r), uint8(g + o.g), uint8(b + o.b)}; }
-		URgb operator-(const URgb& o) const { return {uint8(r - o.r), uint8(g - o.g), uint8(b - o.b)}; }
+		URgb operator+(const URgb& o) const {
+			return {AddSaturated(r, o.r), AddSaturated(g, o.g), AddSaturated(b, o.b)};
+		}
+		URgb operator-(const URgb& o) const {
+			return {SubSaturated(r, o.r), SubSaturated(g, o.g), SubSaturated(b, o.b)};
+		}
 		URgb operator*(float s) const {
 			return {
-				static_cast<uint8>(r * s + 0.5f),
-				static_cast<uint8>(g * s + 0.5f),
-				static_cast<uint8>(b * s + 0.5f)
+				ClampToByte(r * s),
+				ClampToByte(g * s),
+				ClampToByte(b * s)
 			};
 		}
 
-		URgb& operator+=(const URgb& o) { r += o.r; g += o.g; b += o.b; return *this; }
-		URgb& operator-=(const URgb& o) { r -= o.r; g -= o.g; b -= o.b; return *this; }
+		URgb& operator+=(const URgb& o) {
+			r = AddSaturated(r, o.r);
+			g = AddSaturated(g, o.g);
+			b = AddSaturated(b, o.b);
+			return *this;
+		}
+		URgb& operator-=(const URgb& o) {
+			r = SubSaturated(r, o.r);
+			g = SubSaturated(g, o.g);
+			b = SubSaturated(b, o.b);
+			return *this;
+		}
 		URgb& operator*=(float s) {
-			r = static_cast<uint8>(r * s + 0.5f);
-			g = static_cast<uint8>(g * s + 0.5f);
-			b = static_cast<uint8>(b * s + 0.5f);
+			r = ClampToByte(r * s);
+			g = ClampToByte(g * s);
+			b = ClampToByte(b * s);
 			return *this;
 		}
 
@@ -63,6 +77,27 @@ namespace Colors {
 		static constexpr URgb Cyan()    { return {0x00, 0xFF, 0xFF}; }
 		static constexpr URgb Magenta() { return {0xFF, 0x00, 0xFF}; }
 		static constexpr URgb White()   { return {0xFF, 0xFF, 0xFF}; }
+
+	private:
+		static uint8 AddSaturated(uint8 a, uint8 b) {
+			int sum = a + b;
+			return sum > 255 ? uint8(255) : uint8(sum);
+		}
+
+		static uint8 SubSaturated(uint8 a, uint8 b) {
+			return a > b ? uint8(a - b) : uint8(0);
+		}
+
+		// Rounds to nearest and saturates; written so NaN maps to 0
+		static uint8 ClampToByte(float value) {
+			if (!(value > 0.0f)) {
+				return 0;
+			}
+			if (value >= 255.0f) {
+				return 255;
+			}
+			return static_cast<uint8>(value + 0.5f);
+		}
 	};
 
 

@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include <VHAL.h>
 #include <utility>
+#include <type_traits>
 #include <cassert>
 
 
@@ -9,7 +10,7 @@ public:
 	// Copy data from FROM_DATA to TO_ARRAY starting at startToCopyPosition
 	template <typename TO_ARRAY, typename FROM_DATA>
 	static void ToArrayFromDataCopy(TO_ARRAY &array, FROM_DATA &copyData, uint16 startToCopyPosition = 0) {
-		memcpy(&array + startToCopyPosition, &copyData, sizeof(FROM_DATA));
+		memcpy(reinterpret_cast<uint8*>(&array) + startToCopyPosition, &copyData, sizeof(FROM_DATA));
 	}
 
 
@@ -52,19 +53,24 @@ public:
 	}
 
 
-	// Returns a byte from the data object at the specified position
+	// Returns a byte from the data object at the specified position (0 is the least significant byte)
 	template<typename dataType>
 	static inline uint8 GetByte(dataType& data, uint8 bytePosition) {
 		SystemAssert(sizeof(dataType) > bytePosition);
-		return static_cast<uint8>((data >> (8 * bytePosition)) & 0xFF);
+		using Unsigned = std::make_unsigned_t<dataType>;
+		return static_cast<uint8>((static_cast<Unsigned>(data) >> (8 * bytePosition)) & 0xFF);
 	}
 
 
-	// Sets a byte in the data object at the specified position
+	// Sets a byte in the data object at the specified position (0 is the least significant byte).
+	// Shifts instead of writing memory, so the result does not depend on host byte order.
 	template<typename dataType>
 	static void SetByte(dataType& data, uint8 val, uint8 bytePosition) {
 		SystemAssert(sizeof(dataType) > bytePosition);
-		*(static_cast<uint8*>(data) + bytePosition) = val;
+		using Unsigned = std::make_unsigned_t<dataType>;
+		Unsigned mask = static_cast<Unsigned>(static_cast<Unsigned>(0xFF) << (8 * bytePosition));
+		Unsigned shifted = static_cast<Unsigned>(static_cast<Unsigned>(val) << (8 * bytePosition));
+		data = static_cast<dataType>((static_cast<Unsigned>(data) & ~mask) | shifted);
 	}
 
 
@@ -109,7 +115,7 @@ public:
 
 	// Sets the low 16 bits of a uint32
 	static inline void SetLow(uint32 &to, uint16 set) {
-		 to &= 0xFF << 16;
+		 to &= 0xFFFF0000u;
 		 to |= set;
 	}
 

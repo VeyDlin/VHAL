@@ -54,8 +54,8 @@ value = raw / 2^Q
 
 | Format | Q | Integer part (bits) | Range | Precision |
 |--------|---|---------------------|-------|-----------|
-| `IQ<8>` / `iq8` | 8 | 23 | ±4 194 304 | ~0.004 |
-| `IQ<16>` / `iq16` | 16 | 15 | ±16 384 | ~0.000015 |
+| `IQ<8>` / `iq8` | 8 | 23 | ±8 388 608 | ~0.004 |
+| `IQ<16>` / `iq16` | 16 | 15 | ±32 768 | ~0.000015 |
 | `IQ<24>` / `iq24` | 24 | 7 | ±128 | ~0.00000006 |
 
 Q can range from 1 to 30. The larger Q is, the higher the precision, but the narrower the range.
@@ -68,6 +68,9 @@ For FOC, `IQ<24>` is recommended (precision comparable to float, range of ±128 
 // From float/double — implicit conversion
 iq24 a = 3.14f;
 iq24 b(1.5);
+
+// Out-of-range float/double saturate to the type's maximum or minimum; NaN converts to 0.
+iq24 big(1e30);   // raw = INT32_MAX
 
 // From integer — explicit conversion
 iq24 c(IQ<24>(5));
@@ -85,6 +88,8 @@ float  f2 = static_cast<float>(a);
 uint32 u  = static_cast<uint32>(a);
 int16  s  = static_cast<int16>(a);
 ```
+
+Conversion to an integer type drops the fraction (rounding toward negative infinity) and saturates to the limits of the target type, so `static_cast<uint8>(iq16(300.0f))` is 255 and `static_cast<uint32>(iq16(-1.0f))` is 0. `ToInt()` returns the integer part as `int32`; it cannot overflow.
 
 ## Arithmetic
 
@@ -119,6 +124,12 @@ if (a == b) { ... }
 if (a <= b) { ... }
 ```
 
+Addition, subtraction and multiplication saturate: a result outside the raw `int32` range becomes the maximum or minimum of the type instead of wrapping. This covers `IQ` with `IQ`, `IQ` with an `int32` scalar (in either order), and the compound forms `+=`, `-=` and `*=`. The integer constructor saturates the same way, so `iq24(200)` is the maximum of `iq24`, about 128.
+
+Division by zero does not trap: `x / 0` saturates to the maximum for positive `x` and to the minimum for negative `x`; `0 / 0` returns 0. Division results that do not fit the type also saturate.
+
+Negating or taking `abs` of the most negative raw value saturates to the maximum.
+
 ## Math Functions
 
 All functions are free-standing (not methods) and work via ADL. This allows using IQ as a drop-in replacement for float in template classes.
@@ -134,7 +145,7 @@ iq24 s = sin(angle);  // ≈ 1.0
 iq24 c = cos(angle);  // ≈ 0.0
 ```
 
-Argument is in radians, any range (automatic normalization to [0, 2π)).
+Argument is in radians, any range. The argument is reduced to [0, 2π) with 32 fractional bits, so neither the reduction nor the table interpolation drops the low bits of the angle. The 2π constant is rounded to 32 fractional bits, which adds at most 2^-33 rad per full turn. Over the whole representable range of the format this stays below one LSB, so the result error is set by the LUT and the output resolution, for every `Q` from 1 to 30.
 
 Precision depends on the LUT size (default is 256 points ≈ 14 bits). See [LUT Configuration](#lut-configuration).
 
@@ -170,7 +181,7 @@ iq16 val(1.0f);
 iq16 e = exp(val);  // ≈ 2.7183
 ```
 
-For `exp`, `IQ<16>` is recommended — the range of ±16384 allows storing results for arguments up to ~9.7. With `IQ<24>`, the range is ±128, which limits `exp` to arguments up to ~4.8.
+For `exp`, `IQ<16>` is recommended — the range of ±32 768 allows storing results for arguments up to ~10.4. With `IQ<24>`, the range is ±128, which limits `exp` to arguments up to ~4.8.
 
 ### abs / fabs / min / max / clamp / floor / ceil / round / copysign
 
@@ -191,7 +202,7 @@ iq24 r9 = copysign(b, a);           // -3.0
 
 ## Conversion Between IQ Formats
 
-Explicit conversion between different Q values via bit shift:
+Explicit conversion between Q values. Converting to a larger `Q` (more fractional bits) shifts the raw value left and saturates when it does not fit. Converting to a smaller `Q` drops the low bits, which rounds toward negative infinity:
 
 ```cpp
 iq24 precise(3.14f);
@@ -301,26 +312,23 @@ void FOC_ISR() {
 
     auto ab = clarke.GetClarke();
 
-    park.SetClarke({.alpha = ab.alpha, .beta = ab.beta})
-        .SetAngle(theta)
+    park.SetAxis({.alpha = ab.alpha, .beta = ab.beta, .angle = theta})
         .Resolve();
 
-    auto dq = park.GetDQ();
+    auto dq = park.GetPark();
 
     // ... PID on dq currents ...
 
-    park.SetDQ({.d = vd, .q = vq})
+    park.SetPark({.dAxis = vd, .qAxis = vq, .angle = theta})
         .ResolveInverse();
 
-    auto vab = park.GetClarke();
+    auto vab = park.GetAxis();
 
-    T vdc = T(GetVdc());
-    svgen.SetAlphaBeta(vab.alpha, vab.beta)
-         .SetVdc(vdc)
+    svgen.Set(vab.alpha, vab.beta)
          .Resolve();
 
-    auto pwm = svgen.GetPhase();
-    SetPWM(pwm.a.ToFloat(), pwm.b.ToFloat(), pwm.c.ToFloat());
+    auto pwm = svgen.Get();
+    SetPWM(pwm.phaseA.ToFloat(), pwm.phaseB.ToFloat(), pwm.phaseC.ToFloat());
 }
 ```
 
@@ -331,15 +339,15 @@ void FOC_ISR() {
 #include <Utilities/Math/PID/PidController.h>
 
 PidController<iq24> speedPid;
-speedPid.SetCoefficients(iq24(0.5f), iq24(0.01f), iq24(0.0f));
-speedPid.SetOuput({.min = iq24(-10.0f), .max = iq24(10.0f)});
+speedPid.SetCoefficients({iq24(0.5f), iq24(0.01f), iq24(0.0f)});
+speedPid.SetOuput({.max = iq24(10.0f), .min = iq24(-10.0f)});
 
 // In the control loop:
 iq24 output = speedPid
     .SetInpit({
         .feedback  = currentSpeed,
         .reference = targetSpeed,
-        .frequency = iq24(1000.0f)
+        .frequency = 1000
     })
     .Resolve()
     .Get();
@@ -349,6 +357,6 @@ iq24 output = speedPid
 
 | Alias | Type | Storage | Q | Integer (bits) | Range | Precision | ROM (LUT) |
 |-------|------|---------|---|----------------|-------|-----------|-----------|
-| `iq8` | `IQ<8>` | `int32` | 8 | 23 | ±4 194 304 | 0.00391 | 1 KB |
-| `iq16` | `IQ<16>` | `int32` | 16 | 15 | ±16 384 | 0.0000153 | 1 KB |
+| `iq8` | `IQ<8>` | `int32` | 8 | 23 | ±8 388 608 | 0.00391 | 1 KB |
+| `iq16` | `IQ<16>` | `int32` | 16 | 15 | ±32 768 | 0.0000153 | 1 KB |
 | `iq24` | `IQ<24>` | `int32` | 24 | 7 | ±128 | 0.0000000596 | 1 KB |

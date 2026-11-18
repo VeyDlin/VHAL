@@ -132,13 +132,18 @@ public:
         if constexpr (std::is_signed_v<T>) {
             if (number < 0 && format == Format::Dec) {
                 isNegative = true;
-                unsignedNumber = static_cast<uint64>(-static_cast<int64_t>(number));
+				unsignedNumber = static_cast<uint64>(-(static_cast<int64_t>(number) + 1)) + 1;
             } else {
                 unsignedNumber = static_cast<uint64>(number);
             }
         } else {
             unsignedNumber = static_cast<uint64>(number);
         }
+
+		// Hex and octal of a negative value show the type's width (int8 -1 -> FF), like Bin does
+		if (format != Format::Dec && sizeof(T) < sizeof(uint64)) {
+			unsignedNumber &= (uint64(1) << (sizeof(T) * 8)) - 1;
+		}
 
         return NumberToStringCore(buffer, bufferSize, unsignedNumber, isNegative, sizeof(T), format);
     }
@@ -280,7 +285,7 @@ private:
             return 0;
         }
         
-        if (number > 1e308) { // Infinity check without std::isinf
+		if (number > std::numeric_limits<double>::max()) { // Only infinity is above DBL_MAX
             const char* str = isNegative ? "-Inf" : "Inf";
             size_t len = isNegative ? 4 : 3;
             if (len < bufferSize) {
@@ -297,37 +302,12 @@ private:
             tempBuffer[idx++] = '-';
         }
 
-        // Extract integer and fractional parts without std::floor
-        uint64_t integerPart = (uint64_t)number;
-        double fractionalPart = number - integerPart;
-
-        // Convert integer part using our optimized core function
-        if (integerPart == 0) {
-            tempBuffer[idx++] = '0';
-        } else {
-            size_t intStart = idx;
-            while (integerPart > 0 && idx < sizeof(tempBuffer) - 1) {
-                tempBuffer[idx++] = '0' + (integerPart % 10);
-                integerPart /= 10;
-            }
-            // Reverse integer digits
-            for (size_t i = intStart; i < intStart + (idx - intStart) / 2; ++i) {
-                char temp = tempBuffer[i];
-                tempBuffer[i] = tempBuffer[idx - (i - intStart) - 1];
-                tempBuffer[idx - (i - intStart) - 1] = temp;
-            }
-        }
-
-        // Add decimal point and fractional part
-        if (precision > 0 && idx < sizeof(tempBuffer) - 1) {
-            tempBuffer[idx++] = '.';
-            for (uint8_t i = 0; i < precision && idx < sizeof(tempBuffer) - 1; ++i) {
-                fractionalPart *= 10;
-                int digit = (int)fractionalPart;
-                tempBuffer[idx++] = '0' + digit;
-                fractionalPart -= digit;
-            }
-        }
+		// A uint64 holds every integer part below 2^64; larger values use scientific notation
+		if (number >= 18446744073709551616.0) {
+			idx += ScientificDigits(&tempBuffer[idx], sizeof(tempBuffer) - idx, number, precision);
+		} else {
+			idx += FixedDigits(&tempBuffer[idx], sizeof(tempBuffer) - idx, number, precision);
+		}
 
         // Copy to output buffer
         size_t copyLen = (idx < bufferSize - 1) ? idx : bufferSize - 1;
@@ -339,6 +319,235 @@ private:
     }
     
     
+	// Unsigned integer of 192 bits, enough for a 53-bit mantissa times 10^40
+	struct WideUint {
+		static constexpr size_t limbCount = 6;
+		uint32_t limbs[limbCount] = {};
+
+		void MultiplyBy10() {
+			uint64_t carry = 0;
+			for (size_t i = 0; i < limbCount; ++i) {
+				uint64_t product = static_cast<uint64_t>(limbs[i]) * 10 + carry;
+				limbs[i] = static_cast<uint32_t>(product);
+				carry = product >> 32;
+			}
+		}
+
+		bool Bit(uint32_t index) const {
+			size_t limb = index / 32;
+			return limb < limbCount && ((limbs[limb] >> (index % 32)) & 1u) != 0;
+		}
+
+		void ShiftRight(uint32_t bits) {
+			size_t limbShift = bits / 32;
+			uint32_t bitShift = bits % 32;
+			uint32_t shifted[limbCount] = {};
+			for (size_t i = 0; i + limbShift < limbCount; ++i) {
+				uint64_t low = limbs[i + limbShift];
+				uint64_t high = i + limbShift + 1 < limbCount ? limbs[i + limbShift + 1] : 0;
+				shifted[i] = static_cast<uint32_t>(((high << 32) | low) >> bitShift);
+			}
+			for (size_t i = 0; i < limbCount; ++i) {
+				limbs[i] = shifted[i];
+			}
+		}
+
+		void Increment() {
+			for (size_t i = 0; i < limbCount; ++i) {
+				if (++limbs[i] != 0) {
+					break;
+				}
+			}
+		}
+
+		// Divides by 10 in place and returns the remainder
+		uint32_t DivideBy10() {
+			uint64_t remainder = 0;
+			for (size_t i = limbCount; i > 0; --i) {
+				uint64_t current = (remainder << 32) | limbs[i - 1];
+				limbs[i - 1] = static_cast<uint32_t>(current / 10);
+				remainder = current % 10;
+			}
+			return static_cast<uint32_t>(remainder);
+		}
+
+		bool IsZero() const {
+			for (size_t i = 0; i < limbCount; ++i) {
+				if (limbs[i] != 0) {
+					return false;
+				}
+			}
+			return true;
+		}
+	};
+
+
+	// Float output keeps at most this many digits after the decimal point
+	static constexpr uint8_t kMaxFractionDigits = 40;
+
+	// A finite double is below 2^1024, which has 309 decimal digits
+	static constexpr size_t kIntegerLimbs = 32;
+	static constexpr size_t kMaxDecimalDigits = 320;
+
+
+	static bool LimbsAreZero(const uint32_t* limbs, size_t count) {
+		for (size_t i = 0; i < count; ++i) {
+			if (limbs[i] != 0) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+
+	// Writes value in decimal, returns the number of characters written (no terminator)
+	static size_t WriteDecimal(char* out, size_t capacity, uint64_t value) {
+		char reversed[20];
+		size_t count = 0;
+		do {
+			reversed[count++] = static_cast<char>('0' + value % 10);
+			value /= 10;
+		} while (value > 0);
+
+		size_t len = 0;
+		while (count > 0 && len < capacity) {
+			out[len++] = reversed[--count];
+		}
+		return len;
+	}
+
+
+	// Rounds value (0 <= value < 2^64) to digitCount decimal places, half away from zero.
+	// Works on the exact binary value: repeated multiplication by 10 would round at every step.
+	// Stores the fraction digits in fractionDigits and returns the integer part, which
+	// becomes one larger when rounding carries into it.
+	static uint64_t RoundFixed(double value, uint8_t digitCount, uint8_t* fractionDigits) {
+		uint64_t integerPart = static_cast<uint64_t>(value);
+		double fraction = value - static_cast<double>(integerPart);
+
+		// Doubling is exact, so afterwards fraction == mantissa / 2^fractionBits exactly
+		uint32_t fractionBits = 0;
+		while (fraction != std::floor(fraction)) {
+			fraction *= 2;
+			++fractionBits;
+		}
+		uint64_t mantissa = static_cast<uint64_t>(fraction);
+
+		// numerator = mantissa * 10^digitCount; the scaled fraction is numerator / 2^fractionBits
+		WideUint numerator;
+		numerator.limbs[0] = static_cast<uint32_t>(mantissa);
+		numerator.limbs[1] = static_cast<uint32_t>(mantissa >> 32);
+		for (uint8_t i = 0; i < digitCount; ++i) {
+			numerator.MultiplyBy10();
+		}
+
+		// The bit just below the scaled binary point is set exactly when the remainder is at least one half
+		bool roundUp = fractionBits > 0 && numerator.Bit(fractionBits - 1);
+		numerator.ShiftRight(fractionBits);
+		if (roundUp) {
+			numerator.Increment();
+		}
+
+		for (uint8_t i = digitCount; i > 0; --i) {
+			fractionDigits[i - 1] = static_cast<uint8_t>(numerator.DivideBy10());
+		}
+
+		// Only a carry into the integer part leaves a non-zero value here
+		if (!numerator.IsZero()) {
+			integerPart++;
+		}
+		return integerPart;
+	}
+
+
+	static size_t FixedDigits(char* out, size_t capacity, double value, uint8_t precision) {
+		uint8_t digitCount = precision < kMaxFractionDigits ? precision : kMaxFractionDigits;
+		uint8_t fractionDigits[kMaxFractionDigits] = {};
+		uint64_t integerPart = RoundFixed(value, digitCount, fractionDigits);
+
+		size_t len = WriteDecimal(out, capacity, integerPart);
+		if (digitCount > 0 && len + 1 + digitCount <= capacity) {
+			out[len++] = '.';
+			for (uint8_t i = 0; i < digitCount; ++i) {
+				out[len++] = static_cast<char>('0' + fractionDigits[i]);
+			}
+		}
+		return len;
+	}
+
+
+	// Writes d.ddde+N for finite values of at least 2^64. The value is an integer, so its exact
+	// decimal digits are known; the digit after the requested precision decides the rounding,
+	// which is half away from zero on the exact value.
+	static size_t ScientificDigits(char* out, size_t capacity, double value, uint8_t precision) {
+		uint8_t digitCount = precision < kMaxFractionDigits ? precision : kMaxFractionDigits;
+
+		// value == mantissa * 2^shift exactly, with mantissa below 2^53
+		int binaryExponent = 0;
+		double fraction = std::frexp(value, &binaryExponent);
+		uint64_t mantissa = static_cast<uint64_t>(std::ldexp(fraction, 53));
+		int shift = binaryExponent - 53;
+
+		uint32_t limbs[kIntegerLimbs] = {};
+		for (int bit = 0; bit < 53; ++bit) {
+			if (((mantissa >> bit) & 1u) != 0) {
+				size_t target = static_cast<size_t>(shift + bit);
+				limbs[target / 32] |= 1u << (target % 32);
+			}
+		}
+
+		// Decimal digits of the integer, least significant first
+		char reversed[kMaxDecimalDigits] = {};
+		size_t total = 0;
+		do {
+			uint64_t remainder = 0;
+			for (size_t i = kIntegerLimbs; i > 0; --i) {
+				uint64_t current = (remainder << 32) | limbs[i - 1];
+				limbs[i - 1] = static_cast<uint32_t>(current / 10);
+				remainder = current % 10;
+			}
+			reversed[total++] = static_cast<char>('0' + remainder);
+		} while (!LimbsAreZero(limbs, kIntegerLimbs));
+
+		// digits[0] is the leading digit; positions past the integer's length are 0
+		uint8_t digits[kMaxFractionDigits + 2] = {};
+		for (size_t i = 0; i <= digitCount + 1u; ++i) {
+			digits[i] = i < total ? static_cast<uint8_t>(reversed[total - 1 - i] - '0') : 0;
+		}
+
+		uint64_t exponent = total - 1;
+		if (digits[digitCount + 1] >= 5) {
+			bool carry = true;
+			for (size_t i = digitCount + 1; i > 0 && carry; --i) {
+				if (digits[i - 1] == 9) {
+					digits[i - 1] = 0;
+				} else {
+					digits[i - 1]++;
+					carry = false;
+				}
+			}
+			if (carry) {
+				// 9.99... rounded up: the mantissa is now 1.00... with one more exponent step
+				digits[0] = 1;
+				exponent++;
+			}
+		}
+
+		size_t len = 0;
+		out[len++] = static_cast<char>('0' + digits[0]);
+		if (digitCount > 0) {
+			out[len++] = '.';
+			for (uint8_t i = 1; i <= digitCount; ++i) {
+				out[len++] = static_cast<char>('0' + digits[i]);
+			}
+		}
+		out[len++] = 'e';
+		out[len++] = '+';
+		len += WriteDecimal(&out[len], capacity - len, exponent);
+		return len;
+	}
+
+
     static bool StringToNumberCore(const char* str, int64_t& result, bool isSigned, uint8_t typeSize, size_t* endPos = nullptr) {
         if (!str) return false;
         
@@ -420,7 +629,7 @@ private:
         }
         
         if (negative) {
-            result = -static_cast<int64_t>(uResult);
+			result = static_cast<int64_t>(0 - uResult);
         } else {
             result = static_cast<int64_t>(uResult);
         }

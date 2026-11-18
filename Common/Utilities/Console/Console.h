@@ -82,6 +82,9 @@ public:
 
 
     size_t Read(char* buffer, size_t bufferSize) {
+	if (bufferSize == 0) {
+		return 0;
+	}
         size_t count = 0;
         int ch;
         while (count < bufferSize - 1 && (ch = ReadChar()) != EOF) {
@@ -113,6 +116,9 @@ public:
 
 
     size_t ReadLine(char* buffer, size_t bufferSize) {
+	if (bufferSize == 0) {
+		return 0;
+	}
         size_t count = 0;
         int ch;
         while (count < bufferSize - 1 && (ch = ReadChar()) != EOF) {

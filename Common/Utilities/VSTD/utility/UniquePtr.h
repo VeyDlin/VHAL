@@ -83,7 +83,16 @@ private:
     }
 };
 
+// True when the first argument converts to an allocator pointer. Such a call belongs to the allocator overload;
+// without this the variadic overload also matches a derived allocator and tries to pass it to T's constructor.
+template<typename... Args>
+struct FirstIsAllocator : std::false_type {};
+
+template<typename First, typename... Rest>
+struct FirstIsAllocator<First, Rest...> : std::bool_constant<std::is_convertible_v<First, IAllocator*>> {};
+
 template<typename T, typename... Args>
+    requires (!FirstIsAllocator<Args...>::value)
 UniquePtr<T> MakeUnique(Args&&... args) {
     IAllocator* alloc = GetDefaultHeap();
     Handle handle = alloc->Allocate(sizeof(T));

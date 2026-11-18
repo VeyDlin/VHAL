@@ -81,12 +81,12 @@ Abstract base class for all register entries. Provides the interface that `Regis
 | `bool write` | Write access flag (default `true`) |
 | `bool read` | Read access flag (default `true`) |
 | `void LinkToMap(IRegisterMap&)` | Binds this register to a map instance |
-| `virtual size_t DataTypeSize()` | Size of the stored data type in bytes |
-| `virtual uint32 Addres()` | Returns the register address |
+| `virtual size_t DataTypeSize() const` | Size of the stored data type in bytes |
+| `virtual uint32 Addres() const` | Returns the register address |
 | `virtual bool WriteEvent(const uint8* buffer)` | Called before a write is committed; return `false` to reject |
-| `virtual bool CanOnWrite()` | Whether an `onWrite` callback is set |
-| `virtual bool CanOnRead()` | Whether an `onRead` callback is set |
-| `virtual size_t GetUnsafe(uint8* outData)` | Copies register data to the output buffer |
+| `virtual bool CanOnWrite() const` | Whether an `onWrite` callback is set |
+| `virtual bool CanOnRead() const` | Whether an `onRead` callback is set |
+| `virtual size_t GetUnsafe(uint8* outData) const` | Copies register data to the output buffer |
 
 ---
 
@@ -103,7 +103,7 @@ All arguments must derive from `IRegisterData` (enforced via `static_assert`).
 
 | Member | Description |
 |---|---|
-| `virtual size_t GetUnsafe(uint32 address, uint8* outData)` | Read raw bytes from a register by address |
+| `virtual size_t GetUnsafe(uint32 address, uint8* outData) const` | Read raw bytes from a register by address |
 | `virtual bool UpdateMemory(uint32 address, const uint8* buffer, size_t length)` | Write raw bytes to a register by address |
 | `void RegisterData(Args&... args)` | Link one or more `IRegisterData` instances to this map |
 
@@ -194,6 +194,8 @@ reg = 3.14f;          // stored as 314 (int16)
 float v = reg.Get();  // returns 3.14f
 ```
 
+The optional third constructor argument is the write hook, `std::function<bool(const RawDataType&)>`, called with the raw value before the write commits; return `false` to reject it.
+
 ---
 
 ## RegisterDataFloat
@@ -203,7 +205,13 @@ template <uint32 Address, typename DataType = int16_t, uint32 Accuracy = 100>
 class RegisterDataFloat : public RegisterDataMutator<Address, float, DataType>;
 ```
 
-A convenience specialization of `RegisterDataMutator` that stores a float as a fixed-point integer. The `Accuracy` template parameter defines the scaling factor.
+A convenience specialization of `RegisterDataMutator` that stores a float as a fixed-point integer. The `Accuracy` template parameter defines the scaling factor. A write multiplies by `Accuracy` in `float`, rounds to the nearest raw value (half away from zero), and saturates to the range of `DataType`.
+
+The optional constructor argument is the write hook of `RegisterData`: `std::function<bool(const DataType&)>`, called with the raw value; return `false` to reject the write.
+
+The write hook of `RegisterDataFloat` receives the **raw** value that is about to be stored, not the float: the value after scaling by `Accuracy`, rounding, and saturation to the range of `DataType`. For example, `temperature = 0.29f` with `Accuracy` 100 calls the hook with `29`. Validate the raw value in the hook.
+
+A NaN value has no raw representation, so `Set` (and `operator=`) rejects it: `Set` returns `false` and the stored value is unchanged. `+Inf` and `-Inf` saturate to the range of `DataType` like any other out-of-range value.
 
 ```cpp
 // Store temperature as int16, scaled by 100 (2 decimal digits)

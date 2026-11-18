@@ -154,12 +154,10 @@ struct VisitHelper;
 
 template <std::size_t I>
 struct VisitHelper<I> {
-    template <typename Visitor, typename Storage>
-    static auto Apply(std::size_t, Visitor&&, Storage*)
-        -> decltype(Forward<Visitor>(std::declval<Visitor&&>())(
-            *static_cast<typename TypeAtIndex<0>::type*>(nullptr))) {
-        while(true) {}
-    }
+	template <typename Visitor, typename Storage>
+	static void Apply(std::size_t, Visitor&&, Storage*) {
+		while(true) {}
+	}
 };
 
 template <typename Visitor, typename First, typename... Rest>

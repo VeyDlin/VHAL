@@ -371,7 +371,7 @@ public:
 
 
     static inline const Parameters<uint32, 30>& CRC_30() {
-        static const Parameters<uint32, 30> parameters = { 0x2030B9C7, 0x3FFFFFFF, 0x00000000, false, false };
+	static const Parameters<uint32, 30> parameters = { 0x2030B9C7, 0x3FFFFFFF, 0x3FFFFFFF, false, false };
         return parameters;
     }
 

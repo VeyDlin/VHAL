@@ -34,10 +34,12 @@ rx.Push(0xAA);
 rx.Push(0xBB);
 
 auto result = rx.Pop();
-if (result.type == Status::ok) {
-    uint8 byte = result.data; // 0xAA
+if (result.IsOk()) {
+    uint8 byte = result.Value(); // 0xAA
 }
 ```
+
+`Push` and `Clear` return a `ResultStatus`. `Pop` and `Peek` return a `Result<T>`: check `IsOk()`, read the element with `Value()`, and read the failure reason with `Error()` when `IsErr()` is true.
 
 ---
 
@@ -48,7 +50,7 @@ template<typename ElementType, uint16 BufferSize>
 class RingBuffer;
 ```
 
-A fixed-capacity circular (ring) buffer. When full, `Push` returns `Status::filled` rather than overwriting old data. Supports transactional reads via `MarkRead` / `CommitReads` / `RollbackReads`, which let you peek at data and only remove it once processing succeeds.
+A fixed-capacity circular (ring) buffer. When full, `Push` returns `ResultStatus::filled` rather than overwriting old data. Supports transactional reads via `MarkRead` / `CommitReads` / `RollbackReads`, which let you peek at data and only remove it once processing succeeds.
 
 ### Basic Push / Pop
 
@@ -63,8 +65,8 @@ buf.Size();      // 3
 buf.MaxSize();   // 128
 buf.GetFreeSpace(); // 125
 
-auto val = buf.Pop();  // val.data == 1000, val.type == Status::ok
-auto val2 = buf.Pop(); // val2.data == 2000
+auto val = buf.Pop();  // val.Value() == 1000, val.IsOk() == true
+auto val2 = buf.Pop(); // val2.Value() == 2000
 
 buf.Clear(); // empties the buffer
 ```
@@ -85,7 +87,7 @@ buf.Push('B');
 buf.Push('C');
 
 // Peek at the front element without removing it
-auto front = buf.Peek(); // front.data == 'A'
+auto front = buf.Peek(); // front.Value() == 'A'; front.IsOk() is false when the buffer is empty
 
 // Random access by index (0 = oldest element)
 char second = buf[1]; // 'B'
@@ -125,10 +127,10 @@ uint16 pending = buf.GetUncommittedCount();
 
 | Method | Return | Description |
 |---|---|---|
-| `Push(const ElementType)` | `Status::statusType` | Push element by value. Returns `Status::filled` if full. |
-| `Push(const ElementType*)` | `Status::statusType` | Push element by pointer. Returns `Status::error` if null. |
-| `Pop()` | `Status::info<ElementType>` | Remove and return the oldest element. Returns `Status::empty` if empty. |
-| `Peek()` | `Status::info<ElementType>` | Return the oldest element without removing it. |
+| `Push(const ElementType)` | `ResultStatus` | Push element by value. Returns `ResultStatus::filled` if full. |
+| `Push(const ElementType*)` | `ResultStatus` | Push element by pointer. Returns `ResultStatus::error` if null. |
+| `Pop()` | `Result<ElementType>` | Remove and return the oldest element. Returns `ResultStatus::empty` if empty, and `ResultStatus::busy` (nothing removed) while elements are marked by `MarkRead`; call `CommitReads` or `RollbackReads` first. |
+| `Peek()` | `Result<ElementType>` | Return the oldest element without removing it. Returns `ResultStatus::empty` if empty. |
 | `PeekMultiple(out, count, offset)` | `uint16` | Copy up to `count` elements starting at `offset` into `out`. Returns actual count. |
 | `operator[](uint16)` | `ElementType` | Access element by index (0 = oldest). Asserts if out of range. |
 | `IsFull()` | `bool` | True if buffer is at capacity. |
@@ -137,7 +139,7 @@ uint16 pending = buf.GetUncommittedCount();
 | `MaxSize()` | `uint16` | Buffer capacity (template parameter). |
 | `GetFreeSpace()` | `uint16` | Number of elements that can still be pushed. |
 | `Clear()` | `void` | Remove all elements. |
-| `MarkRead(count)` | `Status::statusType` | Mark `count` elements as tentatively read. |
+| `MarkRead(count)` | `ResultStatus` | Mark `count` elements as tentatively read. Returns `ResultStatus::error` (nothing marked) if `count` exceeds the unmarked elements. |
 | `CommitReads()` | `void` | Remove all elements marked by `MarkRead`. |
 | `RollbackReads()` | `void` | Cancel all uncommitted marks. |
 | `GetUncommittedCount()` | `uint16` | Number of elements currently marked but not committed. |
@@ -164,13 +166,13 @@ A fixed-capacity FIFO queue for elements of a single type. Elements are stored i
 ```cpp
 StaticFifo<8, uint32> fifo; // up to 8 uint32 elements
 
-fifo.Push(100);   // Status::ok
-fifo.Push(200);   // Status::ok
+fifo.Push(100);   // ResultStatus::ok
+fifo.Push(200);   // ResultStatus::ok
 fifo.GetCount();  // 2
 
 auto result = fifo.Pop();
-if (result.type == Status::ok) {
-    uint32 val = result.data; // 100
+if (result.IsOk()) {
+    uint32 val = result.Value(); // 100
 }
 
 fifo.Clear();
@@ -181,9 +183,9 @@ fifo.IsReady();   // true unless another operation is in progress
 
 | Method | Return | Description |
 |---|---|---|
-| `Push(const Type&)` | `Status::statusType` | Add an element. Returns `Status::filled` if full, `Status::busy` if not ready. |
-| `Pop()` | `Status::info<Type>` | Remove and return the oldest element. Returns `Status::empty` / `Status::busy`. |
-| `Clear()` | `Status::statusType` | Empty the queue. Returns `Status::busy` if not ready. |
+| `Push(const Type&)` | `ResultStatus` | Add an element. Returns `ResultStatus::filled` if full, `ResultStatus::busy` if not ready. |
+| `Pop()` | `Result<Type>` | Remove and return the oldest element. Returns an error with `ResultStatus::empty` or `ResultStatus::busy`. |
+| `Clear()` | `ResultStatus` | Empty the queue. Returns `ResultStatus::busy` if not ready. |
 | `GetCount()` | `size_t` | Number of elements currently stored. |
 | `IsReady()` | `bool` | False if another operation is in progress. |
 
@@ -229,7 +231,7 @@ fifo.Clear();
 
 | Method | Return | Description |
 |---|---|---|
-| `Push(const dataType&, dataSizeType)` | `bool` | Push `dataSize` bytes from `data`. Returns false if not enough space or busy. |
+| `Push(const dataType&, dataSizeType)` | `bool` | Push `dataSize` bytes from `data`. Returns false if not enough space, busy, or `dataSize` is larger than `sizeof(dataType)`. |
 | `Pop(dataType&)` | `size_t` | Pop the oldest entry into `data`. Returns the byte count, or 0 if empty/busy. |
 | `Clear()` | `bool` | Empty the buffer. Returns false if busy. |
 | `GetCount()` | `size_t` | Total bytes currently occupied in the heap (including size prefixes). |

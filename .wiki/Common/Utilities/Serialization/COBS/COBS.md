@@ -108,6 +108,10 @@ Encodes raw data into a COBS-framed packet.
 
 **Output format:** `[startByte] [COBS-encoded escaped payload] [stopByte]`
 
+**Output buffer size:** `Encode` checks the size before it writes anything. `maxOutputLength` must be at least `escapedLength + escapedLength / 254 + 3`, where `escapedLength` is the payload length after escaping. The `+ 3` covers the start byte, the stop byte and the first block code. Each block holds at most 254 data bytes, so one extra block code is needed for every 254 escaped bytes. A run of 255 or more non-zero bytes is split into several blocks.
+
+Worst case, every input byte escapes to two bytes, so a buffer of `2 * length + (2 * length) / 254 + 3` bytes always fits `length` input bytes.
+
 ```cpp
 COBS<128> cobs({ });
 
@@ -157,9 +161,9 @@ if (result.IsOk()) {
 
 | Error | Condition |
 |---|---|
-| `ResultStatus::bufferOverflow` | Input exceeds `TempBufferSize`, or output buffer is too small |
+| `ResultStatus::bufferOverflow` | Input or escaped payload exceeds `TempBufferSize`, or output buffer is too small |
 | `ResultStatus::invalidArgument` | Frame is shorter than 2 bytes, or missing start/stop markers |
-| `ResultStatus::dataCorrupted` | COBS block structure is invalid, or escape sequence is malformed |
+| `ResultStatus::dataCorrupted` | A block code is `0`, a block runs past the stop byte (truncated frame), or an escape sequence is malformed |
 
 ## Template Parameter
 

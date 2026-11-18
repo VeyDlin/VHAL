@@ -30,6 +30,10 @@ URgb pixel(255, 128, 0);  // orange
 // Same operators as FRgb
 URgb dimmed = pixel * 0.5f;
 
+// + and - saturate per channel: the result stays within 0–255
+URgb sum = URgb(200, 100, 0) + URgb(100, 200, 10);  // → {255, 255, 10}
+URgb diff = URgb(10, 200, 5) - URgb(20, 100, 6);    // → {0, 100, 0}
+
 // Named colors
 URgb c = URgb::Red();  // {0xFF, 0x00, 0x00}
 ```
@@ -38,7 +42,7 @@ URgb c = URgb::Red();  // {0xFF, 0x00, 0x00}
 
 ```cpp
 FRgb linear(1.0f, 0.5f, 0.0f);
-URgb bytes(linear);              // → {255, 128, 0} (with rounding)
+URgb bytes(linear);              // → {255, 128, 0} (with rounding; channels outside 0.0–1.0 are clamped)
 
 URgb raw(200, 100, 50);
 FRgb normalized(raw);            // → {0.784, 0.392, 0.196}
@@ -82,10 +86,12 @@ Typical values for common RGB LEDs:
 
 ## Animation + Gamma
 
-`FRgb` and `URgb` are compatible with `Animation<T>` (support `+`, `-`, `*`, `Magnitude()`, `Normalized()`). Always animate in linear space, apply gamma only at the PWM output:
+`RgbAnimation` (from `Utilities/Animation/RgbAnimation.h`) animates `FRgb` values. `Animation<T>` only accepts a `RealType` (`float`, `double` or `IQ<Q>`), so it cannot take a color. Always animate in linear space, apply gamma only at the PWM output:
 
 ```cpp
-Animation<FRgb> anim;
+using namespace Colors;
+
+RgbAnimation<float> anim;
 GammaProfile gamma = { ... };
 
 anim.onUpdateValue = [&](FRgb color) {

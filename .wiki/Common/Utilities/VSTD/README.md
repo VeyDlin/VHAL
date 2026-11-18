@@ -41,7 +41,7 @@ Buffer layout:
 ```cpp
 VSTD::Handle h = heap.Allocate(64);
 void* ptr = h.Data();       // resolve current pointer
-std::size_t sz = h.Size();  // allocation size
+std::size_t sz = h.Size();  // allocation size, rounded up to a multiple of 8 bytes
 bool ok = h.IsValid();      // check if alive
 ```
 
@@ -107,7 +107,7 @@ heap.FragmentationPercent();  // free bytes within data region, 0–100
 
 ### PoolAllocator
 
-Fixed-size block allocator. O(1) alloc/dealloc via free list. Implements `IAllocator`.
+Fixed-size block allocator. O(1) alloc/dealloc via free list. Implements `IAllocator`. `BlockSize` is the minimum usable size of a block: blocks are laid out at a stride rounded up to pointer alignment, so any `BlockSize` of at least `sizeof(void*)` works. `GetBlockSize()` returns the requested `BlockSize`.
 
 ```cpp
 VSTD::PoolAllocator<64, 16> pool;   // 16 blocks of 64 bytes each
@@ -200,9 +200,35 @@ v[0];
 for (auto& x : v) { /* ... */ }
 ```
 
+**Allocation failure.** Operations that may grow the buffer report failure instead of writing past it. When the allocator refuses memory the vector is left unchanged: same size, capacity and elements.
+
+| Operation | Returns |
+|-----------|---------|
+| `PushBack(value)` | `bool`, `false` when the allocator refuses memory |
+| `EmplaceBack(args...)` | `T*` to the new element, `nullptr` when the allocator refuses memory |
+| `Insert(index, value)` | `bool`; `false` for an index past the end, or when the allocator refuses memory |
+| `Reserve(n)` | `bool`; `false` when the allocator refuses memory |
+| `Resize(n)` | `bool`; `false` when growing is refused |
+
+```cpp
+if (!v.PushBack(42)) {
+    // allocator out of memory: v still holds its previous elements
+}
+```
+
+`EmplaceBack` used to return `T&`; code that chained a member access on the result must now check the pointer.
+
+**Copying.** The copy constructor cannot report failure: when the allocator refuses memory the new vector is empty. Copy assignment (`=`) also cannot report, and keeps the old contents on failure. For a checked copy use `Assign`:
+
+```cpp
+bool Assign(const Vector& other);   // false, with this vector unchanged, when the allocator refuses memory
+```
+
+`Assign` allocates the new buffer before it touches this vector, and adopts the allocator of `other`.
+
 ### String
 
-Null-terminated dynamic string. Built on `Vector<char>`.
+Null-terminated dynamic string. Built on `Vector<char>`. The text is always terminated, also after a failed call.
 
 ```cpp
 VSTD::String s("hello");
@@ -216,7 +242,8 @@ s.Contains("world");       // true
 s.StartsWith("hello");     // true
 s.EndsWith("world!");      // true
 
-s.Substr(0, 5);            // "hello"
+VSTD::String head;
+s.Substr(0, head, 5);      // head == "hello"; returns bool
 s.Insert(5, " beautiful");
 s.Erase(0, 6);             // remove first 6 chars
 
@@ -232,6 +259,25 @@ s != other;
 
 // Concatenation
 auto c = s + " suffix";
+```
+
+**Allocation failure.** Every operation that can allocate returns `bool`, and on `false` the string is unchanged (same text, still terminated):
+
+| Operation | Returns |
+|-----------|---------|
+| `Append(const char*)`, `Append(char)`, `Append(const String&)` | `bool`; `false` when the allocator refuses memory |
+| `Insert(index, const char*)`, `Insert(index, char)` | `bool`; `false` for an index past the end, or when the allocator refuses memory |
+| `Substr(pos, out, count = Npos)` | `bool`; `out` receives the substring. `false`, with `out` unchanged, when the default heap refuses memory |
+| `Assign(const String&)` | `bool`; `false` with this string unchanged |
+
+Constructors and `operator=` cannot report failure. A constructor that is refused leaves the string empty. `operator=` keeps the old text; use `Assign` to learn whether it happened. `operator+` returns an empty string when memory runs out, so use `Append` where the difference matters.
+
+`Append` and `Insert` taking a source that lies inside the string itself first copy that source, using the default heap.
+
+```cpp
+if (!s.Append(" more")) {
+    // allocator out of memory: s still reads "hello world!"
+}
 ```
 
 ### StringView
@@ -291,19 +337,19 @@ opt.Reset();          // destroy value
 Type-safe tagged union. Stack-only.
 
 ```cpp
-VSTD::Variant<int, float, VSTD::String> v;
+VSTD::Variant<int, float, VSTD::String> v;   // holds int 0 by default
 
-v.Set<int>(42);
-v.Is<int>();           // true
-v.Get<int>();          // 42
+v = 42;
+VSTD::HoldsAlternative<int>(v);   // true
+VSTD::Get<int>(v);                // 42
 
-v.Set<float>(3.14f);
-v.Index();             // 1 (index of float in type list)
+v.Emplace<float>(3.14f);
+v.Index();                        // 1 (index of float in type list)
 
 // Visit pattern
-v.Visit([](auto& val) {
+VSTD::Visit([](auto& val) {
     // val is the active type
-});
+}, v);
 ```
 
 ### UniquePtr
@@ -312,12 +358,13 @@ Exclusive ownership smart pointer. Heap-backed through handles.
 
 ```cpp
 auto ptr = VSTD::MakeUnique<int>(42);
-auto ptr2 = VSTD::MakeUnique<MyStruct>(&pool, arg1, arg2);  // with allocator
+auto ptr2 = VSTD::MakeUnique<MyStruct>(static_cast<VSTD::IAllocator*>(&pool), arg1, arg2);  // with allocator
+auto ptr3 = VSTD::MakeUnique<MyStruct>(&pool, arg1, arg2);  // derived allocator pointers (e.g. PoolAllocator*) also select this overload
 
 *ptr;            // 42
 ptr->Method();
 ptr.Get();       // raw pointer (or nullptr)
-bool ok = ptr;   // true if valid
+bool ok = static_cast<bool>(ptr);   // true if valid
 
 ptr.Reset();     // destroy and deallocate
 Handle h = ptr.Release();  // release ownership, return handle
@@ -353,7 +400,7 @@ Type-erased callable wrapper. Small-buffer optimization (32 bytes) with heap fal
 VSTD::Function<int(int, int)> fn = [](int a, int b) { return a + b; };
 int result = fn(2, 3);  // 5
 
-bool callable = fn;     // true if holds a callable
+bool callable = static_cast<bool>(fn);   // true if holds a callable
 
 // Lambdas with captures
 int x = 10;
@@ -379,7 +426,7 @@ auto d3 = VSTD::Delegate<int()>::Bind<MyClass, &MyClass::GetValue>(&obj);
 auto d4 = VSTD::Delegate<void()>::FromRaw(myStub, context);
 
 d2();             // call
-bool ok = d2;     // true if bound
+bool ok = static_cast<bool>(d2);   // true if bound
 d2.Reset();       // unbind
 ```
 

@@ -26,10 +26,7 @@ A lightweight, stream-style console I/O library for embedded systems (VHAL). Pro
 
 Console console;
 
-// Explicit labels also work around swapped warning/error defaults in VHAL 0.2.1.
-console.warningMark = "[WARNING]";
-console.errorMark = "[ERROR]";
-
+// The default labels are [WARNING] and [ERROR]; reassign them only to customize.
 // Attach a write handler (e.g. UART transmit)
 console.SetWriteHandler([](const char* data, size_t size) {
     UART_Transmit(data, size);
@@ -78,8 +75,9 @@ Integers can be printed in decimal (default), hexadecimal, octal, or binary:
 ```cpp
 console.Write(255);                            // "255"
 console.Write(255, Print::Format::Hex);        // "FF"
-console.Write(255, Print::Format::Bin);        // "0000000011111111" (full width for type)
+console.Write(255, Print::Format::Bin);        // "00000000000000000000000011111111" (32 digits: int is 32 bits)
 console.Write(255, Print::Format::Oct);        // "377"
+console.Write(static_cast<int8>(-1), Print::Format::Hex); // "FF" (hex, oct and bin use the type's width)
 console.WriteLine(-42);                        // "-42\r\n"
 ```
 
@@ -87,9 +85,14 @@ console.WriteLine(-42);                        // "-42\r\n"
 
 ```cpp
 console.Write(3.14159f);                       // "3.14" (default precision 2)
-console.Write(3.14159f, 4);                    // "3.1415"
+console.Write(3.14159f, 4);                    // "3.1416"
+console.Write(0.999, 2);                       // "1.00"
 console.WriteLine(0.5);                        // "0.50\r\n"
+console.Write(1e20, 2);                        // "1.00e+20"
+console.Write(-1e300, 2);                      // "-1.00e+300"
 ```
+
+Values are rounded to the requested precision, half away from zero, and carry into the integer part (`9.999` with precision 2 gives `10.00`). Rounding uses the exact binary value of the `double`, not its decimal look: `0.15` is stored just below the tie, so it gives `0.1` with precision 1; `2.675` gives `2.67` and `1.005` gives `1.00` with precision 2; `0.995` gives `0.99`. A tie that is exact in binary, such as `0.125` or `0.25`, rounds away from zero (`0.13`, `0.3`), which differs from `printf`, that rounds such ties to even. Magnitudes of 2^64 and above print in scientific notation with the mantissa at the requested precision; they are never `Inf`. The digits of these values come from their exact decimal expansion and round the same way: half away from zero on the exact value (`DBL_MAX` at precision 17 is `1.79769313486231571e+308`). Only values above the largest double, and the infinities, print `Inf` / `-Inf`; NaN prints `NaN`. Precision is capped at 40 digits.
 
 ### Buffer / Hex Dump
 
@@ -183,7 +186,7 @@ Force a specific format for a single number without changing the default:
 ```cpp
 console << Console::hex(255)  << Console::endl;   // "FF"
 console << Console::dec(255)  << Console::endl;   // "255"
-console << Console::bin(255)  << Console::endl;   // "0000000011111111"
+console << Console::bin(255)  << Console::endl;   // "00000000000000000000000011111111" (int is 32 bits)
 console << Console::oct(255)  << Console::endl;   // "377"
 ```
 
@@ -265,7 +268,7 @@ console.Error("Overtemperature");  // "[ERROR] [00:00:01:002] Overtemperature\r\
 console.Log("[WARN]", "Low batt"); // "[WARN] [00:00:01:003] Low batt\r\n"
 ```
 
-All five levels use public, configurable label fields: `verboseMark`, `debugMark`, `infoMark`, `warningMark`, and `errorMark`. The corresponding stream manipulators use the same fields. Labels must point to strings that remain valid while the console uses them.
+All five levels use public, configurable label fields: `verboseMark`, `debugMark`, `infoMark`, `warningMark`, and `errorMark`. Their defaults are `[VERBOSE]`, `[DEBUG]`, `[INFO]`, `[WARNING]`, and `[ERROR]`. The corresponding stream manipulators use the same fields. Labels must point to strings that remain valid while the console uses them.
 
 ### Reading Input
 

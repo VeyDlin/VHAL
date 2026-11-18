@@ -40,7 +40,7 @@ protected:
             if(data != nullptr) {
                 if(data->Addres() == address && 
                     (
-                        length == 0 ||
+						(length == 0 && currentOffset + data->DataTypeSize() <= Size()) ||
 						(data->DataTypeSize() == length &&
 						currentOffset + length <= Size())
 				    )
@@ -54,7 +54,7 @@ protected:
     }
 
 public:
-    size_t GetUnsafe(uint32 address, uint8* outData) override {
+	size_t GetUnsafe(uint32 address, uint8* outData) const override {
         auto [registerData, offset] = FindRegisterData(address, 0);
         if (registerData == nullptr) {
             return 0;
