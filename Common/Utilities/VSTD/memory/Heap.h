@@ -233,6 +233,8 @@ public:
 
                 Entry* movedEntry = nextHdr->handleEntry;
                 std::size_t movedSize = nextHdr->size;
+                // Read before the copy: dst is the free block's own header, and memmove overwrites it.
+                std::size_t remainingFree = hdr->size;
 
                 memmove(dst, src, nextBlockTotal);
 
@@ -240,7 +242,6 @@ public:
                 void* newData = dst + sizeof(BlockHeader);
                 movedEntry->data = newData;
 
-                std::size_t remainingFree = hdr->size;
                 BlockHeader* freeHdr = reinterpret_cast<BlockHeader*>(
                     dst + sizeof(BlockHeader) + movedSize);
                 freeHdr->handleEntry = nullptr;
