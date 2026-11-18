@@ -89,6 +89,8 @@ uint32 u  = static_cast<uint32>(a);
 int16  s  = static_cast<int16>(a);
 ```
 
+Conversion to an integer type drops the fraction (rounding toward negative infinity) and saturates to the limits of the target type, so `static_cast<uint8>(iq16(300.0f))` is 255 and `static_cast<uint32>(iq16(-1.0f))` is 0. `ToInt()` returns the integer part as `int32`; it cannot overflow.
+
 ## Arithmetic
 
 All standard operations; multiplication via `int64` — no loss of precision:
@@ -122,6 +124,8 @@ if (a == b) { ... }
 if (a <= b) { ... }
 ```
 
+Addition, subtraction and multiplication saturate: a result outside the raw `int32` range becomes the maximum or minimum of the type instead of wrapping. This covers `IQ` with `IQ`, `IQ` with an `int32` scalar (in either order), and the compound forms `+=`, `-=` and `*=`. The integer constructor saturates the same way, so `iq24(200)` is the maximum of `iq24`, about 128.
+
 Division by zero does not trap: `x / 0` saturates to the maximum for positive `x` and to the minimum for negative `x`; `0 / 0` returns 0. Division results that do not fit the type also saturate.
 
 Negating or taking `abs` of the most negative raw value saturates to the maximum.
@@ -141,7 +145,7 @@ iq24 s = sin(angle);  // ≈ 1.0
 iq24 c = cos(angle);  // ≈ 0.0
 ```
 
-Argument is in radians, any range (automatic normalization to [0, 2π)). The normalization uses a 2π constant with 32 fractional bits, so large arguments stay accurate.
+Argument is in radians, any range. The argument is reduced to [0, 2π) with 32 fractional bits, so neither the reduction nor the table interpolation drops the low bits of the angle. The 2π constant is rounded to 32 fractional bits, which adds at most 2^-33 rad per full turn. Over the whole representable range of the format this stays below one LSB, so the result error is set by the LUT and the output resolution, for every `Q` from 1 to 30.
 
 Precision depends on the LUT size (default is 256 points ≈ 14 bits). See [LUT Configuration](#lut-configuration).
 
@@ -198,7 +202,7 @@ iq24 r9 = copysign(b, a);           // -3.0
 
 ## Conversion Between IQ Formats
 
-Explicit conversion between different Q values via bit shift:
+Explicit conversion between Q values. Converting to a larger `Q` (more fractional bits) shifts the raw value left and saturates when it does not fit. Converting to a smaller `Q` drops the low bits, which rounds toward negative infinity:
 
 ```cpp
 iq24 precise(3.14f);

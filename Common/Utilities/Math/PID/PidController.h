@@ -500,13 +500,17 @@ private:
 			Type deadZoneStart = rollDeadZone.start;
 			Type deadZoneEnd = rollDeadZone.end;
 
-			if (pidPathEnd > calculatedValues.fullRoll) {
+			// The path can leave the cyclic range on either side; the zone repeats one cycle further out on that side.
+			if (pidPathEnd > roll.maxInput) {
 				deadZoneStart += calculatedValues.fullRoll;
 				deadZoneEnd += calculatedValues.fullRoll;
+			} else if (pidPathStart < roll.minInput) {
+				deadZoneStart -= calculatedValues.fullRoll;
+				deadZoneEnd -= calculatedValues.fullRoll;
 			}
 
 			if (deadZoneStart < pidPathEnd && deadZoneEnd > pidPathStart) {
-				if (error < roll.minInput) {
+				if (error < Type(0)) {
 					error += calculatedValues.fullRoll;
 				} else {
 					error -= calculatedValues.fullRoll;

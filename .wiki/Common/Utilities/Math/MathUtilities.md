@@ -40,7 +40,7 @@ MathUtilities::SetMin(count, -1); // -1 < 3, so count becomes 4294967295u (wrapp
 
 Both functions calculate the linear value at `x2` from the points `(x0, y0)` and `(x1, y1)`. They do not clamp `x2` to the interval between `x0` and `x1`; values outside that interval extrapolate the same line.
 
-The input x-coordinates must differ (`x0 != x1`) to avoid division by zero.
+The input x-coordinates must differ (`x0 != x1`); this is a precondition and is not checked.
 
 ```cpp
 float midpoint = MathUtilities::Interpolation(0.0f, 10.0f, 4.0f, 18.0f, 2.0f);
@@ -49,4 +49,9 @@ float extended = MathUtilities::Extrapolation(0.0f, 10.0f, 4.0f, 18.0f, 6.0f);
 
 All arguments and the return value use one deduced type. Use floating-point arguments when the result needs fractional precision.
 
-For integral types, the product of the two differences is computed in `int64_t`, so it does not overflow the argument type. The division truncates toward zero. The result is then converted back to the argument type, and a value outside that type's range wraps around. The product of the two differences must fit in `int64_t`.
+For integral types of up to 64 bits, signed or unsigned, every intermediate value is exact: the differences are computed without overflow, the product is 128 bits wide, and the division truncates toward zero. The 128-bit arithmetic is written in portable code, so no `__int128` is needed. A result outside the range of the argument type saturates to that type's minimum or maximum; it does not wrap.
+
+```cpp
+int32_t low = MathUtilities::Interpolation<int32_t>(INT32_MIN, INT32_MIN, INT32_MAX, INT32_MAX, 0); // 0
+uint64_t high = MathUtilities::Extrapolation<uint64_t>(0u, 0u, 1u, UINT64_MAX, 2u);                 // UINT64_MAX (saturated)
+```

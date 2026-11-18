@@ -134,7 +134,7 @@ kf.SetMeasurementNoise(2.0f);
 | `void SetMeasurementNoise(Type noise)` | Updates the measurement noise covariance (Q) at runtime. |
 | `void SetProcessNoise(Type noise)` | Updates the process noise covariance (R) at runtime. |
 
-The first call to `Filter` sets the state estimate to `measurement / measurementMapping`, returns it, and ignores `controlInput`. Call `Filter` once before `GetLastStateEstimate()`, because the estimate is not initialized before that call.
+The first call to `Filter` sets the state estimate to `measurement / measurementMapping`, returns it, and ignores `controlInput`. Before the first call to `Filter`, `GetLastStateEstimate()` returns 0.
 
 ## LowPassFilter
 

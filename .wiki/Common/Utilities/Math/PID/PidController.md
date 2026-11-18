@@ -150,7 +150,7 @@ struct RollDeadZone {
 };
 ```
 
-When `throughConnection` is `false`, the controller also avoids routing the error path through the dead zone, reversing direction if needed.
+When `throughConnection` is `false`, the controller also avoids routing the error path through the dead zone, reversing direction if needed. The cycle boundaries are `minInput` and `maxInput` wherever the range starts: when the path passes `maxInput`, the dead zone is repeated one cycle up; when it passes `minInput`, one cycle down. The error is then moved by one cycle toward the side that avoids the zone, so for `{10, 370}` with a zone of `[250, 260]`, a feedback of 200 and a reference of 370 give an error of -190.
 
 ### Filter
 

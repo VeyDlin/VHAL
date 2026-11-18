@@ -12,7 +12,7 @@ private:
     Type controlInputEffect; 	// Control input coefficient (B)
     Type measurementMapping; 	// Measurement mapping coefficient (C)
     Type covariance; 			// Error covariance
-    Type stateEstimate; 		// Current estimated state (filtered signal)
+    Type stateEstimate = 0; 	// Current estimated state (filtered signal), 0 until the first Filter() call
 
     bool isInitialized = false; // Indicates whether the filter has been initialized
 

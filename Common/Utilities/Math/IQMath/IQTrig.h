@@ -53,51 +53,50 @@ template<int Size>
 inline constexpr SinLUT<Size> sinLut{};
 
 
-// Lookup sin from quarter-wave table with linear interpolation.
-// The angle has 32 fractional bits: a 2*pi constant kept at Q bits loses about one LSB per turn, which is visible for large angles.
+// Angle constants in Q32 radians. 2*pi is rounded to 32 fractional bits, so each turn adds at most 2^-33 rad of error.
+// The reduction stays in Q32 because a reduced angle held in Q bits is off by up to one LSB of the format.
+constexpr int64_t twoPi32 = static_cast<int64_t>(6.283185307179586 * 4294967296.0 + 0.5);
+constexpr int64_t pi32 = twoPi32 / 2;
+constexpr int64_t halfPi32 = twoPi32 / 4;
+
+
+// Lookup sin from quarter-wave table with linear interpolation. The angle is in Q32 radians and any 64-bit value is accepted.
 template<int Q, int L>
 IQ<Q, L> SinLookupQ32(int64_t angle32) {
-	const auto& lut = sinLut<L>;
+	const SinLUT<L>& lut = sinLut<L>;
 
-	constexpr int64_t two_pi32 = static_cast<int64_t>(6.283185307179586 * 4294967296.0);
-	constexpr int32_t pi_raw = static_cast<int32_t>(3.141592653589793 * (int32_t(1) << Q));
-	constexpr int32_t half_pi_raw = static_cast<int32_t>(1.5707963267948966 * (int32_t(1) << Q));
+	// Reduce to [0, 2*pi)
+	int64_t a = angle32 % twoPi32;
+	if (a < 0) {
+		a += twoPi32;
+	}
 
-	// Reduce to [0, 2*pi) in Q32, then drop to Q
-	angle32 = angle32 % two_pi32;
-	if (angle32 < 0) angle32 += two_pi32;
-	int32_t a = static_cast<int32_t>(angle32 >> (32 - Q));
-
-	// Determine quadrant and reduce to [0, pi/2]
+	// Quadrant reduction to [0, pi/2]: sin(a + pi) = -sin(a) and sin(pi - a) = sin(a)
 	bool negate = false;
-	if (a >= pi_raw) {
-		a -= pi_raw;
+	if (a >= pi32) {
+		a -= pi32;
 		negate = true;
 	}
-	if (a > half_pi_raw) {
-		a = pi_raw - a;
+	if (a > halfPi32) {
+		a = pi32 - a;
 	}
 
-	// Map to table index [0, L]
-	int64_t idx_full = static_cast<int64_t>(a) * L / half_pi_raw;
-	int32_t idx = static_cast<int32_t>(idx_full);
-	if (idx >= L) idx = L;
+	// Table index and the fraction between two entries; the remainder is below halfPi32 < 2^33
+	int64_t scaled = a * L;
+	int64_t idx = scaled / halfPi32;
+	int64_t remainder = scaled - idx * halfPi32;
 
-	// Linear interpolation
-	int32_t v0 = lut.table[idx];
-	int32_t v1 = lut.table[idx < L ? idx + 1 : idx];
-	int64_t frac_num = static_cast<int64_t>(a) * L - static_cast<int64_t>(idx) * half_pi_raw;
-	int64_t interp = v0 + (static_cast<int64_t>(v1 - v0) * frac_num) / half_pi_raw;
+	int64_t v0 = lut.table[idx];
+	int64_t v1 = lut.table[idx < L ? idx + 1 : idx];
 
-	// Convert from Q31 to IQ<Q>
-	int32_t result;
-	if constexpr (Q <= 31) {
-		result = static_cast<int32_t>(interp >> (31 - Q));
-	} else {
-		result = static_cast<int32_t>(interp << (Q - 31));
-	}
+	// Weight in Q30; (remainder << 30) < 2^63 and (v1 - v0) * weight < 2^61
+	int64_t weight = (remainder << 30) / halfPi32;
+	int64_t value31 = v0 + (((v1 - v0) * weight) >> 30);
 
-	return IQ<Q, L>::FromRaw(negate ? -result : result);
+	// Q31 to Q, truncating toward zero (the value is not negative here)
+	int64_t result = value31 >> (31 - Q);
+
+	return IQ<Q, L>::FromRaw(static_cast<int32_t>(negate ? -result : result));
 }
 
 }
@@ -111,6 +110,5 @@ IQ<Q, L> sin(IQ<Q, L> x) {
 
 template<int Q, int L>
 IQ<Q, L> cos(IQ<Q, L> x) {
-	constexpr int64_t half_pi32 = static_cast<int64_t>(1.5707963267948966 * 4294967296.0);
-	return IQDetail::SinLookupQ32<Q, L>(static_cast<int64_t>(x.raw) * (int64_t(1) << (32 - Q)) + half_pi32);
+	return IQDetail::SinLookupQ32<Q, L>(static_cast<int64_t>(x.raw) * (int64_t(1) << (32 - Q)) + IQDetail::halfPi32);
 }
