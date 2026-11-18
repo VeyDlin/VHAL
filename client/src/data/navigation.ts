@@ -14,9 +14,18 @@ function processTree(items: DocTreeItem[]): DocTreeItem[] {
     const isFile = item.type === 'file'
     const hasChildren = item.children && item.children.length > 0
 
+    // A folder without children (only its README page, such as a tool folder) gets no folder icon from the tree
+    const pageOnlyFolder: boolean = !isFile && !hasChildren
+    let icon: string | undefined = undefined
+    if (isFile) {
+      icon = 'i-lucide-file-code'
+    } else if (pageOnlyFolder) {
+      icon = 'i-lucide-file-text'
+    }
+
     return {
       ...item,
-      icon: isFile ? 'i-lucide-file-code' : undefined,
+      icon,
       children: hasChildren ? processTree(item.children!) : item.children
     }
   })
