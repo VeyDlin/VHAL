@@ -243,6 +243,31 @@ public:
 
 
 
+	// Starts writing a buffer without waiting for the bus. Chip select is asserted before the first byte and released
+	// after the last one, and the port may split the buffer into several transfers with chip select held across them.
+	// Returns busy while an earlier BeginWriteBytes has not been waited for, and outOfRange when the buffer needs more
+	// transfers than the port can queue. The caller must keep the buffer unchanged until WaitWriteBytes reports ok.
+	// Ports without this capability return notSupported, and the caller falls back to the synchronous write.
+	virtual ResultStatus BeginWriteBytes(const uint8 *, uint32) {
+		return ResultStatus::notSupported;
+	}
+
+
+	// Waits up to timeoutMs for the write started by BeginWriteBytes. Returns ok when no write is in flight (also when
+	// none was started), timeout when it is still running. A timeout of 0 only polls. Ports without asynchronous writes
+	// return notSupported.
+	virtual ResultStatus WaitWriteBytes(uint32) {
+		return ResultStatus::notSupported;
+	}
+
+
+	// Checks that a buffer can be used for transfers on this port (for example, that a DMA engine can read it). Returns
+	// ok when it can, and invalidParameter when it cannot. Ports without such a restriction accept every buffer.
+	virtual ResultStatus CheckDmaBuffer(const uint8 *, uint32) {
+		return ResultStatus::ok;
+	}
+
+
 	virtual void Continuous(bool enable) {
 		if(enable) {
 			ChipSelect(true);

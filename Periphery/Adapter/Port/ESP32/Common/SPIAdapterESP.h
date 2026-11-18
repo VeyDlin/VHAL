@@ -1,5 +1,6 @@
 #pragma once
 #include <Adapter/SPIAdapter.h>
+#include <esp_memory_utils.h>
 
 
 using ASPI = class SPIAdapterESP;
@@ -8,6 +9,9 @@ using ASPI = class SPIAdapterESP;
 class SPIAdapterESP : public SPIAdapter<void> {
 protected:
 	static constexpr uint32 defaultMaxTransferSize = 4096;
+	// Queue depth of the device, so the largest number of transfers one BeginWriteBytes can queue: 8 transfers of up to
+	// 4096 bytes, which covers 32 KB (a 135 x 80 RGB565 band is 21600 bytes, six transfers).
+	static constexpr uint32 maxBulkTransactions = 8;
 
 	spi_host_device_t host = SPI2_HOST;
 	spi_device_handle_t devHandle = nullptr;
@@ -23,6 +27,11 @@ protected:
 	bool asyncPending = false;
 
 	spi_transaction_t asyncTrans = {};
+
+	// Transfers of BeginWriteBytes. They must stay in place until they are collected, so they are members.
+	spi_transaction_t bulkTrans[maxBulkTransactions] = {};
+	uint32 bulkInFlight = 0;
+	bool bulkBusHeld = false;
 
 
 public:
@@ -44,6 +53,36 @@ public:
 
 	void AbortTransmit() override {
 		txState = ResultStatus::ready;
+	}
+
+
+	// Asynchronous write on the transaction queue. Every transfer is queued with the chip select kept active except the
+	// last, which needs the bus acquired (ESP-IDF rejects SPI_TRANS_CS_KEEP_ACTIVE otherwise). Completion is polled, so no
+	// callback runs in interrupt context.
+	ResultStatus BeginWriteBytes(const uint8 *buffer, uint32 size) override {
+		return QueueBulk(const_cast<uint8 *>(buffer), size);
+	}
+
+
+	ResultStatus WaitWriteBytes(uint32 timeoutMs) override {
+		if (timeoutMs == UINT32_MAX) {
+			return WaitBulk(portMAX_DELAY);
+		}
+		return WaitBulk(pdMS_TO_TICKS(timeoutMs));
+	}
+
+
+	// The classic ESP32 DMA reads internal RAM only (MALLOC_CAP_DMA excludes external PSRAM), so the buffer must lie in
+	// internal memory from its first to its last byte.
+	ResultStatus CheckDmaBuffer(const uint8 *buffer, uint32 size) override {
+		if (buffer == nullptr || size == 0) {
+			return ResultStatus::invalidParameter;
+		}
+		const uint8 *last = buffer + size - 1;
+		if (!esp_ptr_dma_capable(buffer) || !esp_ptr_dma_capable(last)) {
+			return ResultStatus::invalidParameter;
+		}
+		return ResultStatus::ok;
 	}
 
 
@@ -91,7 +130,7 @@ protected:
 		dev_config.clock_speed_hz = parameters.maxSpeedHz;
 		dev_config.mode = CastSpiMode();
 		dev_config.spics_io_num = csPin;
-		dev_config.queue_size = 4;
+		dev_config.queue_size = maxBulkTransactions;
 		dev_config.flags = (parameters.firstBit == FirstBit::LSB) ? SPI_DEVICE_BIT_LSBFIRST : 0;
 		// A transmit-only device reads nothing back, so the driver must not cap the clock at what the read path
 		// through the GPIO matrix can sample (26.6 MHz on pins other than the native ones).
@@ -154,7 +193,10 @@ private:
 		return (cpol << 1) | cpha;
 	}
 
-	static void IRAM_ATTR PostTransactionCallback(spi_transaction_t *trans) {
+	// Deliberately not IRAM_ATTR: the bus is initialised without ESP_INTR_FLAG_IRAM, so the driver ISR, and with it this
+	// callback, never runs while the flash cache is disabled. An in-class IRAM_ATTR function fails to link at -O2
+	// ("dangerous relocation: l32r"), as in GPIOAdapterESP.h.
+	static void PostTransactionCallback(spi_transaction_t *trans) {
 		auto *self = static_cast<SPIAdapterESP*>(trans->user);
 		if (!self) {
 			return;
@@ -172,6 +214,11 @@ private:
 
 
 	void Deinitialize() {
+		if (bulkInFlight > 0 || bulkBusHeld) {
+			// Same reasoning as below: the transfers finish on their own, and the device cannot be removed before they do.
+			WaitBulk(portMAX_DELAY);
+		}
+
 		if (asyncPending) {
 			// Waits without a limit: the transfer is clocked by this master, so it always finishes, and the driver
 			// refuses to remove a device that still has one in flight.
@@ -206,12 +253,99 @@ private:
 	}
 
 
+	// Queues the transfers of one write. A single transfer needs no bus acquisition; several need it for the chip select
+	// to stay low between them. The bus is released by WaitBulk once every transfer has been collected.
+	ResultStatus QueueBulk(uint8 *buffer, uint32 size) {
+		if (devHandle == nullptr) {
+			return ResultStatus::noInit;
+		}
+		if (size == 0) {
+			return ResultStatus::ok;
+		}
+		if (bulkInFlight > 0) {
+			return ResultStatus::busy;
+		}
+
+		uint32 pieces = (size + chunkSize - 1) / chunkSize;
+		if (pieces > maxBulkTransactions) {
+			return ResultStatus::outOfRange;
+		}
+
+		ResultStatus asyncStatus = WaitAsync();
+		if (asyncStatus != ResultStatus::ok) {
+			return asyncStatus;
+		}
+
+		bool holdBus = pieces > 1;
+		if (holdBus) {
+			if (spi_device_acquire_bus(devHandle, portMAX_DELAY) != ESP_OK) {
+				return ResultStatus::error;
+			}
+			bulkBusHeld = true;
+		}
+
+		uint32 remaining = size;
+		uint32 queued = 0;
+		while (remaining > 0) {
+			uint32 bytes = (remaining > chunkSize) ? chunkSize : remaining;
+			bool isLast = (bytes == remaining);
+
+			spi_transaction_t *trans = &bulkTrans[queued];
+			*trans = {};
+			trans->length = bytes * 8;
+			trans->tx_buffer = buffer;
+			if (holdBus && !isLast) {
+				trans->flags = SPI_TRANS_CS_KEEP_ACTIVE;
+			}
+
+			if (spi_device_queue_trans(devHandle, trans, pdMS_TO_TICKS(timeout)) != ESP_OK) {
+				// Collect what was queued, so the buffer is no longer in use and the bus is released.
+				bulkInFlight = queued;
+				WaitBulk(portMAX_DELAY);
+				return ResultStatus::error;
+			}
+
+			queued++;
+			bulkInFlight = queued;
+			buffer += bytes;
+			remaining -= bytes;
+		}
+		return ResultStatus::ok;
+	}
+
+
+	// Collects the queued transfers of BeginWriteBytes. Each ticks argument is the time allowed per transfer.
+	ResultStatus WaitBulk(TickType_t ticks) {
+		while (bulkInFlight > 0) {
+			spi_transaction_t *finished = nullptr;
+			if (spi_device_get_trans_result(devHandle, &finished, ticks) != ESP_OK) {
+				return ResultStatus::timeout;
+			}
+			bulkInFlight--;
+		}
+
+		if (bulkBusHeld) {
+			spi_device_release_bus(devHandle);
+			bulkBusHeld = false;
+		}
+		return ResultStatus::ok;
+	}
+
+
 	ResultStatus Transfer(uint8 *txBuffer, uint8 *rxBuffer, uint32 size) {
 		if (devHandle == nullptr) {
 			return ResultStatus::noInit;
 		}
 		if (size == 0) {
 			return ResultStatus::ok;
+		}
+
+		// A synchronous transfer must not interleave with a BeginWriteBytes that is still running.
+		if (bulkInFlight > 0 || bulkBusHeld) {
+			ResultStatus bulkStatus = WaitBulk(pdMS_TO_TICKS(timeout));
+			if (bulkStatus != ResultStatus::ok) {
+				return bulkStatus;
+			}
 		}
 
 		ResultStatus asyncStatus = WaitAsync();
