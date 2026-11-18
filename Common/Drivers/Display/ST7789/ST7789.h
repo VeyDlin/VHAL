@@ -50,6 +50,9 @@ private:
 	static constexpr uint32 chunkPixels = 256;
 	// Longest wait for an asynchronous pixel write before a command gives up on the panel.
 	static constexpr uint32 writeWaitMs = 1000;
+	// Controller memory in the Portrait frame (240 columns, 320 rows). The visible panel sits inside it.
+	static constexpr uint16 ramWidth = 240;
+	static constexpr uint16 ramHeight = 320;
 
 	ASPI& spi;
 	AGPIO& dataCommand;
@@ -295,14 +298,37 @@ private:
 	}
 
 
-	// The controller addresses memory in portrait coordinates, so the offsets swap with the orientation.
+	bool MirrorX() const {
+		return config.rotation == Rotation::Landscape || config.rotation == Rotation::PortraitInverted;
+	}
+
+
+	bool MirrorY() const {
+		return config.rotation == Rotation::LandscapeInverted || config.rotation == Rotation::PortraitInverted;
+	}
+
+
+	// The panel's visible area sits at the Portrait offsets. A mirror (MX or MY) puts it at the far end of the RAM, so
+	// its offset becomes ram size - panel size - offset. The gap is 80 rows (40/40, centred) and 105 columns (52 or 53).
+	uint16 GramColumnOffset() const {
+		return MirrorX() ? static_cast<uint16>(ramWidth - config.width - config.offsetX) : config.offsetX;
+	}
+
+
+	uint16 GramRowOffset() const {
+		return MirrorY() ? static_cast<uint16>(ramHeight - config.height - config.offsetY) : config.offsetY;
+	}
+
+
+	// In a landscape orientation (MV set) the window's column address runs along the RAM rows, and its row address
+	// along the RAM columns. The window is still given in logical coordinates, so the offsets follow the swap.
 	uint16 ColumnOffset() const {
-		return IsLandscape() ? config.offsetY : config.offsetX;
+		return IsLandscape() ? GramRowOffset() : GramColumnOffset();
 	}
 
 
 	uint16 RowOffset() const {
-		return IsLandscape() ? config.offsetX : config.offsetY;
+		return IsLandscape() ? GramColumnOffset() : GramRowOffset();
 	}
 
 

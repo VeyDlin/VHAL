@@ -79,6 +79,29 @@ struct Config {
 
 The M5StickC PLUS2 panel needs offsets 52 and 40 in Portrait, `invertColors = true` and `bgr = true`. These values reproduce the working self-test of the main project.
 
+### Offsets per Rotation
+
+The controller RAM is 240 columns by 320 rows. The visible panel sits inside it at the configured Portrait offsets. The driver derives the offsets of the other orientations from the MADCTL mirror bits:
+
+- MX mirrors the RAM columns, so the visible area moves to the far end of the RAM. Its column offset becomes `240 - width - offsetX`.
+- MY mirrors the RAM rows the same way. Its row offset becomes `320 - height - offsetY`.
+- MV (the landscape orientations) exchanges the window's axes. The column address then runs along the RAM rows, and the row address along the RAM columns.
+
+The derivation assumes that the window commands (CASET, RASET) take logical coordinates, after MADCTL is applied. That is the usual ST7789 behaviour, and it is how the driver has always sent them. Under that assumption the landscape offsets follow the exchange: the column offset comes from the row axis, and the row offset from the column axis. This assumption is what the landscape check on the panel tests.
+
+For the M5StickC PLUS2 (width 135, height 240, offsets 52 and 40):
+
+| Rotation | MADCTL | MX | MY | MV | Column offset | Row offset |
+|----------|--------|----|----|----|---------------|------------|
+| Portrait | 0x00 | no | no | no | 52 | 40 |
+| Landscape | 0x60 | yes | no | yes | 40 | 53 |
+| PortraitInverted | 0xC0 | yes | yes | no | 53 | 40 |
+| LandscapeInverted | 0xA0 | no | yes | yes | 40 | 52 |
+
+The row gap of 80 (320 - 240) is split evenly, 40 and 40, so MY does not change its offset. The column gap of 105 (240 - 135) is odd, so MX moves the offset from 52 to 53. Landscape is therefore 40 columns and 53 rows, and LandscapeInverted is 40 and 52.
+
+These values are derived from the address mapping. On the M5StickC PLUS2, Portrait and Landscape were checked by eye with a 1 px frame at the visible edges (no missing edge, no garbage strip); PortraitInverted and LandscapeInverted have not been checked.
+
 ---
 
 ## API Reference
@@ -131,6 +154,7 @@ The buffer used by `WritePixelBytesAsync` must be in memory the bus can read. Ch
 
 ## Notes
 
-- Offsets are given for Portrait. The landscape orientations swap them: the column offset becomes `offsetY` and the row offset becomes `offsetX`. Only Portrait is verified on the M5StickC PLUS2; the landscape offsets are not checked on hardware.
+- Offsets are given for Portrait and derived for the other orientations (see Offsets per Rotation). Portrait and Landscape are checked on the M5StickC PLUS2; the two inverted orientations are derived, not checked.
+- Behaviour change: PortraitInverted now uses column offset 53 (it was 52), and Landscape uses row offset 53 (it was 52). Code that relied on the old values must be checked on the panel.
 - `Init()` leaves the panel cleared to black.
 - The driver has no knowledge of LVGL. The bridge is in `Utilities/UI/LVGL/LvglDisplay.h`.
