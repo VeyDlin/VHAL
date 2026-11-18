@@ -12,7 +12,8 @@ const lastFragmentFlag: number = 0x02;
 const messageIdShift: number = 2;
 const messageIdMask: number = 0xfc;
 const messageIdModulo: number = 64;
-const maxFragmentsPerMessage: number = 256;
+// The device's TX_BUFFER_SIZE: the longest message it can send; a bootloader packet is at most 4 + 255 bytes
+const maxMessageSize: number = 512;
 const crcInitial: number = 0xff;
 const crcPolynomial: number = 0x07;
 
@@ -157,9 +158,8 @@ export class CompactStreamingProtocol {
     // Queues the message behind any message in progress; resolves when every fragment is acknowledged
     public send(message: Uint8Array): Promise<void> {
         return new Promise<void>((resolvePromise: (value: void | PromiseLike<void>) => void, rejectPromise: (reason: unknown) => void): void => {
-            const fragmentCount: number = Math.ceil(message.length / this.maxPayloadSize);
-            if (fragmentCount > maxFragmentsPerMessage) {
-                rejectPromise(new TransportError(`message of ${message.length} bytes needs ${fragmentCount} fragments, the limit is ${maxFragmentsPerMessage}`));
+            if (message.length > maxMessageSize) {
+                rejectPromise(new TransportError(`message of ${message.length} bytes, the limit is ${maxMessageSize}`));
                 return;
             }
 
