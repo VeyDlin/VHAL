@@ -18,6 +18,7 @@ Extensible firmware bootloader framework with command protocol, Flash memory sup
 - [FLASHBootloader -- Flash Memory Bootloader](#flashbootloader----flash-memory-bootloader)
 - [AESFLASHBootloader -- Encrypted Bootloader](#aesflashbootloader----encrypted-bootloader)
 - [NRF8001Communication -- BLE Transport](#nrf8001communication----ble-transport)
+- [Host Tool (vboot)](#host-tool-vboot)
 - [Firmware Update Workflow](#firmware-update-workflow)
   - [Retrying after a lost response](#retrying-after-a-lost-response)
 - [API Reference](#api-reference)
@@ -156,7 +157,7 @@ class IBootloader;
 | Command | Code | Description |
 |-|-|-|
 | `Ping` | `0x01` | Connection check |
-| `GetInfo` | `0x02` | Returns device info (version, memory layout, protection) |
+| `GetInfo` | `0x02` | Returns device info (version, memory layout, protection, access, largest packet data size, cipher). Layout in [GetInfo Response](#getinfo-response) |
 | `Erase` | `0x10` | Erases entire firmware area (async). Restarts the write stream (see [Write Stream](#write-stream)) |
 | `Write` | `0x11` | Streams firmware data (auto-increments write position). Retries with the same sequence are answered without writing twice |
 | `Read` | `0x12` | Reads firmware data back. Payload length 0: streaming form (auto-increments read position, only once the response has been sent). Payload length 4: optional little-endian `uint32` offset, retry-safe, does not move the read position (see [Read at an offset](#read-at-an-offset)). Any other length answers `InvalidParameters`. Refused with `Protected` in AES mode and under read-out protection |
@@ -165,6 +166,7 @@ class IBootloader;
 | `ResetWritePos` | `0x15` | Restarts the write stream at position 0 |
 | `ResetReadPos` | `0x16` | Resets read position to 0 |
 | `GetHash` | `0x17` | Returns SHA256 hash of all raw data sent so far (ciphertext in AES mode) |
+| `SetIV` | `0x18` | Sets the 16-byte IV (initial counter) of the next image. AES CBC and CTR only, see [Setting the IV](#setting-the-iv-setiv) |
 | `Start` | `0x20` | Answers `Success`, then launches the application about 150 ms later so the response is sent first. Answers `Error` when `checkFirmware` finds no valid image, and `Busy` while an erase is running |
 | `Reset` | `0x21` | Answers `Success`, then resets the device about 150 ms later |
 | `GetStatus` | `0x30` | Returns current state and bytes received (see [API Reference](#api-reference)) |
@@ -287,6 +289,8 @@ A host can therefore download the image in `240`-byte steps with offsets `0`, `2
 | `IsReadBackAllowed()` | `true` | Return `false` to refuse `Read` with `Protected` (used by AES mode) |
 | `GetWriteAlignment()` | `1` | Required alignment of write addresses and of all chunks except the last one (see [Write Stream](#write-stream)) |
 | `OnStreamReset()` | No-op | Called when the write stream restarts (`Erase`, `ResetWritePos`). Restore per-image state such as a decryption chain |
+| `OnCommand(packet)` | Returns `false` | Hook for custom command codes, such as `SetIV` in the AES bootloaders. Return `true` when the command was handled (the handler answers the host itself, for example with `SendResponse`). Returning `false` makes the base class answer `InvalidCommand`. Unknown command codes also reach this hook |
+| `GetCipherId()` | `0` | Cipher reported in the `cipher` byte of `GetInfo`: `0` none/unknown, `1` AES-ECB, `2` AES-CBC, `3` AES-CTR. AESFLASHBootloader overrides it |
 | `OnEncryptData(data)` | Passthrough | Encrypt data for Read responses |
 | `OnDecryptData(data)` | Passthrough | Decrypt data from Write commands. Return an empty span on failure |
 | `OnHasEnoughData(buffer)` | `size > 0` | Check if buffer has enough for processing |
@@ -462,6 +466,25 @@ auto mode = bootloader.GetMode(); // AESMode::ECB / CBC / CTR
 constexpr auto ks = MyEncryptedBootloader::GetKeySize();
 ```
 
+The IV given to the constructor is only the default for the first image. A host should set a fresh IV for every image with the `SetIV` command (see below).
+
+### Setting the IV (SetIV)
+
+`SetIV` (`0x18`) carries the 16-byte IV of the next image as its payload (`length` = 16). The host sends it before `Erase`, so the erase and the whole upload belong to that IV.
+
+| Case | Answer |
+|-|-|
+| Payload is 16 bytes, CBC or CTR mode, no erase running, change allowed | `Success`. The IV is stored, the write stream restarts, the CBC chain and the CTR offset start again |
+| An erase is running | `Busy` |
+| Access level forbids image changes (RDP Level 2) | `AccessDenied` |
+| Read-out protection is active and `allowUpdatesWhenReadProtected` is not set | `Protected` |
+| ECB mode (no IV) | `InvalidCommand` |
+| Payload length is not 16 | `InvalidParameters` |
+
+The IV is not secret: it is sent in the clear and stored in the device. Its purpose is uniqueness. In CTR mode the keystream is a function of the key and the IV only, so two images encrypted with the same IV and key use the same keystream, and the XOR of the two ciphertexts is the XOR of the two plaintexts. Choose a random IV for every image (the host tool generates one per package).
+
+`SetIV` restarts the write stream the same way `ResetWritePos` does: the write position, the byte counters and the CTR offset go back to zero, and the CBC chain restarts from the new IV. Send `Erase` after it to clear the flash for the new image.
+
 ### Security Notes
 
 - The destructor wipes `iv`, `currentIV` and the decryption buffer. AES does not wipe its round keys.
@@ -543,18 +566,32 @@ Receiver rules, for each data fragment with a valid CRC, in this order:
 
 The ACK is sent before the payload is delivered. Empty fragments follow the same sequencing but deliver nothing.
 
+## Host Tool (vboot)
+
+`.tool` in this folder holds `vboot`, a Node.js command-line tool for the host side: AES key files, firmware packages (`.vbp`, plain or encrypted, with a random IV per image), flashing over BLE, image conversion and factory images. It also has a device simulator built from these sources. Full documentation: [vboot -- Bootloader Host Tool](/docs/Common/Utilities/Bootloader/.tool).
+
+```
+cd VHAL/Common/Utilities/Bootloader/.tool && npm install
+node src/cli.ts key generate -o app.key
+node src/cli.ts pack app.elf -o app.vbp --key app.key
+node src/cli.ts flash app.vbp --start
+```
+
+`vboot flash` runs the workflow below, including the retry rules.
+
 ## Firmware Update Workflow
 
 A typical update sequence from the host side:
 
 1. **Ping** -- verify connection
-2. **GetInfo** -- read memory layout and protection level. Under read-out protection `Erase`, `Write` and `Finalize` answer `Protected` unless the device sets `allowUpdatesWhenReadProtected`
-3. **Erase** -- erase firmware area (async, poll with `GetStatus` until `Idle`). Restarts the write stream and the AES chain
-4. **Write** (repeated) -- stream firmware data in chunks. Only the final chunk may be shorter than the write alignment. Resend the same sequence after a lost response; the device does not write the data twice
-5. **GetHash** -- verify SHA256 of the raw data sent (ciphertext in AES mode)
-6. **Finalize** -- send the expected `FirmwareHeader` of the plaintext image: `crc32` (CRC32 of the image as stored in flash, i.e. after decryption) and `size` (image length), both little-endian, 8 bytes. The device checks the flash content against both values and answers `ChecksumMismatch` without writing the header if they differ
-7. **Verify** -- confirm firmware integrity
-8. **Start** or **Reset** -- launch new firmware. The device answers first and acts about 150 ms later
+2. **GetInfo** -- read memory layout, protection level, the largest packet data size (`packetDataMaxSize`) and the cipher (`cipher`). Under read-out protection `Erase`, `Write` and `Finalize` answer `Protected` unless the device sets `allowUpdatesWhenReadProtected`
+3. **SetIV** (AES CBC and CTR only; skip when `cipher` is `0` or `1`) -- send a fresh random 16-byte IV for this image. Sending it before `Erase` keeps every image on its own keystream (see [Setting the IV](#setting-the-iv-setiv))
+4. **Erase** -- erase firmware area. The erase runs in the background: the answer to `Erase` comes when it is done (`GetStatus` shows `Processing` meanwhile, other image commands answer `Busy`). Restarts the write stream and the AES chain
+5. **Write** (repeated) -- stream firmware data in chunks. Only the final chunk may be shorter than the write alignment. Resend the same sequence after a lost response; the device does not write the data twice
+6. **GetHash** -- verify SHA256 of the raw data sent (ciphertext in AES mode)
+7. **Finalize** -- send the expected `FirmwareHeader` of the plaintext image: `crc32` (CRC32 of the image as stored in flash, i.e. after decryption) and `size` (image length), both little-endian, 8 bytes. The device checks the flash content against both values and answers `ChecksumMismatch` without writing the header if they differ
+8. **Verify** -- confirm firmware integrity
+9. **Start** or **Reset** -- launch new firmware. The device answers first and acts about 150 ms later
 
 Legacy hosts that cannot compute the CRC can send an empty `Finalize` payload when the device has `requireFinalizeChecksum = false`. That writes the header without a checksum check, so the integrity check is lost. Keep `requireFinalizeChecksum = true` unless every host is updated.
 
@@ -602,3 +639,18 @@ A command whose response is lost can be sent again. Whether that is safe depends
 | 4 | 4 | `bytesReceived` (little-endian on the ARM targets) |
 
 `bytesReceived` counts the bytes accepted by `Write` since the last `Erase` or `ResetWritePos`.
+
+### GetInfo Response
+
+`GetInfo` answers 24 bytes, little-endian on the ARM targets:
+
+| Offset | Size | Field |
+|-|-|-|
+| 0 | 8 | `bootloaderVersion` |
+| 8 | 4 | `maxPacketSize` (transport limit, from `ICommunication::GetMaxPacketSize()`) |
+| 12 | 4 | `memoryStart` |
+| 16 | 4 | `memorySize` |
+| 20 | 1 | `protectionLevel` (`0` Level0, `1` Level1, `2` Level2, `255` unknown) |
+| 21 | 1 | `accessDenied` (`0` allowed, `1` denied) |
+| 22 | 1 | `packetDataMaxSize`: largest packet data length the bootloader accepts (`PacketDataMaxSize`, capped at 255; `240` by default) |
+| 23 | 1 | `cipher`: `0` none/unknown, `1` AES-ECB, `2` AES-CBC, `3` AES-CTR. The key size is not reported |
