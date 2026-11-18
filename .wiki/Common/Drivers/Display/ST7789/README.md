@@ -2,6 +2,8 @@
 
 Driver for the ST7789V2 colour panel over a transmit-only SPI bus, with a data/command line and a reset line. Portable: it uses only the VHAL adapters `ASPI` and `AGPIO`, so the same code runs on any port that provides them.
 
+The class implements the [`IDisplay`](../README.md) interface, so a renderer depends on the interface and not on this driver. The methods that implement it are marked in the API reference below.
+
 ---
 
 ## Table of Contents
@@ -112,14 +114,15 @@ These values are derived from the address mapping. On the M5StickC PLUS2, Portra
 | `SetRotation(Rotation)` | `ResultStatus` | Writes MADCTL and swaps the logical width and height for the landscape orientations |
 | `SetInversion(bool)` | `ResultStatus` | INVON or INVOFF |
 | `SetSleep(bool)` | `ResultStatus` | Sleep in, or sleep out followed by a 120 ms wait |
-| `GetWidth()` / `GetHeight()` | `uint16` | Logical size in the current orientation |
-| `SetWindow(x0, y0, x1, y1)` | `ResultStatus` | Sets the write window with both ends inclusive, then starts a memory write. `outOfRange` when the window is empty or leaves the panel |
+| `GetWidth()` / `GetHeight()` | `uint16` | Logical size in the current orientation (`IDisplay`) |
+| `GetPixelFormat()` | `IDisplay::PixelFormat` | `Rgb565BigEndian`: the bytes of `WritePixelBytes` are high byte first (`IDisplay`) |
+| `SetWindow(x0, y0, x1, y1)` | `ResultStatus` | Sets the write window with both ends inclusive, then starts a memory write. `outOfRange` when the window is empty or leaves the panel (`IDisplay`) |
 | `WritePixels(rgb565, count)` | `ResultStatus` | Streams `count` native RGB565 pixels into the window opened by the last `SetWindow`, swapping each one through a staging buffer |
-| `WritePixelBytes(bytes, byteCount)` | `ResultStatus` | Streams bytes already in panel order (high byte first) into the window, with no copy. The bus splits the buffer into transfers |
-| `WritePixelBytesAsync(bytes, byteCount)` | `ResultStatus` | Starts the same write on the bus in the background and returns. `notSupported` when the bus cannot do it, so the caller falls back to `WritePixelBytes`. The buffer must stay unchanged until `IsWriteDone()` is true |
-| `IsWriteDone()` | `bool` | True when no background write is in flight (also when the bus cannot do one) |
-| `WaitWriteDone(timeoutMs)` | `ResultStatus` | Waits up to `timeoutMs` for the background write. `ok` when it has finished or none was started, `timeout` otherwise |
-| `CheckDmaBuffer(bytes, byteCount)` | `ResultStatus` | `ok` when the bus can read the buffer (on the ESP32, internal RAM only). `invalidParameter` otherwise |
+| `WritePixelBytes(bytes, byteCount)` | `ResultStatus` | Streams bytes already in panel order (high byte first) into the window, with no copy. The bus splits the buffer into transfers (`IDisplay`) |
+| `WritePixelBytesAsync(bytes, byteCount)` | `ResultStatus` | Starts the same write on the bus in the background and returns. `notSupported` when the bus cannot do it, so the caller falls back to `WritePixelBytes`. The buffer must stay unchanged until `IsWriteDone()` is true (`IDisplay`) |
+| `IsWriteDone()` | `bool` | True when no background write is in flight (also when the bus cannot do one) (`IDisplay`) |
+| `WaitWriteDone(timeoutMs)` | `ResultStatus` | Waits up to `timeoutMs` for the background write. `ok` when it has finished or none was started, `timeout` otherwise (`IDisplay`) |
+| `CheckDmaBuffer(bytes, byteCount)` | `ResultStatus` | `ok` when the bus can read the buffer (on the ESP32, internal RAM only). `invalidParameter` otherwise (`IDisplay`) |
 | `FillRect(x, y, w, h, color)` | `ResultStatus` | Clips to the panel, sets the window and fills it with one colour |
 
 No method allocates memory. Each transfer stages pixels in a 512-byte member buffer (256 pixels), which is DMA-friendly because it lives in internal RAM.
@@ -157,4 +160,4 @@ The buffer used by `WritePixelBytesAsync` must be in memory the bus can read. Ch
 - Offsets are given for Portrait and derived for the other orientations (see Offsets per Rotation). Portrait and Landscape are checked on the M5StickC PLUS2; the two inverted orientations are derived, not checked.
 - Behaviour change: PortraitInverted now uses column offset 53 (it was 52), and Landscape uses row offset 53 (it was 52). Code that relied on the old values must be checked on the panel.
 - `Init()` leaves the panel cleared to black.
-- The driver has no knowledge of LVGL. The bridge is in `Utilities/UI/LVGL/LvglDisplay.h`.
+- The driver has no knowledge of LVGL. The bridge is in `Utilities/UI/LVGL/LvglDisplay.h` and reaches the panel only through `IDisplay`.

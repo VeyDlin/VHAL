@@ -1,48 +1,79 @@
 #pragma once
+#include <VHAL.h>
+
+#if defined(VHAL_LVGL)
+#include <Drivers/Display/IDisplay.h>
 #include <System/System.h>
-#include <Drivers/Display/ST7789/ST7789.h>
 #include <Utilities/Result/Result.h>
 #include <lvgl.h>
+#include <span>
 
 
-// Connects LVGL 9 to an ST7789 panel in partial render mode: LVGL draws into a band of LineCount lines and every filled
-// area is flushed through the panel. LVGL itself is an external dependency added by the project; this bridge only
-// includes its public header. The buffers are RGB565 with the bytes swapped (LV_COLOR_FORMAT_RGB565_SWAPPED), which is
-// the panel's wire order, so a flush sends the buffer as it is. With BufferCount 2 the flush starts a write and returns,
-// and LVGL renders the next band into the other buffer while the first one is written.
-template<uint16 LineCount = 20, uint16 MaxWidth = 135, uint8 BufferCount = 1>
+// Connects LVGL 9 to any display behind IDisplay in partial render mode: LVGL draws into a band of lineCount lines and
+// every filled area is flushed to the panel. The caller allocates the draw buffers (one band, or two for background
+// flushes) and keeps them alive as long as the bridge. LVGL itself is an external dependency: the project adds it and
+// defines VHAL_LVGL in its VHALConfig.h. This header includes only LVGL's public header.
 class LvglDisplay {
 public:
-	static constexpr uint32 bufferBytes = static_cast<uint32>(MaxWidth) * LineCount * 2;
 	static constexpr uint32 flushTimeoutMs = 1000;
-
-	static_assert(BufferCount == 1 || BufferCount == 2, "LvglDisplay supports one or two draw buffers");
 
 
 private:
-	alignas(4) static inline uint8 drawBuffers[BufferCount][bufferBytes];
-
-	ST7789& panel;
+	IDisplay& panel;
+	uint16 lineCount = 0;
+	std::span<uint8> firstBuffer;
+	std::span<uint8> secondBuffer;
 	lv_display_t* display = nullptr;
 	ResultStatus lastFlushStatus = ResultStatus::ok;
 
 
 public:
-	explicit LvglDisplay(ST7789& panelDriver): panel(panelDriver) { }
+	// Bytes of one draw buffer: a band of lines for a panel of the given width, two bytes a pixel.
+	static constexpr uint32 BufferBytes(uint16 width, uint16 lines) {
+		return static_cast<uint32>(width) * lines * 2;
+	}
 
 
-	// Call once, after the panel is initialised and System::Init() has run. Fails when the panel is wider than
-	// MaxWidth, because the buffers are sized for MaxWidth, and when a buffer is not in memory the bus can read
-	// (CheckDmaBuffer).
+	// An empty secondBuffer selects the synchronous flush with one buffer.
+	LvglDisplay(
+		IDisplay& panelDriver,
+		uint16 lines,
+		std::span<uint8> buffer,
+		std::span<uint8> secondDrawBuffer = {}
+	)
+		: panel(panelDriver), lineCount(lines), firstBuffer(buffer), secondBuffer(secondDrawBuffer)
+	{
+	}
+
+
+	// Call once, after the panel is initialised and System::Init() has run. Fails when a buffer is smaller than one band
+	// of the panel's width, or when a buffer is not in memory the bus can read (IDisplay::CheckDmaBuffer).
 	ResultStatus Init() {
-		if (panel.GetWidth() > MaxWidth) {
-			return ResultStatus::outOfRange;
+		if (lineCount == 0) {
+			return ResultStatus::invalidParameter;
 		}
-		for (uint8 index = 0; index < BufferCount; index++) {
-			ResultStatus status = panel.CheckDmaBuffer(drawBuffers[index], bufferBytes);
+
+		uint32 bandBytes = BufferBytes(panel.GetWidth(), lineCount);
+		bool hasSecond = !secondBuffer.empty();
+		if (firstBuffer.size() < bandBytes || (hasSecond && secondBuffer.size() < bandBytes)) {
+			return ResultStatus::invalidParameter;
+		}
+
+		ResultStatus status = panel.CheckDmaBuffer(firstBuffer.data(), bandBytes);
+		if (status != ResultStatus::ok) {
+			return status;
+		}
+		if (hasSecond) {
+			status = panel.CheckDmaBuffer(secondBuffer.data(), bandBytes);
 			if (status != ResultStatus::ok) {
 				return status;
 			}
+		}
+
+		// The only panel format so far, RGB565 with the high byte first, is LVGL's swapped RGB565. Another panel format
+		// needs its own LVGL format here.
+		if (panel.GetPixelFormat() != IDisplay::PixelFormat::Rgb565BigEndian) {
+			return ResultStatus::notSupported;
 		}
 
 		lv_init();
@@ -54,8 +85,8 @@ public:
 		}
 
 		lv_display_set_color_format(display, LV_COLOR_FORMAT_RGB565_SWAPPED);
-		lv_display_set_buffers(display, drawBuffers[0], BufferCount > 1 ? drawBuffers[BufferCount - 1] : nullptr,
-			bufferBytes, LV_DISPLAY_RENDER_MODE_PARTIAL);
+		lv_display_set_buffers(display, firstBuffer.data(), hasSecond ? secondBuffer.data() : nullptr, bandBytes,
+			LV_DISPLAY_RENDER_MODE_PARTIAL);
 		lv_display_set_flush_cb(display, &LvglDisplay::Flush);
 		lv_display_set_flush_wait_cb(display, &LvglDisplay::WaitFlush);
 		lv_display_set_user_data(display, this);
@@ -105,15 +136,15 @@ public:
 			static_cast<uint16>(area->y2)
 		);
 		if (status == ResultStatus::ok) {
-			if (BufferCount > 1) {
+			if (bridge->secondBuffer.empty()) {
+				status = bridge->panel.WritePixelBytes(pixelMap, bytes);
+			} else {
 				status = bridge->panel.WritePixelBytesAsync(pixelMap, bytes);
 				if (status == ResultStatus::ok) {
 					pending = true;
 				} else if (status == ResultStatus::notSupported) {
 					status = bridge->panel.WritePixelBytes(pixelMap, bytes);
 				}
-			} else {
-				status = bridge->panel.WritePixelBytes(pixelMap, bytes);
 			}
 		}
 		bridge->lastFlushStatus = status;
@@ -140,3 +171,5 @@ private:
 		return static_cast<uint32>(System::GetMs());
 	}
 };
+
+#endif

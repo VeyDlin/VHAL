@@ -1,12 +1,13 @@
 #pragma once
 #include <VHAL.h>
+#include <Drivers/Display/IDisplay.h>
 #include <algorithm>
 
 
 // ST7789V2 panel on a transmit-only SPI bus with a data/command line and an active-low reset line (both are AGPIO, so
 // the polarity comes from the AGPIO inversion flag). The caller configures the bus (SPI mode 0, MSB first, transmit only,
 // the panel's maximum clock); this driver only sends bytes. Portable: it uses VHAL adapters and nothing else.
-class ST7789 {
+class ST7789: public IDisplay {
 public:
 	enum class Rotation : uint8 {
 		Portrait,
@@ -155,18 +156,24 @@ public:
 	}
 
 
-	uint16 GetWidth() const {
+	uint16 GetWidth() const override {
 		return IsLandscape() ? config.height : config.width;
 	}
 
 
-	uint16 GetHeight() const {
+	uint16 GetHeight() const override {
 		return IsLandscape() ? config.width : config.height;
 	}
 
 
+	// The panel takes the high byte of each pixel first, so the bytes of WritePixelBytes need no swap.
+	PixelFormat GetPixelFormat() const override {
+		return PixelFormat::Rgb565BigEndian;
+	}
+
+
 	// Sets the window in logical coordinates, both ends inclusive, and leaves the controller ready for WritePixels.
-	ResultStatus SetWindow(uint16 x0, uint16 y0, uint16 x1, uint16 y1) {
+	ResultStatus SetWindow(uint16 x0, uint16 y0, uint16 x1, uint16 y1) override {
 		if (x1 < x0 || y1 < y0 || x1 >= GetWidth() || y1 >= GetHeight()) {
 			return ResultStatus::outOfRange;
 		}
@@ -205,7 +212,7 @@ public:
 
 	// Streams bytes that are already in panel order (two per pixel, high byte first) after SetWindow, with no copy. The
 	// bus splits the buffer into transfers of at most its chunk size, with chip select held low across them.
-	ResultStatus WritePixelBytes(const uint8* panelBytes, uint32 byteCount) {
+	ResultStatus WritePixelBytes(const uint8* panelBytes, uint32 byteCount) override {
 		return SendData(panelBytes, byteCount);
 	}
 
@@ -236,21 +243,21 @@ public:
 	// Starts streaming bytes already in panel order after SetWindow, without waiting for the bus. Returns notSupported
 	// when the bus has no asynchronous write; the caller then uses WritePixelBytes. Collect the write with IsWriteDone or
 	// WaitWriteDone before the buffer is reused, and before the next SetWindow or other command.
-	ResultStatus WritePixelBytesAsync(const uint8* panelBytes, uint32 byteCount) {
+	ResultStatus WritePixelBytesAsync(const uint8* panelBytes, uint32 byteCount) override {
 		dataCommand.Set();
 		return spi.BeginWriteBytes(panelBytes, byteCount);
 	}
 
 
 	// True when no asynchronous pixel write is in flight (also when the bus cannot do one).
-	bool IsWriteDone() {
+	bool IsWriteDone() override {
 		ResultStatus status = spi.WaitWriteBytes(0);
 		return status != ResultStatus::timeout;
 	}
 
 
 	// Waits up to timeoutMs for the asynchronous pixel write. Returns ok when it has finished, or when there was none.
-	ResultStatus WaitWriteDone(uint32 timeoutMs) {
+	ResultStatus WaitWriteDone(uint32 timeoutMs) override {
 		ResultStatus status = spi.WaitWriteBytes(timeoutMs);
 		if (status == ResultStatus::notSupported) {
 			return ResultStatus::ok;
@@ -260,7 +267,7 @@ public:
 
 
 	// Whether a buffer can be used for pixel writes on this bus (see SPIAdapter::CheckDmaBuffer).
-	ResultStatus CheckDmaBuffer(const uint8* buffer, uint32 size) {
+	ResultStatus CheckDmaBuffer(const uint8* buffer, uint32 size) override {
 		return spi.CheckDmaBuffer(buffer, size);
 	}
 

@@ -8,6 +8,7 @@ A collection of lightweight signal filtering utilities for embedded systems.
 - [Hysteresis](#hysteresis)
 - [KalmanFilter](#kalmanfilter)
 - [LowPassFilter](#lowpassfilter)
+- [ComplementaryFilter](#complementaryfilter)
 - [API Reference](#api-reference)
 
 ## Quick Start
@@ -28,6 +29,12 @@ float smooth = lpf.Set(rawValue).Resolve().Get();
 // Hysteresis to suppress jitter
 Hysteresis<float> hyst(5.0f);
 float stable = hyst.Get(rawValue);
+
+// Pitch and roll from an accelerometer and a gyroscope
+ComplementaryFilter attitude;
+attitude.Reset(firstSample);
+attitude.Update(sample, dtSec);
+float pitch = attitude.GetPitchDeg();
 
 // With IQ fixed-point math
 KalmanFilter<iq16> kfIQ(0.01f, 3.0f, 1.0f, 0.0f, 1.0f);
@@ -185,6 +192,73 @@ while (running) {
 | `Type Get()` | `Type` | Returns the current filtered output. |
 
 `Resolve()` computes `output = kx0 * input + ky1 * output`. The output starts at `0`, so the first `Resolve()` after `Set()` returns `kx0 * sample`, not the sample itself. The output approaches the input over several samples.
+
+## ComplementaryFilter
+
+`ComplementaryFilter` (`Utilities/Math/Filter/ComplementaryFilter.h`) gives the pitch and roll of a body from one accelerometer
+and one gyroscope. The gyroscope is integrated, and the gravity direction from the accelerometer corrects the drift slowly.
+It is portable: it has no adapter, no RTOS and no UI notion, and the caller passes the time between samples. The inputs are
+g for the accelerometer and deg/s for the gyroscope, with the gyroscope bias already removed by the caller.
+
+### Angles
+
+Pitch is the rotation about the sensor's Y axis, roll the rotation about X. Both are right-handed, so the gyroscope rate of an
+axis is the derivative of its angle:
+
+- accelerometer angles: `pitch = atan2(-ax, sqrt(ay^2 + az^2))`, `roll = atan2(ay, az)`
+- the accelerometer angle is low-passed at `accelLowPassHz` (10 Hz by default): `alpha = 1 - exp(-2 pi f dt)`
+- complementary filter with time constant `timeConstantSec` (1 s by default):
+  `correction = trust * dt / (tau + dt)`, `angle = (angle + rate * dt) * (1 - correction) + accelLowPass * correction`
+- `trust = clamp(1 - | |a| - 1 g | / accelTrustG, 0, 1)` with `accelTrustG` = 0.25 g by default. While the device accelerates,
+  the accelerometer measures more than gravity and its angle is not used.
+
+Consequence: a constant gyroscope bias `b` settles at an angle error of about `b * tau`. A bias of 0.5 deg/s gives 0.5 deg with
+the default time constant. A host test checks the settled error with a time constant of 0.5 s
+(`motion.complementary.gyro_bias_settles_at_bias_times_tau`).
+
+A caller that sees a gap in the samples calls `Reset` instead of `Update`: the angles restart from gravity rather than
+integrating across the gap. `TiltScroll` does this for gaps longer than its `maxGapSec`.
+
+### Usage
+
+```cpp
+#include <Utilities/Math/Filter/ComplementaryFilter.h>
+
+ComplementaryFilter filter;
+ComplementaryFilter::Tuning tuning;
+tuning.timeConstantSec = 1.0f;
+filter.SetTuning(tuning);
+
+ComplementaryFilter::Sample sample;
+sample.accelX = ax;       // g
+sample.accelY = ay;
+sample.accelZ = az;
+sample.gyroX = gx;        // deg/s, bias removed
+sample.gyroY = gy;
+sample.gyroZ = gz;
+
+filter.Reset(firstSample);      // the first sample, and the first sample after a gap
+filter.Update(sample, dtSec);   // every later sample; dtSec > 0
+float pitch = filter.GetPitchDeg();
+float roll = filter.GetRollDeg();
+```
+
+### Tuning
+
+| Field | Default | Meaning |
+|-------|---------|---------|
+| `timeConstantSec` | 1.0 | How long the gyroscope is trusted before gravity takes over (s) |
+| `accelLowPassHz` | 10.0 | Corner of the low-pass filter on the accelerometer angles (Hz) |
+| `accelTrustG` | 0.25 | Width of the window around 1 g in which the gravity correction is trusted (g). Must be greater than zero |
+
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `SetTuning(const Tuning&)` | `void` | Sets the tuning. Used from the next `Update` on |
+| `Reset(const Sample&)` | `void` | Sets both angles and the low-passed accelerometer angles to the gravity direction of the sample |
+| `Update(const Sample&, dtSec)` | `void` | One filter step for a sample `dtSec` after the previous one |
+| `GetPitchDeg()` / `GetRollDeg()` | `float` | The filtered angles in degrees |
 
 ## API Reference
 
