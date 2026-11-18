@@ -2,34 +2,24 @@
 @import "@nuxt/ui";
 @plugin "@tailwindcss/typography";
 
+/* Colors come from the generated palette (palette.config.ts) through the Nuxt UI tokens, which pick the light or the
+   dark steps of the scales. Nothing here may set a color directly. */
 :root {
   color-scheme: light;
-  --vhal-surface: #f8fafc;
-  --vhal-surface-elevated: #ffffff;
-  --vhal-text: #0f172a;
-  --vhal-text-muted: #475569;
-  --vhal-text-dimmed: #64748b;
-  --vhal-border: #cbd5e1;
-  --vhal-primary: #2563eb;
-  --ui-bg: var(--vhal-surface);
-  --ui-bg-elevated: var(--vhal-surface-elevated);
-  --ui-text: var(--vhal-text);
-  --ui-text-highlighted: var(--vhal-text);
-  --ui-text-muted: var(--vhal-text-muted);
-  --ui-text-dimmed: var(--vhal-text-dimmed);
-  --ui-border: var(--vhal-border);
-  --ui-primary: var(--vhal-primary);
+  --vhal-surface: var(--ui-bg);
+  --vhal-surface-elevated: var(--ui-bg-elevated);
+  --vhal-text: var(--ui-text-highlighted);
+  --vhal-text-muted: var(--ui-text);
+  --vhal-text-dimmed: var(--ui-text-muted);
+  --vhal-border: var(--ui-border);
+  --vhal-primary: var(--ui-primary);
+  /* The accent step is too light for text on white; the light theme uses a darker step of the same scale */
+  --ui-primary: var(--ui-color-primary-700);
 }
 
 .dark {
   color-scheme: dark;
-  --vhal-surface: #0f172a;
-  --vhal-surface-elevated: #1e293b;
-  --vhal-text: #e2e8f0;
-  --vhal-text-muted: #cbd5e1;
-  --vhal-text-dimmed: #94a3b8;
-  --vhal-border: #334155;
-  --vhal-primary: #60a5fa;
+  --ui-primary: var(--ui-color-primary-400);
 }
 
 .doc-content {
