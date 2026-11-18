@@ -1,7 +1,13 @@
 # IDisplay
 
-`IDisplay` is the interface between a renderer and a display panel. A renderer, such as the LVGL bridge, uses an `IDisplay&`
-and never a concrete driver. The interface is in `Common/Drivers/Display/IDisplay.h`; the ST7789 driver implements it.
+`IDisplay` is the interface between a renderer and a display panel. A renderer, for example an application's bridge to a
+graphics library such as LVGL, uses an `IDisplay&` and never a concrete driver. The interface is in
+`Common/Drivers/Display/IDisplay.h`; the ST7789 driver implements it.
+
+The interface models a panel with its own frame memory that is written window by window (SPI or parallel controllers). A
+framebuffer display, where the MCU scans a frame in its own RAM (LTDC, MIPI DSI video mode), does not fit it. Renderer
+bridges are application code: VHAL does not ship one, because each depends on the graphics library and on the kind of
+display.
 
 Why it lives in `Common/Drivers/` and not in `Periphery/Adapter/`: the adapters are the interfaces of the MCU's own
 peripherals (SPI, GPIO, ...). A display is an external chip on a bus, like the temperature sensors and the battery
@@ -54,8 +60,8 @@ enum class PixelFormat : uint8 {
 ```
 
 `Rgb565BigEndian` is 16 bits per pixel with the most significant byte first. It is the panel's wire order, so a buffer in
-this format goes to the bus without a copy. `GetPixelFormat()` tells the renderer which format the driver expects. The LVGL
-bridge maps `Rgb565BigEndian` to `LV_COLOR_FORMAT_RGB565_SWAPPED`, and fails with `notSupported` for any other format.
+this format goes to the bus without a copy. `GetPixelFormat()` tells the renderer which format the driver expects. For LVGL 9,
+`Rgb565BigEndian` is `LV_COLOR_FORMAT_RGB565_SWAPPED`.
 
 ---
 
@@ -112,16 +118,15 @@ if (status == ResultStatus::notSupported) {
 }
 ```
 
-The LVGL bridge does this: with two draw buffers it starts each band in the background, and it falls back to the synchronous
-write when the panel reports `notSupported`.
+A renderer with two draw buffers can start each band in the background this way, render the next band meanwhile, and fall
+back to the synchronous write when the panel reports `notSupported`.
 
 ---
 
 ## DMA-Capable Buffers
 
 `CheckDmaBuffer` asks whether the bus can read a buffer. On the ESP32 the SPI DMA reads internal RAM only, so a buffer in
-PSRAM fails. Check every buffer once, at initialisation, before the first write that uses it. The LVGL bridge checks its draw
-buffers this way in `Init()`.
+PSRAM fails. Check every buffer once, at initialisation, before the first write that uses it.
 
 ---
 
@@ -130,9 +135,3 @@ buffers this way in `Init()`.
 | Class | Page | Notes |
 |-------|------|-------|
 | `ST7789` | [ST7789](../ST7789/README.md) | ST7789V2 panels on an SPI bus. `GetPixelFormat()` is `Rgb565BigEndian` |
-
-Users of the interface:
-
-| Class | Page | Notes |
-|-------|------|-------|
-| `LvglDisplay` | [LVGL](../../../Utilities/UI/LVGL/README.md) | Renders LVGL into the display through `IDisplay&` |

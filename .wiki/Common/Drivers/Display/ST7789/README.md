@@ -135,7 +135,7 @@ Each call that touches the bus returns the `ResultStatus` of the transfer. `Init
 
 The panel expects the most significant byte of each pixel first. Two paths exist:
 
-- `WritePixelBytes` takes bytes already in that order. The LVGL bridge uses it with `LV_COLOR_FORMAT_RGB565_SWAPPED`, so the swap is done by the renderer and the buffer goes to the bus unchanged.
+- `WritePixelBytes` takes bytes already in that order. A renderer that draws in this order (LVGL's `LV_COLOR_FORMAT_RGB565_SWAPPED`) does the swap itself, and the buffer goes to the bus unchanged.
 - `WritePixels` takes native `uint16` values and swaps them through a 512-byte staging buffer, one copy per 256 pixels. Use it only when the caller has no swapped buffer.
 
 Do not combine the two for the same data: a swapped buffer passed to `WritePixels` is swapped twice.
@@ -151,7 +151,7 @@ Do not combine the two for the same data: a swapped buffer passed to `WritePixel
 - The bus decides how the write is split. The chip select stays low across the split, so the panel sees one memory write (see `SPIAdapter.md`, ESP32 port).
 - A bus without background writes returns `notSupported` from `WritePixelBytesAsync` and `WaitWriteBytes`. The driver treats that as "nothing in flight", so the synchronous calls work on every port.
 
-The buffer used by `WritePixelBytesAsync` must be in memory the bus can read. Check it once with `CheckDmaBuffer` at initialisation, as `LvglDisplay::Init` does.
+The buffer used by `WritePixelBytesAsync` must be in memory the bus can read. Check it once with `CheckDmaBuffer` at initialisation.
 
 ---
 
@@ -160,4 +160,4 @@ The buffer used by `WritePixelBytesAsync` must be in memory the bus can read. Ch
 - Offsets are given for Portrait and derived for the other orientations (see Offsets per Rotation). Portrait and Landscape are checked on the M5StickC PLUS2; the two inverted orientations are derived, not checked.
 - Behaviour change: PortraitInverted now uses column offset 53 (it was 52), and Landscape uses row offset 53 (it was 52). Code that relied on the old values must be checked on the panel.
 - `Init()` leaves the panel cleared to black.
-- The driver has no knowledge of LVGL. The bridge is in `Utilities/UI/LVGL/LvglDisplay.h` and reaches the panel only through `IDisplay`.
+- The driver has no knowledge of any graphics library. A renderer reaches the panel only through `IDisplay`.
