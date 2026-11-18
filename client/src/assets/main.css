@@ -2,34 +2,24 @@
 @import "@nuxt/ui";
 @plugin "@tailwindcss/typography";
 
+/* Colors come from the generated palette (palette.config.ts) through the Nuxt UI tokens, which pick the light or the
+   dark steps of the scales. Nothing here may set a color directly. */
 :root {
   color-scheme: light;
-  --vhal-surface: #f8fafc;
-  --vhal-surface-elevated: #ffffff;
-  --vhal-text: #0f172a;
-  --vhal-text-muted: #475569;
-  --vhal-text-dimmed: #64748b;
-  --vhal-border: #cbd5e1;
-  --vhal-primary: #2563eb;
-  --ui-bg: var(--vhal-surface);
-  --ui-bg-elevated: var(--vhal-surface-elevated);
-  --ui-text: var(--vhal-text);
-  --ui-text-highlighted: var(--vhal-text);
-  --ui-text-muted: var(--vhal-text-muted);
-  --ui-text-dimmed: var(--vhal-text-dimmed);
-  --ui-border: var(--vhal-border);
-  --ui-primary: var(--vhal-primary);
+  --vhal-surface: var(--ui-bg);
+  --vhal-surface-elevated: var(--ui-bg-elevated);
+  --vhal-text: var(--ui-text-highlighted);
+  --vhal-text-muted: var(--ui-text);
+  --vhal-text-dimmed: var(--ui-text-muted);
+  --vhal-border: var(--ui-border);
+  --vhal-primary: var(--ui-primary);
+  /* The accent (step 400) is too light for text on white; the light theme uses a darker step of the same scale */
+  --ui-primary: var(--ui-color-primary-600);
 }
 
 .dark {
   color-scheme: dark;
-  --vhal-surface: #0f172a;
-  --vhal-surface-elevated: #1e293b;
-  --vhal-text: #e2e8f0;
-  --vhal-text-muted: #cbd5e1;
-  --vhal-text-dimmed: #94a3b8;
-  --vhal-border: #334155;
-  --vhal-primary: #60a5fa;
+  --ui-primary: var(--ui-color-primary-400);
 }
 
 .doc-content {
@@ -54,38 +44,6 @@
 body {
   background-color: var(--vhal-surface);
   color: var(--vhal-text);
-}
-
-.theme-switcher {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  color: var(--vhal-text-muted);
-  font-size: 0.875rem;
-}
-
-.theme-switcher-compact {
-  flex: 0 0 auto;
-  padding: 0;
-}
-
-.theme-select {
-  min-width: 6rem;
-  max-width: 7.5rem;
-  border: 1px solid var(--vhal-border);
-  border-radius: 0.375rem;
-  background: var(--vhal-surface-elevated);
-  color: var(--vhal-text);
-  padding: 0.25rem 1.5rem 0.25rem 0.5rem;
-  font-size: 0.875rem;
-}
-
-.theme-switcher-compact .theme-select {
-  min-width: 4.75rem;
-  width: 4.75rem;
-  padding-right: 0.25rem;
-  padding-left: 0.375rem;
 }
 
 mark[data-search-hit] {

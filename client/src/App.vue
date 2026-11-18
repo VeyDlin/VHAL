@@ -2,12 +2,8 @@
 import { ref } from 'vue'
 import AppSidebar from './components/AppSidebar.vue'
 import SearchResults from './components/SearchResults.vue'
-import ThemeSwitcher from './components/ThemeSwitcher.vue'
-import { useTheme } from './composables/useTheme'
 import { useSearch } from './composables/useSearch'
 import { useRoute } from 'vue-router'
-
-useTheme()
 
 const route = useRoute()
 const { isSearchActive } = useSearch()
@@ -28,11 +24,19 @@ watch(() => route.path, () => {
         <div class="flex items-center gap-2 px-4 py-3 border-b border-[var(--ui-border)]">
           <span class="text-lg font-bold text-[var(--ui-text-highlighted)]">VHAL</span>
           <span class="text-xs text-[var(--ui-text-dimmed)]">docs</span>
-          <a href="https://github.com/VeyDlin/VHAL" target="_blank" class="ml-auto text-[var(--ui-text-dimmed)] hover:text-[var(--ui-text)] transition-colors">
-            <UIcon name="i-lucide-github" class="size-5" />
-          </a>
+          <div class="ml-auto flex items-center gap-1">
+            <UColorModeButton size="sm" />
+            <UButton
+              to="https://github.com/VeyDlin/VHAL"
+              target="_blank"
+              icon="i-lucide-github"
+              color="neutral"
+              variant="ghost"
+              size="sm"
+              aria-label="VHAL on GitHub"
+            />
+          </div>
         </div>
-        <ThemeSwitcher />
         <AppSidebar />
       </aside>
 
@@ -48,10 +52,18 @@ watch(() => route.path, () => {
         />
         <span class="text-lg font-bold text-[var(--ui-text-highlighted)]">VHAL</span>
         <span class="text-xs text-[var(--ui-text-dimmed)]">docs</span>
-        <ThemeSwitcher compact class="ml-auto" />
-        <a href="https://github.com/VeyDlin/VHAL" target="_blank" aria-label="VHAL on GitHub" class="text-[var(--ui-text-dimmed)] hover:text-[var(--ui-text)] transition-colors">
-          <UIcon name="i-lucide-github" class="size-5" />
-        </a>
+        <div class="ml-auto flex items-center gap-1">
+          <UColorModeButton size="sm" />
+          <UButton
+            to="https://github.com/VeyDlin/VHAL"
+            target="_blank"
+            icon="i-lucide-github"
+            color="neutral"
+            variant="ghost"
+            size="sm"
+            aria-label="VHAL on GitHub"
+          />
+        </div>
       </div>
 
       <UDrawer v-model:open="mobileMenuOpen" direction="left" class="lg:hidden">
