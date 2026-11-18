@@ -1,0 +1,29 @@
+{
+    "name": "vhal-bootloader-tool",
+    "version": "1.0.0",
+    "description": "Command-line host tool for the VHAL bootloader: pack, encrypt and flash firmware over pluggable transports",
+    "private": true,
+    "type": "module",
+    "bin": {
+        "vboot": "./src/cli.ts"
+    },
+    "engines": {
+        "node": ">=24"
+    },
+    "scripts": {
+        "check": "tsc --noEmit",
+        "test": "node --test \"test/**/*.test.ts\"",
+        "sim:build": "node scripts/build-sim.ts",
+        "vboot": "node src/cli.ts"
+    },
+    "dependencies": {
+        "commander": "^15.1.0"
+    },
+    "optionalDependencies": {
+        "@stoprocent/noble": "^2.8.0"
+    },
+    "devDependencies": {
+        "@types/node": "^26.0.0",
+        "typescript": "^7.0.2"
+    }
+}
