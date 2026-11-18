@@ -26,6 +26,7 @@ private:
 
 	T tweenFrom{};
 	uint64 startTick = 0;
+	bool tweenStartPending = false;
 	uint64 durationMs = 0;
 
 	typename Easing<T>::Curve easingType = Easing<T>::Curve::Linear;
@@ -53,14 +54,14 @@ public:
 	void TweenSpeed(T to, T speed) {
 		using std::fabs;
 		T distance = fabs(to - value);
-		uint64 ms = ToUint64(distance / speed * 1000);
+		uint64 ms = SpeedToDuration(distance, speed);
 		TweenInternal(value, to, ms);
 	}
 
 	void TweenSpeed(T from, T to, T speed) {
 		using std::fabs;
 		T distance = fabs(to - from);
-		uint64 ms = ToUint64(distance / speed * 1000);
+		uint64 ms = SpeedToDuration(distance, speed);
 		TweenInternal(from, to, ms);
 	}
 
@@ -188,12 +189,25 @@ private:
 	}
 
 
-	static uint64 ToUint64(T v) {
-		if constexpr (IQType<T>) {
-			return static_cast<uint64>(v.ToInt());
-		} else {
-			return static_cast<uint64>(v);
+	// Duration of a constant-speed tween. A speed that is not positive gives 0 ms, so the tween ends at its target on the next update.
+	static uint64 SpeedToDuration(T distance, T speed) {
+		double speedValue = static_cast<double>(speed);
+		if (!(speedValue > 0.0)) {
+			return 0;
 		}
+		return DoubleToUint64(static_cast<double>(distance) / speedValue * 1000.0);
+	}
+
+
+	// Converts without undefined behaviour: NaN and negatives give 0, values beyond uint64 saturate.
+	static uint64 DoubleToUint64(double value) {
+		if (!(value > 0.0)) {
+			return 0;
+		}
+		if (value >= 18446744073709551616.0) {
+			return ~static_cast<uint64>(0);
+		}
+		return static_cast<uint64>(value);
 	}
 
 
@@ -202,7 +216,7 @@ private:
 		target = to;
 		value = from;
 		durationMs = ms;
-		startTick = 0;
+		tweenStartPending = true;
 		springVelocity = 0;
 
 		if (activeMode == Mode::None) {
@@ -217,8 +231,10 @@ private:
 
 
 	void UpdateTween(uint64 nowMs) {
-		if (startTick == 0) {
+		// Latch the start on the first update after Tween(); a tick value of 0 is a valid start time.
+		if (tweenStartPending) {
 			startTick = nowMs;
+			tweenStartPending = false;
 		}
 
 		if (durationMs == 0) {
@@ -232,7 +248,8 @@ private:
 
 		uint64 elapsed = nowMs - startTick;
 
-		T t = static_cast<T>(elapsed) / static_cast<T>(durationMs);
+		// Go through double: IQ has several implicit constructors and cannot take a uint64 directly.
+		T t = static_cast<T>(static_cast<double>(elapsed)) / static_cast<T>(static_cast<double>(durationMs));
 
 		if (t >= 1) {
 			t = 1;
@@ -258,7 +275,7 @@ private:
 		if (lastTick == 0 || lastTick >= nowMs) {
 			dt = 0.001f;
 		} else {
-			dt = static_cast<T>(nowMs - lastTick) / static_cast<T>(1000);
+			dt = static_cast<T>(static_cast<double>(nowMs - lastTick)) / static_cast<T>(1000);
 		}
 
 		T maxDt = 0.1f;

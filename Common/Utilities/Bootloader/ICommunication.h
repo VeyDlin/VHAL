@@ -23,6 +23,8 @@ public:
     virtual bool IsConnected() const = 0;
     
 
+    // An empty span tells the bootloader that the transport lost framing (reconnect);
+    // call the callback from the same context as Process()
     virtual void SetDataReceivedCallback(DataReceivedCallback callback) = 0;
     
 

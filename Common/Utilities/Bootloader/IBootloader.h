@@ -7,9 +7,11 @@
 #include <Utilities/Crypto/SHA/SHA256.h>
 #include <array>
 #include <algorithm>
+#include <cstddef>
+#include <cstring>
+#include <functional>
 #include <optional>
-
-#include <Utilities/Console/Console.h>
+#include <span>
 
 // Abstract bootloader class with base protocol logic
 template<size_t RxBufferSize = 1024, size_t AccumBufferSize = 512, size_t PacketDataMaxSize = 240>
@@ -33,6 +35,7 @@ public:
         ResetWritePos = 0x15, // Reset write position to 0
         ResetReadPos = 0x16,  // Reset read position to 0
         GetHash = 0x17,      // Get SHA256 hash of raw data sent so far
+        SetIV = 0x18,        // Set the IV/initial counter of the next image (AES bootloaders)
         Start = 0x20,        // Start application
         Reset = 0x21,        // Reset device
         GetStatus = 0x30,    // Get current status
@@ -51,23 +54,17 @@ public:
         Protected = 0x06,        // Memory protected from write/read
         CryptoError = 0x07,      // Encryption/decryption error
         AccessDenied = 0x08,     // Access denied (RDP Level 2 or other protection)
-        EndOfData = 0x09         // No more data to read (for READ command)
+        EndOfData = 0x09,        // No more data to read (for READ command)
+        ChecksumMismatch = 0x0A  // Image in flash does not match the checksum sent by the host
     };
 
     // Simplified firmware header - only CRC32 and size
     // PURPOSE: minimal structure for firmware validation
-    // LOCATION: at application memory start address (e.g. 0x08020000)
-    // LOGIC: if size is correct and CRC32 matches - firmware is valid
+    // LOCATION: the last 8 bytes of the application region (GetFirmwareHeaderAddress())
+    // LOGIC: crc32 and size cover the image that starts at the region start; if size is correct and CRC32 matches - firmware is valid
     struct FirmwareHeader {
-        uint32 crc32;        // CRC32 checksum of all firmware data (after this header)
-        uint32 size;         // Firmware size in bytes (excluding this header)
-    } _APacked;
-
-    // Structure for write command with encryption
-    struct EncryptedWriteHeader {
-        uint32 address;          // Write address
-        uint16 realSize;         // Real data size (before padding)
-        uint16 paddedSize;       // Size with padding for encryption
+        uint32 crc32;        // CRC32 checksum of the image, counted from the region start
+        uint32 size;         // Image size in bytes (the header itself is not included)
     } _APacked;
 
     // Command packet
@@ -90,6 +87,20 @@ public:
 
     bool checkFirmware = true;
 
+    // Partial packet timeout in ms (0 disables). Measured from the moment an incomplete packet reaches the front of the
+    // receive buffer; its header byte is dropped once this time has passed. Must be longer than the transport needs for
+    // one full packet including its retries (CompactStreamingProtocol retries a fragment after 5 s)
+    uint32 packetTimeoutMs = 10000;
+
+    // Finalize must carry the expected FirmwareHeader. false allows legacy hosts that send an empty payload
+    bool requireFinalizeChecksum = true;
+
+    // Erase/Write/Finalize while read-out protection is active (IsMemoryProtected(), e.g. RDP Level 1).
+    // Off by default: the images are not authenticated (the AES modes encrypt but do not authenticate), so anyone on
+    // the transport could install code that reads out the rest of the flash, including the bootloader and its keys.
+    // Enable only when the images are authenticated, for example by a signature checked in OnFinalizeFirmware().
+    bool allowUpdatesWhenReadProtected = false;
+
 protected:
     // Communication interface
     ICommunication& communication;
@@ -106,20 +117,27 @@ protected:
     uint32 readPosition = 0;   // Current position for reading firmware data
     
     // Current state
-    enum class State {
-        Idle,       // Waiting for commands
-        Receiving,  // Receiving data
-        Processing, // Processing command
-        Error       // Error state
+    // Values are sent to the host in GetStatus, do not renumber
+    // Receiving and Error are not used by the state machine any more, kept for wire compatibility
+    enum class State : uint8 {
+        Idle = 0,       // Waiting for commands
+        Receiving = 1,  // Kept for wire compatibility
+        Processing = 2, // Processing command (erase in progress, write in progress)
+        Error = 3       // Kept for wire compatibility
     } state = State::Idle;
+
+    // Outcome of ProcessAccumulatedData(), decides between CryptoError and Error
+    enum class ProcessResult : uint8 {
+        Success,
+        CryptoError,
+        Error
+    };
     
     // State for iterative operations
     struct AsyncOperation {
         enum Type {
             None,
-            Erasing,
-            Writing,
-            Verifying
+            Erasing
         } type = None;
         
         uint32 address = 0;      // Current address
@@ -134,11 +152,33 @@ protected:
     uint8 currentSequence = 0;
     
     // Firmware parameters
-    uint32 firmwareSize = 0;    // Total firmware size
-    uint32 firmwareCrc = 0;     // Firmware CRC
     uint32 bytesReceived = 0;   // Number of bytes received (before decryption)
     uint32 bytesWritten = 0;    // Number of bytes actually written (after decryption)
-    bool isFirstWrite = true;   // First write flag for header creation
+
+    // Write stream state
+    bool writeStreamFailed = false;                              // A Write failed, every Write answers writeStreamError until Erase/ResetWritePos
+    BootloaderStatus writeStreamError = BootloaderStatus::Error; // Status answered while writeStreamFailed is set
+
+    // Last accepted Write, used to answer a retry of the same packet without touching the data
+    bool hasLastWriteSequence = false;
+    uint8 lastWriteSequence = 0;
+    BootloaderStatus lastWriteStatus = BootloaderStatus::Success;
+
+    // Incomplete packet at the front of the receive buffer and the time it was first seen (ms)
+    bool partialPacketPending = false;
+    uint32 partialPacketSinceMs = 0;
+
+    // Start is answered first and executed after the response had time to leave (0 = no start scheduled)
+    uint64 startTime = 0;
+    static constexpr uint32 responseFlushDelayMs = 150;
+
+    // One response waiting for the transport to become ready (SendData returned busy)
+    bool hasPendingResponse = false;
+    ResponsePacket pendingResponse{};
+    size_t pendingResponseSize = 0;
+
+    // Read size to advance once the queued Read response is actually sent (0 = no Read is queued)
+    uint32 pendingReadAdvance = 0;
     
     // User data handler
     UserDataHandler userDataHandler;
@@ -153,10 +193,6 @@ protected:
     // Accumulates SHA256 of all raw data sent to Write command (before decryption)
     // Reset on Erase, ResetWritePos operations
     SHA256 dataHasher;
-    
-    // Track last processed sequence for SHA256 deduplication
-    // Prevents duplicate hashing during retries
-    uint8 lastHashedSequence = 0xFF;  // 0xFF = no sequence processed yet
 
 
 public:
@@ -175,7 +211,7 @@ public:
 
     virtual ResultStatus Initialize() {
         // Early initialization hook (e.g. for Flash init before checking firmware)
-        auto earlyStatus = OnBeforeInitialize();
+        ResultStatus earlyStatus = OnBeforeInitialize();
         if (earlyStatus != ResultStatus::ok) {
             return earlyStatus;
         }
@@ -191,13 +227,13 @@ public:
             // If application didn't start, continue with bootloader
         }
         
-        // Check access protection level
-        auto accessStatus = OnCheckAccessLevel();
+        // When the access level forbids flash changes (e.g. RDP Level 2) the bootloader does not start its transport
+        ResultStatus accessStatus = OnCheckAccessLevel();
         if (accessStatus != ResultStatus::ok) {
             return accessStatus;
         }
-        
-        auto status = communication.Initialize();
+
+        ResultStatus status = communication.Initialize();
         if (status != ResultStatus::ok) {
             return status;
         }
@@ -209,18 +245,27 @@ public:
 
 
     virtual void Process() {
-        // First process communication (poll NRF8001, DMA, etc)
+        // 1. Poll communication (NRF8001, DMA, etc)
         communication.Process();
         
-        // Then process incoming packets
+        // 2. Send a response that was queued while the transport was busy
+        FlushPendingResponse();
+
+        // 3. Incoming packets are handled only while no response is waiting to be sent
         ProcessReceivedPackets();
         
-        // Additional processing in inheritors
-        OnProcess();
+        // 4. Asynchronous work (erase) and deferred actions only when no response is pending
+        if (!hasPendingResponse) {
+            OnProcess();
+        }
 
-        // Reset
-        if (resetTime != 0 && resetTime < System::GetMs()) {
-        	System::Reset();
+        if (!hasPendingResponse && startTime != 0 && System::GetMs() >= startTime) {
+            startTime = 0;
+            OnStartApplication();
+        }
+
+        if (!hasPendingResponse && resetTime != 0 && resetTime < System::GetMs()) {
+            System::Reset();
         }
     }
     
@@ -267,6 +312,17 @@ protected:
 
 
     virtual std::optional<uint8> GetProtectionLevel() const { return std::nullopt; }
+
+
+
+    // Cipher reported by GetInfo: 0 = none/unknown, 1 = AES-ECB, 2 = AES-CBC, 3 = AES-CTR
+    virtual uint8 GetCipherId() const { return 0; }
+
+
+
+    // Custom command hook for inheritors. Returns false when the command is not handled here; the base class then
+    // answers InvalidCommand. A handler that returns true answers the host itself
+    virtual bool OnCommand(const CommandPacket& /*packet*/) { return false; }
     
 
 
@@ -280,7 +336,7 @@ protected:
         uint8* headerPtr = reinterpret_cast<uint8*>(&header);
         
         // Use inheritor's high-level read method
-        auto status = const_cast<IBootloader*>(this)->OnReadMemory(
+        ResultStatus status = const_cast<IBootloader*>(this)->OnReadMemory(
             GetFirmwareHeaderAddress(), 
             std::span<uint8>(headerPtr, sizeof(FirmwareHeader))
         );
@@ -294,19 +350,14 @@ protected:
             return false;
         }
         
-        // PROTECTION from typical Flash garbage
-        if (header.size == 0xFFFFFFFF || header.crc32 == 0xFFFFFFFF) {
-            return false;  // All bits set - erased Flash
+        // The size range check above also rejects an erased header (size 0xFFFFFFFF)
+        // CRC32 is the integrity check; CRC value 0 is a valid CRC
+        std::optional<uint32> calculatedCrc = CalculateFirmwareCRC32(header.size);
+        if (!calculatedCrc.has_value()) {
+            return false;  // Read or range error while calculating the CRC
         }
 
-        // ALWAYS check CRC32 - this is the only integrity check
-        uint32 calculatedCrc = CalculateFirmwareCRC32();
-        if (calculatedCrc == 0) {
-            return false;  // CRC32 calculation error
-        }
-        
-        // header.crc32 == 0 means header is corrupted or not finalized
-        if (header.crc32 == 0 || header.crc32 != calculatedCrc) {
+        if (header.crc32 != *calculatedCrc) {
             return false;  // CRC32 doesn't match, corrupted or not set
         }
         
@@ -321,21 +372,28 @@ protected:
             return ResultStatus::error;
         }
         
-        // Create firmware header
-        FirmwareHeader header = {};
-        header.size = bytesWritten;
-        header.crc32 = CalculateFirmwareCRC32();
-        
-        if (header.crc32 == 0) {
-            return ResultStatus::error;  // CRC calculation failed
+        // CRC of the image as it is in flash, over the size written in this session
+        std::optional<uint32> crc = CalculateFirmwareCRC32(bytesWritten);
+        if (!crc.has_value()) {
+            return ResultStatus::error;  // Read or range error
         }
         
-        auto status = OnWriteMemory(
+        FirmwareHeader header{};
+        header.size = bytesWritten;
+        header.crc32 = *crc;
+
+        // A repeated Finalize (lost response) finds the same header already in flash: do not program it again,
+        // programming a non-erased word fails on flash such as STM32G0/G4
+        std::array<uint8, sizeof(FirmwareHeader)> currentHeader{};
+        if (OnReadMemory(GetFirmwareHeaderAddress(), currentHeader) == ResultStatus::ok &&
+            std::memcmp(currentHeader.data(), &header, sizeof(FirmwareHeader)) == 0) {
+            return ResultStatus::ok;
+        }
+
+        return OnWriteMemory(
             GetFirmwareHeaderAddress(),
-            std::span(reinterpret_cast<const uint8*>(&header), sizeof(FirmwareHeader))
+            std::span<const uint8>(reinterpret_cast<const uint8*>(&header), sizeof(FirmwareHeader))
         );
-        
-        return status;
     }
     
 
@@ -371,7 +429,23 @@ protected:
     
     
 
+    // Read-out protection (RDP). Gates Read and UnlockDevice only
     virtual bool IsMemoryProtected() const { return false; }
+
+
+
+    // false refuses Read (answered Protected), e.g. when the flash content is encrypted
+    virtual bool IsReadBackAllowed() const { return true; }
+
+
+
+    // Required alignment of the write address and of every write but the last one
+    virtual uint32 GetWriteAlignment() const { return 1; }
+
+
+
+    // Called when the write stream is restarted (Erase, ResetWritePos); inheritors restore their decryption state here
+    virtual void OnStreamReset() { }
     
 
 
@@ -382,18 +456,6 @@ protected:
         if (address + size > GetMemoryEndAddress()) return false;
         if (address + size < address) return false; // Overflow check
         return true;
-    }
-    
-
-
-    // Encryption block size (AES uses 16 bytes)
-    static constexpr size_t CRYPTO_BLOCK_SIZE = 16;
-    
-
-
-    // Align size to blocks for encryption
-    size_t AlignToBlockSize(size_t size) const {
-        return ((size + CRYPTO_BLOCK_SIZE - 1) / CRYPTO_BLOCK_SIZE) * CRYPTO_BLOCK_SIZE;
     }
     
 
@@ -436,7 +498,7 @@ protected:
     
     // Hook for device unlocking (RDP removal)
     // password - password to check unlock rights
-    virtual ResultStatus OnUnlockDevice(std::span<const uint8> password) {
+    virtual ResultStatus OnUnlockDevice(std::span<const uint8> /*password*/) {
         // Not supported by default
         return ResultStatus::notSupported;
     }
@@ -444,24 +506,17 @@ protected:
 
 
     // Process received data
+    // An empty span tells the bootloader that the transport lost framing (reconnect).
+    // Only partial input and the pending response are dropped; an erase, the write stream and the state are kept
     void OnDataReceived(std::span<const uint8> data) {
         if (data.empty()) {
-            // Пустой span = сигнал сброса состояния от протокола связи
-
-            // Очищаем все буферы и сбрасываем состояние
             receiveBuffer.Clear();
-            accumulatedSize = 0;
-            state = State::Idle;
-            
-            // Сбрасываем асинхронные операции
-            if (asyncOp.type != AsyncOperation::None) {
-                asyncOp.type = AsyncOperation::None;
-            }
-            
+            partialPacketPending = false;
+            hasPendingResponse = false;
+            pendingReadAdvance = 0;
             return;
         }
-        
-        // Add data to buffer
+
         for (uint8 byte : data) {
             receiveBuffer.Push(byte);
         }
@@ -470,46 +525,74 @@ protected:
 
 
     void ProcessReceivedPackets() {
-        while (TryProcessPacket());
+        while (!hasPendingResponse && TryProcessPacket()) {
+        }
     }
     
 
 
     bool TryProcessPacket() {
-        // Check minimum header size first
-        if (receiveBuffer.Size() < 4) { // header + seq + cmd + len
-            return false;
-        }
-        
-        // Look for packet header
+        // Drop bytes until the buffer starts with the packet header
         while (receiveBuffer.Size() > 0) {
-            auto peek = receiveBuffer.Peek();
-            if (peek.IsOk() && peek.Value() != 0xAA) {
-                receiveBuffer.Pop();
-            } else {
+            Result<uint8> peek = receiveBuffer.Peek();
+            if (peek.IsOk() && peek.Value() == 0xAA) {
                 break;
             }
+            receiveBuffer.Pop();
+            partialPacketPending = false;
+        }
+
+        if (receiveBuffer.Size() == 0) {
+            return false;
         }
         
-        // Check if we still have minimum header after skipping invalid data
+        // Header, sequence, command and length are needed before anything else can be decided
         if (receiveBuffer.Size() < 4) {
-            return false;
+            return DropStalledPacket();
         }
         
-        // Read packet
-        CommandPacket packet;
-        if (!ReadPacket(packet)) {
-            return false;
-        }
-        
-        // Check CRC
-        if (!ValidatePacket(packet)) {
-            SendError(packet.sequence, BootloaderStatus::InvalidParameters);
+        // A length above the packet buffer can never be valid: drop only the header byte and resync on the next 0xAA
+        if (static_cast<size_t>(receiveBuffer[3]) > PacketDataMaxSize) {
+            uint8 sequence = receiveBuffer[1];
+            receiveBuffer.Pop();
+            partialPacketPending = false;
+            SendError(sequence, BootloaderStatus::InvalidParameters);
             return true;
         }
-        
-        // Process command
+
+        CommandPacket packet;
+        if (!ReadPacket(packet)) {
+            return DropStalledPacket();
+        }
+
+        partialPacketPending = false;
         ProcessCommand(packet);
+        return true;
+    }
+
+
+    // Called for a header that is not followed by a complete packet yet.
+    // The packet is timed from the moment it first reached the front of the buffer, not from the last received byte,
+    // so steady traffic behind a stale header cannot keep it alive. Once it stalled longer than packetTimeoutMs,
+    // its header byte is dropped so the parser resynchronises
+    bool DropStalledPacket() {
+        uint32 now = static_cast<uint32>(System::GetMs());
+        if (!partialPacketPending) {
+            partialPacketPending = true;
+            partialPacketSinceMs = now;
+            return false;
+        }
+
+        if (packetTimeoutMs == 0) {
+            return false;
+        }
+        
+        if (static_cast<uint32>(now - partialPacketSinceMs) <= packetTimeoutMs) {
+            return false;
+        }
+        
+        receiveBuffer.Pop();
+        partialPacketPending = false;
         return true;
     }
     
@@ -527,6 +610,11 @@ protected:
         packet.command = static_cast<Command>(receiveBuffer[2]);
         packet.length = receiveBuffer[3];
         
+        // Never copy more than the packet buffer holds (TryProcessPacket already drops such headers)
+        if (packet.length > PacketDataMaxSize) {
+            return false;
+        }
+
         size_t totalSize = 4 + packet.length; // header + seq + cmd + len + data
         if (receiveBuffer.Size() < totalSize) {
             return false;
@@ -534,7 +622,7 @@ protected:
         
         // Extract entire packet
         for (size_t i = 0; i < totalSize; i++) {
-            auto result = receiveBuffer.Pop();
+            Result<uint8> result = receiveBuffer.Pop();
             if (result.IsOk()) {
                 reinterpret_cast<uint8*>(&packet)[i] = result.Value();
             } else {
@@ -547,11 +635,6 @@ protected:
     
 
 
-    bool ValidatePacket(const CommandPacket& packet) {
-        // Check header only
-        // CRC and other integrity checks are done by transport layer
-        return packet.header == 0xAA;
-    }
     
 
 
@@ -584,7 +667,7 @@ protected:
                 break;
                 
             case Command::Finalize:
-                HandleFinalize();
+                HandleFinalize(packet);
                 break;
                 
             case Command::ResetWritePos:
@@ -619,8 +702,12 @@ protected:
                 HandleUserData(packet);
                 break;
                 
+            // SetIV is handled by AES bootloaders only; OnCommand() decides for it and for unknown commands
+            case Command::SetIV:
             default:
-                SendError(packet.sequence, BootloaderStatus::InvalidCommand);
+                if (!OnCommand(packet)) {
+                    SendError(packet.sequence, BootloaderStatus::InvalidCommand);
+                }
                 break;
         }
     }
@@ -642,7 +729,8 @@ protected:
             uint32 memorySize;
             uint8 protectionLevel;  // RDP level: 0 = Level0, 1 = Level1, 2 = Level2, 255 = Unknown
             uint8 accessDenied;     // Access status: 0 = allowed, 1 = denied
-            uint8 reserved[2];      // Alignment
+            uint8 packetDataMaxSize; // Largest packet data length (PacketDataMaxSize, capped at 255)
+            uint8 cipher;           // 0 = none/unknown, 1 = AES-ECB, 2 = AES-CBC, 3 = AES-CTR
         } info;
         
         info.bootloaderVersion = bootloaderVersionValue;
@@ -666,11 +754,30 @@ protected:
             info.protectionLevel = 255; // Unknown/Not implemented
         }
         
-        info.reserved[0] = info.reserved[1] = 0;
+        info.packetDataMaxSize = static_cast<uint8>(std::min<size_t>(PacketDataMaxSize, 255));
+        info.cipher = GetCipherId();
         
         SendResponse(BootloaderStatus::Success, std::span(reinterpret_cast<const uint8*>(&info), sizeof(info)));
     }
     
+
+
+    // Erase, Write and Finalize change the image. Answers the refusal and returns true when the access level forbids
+    // flash changes, or when read-out protection is active and allowUpdatesWhenReadProtected is not set.
+    bool RefuseImageChange() {
+        if (OnCheckAccessLevel() == ResultStatus::accessError) {
+            SendError(currentSequence, BootloaderStatus::AccessDenied);
+            return true;
+        }
+
+        if (!allowUpdatesWhenReadProtected && IsMemoryProtected()) {
+            SendError(currentSequence, BootloaderStatus::Protected);
+            return true;
+        }
+
+        return false;
+    }
+
 
 
     void HandleErase(const CommandPacket& packet) {
@@ -679,19 +786,10 @@ protected:
             return;
         }
         
-        // Check access level (RDP Level 2 blocks Flash operations)
-        auto accessStatus = OnCheckAccessLevel();
-        if (accessStatus == ResultStatus::accessError) {
-            SendError(currentSequence, BootloaderStatus::AccessDenied);
+        if (RefuseImageChange()) {
             return;
         }
-        
-        // Check memory protection
-        if (IsMemoryProtected()) {
-            SendError(currentSequence, BootloaderStatus::Protected);
-            return;
-        }
-        
+
         // No parameters needed - always erase entire firmware area
         uint32 address = GetMemoryStartAddress();
         uint32 size = GetMemorySize();
@@ -705,17 +803,9 @@ protected:
         asyncOp.iteration = 0;
         asyncOp.sequence = packet.sequence;
         
-        // Reset accumulators and positions on erase
-        accumulatedSize = 0;
-        bytesReceived = 0;
-        bytesWritten = 0;
-        writePosition = 0;
+        // A new image starts: reset the write stream and the read position
+        ResetWriteStream();
         readPosition = 0;
-        isFirstWrite = true;  // Next write will be first
-        
-        // Reset SHA256 hasher on erase
-        dataHasher.Reset();
-        lastHashedSequence = 0xFF;  // Reset sequence tracking
         
         state = State::Processing;
         
@@ -731,19 +821,10 @@ protected:
             return;
         }
         
-        // Check access level (RDP Level 2 blocks Flash operations)
-        auto accessStatus = OnCheckAccessLevel();
-        if (accessStatus == ResultStatus::accessError) {
-            SendError(currentSequence, BootloaderStatus::AccessDenied);
+        if (RefuseImageChange()) {
             return;
         }
-        
-        // Check memory protection
-        if (IsMemoryProtected()) {
-            SendError(currentSequence, BootloaderStatus::Protected);
-            return;
-        }
-        
+
         // Simple format: just data (no address/offset parameters)
         size_t dataSize = packet.length;
         
@@ -753,41 +834,54 @@ protected:
             return;
         }
         
+        // Retry of the last accepted Write: answer the same status, the data is not touched again
+        if (hasLastWriteSequence && packet.sequence == lastWriteSequence) {
+            SendError(currentSequence, lastWriteStatus);
+            return;
+        }
+
+        // After a failed Write every Write answers the same error until Erase or ResetWritePos
+        if (writeStreamFailed) {
+            SendError(currentSequence, writeStreamError);
+            return;
+        }
+
         // Check that we won't overflow the buffer
         if (accumulatedSize + dataSize > accumulationBuffer.size()) {
             SendError(currentSequence, BootloaderStatus::InvalidParameters);
             return;
         }
         
-        // Deduplication: only process if this is not a duplicate packet
-        if (packet.sequence != lastHashedSequence) {
-            // Copy new data to accumulator
-            std::copy(
-            	packet.data.begin(),
-    			packet.data.begin() + dataSize,
-    			accumulationBuffer.begin() + accumulatedSize
-    		);
-            accumulatedSize += dataSize;
+        // Copy new data to accumulator
+        std::copy(
+            packet.data.begin(),
+            packet.data.begin() + dataSize,
+            accumulationBuffer.begin() + accumulatedSize
+        );
+        accumulatedSize += dataSize;
             
-            // Update SHA256 hash with raw data (before decryption)
-            dataHasher.Update(std::span<const uint8>(packet.data.data(), dataSize));
-            lastHashedSequence = packet.sequence;
-        } else {
-            // This is a duplicate packet (retry) - don't process data again
-        }
+        // Update SHA256 hash with raw data (before decryption)
+        dataHasher.Update(std::span<const uint8>(packet.data.data(), dataSize));
+        bytesReceived += static_cast<uint32>(dataSize);
         
         // Process accumulated data
         state = State::Processing;
-        bool success = ProcessAccumulatedData();
+        ProcessResult result = ProcessAccumulatedData();
         state = State::Idle;
         
-        if (success) {
-            SendResponse(BootloaderStatus::Success);
-        } else {
-            // If we're in Error state, it's most likely a cryptographic error
-            BootloaderStatus errorStatus = (state == State::Error) ? BootloaderStatus::CryptoError : BootloaderStatus::Error;
-            SendError(currentSequence, errorStatus);
+        BootloaderStatus answer = BootloaderStatus::Success;
+        if (result != ProcessResult::Success) {
+            writeStreamFailed = true;
+            accumulatedSize = 0;
+            writeStreamError = (result == ProcessResult::CryptoError) ? BootloaderStatus::CryptoError : BootloaderStatus::Error;
+            answer = writeStreamError;
         }
+
+        // Remember the answer so a retry of this sequence gets the same one
+        hasLastWriteSequence = true;
+        lastWriteSequence = packet.sequence;
+        lastWriteStatus = answer;
+        SendResponse(answer);
     }
     
 
@@ -798,9 +892,36 @@ protected:
             return;
         }
         
-        // Check memory protection
+        // Read-back can be disabled by the inheritor (e.g. encrypted flash)
+        if (!IsReadBackAllowed()) {
+            SendError(currentSequence, BootloaderStatus::Protected);
+            return;
+        }
+
+        // Read-out protection (RDP)
         if (IsMemoryProtected()) {
             SendError(currentSequence, BootloaderStatus::Protected);
+            return;
+        }
+        
+        // Offset form: 4-byte little-endian offset, retry-safe, does not move the streaming position
+        if (packet.length == sizeof(uint32)) {
+            uint32 offset = 0;
+            std::memcpy(&offset, packet.data.data(), sizeof(uint32));
+
+            if (bytesWritten == 0 || offset >= bytesWritten) {
+                SendResponse(BootloaderStatus::EndOfData);
+                return;
+            }
+
+            uint32 sizeAtOffset = std::min(bytesWritten - offset, static_cast<uint32>(PacketDataMaxSize));
+            SendFlashData(offset, sizeAtOffset);
+            return;
+        }
+
+        // Streaming form (no data) is the only other valid length
+        if (packet.length != 0) {
+            SendError(currentSequence, BootloaderStatus::InvalidParameters);
             return;
         }
         
@@ -819,7 +940,23 @@ protected:
         // Calculate how much data we can read
         uint32 remainingData = bytesWritten - readPosition;
         uint32 sizeToRead = std::min(remainingData, static_cast<uint32>(PacketDataMaxSize));
-        uint32 address = GetApplicationStartAddress() + readPosition;
+
+        // The position moves only when the response was accepted; a queued one moves it when it is really sent
+        if (SendFlashData(readPosition, sizeToRead)) {
+            if (hasPendingResponse) {
+                pendingReadAdvance = sizeToRead;
+            } else {
+                readPosition += sizeToRead;
+            }
+        }
+    }
+
+
+    // Sends sizeToRead bytes of the image starting at stream offset 'offset' as a Success response, or an error.
+    // Returns true when the response was sent or queued
+    bool SendFlashData(uint32 offset, uint32 sizeToRead) {
+        uint32 address = GetApplicationStartAddress() + offset;
+        bool sent = false;
         
         state = State::Processing;
         
@@ -827,10 +964,10 @@ protected:
         std::span<uint8> dataSpan(readData.data(), sizeToRead);
         
         // Read decrypted data directly from Flash (no additional crypto needed)
-        auto status = OnReadMemory(address, dataSpan);
+        ResultStatus status = OnReadMemory(address, dataSpan);
         if (status == ResultStatus::ok) {
             // Data in Flash is already decrypted, encrypt for transmission
-            auto encryptedData = OnEncryptData(dataSpan);
+            std::span<uint8> encryptedData = OnEncryptData(dataSpan);
             
             // Check that encryption was successful
             if (encryptedData.empty()) {
@@ -838,8 +975,7 @@ protected:
             }
             // Check that encrypted data will fit in response
             else if (encryptedData.size() <= PacketDataMaxSize) {
-                SendResponse(BootloaderStatus::Success, encryptedData);
-                readPosition += sizeToRead;  // Advance read position
+                sent = SendResponse(BootloaderStatus::Success, encryptedData);
             } else {
                 SendError(currentSequence, BootloaderStatus::Error);
             }
@@ -848,6 +984,7 @@ protected:
         }
         
         state = State::Idle;
+        return sent;
     }
     
 
@@ -862,16 +999,57 @@ protected:
     
 
 
-    void HandleFinalize() {
-        // Check access
-        auto accessStatus = OnCheckAccessLevel();
-        if (accessStatus == ResultStatus::accessError) {
-            SendError(currentSequence, BootloaderStatus::AccessDenied);
+    void HandleFinalize(const CommandPacket& packet) {
+        // During an erase the image is being cleared: a header written now would be erased or would mark garbage valid
+        if (state == State::Processing) {
+            SendError(currentSequence, BootloaderStatus::Busy);
             return;
         }
-        
+
+        if (RefuseImageChange()) {
+            return;
+        }
+
+        // A failed write stream is never finalized
+        if (writeStreamFailed) {
+            SendError(currentSequence, writeStreamError);
+            return;
+        }
+
+        // An incomplete cipher block is still waiting for data: the image is truncated
+        if (accumulatedSize != 0) {
+            SendError(currentSequence, BootloaderStatus::Error);
+            return;
+        }
+
+        if (packet.length == sizeof(FirmwareHeader)) {
+            // Expected FirmwareHeader from the host: size and CRC32 of the plaintext image, little-endian
+            FirmwareHeader expected{};
+            std::memcpy(&expected, packet.data.data(), sizeof(FirmwareHeader));
+
+            if (expected.size != bytesWritten) {
+                SendError(currentSequence, BootloaderStatus::ChecksumMismatch);
+                return;
+            }
+
+            std::optional<uint32> actualCrc = CalculateFirmwareCRC32(bytesWritten);
+            if (!actualCrc.has_value() || *actualCrc != expected.crc32) {
+                SendError(currentSequence, BootloaderStatus::ChecksumMismatch);
+                return;
+            }
+        } else if (packet.length == 0) {
+            // Host sent no checksum: allowed only for legacy hosts
+            if (requireFinalizeChecksum) {
+                SendError(currentSequence, BootloaderStatus::InvalidParameters);
+                return;
+            }
+        } else {
+            SendError(currentSequence, BootloaderStatus::InvalidParameters);
+            return;
+        }
+
         // Finalize firmware
-        auto status = OnFinalizeFirmware();
+        ResultStatus status = OnFinalizeFirmware();
         if (status == ResultStatus::ok) {
             SendResponse(BootloaderStatus::Success);
         } else {
@@ -882,10 +1060,7 @@ protected:
 
 
     void HandleResetWritePos() {
-        writePosition = 0;
-        // Reset SHA256 hasher when resetting write position
-        dataHasher.Reset();
-        lastHashedSequence = 0xFF;  // Reset sequence tracking
+        ResetWriteStream();
         SendResponse(BootloaderStatus::Success);
     }
     
@@ -911,12 +1086,20 @@ protected:
 
 
     void HandleStart() {
-        if (StartApplication()) {
-            SendResponse(BootloaderStatus::Success);
-            // Application should start
-        } else {
-            SendError(currentSequence, BootloaderStatus::Error);
+        // Jumping while an erase runs would leave the flash half erased
+        if (state == State::Processing || asyncOp.type != AsyncOperation::None) {
+            SendError(currentSequence, BootloaderStatus::Busy);
+            return;
         }
+
+        if (checkFirmware && !CheckFirmware()) {
+            SendError(currentSequence, BootloaderStatus::Error);
+            return;
+        }
+
+        // Answer first, jump in Process() once the response had time to leave
+        SendResponse(BootloaderStatus::Success);
+        startTime = System::GetMs() + responseFlushDelayMs;
     }
     
 
@@ -925,23 +1108,26 @@ protected:
         SendResponse(BootloaderStatus::Success);
 
         // Reset after ms
-        resetTime = System::GetMs() + 150;
+        resetTime = System::GetMs() + responseFlushDelayMs;
     }
     
 
 
     void HandleGetStatus() {
+        // Wire layout: state, 3 reserved bytes (always zero), bytesReceived
         struct StatusInfo {
             uint8 state;
+            uint8 reserved[3];
             uint32 bytesReceived;
-        } status;
+        } _APacked;
         
+        StatusInfo status{};
         status.state = static_cast<uint8>(state);
         status.bytesReceived = bytesReceived;
         
         SendResponse(
-        	BootloaderStatus::Success,
-            std::span(reinterpret_cast<const uint8*>(&status), sizeof(status))
+            BootloaderStatus::Success,
+            std::span<const uint8>(reinterpret_cast<const uint8*>(&status), sizeof(status))
         );
     }
     
@@ -1013,7 +1199,13 @@ protected:
     
 
 
-    void SendResponse(BootloaderStatus status, std::span<const uint8> data = {}) {
+    // Returns true when the response was sent or queued, false when it was dropped
+    bool SendResponse(BootloaderStatus status, std::span<const uint8> data = {}) {
+        // One pending response at a time; the flow in Process() makes this unreachable
+        if (hasPendingResponse || data.size() > PacketDataMaxSize) {
+            return false;
+        }
+
         ResponsePacket response{};
         response.sequence = currentSequence;
         response.status = status;
@@ -1023,12 +1215,50 @@ protected:
             std::copy(data.begin(), data.end(), response.data.begin());
         }
         
-        // Send entire packet
-        // CRC and other checks will be added by transport layer
-        auto sendStatus = communication.SendData(std::span(
+        size_t packetSize = offsetof(ResponsePacket, data) + response.length;
+        ResultStatus sendStatus = communication.SendData(std::span<const uint8>(
             reinterpret_cast<const uint8*>(&response),
-            offsetof(ResponsePacket, data) + response.length
+            packetSize
         ));
+
+        if (sendStatus == ResultStatus::ok) {
+            return true;
+        }
+
+        // Transport busy: keep the response and send it from Process()
+        if (sendStatus == ResultStatus::busy) {
+            pendingResponse = response;
+            pendingResponseSize = packetSize;
+            hasPendingResponse = true;
+            return true;
+        }
+
+        return false;
+    }
+
+
+    // Sends the pending response once the transport is ready. A busy transport keeps it, any other result drops it
+    void FlushPendingResponse() {
+        if (!hasPendingResponse || !communication.IsReadyToSend()) {
+            return;
+        }
+
+        ResultStatus sendStatus = communication.SendData(std::span<const uint8>(
+            reinterpret_cast<const uint8*>(&pendingResponse),
+            pendingResponseSize
+        ));
+
+        if (sendStatus == ResultStatus::busy) {
+            return;
+        }
+
+        // Sent: a queued Read moves the position now. Dropped (other error): the host asks again
+        if (sendStatus == ResultStatus::ok) {
+            readPosition += pendingReadAdvance;
+        }
+
+        hasPendingResponse = false;
+        pendingReadAdvance = 0;
     }
     
 
@@ -1040,50 +1270,17 @@ protected:
     
 
 
-    bool CreateInitialFirmwareHeader() {
-        FirmwareHeader header{};
-        header.crc32 = 0; // Will be updated in Finalize
-        header.size = 0;  // Will be updated in Finalize
-        
-        // Write header to beginning of memory
-        auto status = OnWriteMemory(GetMemoryStartAddress(), std::span<const uint8>(reinterpret_cast<const uint8*>(&header), sizeof(header)));
-        return status == ResultStatus::ok;
-    }
-
-
-
-    // Calculate CRC32 of all firmware data (after header)
-    uint32 CalculateFirmwareCRC32() const {
-        uint32 firmwareDataSize;
-        
-        // If firmware was written in this session - use bytesWritten
-        if (bytesWritten > 0) {
-            firmwareDataSize = bytesWritten;
-        } else {
-            // For old firmware (after reboot) read size from header
-            FirmwareHeader header;
-            uint8* headerPtr = reinterpret_cast<uint8*>(&header);
-
-            auto status = const_cast<IBootloader*>(this)->OnReadMemory(
-            	GetFirmwareHeaderAddress(),
-                std::span<uint8>(headerPtr, sizeof(FirmwareHeader))
-            );
-
-            if (status != ResultStatus::ok) {
-                return 0;  // Header read error
-            }
-
-            firmwareDataSize = header.size;
-        }
-        
-        if (firmwareDataSize == 0) {
-            return 0;  // No firmware data
+    // CRC32 of the first 'size' bytes of the firmware in flash.
+    // Returns std::nullopt on a size or read error; CRC value 0 is a valid result
+    std::optional<uint32> CalculateFirmwareCRC32(uint32 size) const {
+        if (size == 0) {
+            return std::nullopt;
         }
         
         // PROTECTION: check that size doesn't exceed available memory
         uint32 maxFirmwareSize = GetMemorySize() - sizeof(FirmwareHeader);
-        if (firmwareDataSize > maxFirmwareSize) {
-            return 0;  // Invalid size - possible data corruption
+        if (size > maxFirmwareSize) {
+            return std::nullopt;
         }
         
         // Read firmware data in chunks and calculate CRC32
@@ -1092,22 +1289,22 @@ protected:
         uint32 currentCrc = 0;
         uint32 firmwareStart = GetApplicationStartAddress();
         
-        for (uint32 offset = 0; offset < firmwareDataSize; offset += CHUNK_SIZE) {
-            uint32 chunkSize = std::min(CHUNK_SIZE, firmwareDataSize - offset);
+        for (uint32 offset = 0; offset < size; offset += CHUNK_SIZE) {
+            uint32 chunkSize = std::min(CHUNK_SIZE, size - offset);
             std::span<uint8> chunkSpan(buffer.data(), chunkSize);
             
             // PROTECTION: check read boundaries before calling OnReadMemory
             uint32 readAddress = firmwareStart + offset;
             if (!IsValidMemoryRange(readAddress, chunkSize)) {
-                return 0;  // Attempted read beyond memory boundaries
+                return std::nullopt;  // Attempted read beyond memory boundaries
             }
             
-            auto readStatus = const_cast<IBootloader*>(this)->OnReadMemory(
+            ResultStatus readStatus = const_cast<IBootloader*>(this)->OnReadMemory(
                 readAddress, chunkSpan
             );
             
             if (readStatus != ResultStatus::ok) {
-                return 0;  // Read error
+                return std::nullopt;  // Read error
             }
             
             // Calculate CRC32 incrementally
@@ -1118,22 +1315,28 @@ protected:
                 // Continue with previous CRC
                 currentCrc = Crc::Calculate<uint32, 32>(buffer.data(), chunkSize, Crc::CRC_32(), currentCrc);
             }
-
         }
         return currentCrc;
     }
 
 
 
-    // Process accumulated data
-    // Returns true if processing was successful, false on error
-    bool ProcessAccumulatedData() {
+    // Restarts the write stream (Erase, ResetWritePos). Inheritors restore their decryption state in OnStreamReset()
+    void ResetWriteStream() {
+        writePosition = 0;
+        bytesWritten = 0;
+        bytesReceived = 0;
+        accumulatedSize = 0;
+        dataHasher.Reset();
+        hasLastWriteSequence = false;
+        writeStreamFailed = false;
+        writeStreamError = BootloaderStatus::Error;
+        OnStreamReset();
+    }
 
-        // Header is now written at the end during finalization, no need for initial header
-        if (isFirstWrite) {
-            isFirstWrite = false;
-        }
         
+    // Process accumulated data: decrypt and write every complete block, keep the unused tail
+    ProcessResult ProcessAccumulatedData() {
         size_t processedBytes = 0;
         
         while (processedBytes < accumulatedSize) {
@@ -1153,8 +1356,7 @@ protected:
             size_t bytesToProcess = OnGetRequiredBytes(remainingData);
             if (bytesToProcess == 0 || bytesToProcess > remainingData.size()) {
                 // Error in inheritor logic
-                state = State::Error;
-                return false;
+                return ProcessResult::Error;
             }
             
             // Prepare data for decryption
@@ -1164,13 +1366,12 @@ protected:
             );
             
             // Decrypt (may return different size)
-            auto decryptedData = OnDecryptData(dataToDecrypt);
+            std::span<uint8> decryptedData = OnDecryptData(dataToDecrypt);
             
             // Check that decryption was successful
             if (decryptedData.empty()) {
                 // Decryption error - this is critical error
-                state = State::Error;
-                return false;
+                return ProcessResult::CryptoError;
             }
             
             // Calculate write address from current stream position
@@ -1178,18 +1379,28 @@ protected:
             
             // Check address validity for writing
             if (!IsValidMemoryRange(writeAddress, decryptedData.size())) {
-                state = State::Error;
-                return false;
+                return ProcessResult::Error;
             }
             
-            auto status = OnWriteMemory(writeAddress, decryptedData);
+            // Every write must start aligned: only the final chunk of an image may be unaligned
+            uint32 alignment = std::max<uint32>(GetWriteAlignment(), 1);
+            if (writePosition % alignment != 0) {
+                return ProcessResult::Error;
+            }
+            
+            // The firmware header at the end of the region is reserved (uint64 cannot overflow here)
+            uint64 writeEnd = static_cast<uint64>(writeAddress) + decryptedData.size();
+            if (writeEnd > GetFirmwareHeaderAddress()) {
+                return ProcessResult::Error;
+            }
+
+            ResultStatus status = OnWriteMemory(writeAddress, decryptedData);
             if (status != ResultStatus::ok) {
-                state = State::Error;
-                return false;
+                return ProcessResult::Error;
             }
-            
-            bytesWritten += decryptedData.size();  // Real data (after decryption)
-            writePosition += decryptedData.size();  // Update position for next write
+
+            bytesWritten += static_cast<uint32>(decryptedData.size());  // Real data (after decryption)
+            writePosition += static_cast<uint32>(decryptedData.size());  // Update position for next write
             processedBytes += bytesToProcess;
         }
         
@@ -1204,7 +1415,7 @@ protected:
             accumulatedSize = 0;
         }
         
-        return true;  // Successful processing
+        return ProcessResult::Success;
     }
 
 
@@ -1219,12 +1430,6 @@ protected:
                 ProcessAsyncErase();
                 break;
                 
-            case AsyncOperation::Writing:
-                break;
-                
-            case AsyncOperation::Verifying:
-                break;
-                
             default:
                 break;
         }
@@ -1233,35 +1438,34 @@ protected:
 
 
     void ProcessAsyncErase() {
-        // Call iterative erase
+        // One erase step: ok = finished, inProgress = call again, anything else = failed
         uint32 bytesErased = 0;
-        auto status = OnEraseIteration(
+        ResultStatus status = OnEraseIteration(
         	asyncOp.address + asyncOp.processed,
 			asyncOp.targetAddress,
 			asyncOp.iteration,
 			bytesErased
 		);
         
-        if (status == ResultStatus::error) {
-            // Erase error
+        if (status == ResultStatus::ok) {
+            // Erase completed
+            asyncOp.type = AsyncOperation::None;
+            state = State::Idle;
+            currentSequence = asyncOp.sequence;
+            SendResponse(BootloaderStatus::Success);
+            return;
+        }
+
+        if (status != ResultStatus::inProgress) {
+            // Any other status stops the erase
             asyncOp.type = AsyncOperation::None;
             state = State::Idle;
             SendError(asyncOp.sequence, BootloaderStatus::Error);
             return;
         }
         
-        // Update progress
+        // Still in progress: continue in the next Process()
         asyncOp.processed += bytesErased;
         asyncOp.iteration++;
-        
-        // Check completion
-        if (status == ResultStatus::ok || asyncOp.processed >= asyncOp.size) {
-            // Erase completed
-            asyncOp.type = AsyncOperation::None;
-            state = State::Idle;
-            currentSequence = asyncOp.sequence;
-            SendResponse(BootloaderStatus::Success);
-        }
-        // Otherwise continue in next Process()
     }
 };

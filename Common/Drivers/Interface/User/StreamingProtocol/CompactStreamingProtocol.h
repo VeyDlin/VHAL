@@ -17,14 +17,45 @@ public:
     };
 
     struct CompactPacketHeader {
-        uint8 typeAndFlags;      // 1 bit type (0=data, 1=ack) + 7 bits flags/reserved
+        uint8 typeAndFlags;      // bit 0: type (0=data, 1=ack), bit 1: last fragment, bits 2-7: message id (0-63)
         uint8 payloadSize;       // 0-255 bytes
-        uint8 fragmentIndex;     // 0-255 cycling fragment number
+        uint8 fragmentIndex;     // 0-255 fragment number within the message
     } _APacked;
+
+    // typeAndFlags layout (format v2)
+    static constexpr uint8 typeMask = 0x01;
+    static constexpr uint8 lastFragmentFlag = 0x02;
+    static constexpr uint8 messageIdShift = 2;
+    static constexpr uint8 messageIdMask = 0xFC;
+
+    static constexpr uint8 MakeTypeAndFlags(PacketType type, uint8 messageId, bool lastFragment) {
+        return static_cast<uint8>(static_cast<uint8>(type) |
+                                  ((messageId << messageIdShift) & messageIdMask) |
+                                  (lastFragment ? lastFragmentFlag : 0));
+    }
+
+    static constexpr PacketType GetPacketType(uint8 typeAndFlags) {
+        return static_cast<PacketType>(typeAndFlags & typeMask);
+    }
+
+    static constexpr uint8 GetMessageId(uint8 typeAndFlags) {
+        return static_cast<uint8>((typeAndFlags & messageIdMask) >> messageIdShift);
+    }
+
+    static constexpr bool IsLastFragment(uint8 typeAndFlags) {
+        return (typeAndFlags & lastFragmentFlag) != 0;
+    }
 
     static constexpr size_t HEADER_SIZE = sizeof(CompactPacketHeader);
     static constexpr size_t CRC_SIZE = 1;
     static constexpr size_t MAX_PAYLOAD_SIZE = MaxPacketSize - HEADER_SIZE - CRC_SIZE;
+
+    // Capacity of the transmit buffer; Send() refuses a message that does not fit
+    static constexpr size_t TX_BUFFER_SIZE = 512;
+
+    // Fragment index and fragment count are uint8 on the wire and in txTotalFragments
+    static_assert(MaxPacketSize > HEADER_SIZE + CRC_SIZE, "MaxPacketSize must leave room for a payload");
+    static_assert((TX_BUFFER_SIZE + MAX_PAYLOAD_SIZE - 1) / MAX_PAYLOAD_SIZE <= 255, "Fragment count must fit in uint8");
 
     enum class SendStatus : uint8 {
         Success = 0,
@@ -46,22 +77,29 @@ public:
     using TransmitCallback = std::function<bool(std::span<const uint8> data)>;
     using DataReceivedCallback = std::function<bool(uint8 fragmentIndex, std::span<const uint8> data)>;
     using StreamCompleteCallback = std::function<void(StreamResult result)>;
+    using ReceiveResetCallback = std::function<void()>;
 
 private:
     TransmitCallback transmitCallback;
     DataReceivedCallback dataReceivedCallback;
     StreamCompleteCallback streamCompleteCallback;
+    ReceiveResetCallback receiveResetCallback;
     
     RingBuffer<uint8, MaxPacketSize * MaxPacketCount> receiveBuffer; // TODO: 4??
     
-    // Fragment tracking for incoming data (streaming) with deduplication
-    uint8 lastReceivedFragment = 255; // Initialize to invalid value  
-    std::array<uint8, MAX_PAYLOAD_SIZE> lastFragmentData;
-    size_t lastFragmentSize = 0;
+    // Receiver state: last accepted fragment (retransmissions are recognised by message id and index)
+    bool rxHasLast = false;
+    uint8 rxLastMessageId = 0;
+    uint8 rxLastIndex = 0;
+    // Receiver state: message in progress (its last fragment has not been accepted yet)
+    bool rxMessageOpen = false;
+    uint8 rxOpenMessageId = 0;
+    uint8 rxNextIndex = 0;
     
     // Fragment transmission state
-    std::array<uint8, 512> txBuffer;
+    std::array<uint8, TX_BUFFER_SIZE> txBuffer;
     size_t txDataSize = 0;
+    uint8 txMessageId = 0;
     uint8 txTotalFragments = 0;
     uint8 txCurrentFragment = 0;
     bool txInProgress = false;
@@ -69,6 +107,7 @@ private:
     
     // Retry state
     uint32 txFragmentSentTime = 0;
+    bool txTimerArmed = false; // True while txFragmentSentTime marks a transmitted, unacknowledged fragment
     uint8 txRetries = 0;
     static constexpr uint8 MAX_RETRIES = 3;
     static constexpr uint32 FRAGMENT_TIMEOUT_MS = 5000; // 5 seconds
@@ -91,18 +130,27 @@ private:
 public:
     CompactStreamingProtocol() = default;
     
-    CompactStreamingProtocol(TransmitCallback transmit, DataReceivedCallback onDataReceived, StreamCompleteCallback onStreamComplete)
-        : transmitCallback(transmit), dataReceivedCallback(onDataReceived), streamCompleteCallback(onStreamComplete) {}
+    CompactStreamingProtocol(TransmitCallback transmit,
+                             DataReceivedCallback onDataReceived,
+                             StreamCompleteCallback onStreamComplete,
+                             ReceiveResetCallback onReceiveReset = nullptr)
+        : transmitCallback(transmit),
+          dataReceivedCallback(onDataReceived),
+          streamCompleteCallback(onStreamComplete),
+          receiveResetCallback(onReceiveReset)
+    {
+    }
 
     void Reset() {
         receiveBuffer.Clear();
-        lastReceivedFragment = 255;
-        lastFragmentSize = 0;
+        rxHasLast = false;
+        rxMessageOpen = false;
         txInProgress = false;
         txCurrentFragment = 0;
         txTotalFragments = 0;
         txDataSize = 0;
         txFragmentSentTime = 0;
+        txTimerArmed = false;
         txRetries = 0;
     }
 
@@ -110,17 +158,8 @@ public:
         // Process incoming data and timeouts
         ProcessIncoming();
         
-        // Debug: Show that Process() is being called during transmission
-        if (txInProgress) {
-            static uint32 lastDebugTime = 0;
-            uint32 currentTime = System::GetMs();
-            if (currentTime - lastDebugTime > 1000) { // Every 1 second
-                lastDebugTime = currentTime;
-            }
-        }
-        
         // Check for fragment timeout during transmission
-        if (txInProgress && txFragmentSentTime > 0) {
+        if (txInProgress && txTimerArmed) {
             uint32 currentTime = System::GetMs();
             if (currentTime - txFragmentSentTime > FRAGMENT_TIMEOUT_MS) {
                 // Fragment timeout - retry or fail
@@ -131,6 +170,7 @@ public:
                 } else {
                     // Max retries exceeded
                     txInProgress = false;
+                    txTimerArmed = false;
                     if (streamCompleteCallback) {
                         streamCompleteCallback(StreamResult::Timeout);
                     }
@@ -164,6 +204,11 @@ public:
         ProcessIncoming();
     }
 
+    // True while a message is being transmitted and has not been acknowledged completely
+    bool IsTransmitting() const {
+        return txInProgress;
+    }
+
 private:
 
 
@@ -176,30 +221,41 @@ private:
             }
             
             CompactPacketHeader* header = reinterpret_cast<CompactPacketHeader*>(header_bytes);
+
+            // A payload that does not fit the packet buffer cannot be a valid fragment:
+            // drop one byte and resynchronise on the next header
+            if (header->payloadSize > MAX_PAYLOAD_SIZE) {
+                receiveBuffer.Pop();
+                continue;
+            }
+
             size_t totalSize = HEADER_SIZE + header->payloadSize + CRC_SIZE;
             
             if (receiveBuffer.Size() < totalSize) {
                 break; // Not enough data
             }
             
-            // Extract full packet
+            // Peek the candidate packet; it is consumed only when its CRC matches
             uint8 packet[MaxPacketSize];
-            for (size_t i = 0; i < totalSize; i++) {
-                auto byte = receiveBuffer.Pop();
-                if (byte.IsOk()) {
-                    packet[i] = byte.Value();
-                } else {
-                    return;
-                }
+            uint16 peeked = receiveBuffer.PeekMultiple(packet, static_cast<uint16>(totalSize));
+            if (peeked != totalSize) {
+                break;
             }
             
-            // Verify CRC
+            // Verify CRC of the candidate packet
             size_t dataSize = totalSize - CRC_SIZE;
             uint8 receivedCrc = packet[dataSize];
             uint8 calculatedCrc = CalculateCRC8(std::span<const uint8>(packet, dataSize));
             
             if (receivedCrc != calculatedCrc) {
+                // Corrupted packet: drop one byte and resynchronise on the next header
+                receiveBuffer.Pop();
                 continue;
+            }
+
+            // Valid packet: consume it
+            for (size_t i = 0; i < totalSize; i++) {
+                receiveBuffer.Pop();
             }
             
             ProcessPacket(reinterpret_cast<CompactPacketHeader*>(packet), 
@@ -208,56 +264,64 @@ private:
     }
 
     void ProcessPacket(CompactPacketHeader* header, std::span<const uint8> payload) {
-        PacketType type = static_cast<PacketType>(header->typeAndFlags & 1);
+        PacketType type = GetPacketType(header->typeAndFlags);
         
         if (type == PacketType::Ack) {
             // Handle ACK - continue transmission
-            HandleAck(header->fragmentIndex);
+            HandleAck(GetMessageId(header->typeAndFlags), header->fragmentIndex);
             return;
         }
         
-        // For data packets - always send ACK first
-        SendAck(header->fragmentIndex);
+        uint8 messageId = GetMessageId(header->typeAndFlags);
+        uint8 fragmentIndex = header->fragmentIndex;
+        bool lastFragment = IsLastFragment(header->typeAndFlags);
         
-        // Check for duplicate fragments - prevent data corruption from retries
-        bool isDuplicate = false;
-        if (header->fragmentIndex == lastReceivedFragment && 
-            payload.size() == lastFragmentSize &&
-            payload.size() <= MAX_PAYLOAD_SIZE &&
-            std::equal(payload.begin(), payload.end(), lastFragmentData.begin())) {
-            // This is a duplicate fragment - ignore data but ACK was already sent
-            isDuplicate = true;
+        // Retransmission of the last accepted fragment (its ACK was lost): ACK again, nothing else
+        if (rxHasLast && messageId == rxLastMessageId && fragmentIndex == rxLastIndex) {
+            SendAck(messageId, fragmentIndex);
+            return;
+        }
+
+        if (fragmentIndex == 0) {
+            // New message. A message that never got its last fragment lost its tail: the receiver
+            // resets its partial input before the new message is accepted
+            if (rxMessageOpen && receiveResetCallback) {
+                receiveResetCallback();
+            }
+
+            SendAck(messageId, fragmentIndex);
+            rxMessageOpen = !lastFragment;
+            rxOpenMessageId = messageId;
+            rxNextIndex = 1;
+        } else {
+            // Continuation: accepted only in sequence, otherwise dropped without ACK (the sender times out)
+            if (!rxMessageOpen || messageId != rxOpenMessageId || fragmentIndex != rxNextIndex) {
+                return;
+            }
+
+            SendAck(messageId, fragmentIndex);
+            rxNextIndex++;
+            if (lastFragment) {
+                rxMessageOpen = false;
+            }
         }
         
-        if (!isDuplicate) {
-            // New fragment - save it and pass to callback
-            lastReceivedFragment = header->fragmentIndex;
-            lastFragmentSize = payload.size();
-            if (payload.size() <= MAX_PAYLOAD_SIZE) {
-                std::copy(payload.begin(), payload.end(), lastFragmentData.begin());
-            }
+        rxHasLast = true;
+        rxLastMessageId = messageId;
+        rxLastIndex = fragmentIndex;
             
-            // Pass data to callback (streaming approach)
-            if (dataReceivedCallback) {
-                dataReceivedCallback(header->fragmentIndex, payload);
-            }
-        }
-        
-        // Stream completion detection can be done by:
-        // 1. Empty payload (end marker)
-        // 2. Timeout in upper layer
-        // 3. Application-specific logic
-        if (!isDuplicate && payload.empty() && streamCompleteCallback) {
-            streamCompleteCallback(StreamResult::Success);
+        // Empty fragments are acknowledged and sequenced like any other, but deliver nothing
+        if (!payload.empty() && dataReceivedCallback) {
+            dataReceivedCallback(fragmentIndex, payload);
         }
     }
 
     
-    void SendAck(uint8 fragmentIndex) {
+    void SendAck(uint8 messageId, uint8 fragmentIndex) {
         uint8 packet[MaxPacketSize];
         CompactPacketHeader* header = reinterpret_cast<CompactPacketHeader*>(packet);
         
-        header->typeAndFlags = static_cast<uint8>(PacketType::Ack); // type=1
+        header->typeAndFlags = MakeTypeAndFlags(PacketType::Ack, messageId, false);
         header->payloadSize = 0;
         header->fragmentIndex = fragmentIndex;
         
@@ -278,6 +342,7 @@ private:
         }
         
         txTotalFragments = (data.size() + MAX_PAYLOAD_SIZE - 1) / MAX_PAYLOAD_SIZE;
+        txMessageId = static_cast<uint8>((txMessageId + 1) & 0x3F); // New message id, 0..63
         
         // Copy data to buffer
         std::memcpy(txBuffer.data(), data.data(), data.size());
@@ -286,9 +351,11 @@ private:
         txInProgress = true;
         txRetries = 0;
         txFragmentSentTime = 0;
+        txTimerArmed = false;
         
-        // Send first fragment
-        return SendNextFragment();
+        // Send first fragment. A refused transmit is not fatal: the fragment timer retries it
+        SendNextFragment();
+        return true;
     }
     
     bool SendNextFragment() {
@@ -301,7 +368,7 @@ private:
         
         uint8 packet[MaxPacketSize];
         CompactPacketHeader* header = reinterpret_cast<CompactPacketHeader*>(packet);
-        header->typeAndFlags = static_cast<uint8>(PacketType::Data);
+        header->typeAndFlags = MakeTypeAndFlags(PacketType::Data, txMessageId, txCurrentFragment + 1 == txTotalFragments);
         header->payloadSize = fragSize;
         header->fragmentIndex = txCurrentFragment;
         
@@ -317,12 +384,14 @@ private:
 
         if (!transmitCallback(std::span<const uint8>(packet, totalSize))) {
             // Don't abort transmission - let timeout/retry mechanism handle this
-            txFragmentSentTime = System::GetMs(); // Still set timeout for retry
+            txFragmentSentTime = System::GetMs();
+            txTimerArmed = true; // Still set timeout for retry
             return false; // Return false to indicate failure, but keep txInProgress = true
         }
         
         // Record send time for timeout detection
         txFragmentSentTime = System::GetMs();
+        txTimerArmed = true;
         
         return true;
     }
@@ -337,7 +406,7 @@ private:
         
         uint8 packet[MaxPacketSize];
         CompactPacketHeader* header = reinterpret_cast<CompactPacketHeader*>(packet);
-        header->typeAndFlags = static_cast<uint8>(PacketType::Data);
+        header->typeAndFlags = MakeTypeAndFlags(PacketType::Data, txMessageId, txCurrentFragment + 1 == txTotalFragments);
         header->payloadSize = fragSize;
         header->fragmentIndex = txCurrentFragment;
         
@@ -353,48 +422,47 @@ private:
 
         if (!transmitCallback(std::span<const uint8>(packet, totalSize))) {
             // Don't abort transmission - let timeout/retry mechanism handle this
-            txFragmentSentTime = System::GetMs(); // Still set timeout for retry
+            txFragmentSentTime = System::GetMs();
+            txTimerArmed = true; // Still set timeout for retry
             return false; // Return false to indicate failure, but keep txInProgress = true
         }
         
         // Record send time for timeout detection
         txFragmentSentTime = System::GetMs();
+        txTimerArmed = true;
 
         return true;
     }
     
-    void HandleAck(uint8 fragmentIndex) {
+    void HandleAck(uint8 messageId, uint8 fragmentIndex) {
         if (!txInProgress) {
             return;
         }
         
-        // Check if this ACK is for the fragment we just sent
-        if (fragmentIndex == txCurrentFragment) {
+        // Only the ACK of the fragment we are waiting for (same message id and index) advances the transmission
+        if (messageId == txMessageId && fragmentIndex == txCurrentFragment) {
             // Reset retry counter for next fragment
             txRetries = 0;
             txFragmentSentTime = 0;
+            txTimerArmed = false;
             
             txCurrentFragment++;
             
             if (txCurrentFragment >= txTotalFragments) {
                 // All fragments sent successfully
                 txInProgress = false;
+                txTimerArmed = false;
                 
                 if (streamCompleteCallback) {
                     streamCompleteCallback(StreamResult::Success);
                 }
             } else {
-                // Send next fragment
-                if (!SendNextFragment()) {
-                    txInProgress = false;
-                    
-                    if (streamCompleteCallback) {
-                        streamCompleteCallback(StreamResult::Error);
-                    }
-                }
+                // Send next fragment. A refused transmit is not fatal: txInProgress stays set
+                // and the fragment timer in Process() retries the fragment
+                SendNextFragment();
             }
         } else {
-            // ACK for wrong fragment
+            // Stale or foreign ACK (earlier message or fragment): ignored
         }
     }
 };

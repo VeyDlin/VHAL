@@ -64,7 +64,7 @@ template <typename Type = float>
 class PidController;
 ```
 
-`Type` must be `float`, `double`, or `long double`. Defaults to `float`.
+`Type` must satisfy the `RealType` concept: `float`, `double`, `long double`, or a fixed-point `IQ<Q, L>` type such as `iq24` (see [IQMath](../IQMath/README.md)). Defaults to `float`.
 
 ```cpp
 PidController<>      pidFloat;   // float (default)
@@ -135,7 +135,7 @@ struct Roll {
 };
 ```
 
-When enabled, the controller computes the shortest-path error across the wrap boundary. For example, with a 0-360 range, an error from 350 to 10 degrees is computed as +20 rather than -340.
+When enabled, the controller computes the shortest-path error across the wrap boundary. For example, with a 0-360 range, an error from 350 to 10 degrees is computed as +20 rather than -340. The cycle length is `maxInput - minInput`, so the range does not have to start at zero: `{true, 180.0f, -180.0f}` gives a -180 to 180 degree cycle.
 
 ### RollDeadZone
 
@@ -150,7 +150,7 @@ struct RollDeadZone {
 };
 ```
 
-When `throughConnection` is `false`, the controller also avoids routing the error path through the dead zone, reversing direction if needed.
+When `throughConnection` is `false`, the controller also avoids routing the error path through the dead zone, reversing direction if needed. The cycle boundaries are `minInput` and `maxInput` wherever the range starts: when the path passes `maxInput`, the dead zone is repeated one cycle up; when it passes `minInput`, one cycle down. The error is then moved by one cycle toward the side that avoids the zone, so for `{10, 370}` with a zone of `[250, 260]`, a feedback of 200 and a reference of 370 give an error of -190.
 
 ### Filter
 
@@ -216,6 +216,8 @@ All setter methods return `PidController&`, enabling method chaining.
 | `SetFeedback(Type)` | Set the feedback value |
 | `SetFeedback(Type, uint32)` | Set feedback and frequency together |
 | `SetFrequency(uint32)` | Set the sampling frequency in Hz |
+
+A sampling frequency of 0 has no sampling period. `Resolve()` then does nothing: the output (`Get()`), the last error and all internal state keep their previous values. No NaN or infinity is produced.
 
 ### Coefficient Setters
 

@@ -134,6 +134,8 @@ kf.SetMeasurementNoise(2.0f);
 | `void SetMeasurementNoise(Type noise)` | Updates the measurement noise covariance (Q) at runtime. |
 | `void SetProcessNoise(Type noise)` | Updates the process noise covariance (R) at runtime. |
 
+The first call to `Filter` sets the state estimate to `measurement / measurementMapping`, returns it, and ignores `controlInput`. Before the first call to `Filter`, `GetLastStateEstimate()` returns 0.
+
 ## LowPassFilter
 
 `template <RealType Type = float>`
@@ -148,6 +150,8 @@ LowPassFilter(Type frequencyTime, Type samplingTime);
 
 - `frequencyTime` -- inverse of the cutoff frequency (1 / f_cutoff).
 - `samplingTime` -- the sampling period of the input signal.
+
+The default constructor uses `frequencyTime = 10` and `samplingTime = 10`. It computes the coefficients in the same way, so the coefficient for the new sample and for the previous output are both 0.5.
 
 ### Usage
 
@@ -179,6 +183,8 @@ while (running) {
 | `LowPassFilter& Set(Type data)` | `*this` | Loads a new input sample. |
 | `LowPassFilter& Resolve()` | `*this` | Computes one filter iteration. |
 | `Type Get()` | `Type` | Returns the current filtered output. |
+
+`Resolve()` computes `output = kx0 * input + ky1 * output`. The output starts at `0`, so the first `Resolve()` after `Set()` returns `kx0 * sample`, not the sample itself. The output approaches the input over several samples.
 
 ## API Reference
 

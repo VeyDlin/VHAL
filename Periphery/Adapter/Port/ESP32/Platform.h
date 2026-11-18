@@ -64,3 +64,52 @@
 	#endif
 	#include "driver/dac_oneshot.h"
 #endif
+
+#ifdef VHAL_ESP32_WIFI
+	#if !SOC_WIFI_SUPPORTED
+		#error "VHAL: Wi-Fi is not supported on this ESP32 chip"
+	#endif
+	#include "esp_wifi.h"
+	#include "esp_netif.h"
+	#include "esp_event.h"
+	#include "nvs_flash.h"
+#endif
+
+#ifdef VHAL_ESP32_BLE
+	#include "sdkconfig.h"
+	#if !CONFIG_BT_NIMBLE_ENABLED
+		#error "VHAL: BLE needs NimBLE: set CONFIG_BT_ENABLED and CONFIG_BT_NIMBLE_ENABLED in sdkconfig"
+	#endif
+	#if !CONFIG_BT_NIMBLE_GAP_SERVICE
+		#error "VHAL: BLE needs the NimBLE GAP service: set CONFIG_BT_NIMBLE_GAP_SERVICE in sdkconfig"
+	#endif
+	#include "nimble/nimble_port.h"
+	#include "nimble/nimble_port_freertos.h"
+	#include "host/ble_hs.h"
+	#include "host/ble_att.h"
+	#include "host/ble_gap.h"
+	#include "host/ble_gatt.h"
+	#include "host/ble_hs_adv.h"
+	#include "host/ble_hs_id.h"
+	#include "host/ble_hs_mbuf.h"
+	#include "host/ble_sm.h"
+	#include "host/ble_store.h"
+	#include "os/os_mbuf.h"
+	#include "services/gap/ble_svc_gap.h"
+	#include "services/gatt/ble_svc_gatt.h"
+	#include "esp_bt.h"
+	#include "esp_random.h"
+	#include "nvs_flash.h"
+#endif
+
+#ifdef VHAL_ESP32_SOCKET
+	#include "sdkconfig.h"
+	#include "lwip/sockets.h"
+	#include "lwip/netdb.h"
+	#include "esp_netif.h"
+	#include "esp_idf_version.h"
+	#include "esp_tls.h"
+	#if CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
+		#include "esp_crt_bundle.h"
+	#endif
+#endif

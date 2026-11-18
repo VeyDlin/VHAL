@@ -3,6 +3,7 @@
 #include <Drivers/Wireless/NRF8001/BLEPeripheral.h>
 #include <Drivers/Interface/User/StreamingProtocol/CompactStreamingProtocol.h>
 #include <Utilities/Data/ByteConverter.h>
+#include <Utilities/Buffer/RingBuffer.h>
 #include <array>
 
 // NRF8001 BLE communication using CompactStreamingProtocol
@@ -10,6 +11,7 @@ template<size_t MaxPacketCount = 4, size_t BufferSize = 512>
 class NRF8001Communication : public ICommunication {
 protected:
     static constexpr size_t BLE_PACKET_SIZE = BLE_ATTRIBUTE_MAX_VALUE_LENGTH;  // 20 bytes
+    using Protocol = CompactStreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>;
 
     ASPI& spi;
     AGPIO& reqnPin;    // Request pin (from NRF8001)
@@ -20,15 +22,15 @@ protected:
     std::optional<BLECentral> central;
     
     // CompactStreamingProtocol handles all the complexity with optimized headers!
-    CompactStreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount> protocol;
+    Protocol protocol;
     
     bool connected = false;
     DataReceivedCallback dataCallback;
     
-    // TX buffer for storing data during transmission
-    std::array<uint8, 256> txDataBuffer;  // Bootloader max command size + response header + encryption padding
-    size_t txDataSize = 0;
-    bool txInProgress = false;
+    // BLE writes are staged here by the write event handler (which runs inside the driver's poll)
+    // and drained into the protocol from Process(). The protocol must not be called from the handler.
+    static_assert(BufferSize <= 65535, "BufferSize must fit into RingBuffer (uint16 size)");
+    RingBuffer<uint8, BufferSize> rxStaging;
     
     // BLE service setup
     BLEService bootloaderService{"00004242-0000-1000-8000-00805F9B34FB"};
@@ -55,7 +57,6 @@ public:
         rdynPin(rdyn),
         resetPin(reset),
         ble(static_cast<ASPI*>(&spiAdapter), static_cast<AGPIO*>(&reqn), static_cast<AGPIO*>(&rdyn), static_cast<AGPIO*>(&reset)),
-        deviceName(customDeviceName),
         protocol(
             // Transmit callback - send data via BLE
             [this](std::span<const uint8> data) -> bool {
@@ -63,18 +64,22 @@ public:
             },
             // Data received callback - pass to ICommunication callback
             [this](uint8 fragmentIndex, std::span<const uint8> data) -> bool {
-            	// TODO: мы ведь при rety росто повторно запишем данные?
-            	// возможно стоит тут ранить послейдний fragmentIndex и последний пакет std::span<const uint8> data копировать,
-            	// при новом пакеты записывать предыдущий а при Stream complete записывать последний,
-            	// при этом ничего не записывать если индекс тот же что и предыдущий в буфере,
-            	// так когда нам клиент шлет опять повторно пакет, мы не записываем записаное
+                // Retransmitted fragments are filtered by the protocol (message id + fragment index)
                 return this->HandleReceivedData(fragmentIndex, data);
             },
-            // Stream complete callback - log completion
-            [this](CompactStreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::StreamResult result) -> void {
-                this->HandleStreamComplete(result);
+            // Stream completion: an abandoned or failed outgoing message lost its tail, so the bootloader
+            // must drop partial input and the pending response
+            [this](typename Protocol::StreamResult result) -> void {
+                if (result != Protocol::StreamResult::Success) {
+                    this->NotifyBootloaderFramingLost();
+                }
+            },
+            // Receive reset: a new message started while the previous incoming one was incomplete
+            [this]() -> void {
+                this->NotifyBootloaderFramingLost();
             }
-        )
+        ),
+        deviceName(customDeviceName)
     { }
 
     virtual ~NRF8001Communication() = default;
@@ -107,8 +112,8 @@ public:
         }
 
         if (connected) {
-            // Process incoming BLE data
-            ProcessIncomingBLE();
+            // Drain writes staged by the BLE event handler, then run the protocol
+            DrainReceivedBLE();
             
             // Let CompactStreamingProtocol handle all the protocol logic
             protocol.Process();
@@ -120,33 +125,18 @@ public:
             return ResultStatus::notReady;
         }
         
-        if (txInProgress) {
-            return ResultStatus::busy;  // Предыдущая передача не завершена
+        // The protocol owns the transmit buffer and reports Busy while a previous message is in flight
+        typename Protocol::SendResult result = protocol.Send(data);
+
+        if (result.status == Protocol::SendStatus::Success) {
+            return ResultStatus::ok;
         }
         
-        if (data.size() > txDataBuffer.size()) {
-            return ResultStatus::noBufferSpaceAvailable;
+        if (result.status == Protocol::SendStatus::Busy) {
+            return ResultStatus::busy;
         }
 
-        // Копируем данные в наш буфер
-        std::copy(data.begin(), data.end(), txDataBuffer.begin());
-        txDataSize = data.size();
-        txInProgress = true;
-        
-        // Запускаем отправку через CompactStreamingProtocol
-        auto result = protocol.Send(std::span<const uint8>(txDataBuffer.data(), txDataSize));
-        
-        if (result.status == CompactStreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::SendStatus::Success) {
-            // CompactStreamingProtocol принял данные, они будут отправлены асинхронно
-            // txInProgress будет сброшен в HandleStreamComplete
-            return ResultStatus::ok;
-        } else if (result.status == CompactStreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::SendStatus::Busy) {
-            txInProgress = false;
-            return ResultStatus::busy;
-        } else {
-            txInProgress = false;
-            return ResultStatus::error;
-        }
+        return ResultStatus::error;
     }
 
     virtual void SetDataReceivedCallback(DataReceivedCallback callback) override {
@@ -158,8 +148,8 @@ public:
     }
 
     virtual bool IsReadyToSend() const override {
-        // Ready if connected and CompactStreamingProtocol has buffer space
-        return connected;  // CompactStreamingProtocol manages its own buffers
+        // Ready only when connected and the protocol is not sending a message
+        return connected && !protocol.IsTransmitting();
     }
 
     virtual size_t GetMaxPacketSize() const override {
@@ -191,30 +181,17 @@ private:
         }
         
         // Send via BLE notification
-        static uint32 failCount = 0;
-        static uint32 successCount = 0;
-        
-        if (txCharacteristic.setValue(data.data(), data.size())) {
-            successCount++;
-            return true;
-        }
-        
-        failCount++;
-        return false;
+        return txCharacteristic.setValue(data.data(), static_cast<uint8>(data.size()));
     }
 
     // Handle received data from CompactStreamingProtocol
     bool HandleReceivedData(uint8 fragmentIndex, std::span<const uint8> data) {
         if (data.empty()) {
-            // Пустой span = сигнал сброса состояния для bootloader
-            if (dataCallback) {
-                dataCallback(data);  // Передаем пустой span как сигнал сброса
-            }
+            // Empty fragments are ACKed by the protocol and carry no data
             return true;
         }
         
-        // Передаем каждый валидный фрагмент НЕМЕДЛЕННО в bootloader
-        // Это streaming протокол - bootloader обработает данные по мере поступления
+        // Pass every valid fragment to the bootloader immediately (streaming protocol)
         if (dataCallback) {
             dataCallback(data);
         }
@@ -222,58 +199,64 @@ private:
         return true; // Always accept data
     }
 
-    // Handle stream completion
-    void HandleStreamComplete(CompactStreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::StreamResult result) {
-        if (result == CompactStreamingProtocol<BLE_PACKET_SIZE, MaxPacketCount>::StreamResult::Success) {
-            // Release TX buffer if it was in progress (outgoing stream completed)
-            if (txInProgress) {
-                txInProgress = false;
-            }
-        } else {
+    // Moves the writes staged by the event handler into the protocol (never called from the handler)
+    void DrainReceivedBLE() {
+        std::array<uint8, BLE_PACKET_SIZE> chunk{};
 
-            // Для любой ошибки потока уведомляем bootloader о сбросе состояния
-            if (dataCallback) {
-                dataCallback(std::span<const uint8>());
+        while (!rxStaging.IsEmpty()) {
+            size_t count = 0;
+
+            while (count < chunk.size() && !rxStaging.IsEmpty()) {
+                Result<uint8> byte = rxStaging.Pop();
+
+                if (byte.IsOk()) {
+                    chunk[count] = byte.Value();
+                    count++;
+                }
             }
             
-            // Освобождаем TX буфер при ошибке, если он был занят
-            if (txInProgress) {
-                txInProgress = false;
-            }
+            protocol.DataReceived(std::span<const uint8>(chunk.data(), count));
         }
     }
 
-    // Process incoming BLE data
-    void ProcessIncomingBLE() {
-        if (rxCharacteristic.written()) {
-            auto data = rxCharacteristic.value();
-            auto length = rxCharacteristic.valueLength();
+    // Transport lost framing: reset the protocol and tell the bootloader to drop partial input
+    void ResetTransport() {
+        protocol.Reset();
+        rxStaging.Clear();
+        NotifyBootloaderFramingLost();
+    }
             
-            if (length > 0) {
-                // Pass to CompactStreamingProtocol for processing
-                protocol.DataReceived(std::span<const uint8>(data, length));
-            }
+    // The empty span means "the transport lost framing": the bootloader drops its partial input and any
+    // pending response. It does not abort an erase or change the write stream (see IBootloader.h, A3).
+    void NotifyBootloaderFramingLost() {
+        if (dataCallback) {
+            dataCallback(std::span<const uint8>());
         }
     }
 
     void OnConnected() {
-        // Reset protocol state on new connection
-        protocol.Reset();  // ВАЖНО: сбрасываем состояние протокола при новом подключении!
-        
-        // НЕ вызываем dataCallback - не нужно сбрасывать состояние bootloader при подключении
-        txInProgress = false;  // Сбрасываем флаг передачи
+        ResetTransport();
     }
 
     void OnDisconnected() {
-        // Protocol will timeout any pending streams automatically
-        // НЕ вызываем dataCallback - не нужно сбрасывать состояние bootloader при отключении
-        txInProgress = false;  // Сбрасываем флаг передачи
+        ResetTransport();
     }
 
-    // Static callback for BLE characteristic written event
+    // Called synchronously by the BLE driver from inside its poll: only stage the bytes here
     static void OnRxCharacteristicWritten(BLECentral& central, BLECharacteristic& characteristic) {
-        if (instance) {
-            // Data processing happens in ProcessIncomingBLE()
+        if (!instance) {
+            return;
+        }
+
+        const uint8* value = characteristic.value();
+        size_t length = characteristic.valueLength();
+
+        if (!value) {
+            return;
+        }
+
+        for (size_t i = 0; i < length; i++) {
+            instance->rxStaging.Push(value[i]);
         }
     }
 };

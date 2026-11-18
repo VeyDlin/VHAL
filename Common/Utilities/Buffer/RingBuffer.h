@@ -80,6 +80,11 @@ public:
 
     Result<ElementType> Pop() {
 		System::CriticalSection(true);
+		// Marked elements must stay in place until CommitReads or RollbackReads
+		if (uncommittedReadCount > 0) {
+			System::CriticalSection(false);
+			return ResultStatus::busy;
+		}
         if (IsEmpty()) {
 			System::CriticalSection(false);
             return ResultStatus::empty;

@@ -46,12 +46,12 @@ public:
 
     bool StartsWith(StringView prefix) const {
         if (prefix.size_ > size_) return false;
-        return memcmp(data_, prefix.data_, prefix.size_) == 0;
+		return prefix.size_ == 0 || memcmp(data_, prefix.data_, prefix.size_) == 0;
     }
 
     bool EndsWith(StringView suffix) const {
         if (suffix.size_ > size_) return false;
-        return memcmp(data_ + size_ - suffix.size_, suffix.data_, suffix.size_) == 0;
+		return suffix.size_ == 0 || memcmp(data_ + size_ - suffix.size_, suffix.data_, suffix.size_) == 0;
     }
 
     bool Contains(char c) const {

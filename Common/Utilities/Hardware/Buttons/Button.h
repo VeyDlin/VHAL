@@ -4,39 +4,45 @@
 
 namespace Buttons {
 
+
 class Button {
 private:
-    AGPIO& gpio;
-    bool lastState;
-    bool currentState;
-    bool rawState;
-    std::chrono::milliseconds lastChangeTime;
-    std::chrono::milliseconds debounceTime;
-    
+	AGPIO& gpio;
+	bool lastState = false;
+	bool currentState = false;
+	bool rawState = false;
+	std::chrono::milliseconds lastChangeTime{0};
+	std::chrono::milliseconds debounceTime{50};
+
 public:
-    Button(AGPIO& gpioAdapter) 
-        : gpio(gpioAdapter), lastState(false), currentState(false), 
-          rawState(false), lastChangeTime(0), debounceTime(50) {}
-    
-    void Update(std::chrono::milliseconds currentTime) {
-        lastState = currentState;
-        bool newRawState = !gpio.GetState(); // Active low (button pressed = GND)
-        
-        // Debounce filter
-        if (newRawState != rawState) {
-            rawState = newRawState;
-            lastChangeTime = currentTime;
-        } else if ((currentTime - lastChangeTime) >= debounceTime) {
-            currentState = rawState;
-        }
-    }
-    
-    void SetDebounceTime(std::chrono::milliseconds time) { debounceTime = time; }
-    
-    bool IsPressed() const { return currentState; }
-    bool WasPressed() const { return !lastState && currentState; }  // Rising edge
-    bool WasReleased() const { return lastState && !currentState; } // Falling edge
-    bool HasChanged() const { return lastState != currentState; }
+	Button(AGPIO& gpioAdapter)
+		: gpio(gpioAdapter) { }
+
+	void Update(std::chrono::milliseconds currentTime) {
+		lastState = currentState;
+
+		// GetState() already applies the AGPIO inversion, so the pin polarity is
+		// declared once on the adapter and not repeated here.
+		bool newRawState = gpio.GetState();
+
+		if (newRawState != rawState) {
+			rawState = newRawState;
+			lastChangeTime = currentTime;
+		}
+		if (rawState != currentState && (currentTime - lastChangeTime) >= debounceTime) {
+			currentState = rawState;
+		}
+	}
+
+	void SetDebounceTime(std::chrono::milliseconds time) { debounceTime = time; }
+
+	bool IsPressed() const { return currentState; }
+
+	bool WasPressed() const { return !lastState && currentState; }
+
+	bool WasReleased() const { return lastState && !currentState; }
+
+	bool HasChanged() const { return lastState != currentState; }
 };
 
 }

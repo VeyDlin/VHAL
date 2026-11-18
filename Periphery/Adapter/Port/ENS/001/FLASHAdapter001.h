@@ -18,7 +18,8 @@ public:
 	FLASHAdapter001(CMSDK_MTPREG_TypeDef *mtp, uint32 busClockHz) : FLASHAdapter(mtp), inputBusClockHz(busClockHz) {}
 
 
-	ResultStatus Unlock(uint32 key1, uint32 key2) override {
+	// Defaults match the other ports, so generic code (FLASHBootloader) can call Unlock() without platform keys.
+	ResultStatus Unlock(uint32 key1 = UnlockKey, uint32 key2 = 0) override {
 		flashHandle->MTP_CLR = 0xFFFFFFFF;
 		flashHandle->MTP_CR = 0x00000002;
 		flashHandle->MTP_ACLR = 0x00000000;   // Unlock sectors 0-6 (sector 7 = bootloader)

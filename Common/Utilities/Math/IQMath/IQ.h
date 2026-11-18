@@ -1,6 +1,73 @@
 #pragma once
 #include <Utilities/DataTypes.h>
 #include <concepts>
+#include <limits>
+
+
+namespace IQDetail {
+	constexpr int32 maxRaw = 2147483647;
+	constexpr int32 minRaw = -2147483647 - 1;
+
+	// Clamps a 64-bit intermediate to the int32 raw range.
+	constexpr int32 SaturateRaw(int64 value) {
+		if (value > maxRaw) {
+			return maxRaw;
+		}
+		if (value < minRaw) {
+			return minRaw;
+		}
+		return static_cast<int32>(value);
+	}
+
+	// Converts a real value already scaled by 2^Q. NaN becomes 0, out-of-range values saturate.
+	constexpr int32 RealToRaw(double scaled) {
+		if (scaled != scaled) {
+			return 0;
+		}
+		if (scaled >= 2147483647.0) {
+			return maxRaw;
+		}
+		if (scaled <= -2147483648.0) {
+			return minRaw;
+		}
+		return static_cast<int32>(scaled);
+	}
+
+	// Negation that saturates to the maximum instead of overflowing for the most negative raw value.
+	constexpr int32 NegateSaturated(int32 value) {
+		if (value == minRaw) {
+			return maxRaw;
+		}
+		return -value;
+	}
+
+	// Divides raw values; a zero divisor saturates by the sign of the numerator, and 0/0 gives 0.
+	constexpr int32 DivideRaw(int64 numerator, int64 divisor) {
+		if (divisor == 0) {
+			if (numerator > 0) {
+				return maxRaw;
+			}
+			if (numerator < 0) {
+				return minRaw;
+			}
+			return 0;
+		}
+		return SaturateRaw(numerator / divisor);
+	}
+
+	// Clamps an integer value to the range of Target (the minimum of an unsigned type is 0).
+	template<typename Target>
+	constexpr Target SaturateToInteger(int64 value) {
+		constexpr int64 lowest = static_cast<int64>(std::numeric_limits<Target>::min());
+		if (value < lowest) {
+			return std::numeric_limits<Target>::min();
+		}
+		if (value > 0 && static_cast<uint64>(value) > static_cast<uint64>(std::numeric_limits<Target>::max())) {
+			return std::numeric_limits<Target>::max();
+		}
+		return static_cast<Target>(value);
+	}
+}
 
 
 template<int Q, int LutSize = 256>
@@ -18,9 +85,9 @@ public:
 
 	constexpr IQ() = default;
 
-	constexpr IQ(float v) : raw(static_cast<int32>(v * one)) {}
-	constexpr IQ(double v) : raw(static_cast<int32>(v * one)) {}
-	constexpr IQ(int v) : raw(int32(v) << Q) {}
+	constexpr IQ(float v) : raw(IQDetail::RealToRaw(static_cast<double>(v) * one)) {}
+	constexpr IQ(double v) : raw(IQDetail::RealToRaw(v * one)) {}
+	constexpr IQ(int v) : raw(IQDetail::SaturateRaw(static_cast<int64>(v) * one)) {}
 
 	static constexpr IQ FromRaw(int32 r) {
 		IQ result;
@@ -42,36 +109,36 @@ public:
 	}
 
 
-	// Conversion operators
+	// Conversion operators. Values outside the target integer type saturate to its limits.
 	constexpr explicit operator float() const { return ToFloat(); }
 	constexpr explicit operator double() const { return ToDouble(); }
-	constexpr explicit operator int8() const { return static_cast<int8>(ToInt()); }
-	constexpr explicit operator int16() const { return static_cast<int16>(ToInt()); }
+	constexpr explicit operator int8() const { return IQDetail::SaturateToInteger<int8>(ToInt()); }
+	constexpr explicit operator int16() const { return IQDetail::SaturateToInteger<int16>(ToInt()); }
 	constexpr explicit operator int32() const { return ToInt(); }
 	constexpr explicit operator int64() const { return static_cast<int64>(ToInt()); }
-	constexpr explicit operator uint8() const { return static_cast<uint8>(ToInt()); }
-	constexpr explicit operator uint16() const { return static_cast<uint16>(ToInt()); }
-	constexpr explicit operator uint32() const { return static_cast<uint32>(ToInt()); }
-	constexpr explicit operator uint64() const { return static_cast<uint64>(ToInt()); }
+	constexpr explicit operator uint8() const { return IQDetail::SaturateToInteger<uint8>(ToInt()); }
+	constexpr explicit operator uint16() const { return IQDetail::SaturateToInteger<uint16>(ToInt()); }
+	constexpr explicit operator uint32() const { return IQDetail::SaturateToInteger<uint32>(ToInt()); }
+	constexpr explicit operator uint64() const { return IQDetail::SaturateToInteger<uint64>(ToInt()); }
 
 
 	// Arithmetic IQ <-> IQ
-	constexpr IQ operator+(IQ b) const { return FromRaw(raw + b.raw); }
-	constexpr IQ operator-(IQ b) const { return FromRaw(raw - b.raw); }
-	constexpr IQ operator-() const { return FromRaw(-raw); }
+	constexpr IQ operator+(IQ b) const { return FromRaw(IQDetail::SaturateRaw(static_cast<int64>(raw) + b.raw)); }
+	constexpr IQ operator-(IQ b) const { return FromRaw(IQDetail::SaturateRaw(static_cast<int64>(raw) - b.raw)); }
+	constexpr IQ operator-() const { return FromRaw(IQDetail::NegateSaturated(raw)); }
 
 	constexpr IQ operator*(IQ b) const {
 		int64 tmp = static_cast<int64>(raw) * b.raw;
-		return FromRaw(static_cast<int32>(tmp >> Q));
+		return FromRaw(IQDetail::SaturateRaw(tmp >> Q));
 	}
 
 	constexpr IQ operator/(IQ b) const {
-		int64 tmp = static_cast<int64>(raw) << Q;
-		return FromRaw(static_cast<int32>(tmp / b.raw));
+		int64 numerator = static_cast<int64>(raw) * (int64(1) << Q);
+		return FromRaw(IQDetail::DivideRaw(numerator, b.raw));
 	}
 
-	constexpr IQ& operator+=(IQ b) { raw += b.raw; return *this; }
-	constexpr IQ& operator-=(IQ b) { raw -= b.raw; return *this; }
+	constexpr IQ& operator+=(IQ b) { *this = *this + b; return *this; }
+	constexpr IQ& operator-=(IQ b) { *this = *this - b; return *this; }
 	constexpr IQ& operator*=(IQ b) { *this = *this * b; return *this; }
 	constexpr IQ& operator/=(IQ b) { *this = *this / b; return *this; }
 
@@ -79,12 +146,12 @@ public:
 	// Arithmetic IQ <-> scalar
 	constexpr IQ operator+(int32 s) const { return *this + IQ(s); }
 	constexpr IQ operator-(int32 s) const { return *this - IQ(s); }
-	constexpr IQ operator*(int32 s) const { return FromRaw(raw * s); }
-	constexpr IQ operator/(int32 s) const { return FromRaw(raw / s); }
+	constexpr IQ operator*(int32 s) const { return FromRaw(IQDetail::SaturateRaw(static_cast<int64>(raw) * s)); }
+	constexpr IQ operator/(int32 s) const { return FromRaw(IQDetail::DivideRaw(raw, s)); }
 
 	friend constexpr IQ operator+(int32 s, IQ a) { return IQ(s) + a; }
 	friend constexpr IQ operator-(int32 s, IQ a) { return IQ(s) - a; }
-	friend constexpr IQ operator*(int32 s, IQ a) { return FromRaw(a.raw * s); }
+	friend constexpr IQ operator*(int32 s, IQ a) { return FromRaw(IQDetail::SaturateRaw(static_cast<int64>(a.raw) * s)); }
 
 
 	// Comparison
@@ -96,11 +163,11 @@ public:
 	constexpr bool operator>=(IQ b) const { return raw >= b.raw; }
 
 
-	// Conversion between IQ formats
+	// Conversion between IQ formats. Widening saturates; narrowing drops fractional bits (rounds toward negative infinity).
 	template<int Q2, int L2>
 	constexpr explicit IQ(IQ<Q2, L2> other) {
 		if constexpr (Q > Q2) {
-			raw = other.raw << (Q - Q2);
+			raw = IQDetail::SaturateRaw(static_cast<int64>(other.raw) * (int64(1) << (Q - Q2)));
 		} else {
 			raw = other.raw >> (Q2 - Q);
 		}
@@ -113,7 +180,7 @@ public:
 // Free functions for ADL
 template<int Q, int L>
 constexpr IQ<Q, L> abs(IQ<Q, L> x) {
-	return IQ<Q, L>::FromRaw(x.raw < 0 ? -x.raw : x.raw);
+	return IQ<Q, L>::FromRaw(x.raw < 0 ? IQDetail::NegateSaturated(x.raw) : x.raw);
 }
 
 template<int Q, int L>
@@ -144,17 +211,17 @@ constexpr IQ<Q, L> floor(IQ<Q, L> x) {
 template<int Q, int L>
 constexpr IQ<Q, L> ceil(IQ<Q, L> x) {
 	int32 mask = IQ<Q, L>::one - 1;
-	return IQ<Q, L>::FromRaw((x.raw & mask) ? (x.raw | mask) + 1 : x.raw);
+	return IQ<Q, L>::FromRaw((x.raw & mask) ? IQDetail::SaturateRaw(static_cast<int64>(x.raw | mask) + 1) : x.raw);
 }
 
 template<int Q, int L>
 constexpr IQ<Q, L> round(IQ<Q, L> x) {
-	return IQ<Q, L>::FromRaw((x.raw + (IQ<Q, L>::one >> 1)) & ~(IQ<Q, L>::one - 1));
+	return IQ<Q, L>::FromRaw(IQDetail::SaturateRaw(static_cast<int64>(x.raw) + (IQ<Q, L>::one >> 1)) & ~(IQ<Q, L>::one - 1));
 }
 
 template<int Q, int L>
 constexpr IQ<Q, L> copysign(IQ<Q, L> mag, IQ<Q, L> sgn) {
-	int32 a = mag.raw < 0 ? -mag.raw : mag.raw;
+	int32 a = mag.raw < 0 ? IQDetail::NegateSaturated(mag.raw) : mag.raw;
 	return IQ<Q, L>::FromRaw(sgn.raw < 0 ? -a : a);
 }
 

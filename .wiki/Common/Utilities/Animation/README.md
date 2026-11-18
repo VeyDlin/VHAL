@@ -55,6 +55,8 @@ anim.TweenSpeed(1.0f, 2.0f);         // to=1.0, speed=2.0 units/s
 anim.TweenSpeed(0.0f, 1.0f, 3.0f);   // from=0, to=1.0, speed=3.0 units/s
 ```
 
+A speed that is not positive gives a duration of 0: the tween ends at its target on the next `Update()`.
+
 ### Spring
 
 Physics-based spring simulation. The value oscillates toward the target and settles naturally. Good for responsive UI and smooth servo control.
@@ -171,7 +173,7 @@ The internal timer thread is **started automatically** when an animation begins 
 AnimationRTOS<float, 256> anim;
 
 // Set update rate
-anim.SetFps(60);                        // 60 FPS (~17ms interval)
+anim.SetFps(60);                        // 60 FPS (16 ms interval, whole milliseconds); clamped to 1..1000 fps
 anim.SetInterval(std::chrono::milliseconds(10));  // or explicit interval
 
 // Use like regular Animation — timer starts/stops automatically
@@ -194,7 +196,7 @@ Animation finishes or Stop() called → timer.Stop() → thread suspended again
 
 ## RgbAnimation
 
-Animates `Colors::IRgb<T>` color values using a single internal `Animation<T>` as a 0→1 progress driver. Lightweight — one animation instance, not three.
+Animates `Colors::FRgb` color values (from `Utilities/Data/Colors/Colors.h`, three `float` channels `r`, `g`, `b`) using a single internal `Animation<T>` as a 0→1 progress driver. Lightweight — one animation instance, not three. `T` must be a floating-point type such as `float` or `double`; the channels are stored as `float`.
 
 ```cpp
 #include <Utilities/Animation/RgbAnimation.h>
@@ -202,7 +204,7 @@ Animates `Colors::IRgb<T>` color values using a single internal `Animation<T>` a
 // Without RTOS — call Update() manually
 RgbAnimation<float> anim;
 
-anim.onUpdateValue = [](Colors::IRgb<float> color) {
+anim.onUpdateValue = [](Colors::FRgb color) {
     SetLedColor(color.r, color.g, color.b);
 };
 
@@ -225,7 +227,7 @@ RgbAnimation<float, AnimationRTOS<float, 128>> anim;
 // Configure timer via GetProgress()
 anim.GetProgress().SetInterval(10ms);
 
-anim.onUpdateValue = [](Colors::IRgb<float> color) {
+anim.onUpdateValue = [](Colors::FRgb color) {
     SetLedColor(color.r, color.g, color.b);
 };
 

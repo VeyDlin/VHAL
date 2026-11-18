@@ -1,69 +1,104 @@
 #pragma once
 #include "FLASHBootloader.h"
 #include <Utilities/Crypto/AES/AES.h>
+#include <algorithm>
 #include <array>
+#include <span>
 
-// Bootloader with AES encryption support (AES-128/192/256, ECB/CBC/CTR)
+
+// Bootloader with AES encryption support (AES-128/192/256, ECB/CBC/CTR).
+// Incoming image data is decrypted before it is written to flash.
 template<AESKeySize KeySize, size_t RxBufferSize = 1024, size_t AccumBufferSize = 512, size_t PacketDataMaxSize = 240>
 class AESFLASHBootloader : public FLASHBootloader<RxBufferSize, AccumBufferSize, PacketDataMaxSize> {
 protected:
+    using Base = FLASHBootloader<RxBufferSize, AccumBufferSize, PacketDataMaxSize>;
+
     AESMode aesMode;
     AES<KeySize> aes;
-    AES<KeySize>::IV iv;  // Original Initialization Vector for CBC/CTR
-    AES<KeySize>::IV currentIV;  // Current IV state for CBC chaining
-    
-    std::array<uint8, 512> encryptionBuffer;
-    std::array<uint8, 512> decryptionBuffer;
+    typename AES<KeySize>::IV iv;           // Original Initialization Vector for CBC/CTR
+    typename AES<KeySize>::IV currentIV;    // Current IV state for CBC chaining
+    std::array<uint8, AccumBufferSize> decryptionBuffer;
+    uint64 ctrStreamOffset = 0;             // CTR keystream position in bytes, continuous over the whole image
+    bool keyValid = false;                  // False when the key argument had the wrong size
     
     static constexpr size_t keySize = static_cast<size_t>(KeySize);
 
 
-private:
-    template<typename KeySpan>
-    typename AES<KeySize>::Key makeKey(const KeySpan& keySpan) {
-        typename AES<KeySize>::Key key{};
-        std::copy_n(keySpan.begin(), std::min(keySpan.size(), key.size()), key.begin());
-        return key;
-    }
-
-
 public:
-    template<typename KeySpan>
+    template<typename KeyRange>
     AESFLASHBootloader(
-    	ICommunication& comm,
-    	AFLASH& flash,
-    	AESMode mode,
-    	KeySpan&& key,
-    	uint32 startAddr,
-    	uint32 size,
-    	const AES<KeySize>::IV& initVector = {}
-    ) :	FLASHBootloader<RxBufferSize, AccumBufferSize>(comm, flash, startAddr, size),
-    	aesMode(mode),
-    	aes(makeKey(key)),
-    	iv(initVector),
-    	currentIV(initVector)
+        ICommunication& comm,
+        AFLASH& flash,
+        AESMode mode,
+        const KeyRange& key,
+        uint32 startAddr,
+        uint32 size,
+        const typename AES<KeySize>::IV& initVector = {}
+    ) :
+        Base(comm, flash, startAddr, size),
+        aesMode(mode),
+        aes(MakeKey(key)),
+        iv(initVector),
+        currentIV(initVector),
+        keyValid(IsKeySizeValid(key))
     {
-    	// Check key size at runtime
-    	if (std::span(key).size() != keySize) {
-    		// Wrong key size - critical security error
-    		// But don't use SystemAssert as it's too harsh
-    	}
+        using KeyView = decltype(std::span(key));
+        static_assert(
+            KeyView::extent == std::dynamic_extent || KeyView::extent == keySize,
+            "Key size does not match the AES key size"
+        );
     }
 
 
 
     virtual ~AESFLASHBootloader() {
-        // Secure clearing of sensitive data
+        // Clear the IV state and the decrypted data buffer.
+        // AES does not wipe its round keys.
         std::fill(iv.begin(), iv.end(), 0);
-        std::fill(encryptionBuffer.begin(), encryptionBuffer.end(), 0);
+        std::fill(currentIV.begin(), currentIV.end(), 0);
         std::fill(decryptionBuffer.begin(), decryptionBuffer.end(), 0);
-        // AES class should clear keys in its own destructor
+    }
+
+
+
+    // Methods for IV/Nonce management
+    void SetIV(const typename AES<KeySize>::IV& newIV) {
+        iv = newIV;
+        currentIV = newIV;  // Reset current IV for new stream
+        ctrStreamOffset = 0;
+        aes.SetIV(iv);
+    }
+
+
+
+    const typename AES<KeySize>::IV& GetIV() const {
+        return iv;
+    }
+
+
+
+    AESMode GetMode() const {
+        return aesMode;
+    }
+
+
+
+    static constexpr AESKeySize GetKeySize() {
+        return KeySize;
     }
 
 
 
 protected:
-    // Override methods for encryption support
+    virtual ResultStatus OnBeforeInitialize() override {
+        if (!keyValid) {
+            return ResultStatus::invalidParameter;
+        }
+
+        return Base::OnBeforeInitialize();
+    }
+
+
     
     virtual bool OnHasEnoughData(std::span<const uint8> buffer) const override {
         switch (aesMode) {
@@ -97,54 +132,13 @@ protected:
 
 
 
-    virtual std::span<uint8> OnEncryptData(std::span<uint8> data) override {
-        if (data.empty() || data.size() > encryptionBuffer.size()) {
-            // Return empty span on error - it's safer
-            return std::span<uint8>();
-        }
-
-        //System::console << Console::debug << "[ENCRYPT] [IN] " << data << Console::endl;
-
-        size_t outputSize = 0;
-        
-        switch (aesMode) {
-            case AESMode::ECB:
-                outputSize = EncryptECB(data);
-                break;
-                
-            case AESMode::CBC:
-                outputSize = EncryptCBC(data);
-                break;
-                
-            case AESMode::CTR:
-                outputSize = EncryptCTR(data);
-                break;
-        }
-
-        // Check that operation was successful
-        if (outputSize == 0) {
-            return std::span<uint8>();  // Encryption error
-        }
-        
-        auto result = std::span<uint8>(encryptionBuffer.data(), outputSize);
-        
-        // Clear source data for security reasons
-        std::fill(data.begin(), data.end(), 0);
-        
-        //System::console << Console::debug << "[ENCRYPT] [RESULT] " << result << Console::endl;
-
-        return result;
-    }
-
-
-
+    // Decrypts ciphertext into decryptionBuffer. The ciphertext is left intact,
+    // so a retried Write can be decrypted again.
     virtual std::span<uint8> OnDecryptData(std::span<uint8> data) override {
-        if (data.empty() || data.size() > decryptionBuffer.size()) {
-            // Return empty span on error - it's safer
+        if (!keyValid || data.empty() || data.size() > decryptionBuffer.size()) {
+            // Return empty span on error
             return std::span<uint8>();
         }
-
-        //System::console << Console::debug << "[DECRYPT] [IN] " << data << Console::endl;
 
         size_t outputSize = 0;
         
@@ -167,38 +161,95 @@ protected:
             return std::span<uint8>();  // Decryption error
         }
         
-        auto result = std::span<uint8>(decryptionBuffer.data(), outputSize);
-        
-        // Clear encrypted data for security reasons
-        std::fill(data.begin(), data.end(), 0);
-        
-        //System::console << Console::debug << "[DECRYPT] [RESULT] " << result << Console::endl;
-
-        return result;
+        return std::span<uint8>(decryptionBuffer.data(), outputSize);
     }
 
 
-private:
-    size_t EncryptECB(std::span<uint8> data) {
-        // ECB encrypts data in blocks without connection between blocks
-        size_t blocks = data.size() / AES<>::BLOCK_SIZE;
-        size_t outputSize = blocks * AES<>::BLOCK_SIZE;
-        
-        if (outputSize > encryptionBuffer.size()) {
-            return 0;
+
+    // A new image stream starts from the original IV (CBC chain restarts, CTR offset returns to 0)
+    virtual void OnStreamReset() override {
+        Base::OnStreamReset();
+        currentIV = iv;
+        ctrStreamOffset = 0;
+    }
+
+
+
+    // Ciphertext must not be read back: the flash holds plaintext after decryption
+    virtual bool IsReadBackAllowed() const override {
+        return false;
+    }
+
+
+
+    virtual uint8 GetCipherId() const override {
+        switch (aesMode) {
+            case AESMode::ECB:
+                return 1;
+
+            case AESMode::CBC:
+                return 2;
+
+            case AESMode::CTR:
+                return 3;
+        }
+        return 0;
+    }
+
+
+
+    // Handles SetIV: the host sends the IV of the next image before Erase (or ResetWritePos).
+    // Refused while an erase runs, while read-out protection or the access level forbids image changes, and in ECB
+    // mode, which has no IV
+    virtual bool OnCommand(const typename Base::CommandPacket& packet) override {
+        if (packet.command != Base::Command::SetIV) {
+            return false;
         }
 
-        // Copy data to buffer and encrypt in-place
-        std::copy_n(data.begin(), outputSize, encryptionBuffer.begin());
-        
-        for (size_t i = 0; i < outputSize; i += AES<>::BLOCK_SIZE) {
-            std::array<uint8, AES<>::BLOCK_SIZE> block;
-            std::copy_n(encryptionBuffer.begin() + i, AES<>::BLOCK_SIZE, block.begin());
-            aes.EncryptECB(block);
-            std::copy(block.begin(), block.end(), encryptionBuffer.begin() + i);
+        if (this->state == Base::State::Processing) {
+            this->SendError(this->currentSequence, Base::BootloaderStatus::Busy);
+            return true;
         }
+
+        if (this->RefuseImageChange()) {
+            return true;
+        }
+
+        if (aesMode == AESMode::ECB) {
+            this->SendError(this->currentSequence, Base::BootloaderStatus::InvalidCommand);
+            return true;
+        }
+
+        if (static_cast<size_t>(packet.length) != AES<KeySize>::BLOCK_SIZE) {
+            this->SendError(this->currentSequence, Base::BootloaderStatus::InvalidParameters);
+            return true;
+        }
+
+        typename AES<KeySize>::IV newIV{};
+        std::copy_n(packet.data.begin(), AES<KeySize>::BLOCK_SIZE, newIV.begin());
+        SetIV(newIV);
+
+        // A new IV starts a new image, the same as Erase does
+        this->ResetWriteStream();
+        this->SendResponse(Base::BootloaderStatus::Success);
+        return true;
+    }
+
+
+
+private:
+    static typename AES<KeySize>::Key MakeKey(std::span<const uint8> keyData) {
+        typename AES<KeySize>::Key key{};
+        if (keyData.size() == keySize) {
+            std::copy(keyData.begin(), keyData.end(), key.begin());
+        }
+        return key;
+    }
         
-        return outputSize;
+
+        
+    static bool IsKeySizeValid(std::span<const uint8> keyData) {
+        return keyData.size() == keySize;
     }
 
 
@@ -226,32 +277,11 @@ private:
 
 
 
-    size_t EncryptCBC(std::span<uint8> data) {
-        // CBC uses block chaining with IV
-        size_t blocks = data.size() / AES<>::BLOCK_SIZE;
-        size_t outputSize = blocks * AES<>::BLOCK_SIZE;
-        
-        if (outputSize > encryptionBuffer.size()) {
-            return 0;
-        }
-
-        // Copy data to buffer 
-        std::copy_n(data.begin(), outputSize, encryptionBuffer.begin());
-        
-        // Set IV and encrypt in-place
-        aes.SetIV(iv);
-        aes.EncryptCBC(std::span(encryptionBuffer.data(), outputSize));
-        
-        return outputSize;
-    }
-
-
-
     size_t DecryptCBC(std::span<uint8> data) {
         size_t blocks = data.size() / AES<>::BLOCK_SIZE;
         size_t outputSize = blocks * AES<>::BLOCK_SIZE;
         
-        if (outputSize > decryptionBuffer.size()) {
+        if (outputSize == 0 || outputSize > decryptionBuffer.size()) {
             return 0;
         }
 
@@ -260,70 +290,57 @@ private:
         
         // Use current IV (which may be updated from previous call)
         aes.SetIV(currentIV);
-        aes.DecryptCBC(std::span(decryptionBuffer.data(), outputSize));
+        aes.DecryptCBC(std::span<uint8>(decryptionBuffer.data(), outputSize));
         
-        // Update currentIV with last ciphertext block for next call
-        if (outputSize >= AES<>::BLOCK_SIZE) {
-            std::copy_n(data.end() - AES<>::BLOCK_SIZE, AES<>::BLOCK_SIZE, currentIV.begin());
-        }
+        // Keep the last ciphertext block of the processed part as the chain value for the next call
+        std::copy_n(data.data() + (outputSize - AES<>::BLOCK_SIZE), AES<>::BLOCK_SIZE, currentIV.begin());
         
         return outputSize;
     }
 
 
 
-    size_t EncryptCTR(std::span<uint8> data) {
-        // CTR can encrypt data of any size
-        if (data.size() > encryptionBuffer.size()) {
-            return 0;
+    // CTR keystream block i is AES-ECB(IV + i), where + is a 128-bit big-endian addition
+    typename AES<KeySize>::Block MakeCounterBlock(uint64 blockIndex) const {
+        typename AES<KeySize>::Block counter{};
+        std::copy(iv.begin(), iv.end(), counter.begin());
+
+        // Add blockIndex to the big-endian counter, propagating the carry from the last byte
+        uint16 carry = 0;
+        for (size_t i = AES<KeySize>::BLOCK_SIZE; i > 0; i--) {
+            uint16 sum = static_cast<uint16>(counter[i - 1]) + static_cast<uint16>(blockIndex & 0xFF) + carry;
+            counter[i - 1] = static_cast<uint8>(sum & 0xFF);
+            carry = static_cast<uint16>(sum >> 8);
+            blockIndex >>= 8;
         }
 
-        // Copy data to buffer 
-        std::copy_n(data.begin(), data.size(), encryptionBuffer.begin());
-        
-        // Set IV and encrypt in-place  
-        aes.SetIV(iv);
-        aes.EncryptCTR(std::span(encryptionBuffer.data(), data.size()));
-        
-        return data.size();
+        return counter;
     }
 
 
 
     size_t DecryptCTR(std::span<uint8> data) {
-        // In CTR decryption = encryption
-        if (data.size() > decryptionBuffer.size()) {
-            return 0;
+        // CTR is one continuous keystream over the whole image, so the offset carries over between Write calls
+        std::copy_n(data.begin(), data.size(), decryptionBuffer.begin());
+
+        size_t processed = 0;
+        while (processed < data.size()) {
+            uint64 streamPosition = ctrStreamOffset + processed;
+            uint64 blockIndex = streamPosition / AES<KeySize>::BLOCK_SIZE;
+            size_t blockOffset = static_cast<size_t>(streamPosition % AES<KeySize>::BLOCK_SIZE);
+
+            typename AES<KeySize>::Block keystream = MakeCounterBlock(blockIndex);
+            aes.EncryptECB(keystream);
+
+            while (blockOffset < AES<KeySize>::BLOCK_SIZE && processed < data.size()) {
+                decryptionBuffer[processed] ^= keystream[blockOffset];
+                processed++;
+                blockOffset++;
+            }
         }
 
-        // Copy data to buffer 
-        std::copy_n(data.begin(), data.size(), decryptionBuffer.begin());
-        
-        // Set IV and decrypt in-place
-        aes.SetIV(iv);
-        aes.DecryptCTR(std::span(decryptionBuffer.data(), data.size()));
-        
+        ctrStreamOffset += data.size();
         return data.size();
-    }
-
-public:
-    // Methods for IV/Nonce management
-    void SetIV(const AES<KeySize>::IV& newIV) {
-        iv = newIV;
-        currentIV = newIV;  // Reset current IV for new stream
-        aes.SetIV(iv);
-    }
-
-    const AES<KeySize>::IV& GetIV() const {
-        return iv;
-    }
-
-    AESMode GetMode() const {
-        return aesMode;
-    }
-
-    static constexpr AESKeySize GetKeySize() {
-        return KeySize;
     }
 
 };

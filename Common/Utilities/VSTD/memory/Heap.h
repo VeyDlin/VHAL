@@ -122,7 +122,8 @@ public:
     Heap(const Heap&) = delete;
     Heap& operator=(const Heap&) = delete;
 
-    Handle Allocate(std::size_t size) override {
+	Handle Allocate(std::size_t size) override {
+		size = AlignUp(size);
         LockPolicy::Lock();
 
         Handle result = TryAllocateFromFreeBlock(size);
@@ -308,6 +309,13 @@ public:
     }
 
 private:
+	// Block sizes are multiples of this so every BlockHeader lands on an aligned address
+	static constexpr std::size_t kBlockAlignment = 8;
+
+	static constexpr std::size_t AlignUp(std::size_t value) {
+		return (value + kBlockAlignment - 1) & ~(kBlockAlignment - 1);
+	}
+
     Entry* EntrySlot(std::size_t index) {
         return reinterpret_cast<Entry*>(
             buffer_ + capacity_ - (index + 1) * sizeof(Entry));
