@@ -49,7 +49,10 @@ public:
 	};
 
 	struct Options {
-		// One limit per connection: the adapter applies it to connect, to every read and to every write.
+		// Limit for the TCP connect and the TLS handshake. Must be above 0.
+		uint32 connectTimeoutMs = 10000;
+		// Limit for one read and for one write, applied to the open connection. Used by reads of the response and by
+		// the request write.
 		uint32 timeoutMs = 10000;
 		// Limit for the status line and the header block of one response, including interim responses.
 		uint32 maxHeaderBytes = 4096;
@@ -703,16 +706,18 @@ private:
 		bool secure = parts.scheme == Scheme::Https;
 		wanted.protocol = secure ? SocketAdapter::Protocol::Tls : SocketAdapter::Protocol::Tcp;
 		wanted.caCertificate = secure ? options.caCertificate : nullptr;
+		wanted.connectTimeoutMs = options.connectTimeoutMs;
 
 		const SocketAdapter::Parameters& current = socket.GetParameters();
-		if (current.protocol != wanted.protocol || current.caCertificate != wanted.caCertificate) {
+		if (current.protocol != wanted.protocol || current.caCertificate != wanted.caCertificate ||
+			current.connectTimeoutMs != wanted.connectTimeoutMs) {
 			ResultStatus applied = socket.SetParameters(wanted);
 			if (applied != ResultStatus::ok) {
 				return applied;
 			}
 		}
 
-		socket.SetTimeout(options.timeoutMs);
+		socket.SetIoTimeout(options.timeoutMs);
 		return socket.Open(connectedHost, connectedPort);
 	}
 

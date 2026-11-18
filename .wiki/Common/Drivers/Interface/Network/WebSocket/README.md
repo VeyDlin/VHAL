@@ -50,7 +50,8 @@ WebSocketClient(SocketAdapter& adapter, VSTD::IAllocator& memory);
 | `subprotocols` | `std::span<const std::string_view>` | empty | Offered in `Sec-WebSocket-Protocol`, most preferred first. The server must pick one of them, or none |
 | `randomSource` | `std::function<uint32()>` | empty | **Required.** Returns 32 random bits per call. Used for the handshake key (4 calls) and for every frame's mask (1 call). See [Random source](#random-source) |
 | `clockMs` | `std::function<uint32()>` | empty | **Required.** Milliseconds from a monotonic clock, for example `System::GetMs()`. Used for the handshake deadline, the close deadline and `Poll` |
-| `handshakeTimeoutMs` | `uint32` | `10000` | Limit for the whole handshake, from the request to the end of a rejected body |
+| `connectTimeoutMs` | `uint32` | `10000` | Limit for the TCP connect and the TLS handshake. Passed to the socket as its connect timeout (`SocketAdapter::Parameters::connectTimeoutMs`). Must be above `0`, otherwise `invalidParameter` |
+| `handshakeTimeoutMs` | `uint32` | `10000` | Limit for the whole handshake, from the request to the end of a rejected body. Each socket read in the handshake waits for the time left of it |
 | `closeTimeoutMs` | `uint32` | `5000` | How long `Close()` waits for the peer's close frame |
 | `maxMessageSize` | `uint32` | `65536` | Largest incoming message, in payload bytes. A larger one closes the connection with 1009. Also the largest message the reassembly buffer can grow to |
 | `fragmentSize` | `uint32` | `0` | Outgoing messages are split into frames of at most this payload size. `0` sends one frame per message |
@@ -97,9 +98,11 @@ Callbacks are public fields:
 
 `Poll(timeoutMs)` processes data until `timeoutMs` has passed, or until a read times out with nothing new.
 
-- The first socket read blocks for at most the socket's own timeout (`SocketAdapter::SetTimeout()`, which takes effect on the next `Open()`). `Poll` cannot change that timeout per call. Set the socket timeout to the largest wait you accept, for example `SetTimeout(20)` for a 100 ms audio pace.
-- After the first read, `Poll` keeps reading while data arrives until `timeoutMs` has passed. A `timeoutMs` shorter than the socket timeout can therefore take up to one socket timeout.
-- A read that times out with nothing received returns `timeout` and leaves the connection open.
+- Each socket read waits for the time left of `timeoutMs`. `Poll` sets the socket's I/O timeout (`SocketAdapter::SetIoTimeout()`) before each read, so `timeoutMs` is the bound.
+- `Poll(0)` never waits. It reads only what the socket already has, and returns `timeout` at once when nothing is buffered. Use it between paced writes.
+- After a read returns data, `Poll` keeps reading while data arrives until `timeoutMs` has passed.
+- A read that times out with nothing received returns `timeout` and leaves the connection open. A frame split across several reads is kept until its last byte arrives.
+- The socket's I/O timeout is left at the value of the last read, so a `Send*` call after `Poll` uses it for its write (`0` means the connect timeout).
 
 ### Close codes
 
@@ -126,9 +129,10 @@ Codes this side sends: `1000`-`1003`, `1007`-`1014`, `3000`-`4999`. Codes receiv
 | | `timeout` | No complete answer within `handshakeTimeoutMs` |
 | | `connectionClosed` / `readError` | The socket ended or failed during the handshake |
 | | `invalidData` | Malformed status line, a header block with obsolete line folding or no colon, or an answer larger than the 1024-byte receive buffer |
-| | `protocolError` | Valid HTTP but not a valid WebSocket answer: wrong `Upgrade` or `Connection`, `Sec-WebSocket-Accept` missing, duplicated or wrong, `Sec-WebSocket-Extensions` present, subprotocol not offered, more than one subprotocol header, or any non-101 status other than 401 and 403 (redirects are not followed) |
+| | `protocolError` | The answer is not valid HTTP, or not a valid WebSocket answer to a 101: wrong `Upgrade` or `Connection`, `Sec-WebSocket-Accept` missing, duplicated or wrong, `Sec-WebSocket-Extensions` present, subprotocol not offered, more than one subprotocol header |
 | | `authenticationFailed` | Status 401. Read `GetHandshakeStatus()` and `GetRejectBody()` |
 | | `authorizationFailed` | Status 403. Read `GetRejectBody()` |
+| | `connectionRefused` | Any other well-formed non-101 status (for example 300, 400, 404, 429, 500): the server refused the upgrade. Redirects are not followed. Read `GetHandshakeStatus()` and `GetRejectBody()` |
 | | `writeError` | Socket write failed during the request |
 | `SendText()` / `SendBinary()` / `SendPing()` | `ok` | Frame written |
 | | `noConnection` | Not open (never connected, closing, or closed) |
@@ -225,10 +229,9 @@ ResultStatus OpenTranscription(std::string_view authorization) {
     stt.onText = OnText;
     stt.onClose = OnClose;
 
-    sttSocket.SetTimeout(20); // one socket read blocks at most 20 ms, so Poll stays close to the 100 ms pace
-
     WebSocketClient::ConnectOptions options;
     options.headers = headers;
+    options.connectTimeoutMs = 10000; // TCP connect and TLS handshake; reads are bounded by Poll's argument
     options.randomSource = []() { return static_cast<uint32>(esp_random()); };
     options.clockMs = []() { return static_cast<uint32>(System::GetMs()); };
 
@@ -267,7 +270,7 @@ If `OpenTranscription()` returns `authenticationFailed` or `authorizationFailed`
 
 ## Behaviour
 
-- Handshake: sends `GET <path> HTTP/1.1` with `Host` (the port is included when it is not the default), `Upgrade: websocket`, `Connection: Upgrade`, `Sec-WebSocket-Version: 13`, the key, the offered subprotocols and the extra headers. Accepts only status 101 (or 401 and 403, which are reported with their body). Checks the `Upgrade` and `Connection` token lists case-insensitively, exactly one `Sec-WebSocket-Accept`, and the chosen subprotocol against the offered list.
+- Handshake: sends `GET <path> HTTP/1.1` with `Host` (the port is included when it is not the default), `Upgrade: websocket`, `Connection: Upgrade`, `Sec-WebSocket-Version: 13`, the key, the offered subprotocols and the extra headers. Accepts only status 101. Any other well-formed status is reported with its body: 401 and 403 as their own statuses, every other one as `connectionRefused`. Checks the `Upgrade` and `Connection` token lists case-insensitively, exactly one `Sec-WebSocket-Accept`, and the chosen subprotocol against the offered list.
 - Bytes that follow the handshake answer in the same read are frame data and are processed first.
 - Frames: client frames are masked with a fresh key for each frame. Lengths use the minimal encoding (7, 16 or 64 bits).
 - Ping: answered with a pong carrying the same payload, even during `Close()`. An unsolicited pong is ignored.
@@ -279,7 +282,7 @@ If `OpenTranscription()` returns `authenticationFailed` or `authorizationFailed`
 ## Limits
 
 - Client side of RFC 6455 only. No extensions (`permessage-deflate` is not offered, and a server that accepts one fails the handshake).
-- No redirects. A 3xx answer returns `protocolError`.
+- No redirects. A 3xx answer returns `connectionRefused`.
 - No IPv6 literals. `[::1]` returns `notSupported`.
 - `wss://` needs a socket with TLS. The ESP32 port provides it; the laptop test socket does not.
 - No automatic reconnect and no keepalive timer.
@@ -288,7 +291,7 @@ If `OpenTranscription()` returns `authenticationFailed` or `authorizationFailed`
 - `maxMessageSize` is the reassembly limit for incoming messages. The client does not limit outgoing message sizes; the peer does.
 - `randomSource` and `clockMs` are required. Without them `Connect()` returns `invalidParameter`.
 - A non-101 answer with neither `Content-Length` nor chunked encoding is read until the connection closes or the handshake deadline passes. Servers that keep the connection open for an error answer therefore delay `Connect()` by up to `handshakeTimeoutMs`.
-- The socket timeout bounds each blocking read, so `Poll` and the close wait can overrun their own timeout by up to one socket timeout.
+- Each read is bounded by the time left of its own deadline (`Poll`, the close wait, the handshake), so `Poll` and `Close()` return within their timeouts. `Poll(0)` never waits.
 
 ## References
 
@@ -327,7 +330,7 @@ Taken:
 
 Not taken, and why:
 - Accepting any status that carries a valid accept value. We require 101 (see the conflicts below).
-- Following 301 to 308 redirects. The client returns `protocolError` instead, because a redirect would send the bearer token to another host.
+- Following 301 to 308 redirects. The client returns `connectionRefused` instead, because a redirect would send the bearer token to another host.
 - Empty close echo. We echo the code, as RFC 6455 suggests.
 - A ping every 10 seconds and an abort after 120 seconds without a pong. The application decides the keepalive (`SendPing`).
 - Auto-reconnect. Not in scope.
@@ -384,6 +387,8 @@ Not taken, and why:
 
 - `sha1_tests.cpp`: SHA-1 vectors and the RFC 6455 accept example.
 - `frame_tests.cpp`: byte-exact frames against a scripted socket (`scripted_socket.h`). Covers the handshake, masks, lengths 0 to 65536, fragments, control frames, close handshake, every protocol error listed above, send-side fragmentation and a defragmenting `Heap`.
-- `live_tests.cpp`: the client over real TCP (`posix_socket.h`) against `ws_server.py`, which uses the `websockets` library as the reference peer. Covers echo, the server's ping, server close codes, fragments both ways, 401 and 403 bodies, the authorization header, subprotocols, the 64 KiB limit, a paced stream with polling, and defragmentation between messages.
+- `live_tests.cpp`: the client over real TCP (`posix_socket.h`) against `ws_server.py`, which uses the `websockets` library as the reference peer. Covers echo, the server's ping, server close codes, fragments both ways, 401 and 403 bodies, the authorization header, subprotocols, the 64 KiB limit, a paced stream with polling, defragmentation between messages, and `Poll(0)` returning within 50 ms on a quiet connection.
+
+The scripted suite also covers the timeouts: the connect timeout reaches `Open()` while reads use the handshake's remaining time, `Poll(0)` reads with a zero I/O timeout, a frame split across short polls is reassembled, and 400, 404, 429 and 500 answers keep their status and body as `connectionRefused`.
 
 Compile check on the ESP32 port: `tools/vhal-harness/main/checks/CheckWebSocket.cpp`, run by `idf.py build` (see `tools/vhal-harness/README.md`).

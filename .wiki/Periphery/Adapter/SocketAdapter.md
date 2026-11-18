@@ -22,6 +22,7 @@ The class is not a template, for the same reason as `WiFiAdapter`: an external m
 struct Parameters {
     Protocol protocol = Protocol::Tcp;
     const char *caCertificate = nullptr;
+    uint32 connectTimeoutMs = 10000;
 };
 ```
 
@@ -29,14 +30,16 @@ struct Parameters {
 |-------|---------|-------------|
 | `protocol` | `Tcp` | Transport used by `Open()` |
 | `caCertificate` | `nullptr` | `Tls` only. PEM text of the CA certificate that signs the server. It must stay valid until `Open()` returns. `nullptr` verifies the server against the certificate set built into the port |
+| `connectTimeoutMs` | `10000` | Limit for `Open()` in milliseconds: the TCP connect and, for `Tls`, the TLS handshake. Must be above `0`; `0` makes `Open()` return `invalidParameter`. It does not limit `Read()` or `Write()` |
 
 ## API
 
 | Method | Return | Description | Errors |
 |--------|--------|-------------|--------|
-| `SetParameters(Parameters val)` | `ResultStatus` | Apply protocol and CA certificate. Closes the current connection | `ok`, or the status of the `beforePeripheryInit` hook on the ESP32 port |
+| `SetParameters(Parameters val)` | `ResultStatus` | Apply protocol, CA certificate and connect timeout. Closes the current connection | `ok`, or the status of the `beforePeripheryInit` hook on the ESP32 port |
 | `GetParameters()` | `const Parameters&` | Current parameters | None |
-| `SetTimeout(uint32 val)` | `void` | Limit for `Open()`, one `Read()` and one `Write()`, in milliseconds (default `10000`). Takes effect on the next `Open()` | None |
+| `SetIoTimeout(uint32 val)` | `void` | Limit for one `Read()` and one `Write()`, in milliseconds (default `10000`). Applied at once to an open connection, so it can change between reads. Before the first `Open()` the value is applied by `Open()`. `0` makes `Read()` non-blocking (see [I/O timeout 0](#io-timeout-0)) | None |
+| `SetTimeout(uint32 val)` | `void` | Sets `Parameters::connectTimeoutMs` and the I/O timeout to `val`. This is the single timeout of earlier versions: existing code keeps its behaviour. Use `SetIoTimeout()` to change only the I/O limit | None |
 | `Open(const char *host, uint16 port)` | `ResultStatus` | Connect to `host` and `port`. `host` is a name or a dotted IPv4 address. For `Udp`, it fixes the peer for `Write()` and `Read()`. Closes any open connection first | `noInit`, `invalidParameter`, `notFound`, `noConnection`, `timeout`, `notSupported`, `outOfMemory` |
 | `Close()` | `ResultStatus` | Close the connection. Safe to call when nothing is open | `ok` |
 | `IsOpen()` | `bool` | `true` while a connection exists | None |
@@ -51,6 +54,17 @@ struct Parameters {
 `Read()` returns `timeout` when nothing arrives within the timeout. It returns `connectionClosed` when the peer closes the connection. A timeout does not close the connection, so `Read()` can be called again.
 
 `ReadExact()` may have consumed part of the buffer before it returns an error.
+
+### I/O timeout 0
+
+`SetIoTimeout(0)` makes `Read()` a poll: it returns `timeout` at once when no byte is buffered, and it never waits. A
+read that does find data returns it at once as well. This is what a client needs to read results between paced writes.
+
+`Write()` cannot poll, because a buffer that is only partly sent cannot be resumed. With `0`, `Write()` waits up to
+`Parameters::connectTimeoutMs` instead.
+
+A partly received TLS record is kept across a `timeout`: the next `Read()` continues it. The `timeout` status is not an
+error and does not close the connection.
 
 ## ESP32 Port
 
@@ -93,10 +107,12 @@ REQUIRES lwip esp-tls mbedtls
 
 ### Behaviour
 
-- Every connection is blocking. `SO_RCVTIMEO` and `SO_SNDTIMEO` are set to the timeout when the connection opens, so one `Read()` or `Write()` never waits longer than that.
+- Every connection is blocking. `SO_RCVTIMEO` is the I/O timeout, so one `Read()` waits at most that long. `SO_SNDTIMEO` is the I/O timeout as well, or the connect timeout when the I/O timeout is `0`. `SetIoTimeout()` applies the new values to an open connection at once.
+- I/O timeout `0`: `SO_RCVTIMEO` cannot express it, because lwIP waits forever for a zero value. `Read()` therefore sets `O_NONBLOCK` on the socket for that one call (TLS) or passes `MSG_DONTWAIT` (TCP), and returns `timeout` when nothing is buffered.
+- `Open()` limits the TCP connect and, for `Tls`, the TLS handshake with `connectTimeoutMs` (`esp_tls_cfg_t::timeout_ms`). The I/O timeout does not apply to the handshake.
 - The adapter uses the `lwip_*` names on purpose, because the POSIX names may be redefined as macros by the lwIP configuration.
 - Only IPv4 is used: name lookup is `AF_INET`.
-- `Open()` connects with a non-blocking connect limited by the timeout, for `Tcp` and `Udp`. `Udp` sets the peer with `connect()` and sends and receives on that socket.
+- `Open()` connects with a non-blocking connect limited by `connectTimeoutMs`, for `Tcp` and `Udp`. `Udp` sets the peer with `connect()` and sends and receives on that socket.
 - A name lookup is not limited by the timeout. `Open()` with a name and `Resolve()` wait for the lwIP DNS client, which retries on its own timers: a few seconds with the lwIP defaults, longer if the DNS server is slow. A dotted IPv4 address is parsed without a DNS query.
 - Without an IP address (link up but DHCP not finished, or no link), no DNS server is set. A name lookup then returns `notFound` at once. `Open()` with a dotted IPv4 address fails with `noConnection` when there is no route to the peer.
 - `Read()` and `Write()` on `Tls` use the TLS connection. A `Write()` that times out on TLS is returned as `timeout` and is not retried, because the TLS state is then unknown.
@@ -118,10 +134,10 @@ A failed handshake, including a failed verification, is returned as `noConnectio
 | Method | Status | When |
 |--------|--------|------|
 | `Open()` | `noInit` | TCP/IP stack not started. See [Start Order](#start-order) |
-| | `invalidParameter` | `host` is `nullptr` or empty |
+| | `invalidParameter` | `host` is `nullptr` or empty, or `connectTimeoutMs` is `0` |
 | | `notFound` | Name lookup failed (`Tcp` and `Udp`) |
 | | `noConnection` | Socket could not be created, `Tcp` connect refused or failed, socket timeout could not be set, or TLS handshake failed (including verification) |
-| | `timeout` | `Tcp` connect did not complete within the timeout |
+| | `timeout` | `Tcp` connect did not complete within `connectTimeoutMs` |
 | | `notSupported` | `Tls` with `caCertificate` `nullptr` and no certificate bundle |
 | | `outOfMemory` | `Tls` could not allocate the TLS connection |
 | `Resolve()` | `noInit` | TCP/IP stack not started. See [Start Order](#start-order) |

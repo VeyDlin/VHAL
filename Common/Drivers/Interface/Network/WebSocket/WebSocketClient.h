@@ -32,6 +32,10 @@ public:
 		std::function<uint32()> randomSource;
 		// Required. Milliseconds from a monotonic clock, for example esp_timer_get_time() / 1000.
 		std::function<uint32()> clockMs;
+		// Limit for the TCP connect and the TLS handshake, passed to the SocketAdapter's connect timeout. Must be above 0.
+		uint32 connectTimeoutMs = 10000;
+		// Limit for the whole handshake, from the request to the end of a rejected body. Reads and the request write
+		// use the time left of it.
 		uint32 handshakeTimeoutMs = 10000;
 		// How long Close() waits for the peer's close frame before the socket is closed anyway.
 		uint32 closeTimeoutMs = 5000;
@@ -208,14 +212,15 @@ public:
 	// Returns: busy (already connected), invalidParameter (bad URL, header or options, or no random/clock source),
 	// notSupported (IPv6 literal), noInit, notFound, noConnection, timeout (handshake), connectionClosed, readError,
 	// writeError (socket), invalidData (malformed or oversized answer), protocolError (answer does not satisfy RFC 6455
-	// 4.1), authenticationFailed (401), authorizationFailed (403). After a non-101 answer see GetHandshakeStatus() and
-	// GetRejectBody().
+	// 4.1), authenticationFailed (401), authorizationFailed (403), connectionRefused (any other well-formed non-101
+	// answer, for example 400, 404, 429 or 500: the server refused the upgrade). After a non-101 answer see
+	// GetHandshakeStatus() and GetRejectBody().
 	ResultStatus Connect(const char* url, const ConnectOptions& options) {
 		if (state != State::closed) {
 			return ResultStatus::busy;
 		}
 
-		if (!options.randomSource || !options.clockMs) {
+		if (!options.randomSource || !options.clockMs || options.connectTimeoutMs == 0) {
 			return ResultStatus::invalidParameter;
 		}
 
@@ -247,8 +252,9 @@ public:
 
 		SocketAdapter::Parameters parameters = adapter.GetParameters();
 		SocketAdapter::Protocol wanted = secure ? SocketAdapter::Protocol::Tls : SocketAdapter::Protocol::Tcp;
-		if (parameters.protocol != wanted) {
+		if (parameters.protocol != wanted || parameters.connectTimeoutMs != options.connectTimeoutMs) {
 			parameters.protocol = wanted;
+			parameters.connectTimeoutMs = options.connectTimeoutMs;
 			status = adapter.SetParameters(parameters);
 			if (status != ResultStatus::ok) {
 				return status;
@@ -348,7 +354,7 @@ public:
 		state = State::closing;
 		uint32 startMs = clockMs();
 		while (state == State::closing) {
-			ReceiveOnce();
+			ReceiveOnce(RemainingMs(startMs, closeTimeoutMs));
 			if (state == State::closing && Expired(startMs, closeTimeoutMs)) {
 				Finish(1006, std::string_view(), ResultStatus::timeout);
 			}
@@ -364,9 +370,8 @@ public:
 
 	// Reads what is available and dispatches complete messages to the callbacks. Returns ok when something was
 	// processed, timeout when nothing arrived, and connectionClosed when the connection ended (see GetCloseCode()).
-	// A protocol error returns that error after the close frame was sent. The first read blocks for at most the
-	// SocketAdapter timeout (SetTimeout before Open); the loop then keeps reading until timeoutMs has passed.
-	// Poll() with a timeoutMs shorter than the socket timeout can therefore take up to the socket timeout.
+	// A protocol error returns that error after the close frame was sent. Each socket read waits for the time left of
+	// timeoutMs, so Poll(0) never waits: it reads only what is already buffered in the socket.
 	ResultStatus Poll(uint32 timeoutMs) {
 		if (state == State::closed) {
 			return ResultStatus::noConnection;
@@ -375,7 +380,7 @@ public:
 		uint32 startMs = clockMs();
 		bool progressed = false;
 		while (true) {
-			ResultStatus status = ReceiveOnce();
+			ResultStatus status = ReceiveOnce(RemainingMs(startMs, timeoutMs));
 			if (status == ResultStatus::timeout) {
 				return progressed ? ResultStatus::ok : ResultStatus::timeout;
 			}
@@ -634,6 +639,13 @@ private:
 	}
 
 
+	// Time left of a deadline in milliseconds, 0 when it has passed. A socket read given 0 does not wait.
+	uint32 RemainingMs(uint32 startMs, uint32 timeoutMs) {
+		uint32 elapsed = clockMs() - startMs;
+		return (elapsed >= timeoutMs) ? 0 : timeoutMs - elapsed;
+	}
+
+
 	ResultStatus ParseUrl(const char* url) {
 		if (url == nullptr) {
 			return ResultStatus::invalidParameter;
@@ -751,6 +763,8 @@ private:
 
 		uint32 startMs = clockMs();
 
+		// The request write waits up to the whole handshake limit; each read below then waits for what is left of it.
+		adapter.SetIoTimeout(handshakeTimeoutMs);
 		status = WriteRequest(options);
 		if (status != ResultStatus::ok) {
 			return status;
@@ -793,7 +807,9 @@ private:
 				return ResultStatus::authorizationFailed;
 			}
 
-			return ResultStatus::protocolError;
+			// The answer is well formed HTTP, so the server refused the upgrade. protocolError is for answers that are
+			// not valid HTTP or not valid WebSocket answers.
+			return ResultStatus::connectionRefused;
 		}
 
 		status = ValidateUpgrade(headerBlock, options);
@@ -919,6 +935,7 @@ private:
 				return ResultStatus::invalidData;
 			}
 
+			adapter.SetIoTimeout(RemainingMs(startMs, handshakeTimeoutMs));
 			Result<uint32> result = adapter.ReadByteArray(rxBuffer.data() + rxLen, static_cast<uint32>(rxBuffer.size() - rxLen));
 			if (result.IsOk()) {
 				rxLen += result.Value();
@@ -1231,9 +1248,11 @@ private:
 	}
 
 
-	// Reads at most one socket chunk when the buffer is empty, then processes everything buffered.
-	ResultStatus ReceiveOnce() {
+	// Reads at most one socket chunk when the buffer is empty, then processes everything buffered. The read waits up
+	// to waitMs (0 does not wait).
+	ResultStatus ReceiveOnce(uint32 waitMs) {
 		if (rxPos >= rxLen) {
+			adapter.SetIoTimeout(waitMs);
 			Result<uint32> result = adapter.ReadByteArray(rxBuffer.data(), static_cast<uint32>(rxBuffer.size()));
 			if (result.IsErr()) {
 				if (result.Error() == ResultStatus::timeout) {

@@ -38,7 +38,7 @@ Constructor: `HttpClient(SocketAdapter& adapter, VSTD::IAllocator& memory)`. The
 | `Header` | `std::string_view name`, `std::string_view value` | One request header |
 | `Request` | `Method method`, `std::string_view url`, `std::span<const Header> headers`, `std::span<const uint8> body` | Everything `Send()` needs. Views must stay valid until `Send()` returns |
 | `UrlParts` | `Scheme scheme`, `std::string_view host`, `uint16 port`, `std::string_view target` | Output of `ParseUrl()`. Views point into the URL. An empty `target` means `/` |
-| `Options` | `uint32 timeoutMs = 10000`, `uint32 maxHeaderBytes = 4096`, `const char *caCertificate = nullptr`, `const char *userAgent = "VHAL-HttpClient/1.0"` | Public field `options`. Change it between requests |
+| `Options` | `uint32 connectTimeoutMs = 10000`, `uint32 timeoutMs = 10000`, `uint32 maxHeaderBytes = 4096`, `const char *caCertificate = nullptr`, `const char *userAgent = "VHAL-HttpClient/1.0"` | Public field `options`. Change it between requests |
 | `BodyCallback` | `VSTD::Function<ResultStatus(std::span<const uint8>)>` | Called with each piece of the body. Return `ok` to continue |
 
 ### API
@@ -63,7 +63,12 @@ Constructor: `HttpClient(SocketAdapter& adapter, VSTD::IAllocator& memory)`. The
 
 ### Timeouts
 
-`Options::timeoutMs` is one value per connection. It is passed to `SocketAdapter::SetTimeout()` before `Open()`, and the adapter applies it to connect, to every read and to every write. The adapter's contract applies the timeout at `Open()` only, so a separate connect, first-byte and idle timeout cannot be expressed through `SocketAdapter` today. See [Limits](#limits).
+Two limits, one per phase:
+
+- `Options::connectTimeoutMs` (default `10000`) is the TCP connect and, for `https`, the TLS handshake. It is set as `SocketAdapter::Parameters::connectTimeoutMs` before `Open()`.
+- `Options::timeoutMs` (default `10000`) is the limit for one read and one write. It is applied to the open connection with `SocketAdapter::SetIoTimeout()` before the request is written.
+
+A first-byte or idle timeout as a separate value is not offered: a read that waits for the response uses `timeoutMs`. See [Limits](#limits).
 
 ### Keep-alive and Stale Connections
 
@@ -269,12 +274,12 @@ Differences from `esp_http_client`, kept on purpose:
 
 - It follows redirects (301, 302, 303, 307, 308). This client does not: the brief requires the 3xx and `Location` to be returned.
 - It applies TCP keep-alive probes. This client has no such option in `SocketAdapter`.
-- Per-phase timeouts: it has separate connect and read timeouts through its transport. This client has one per connection; see [Limits](#limits).
+- Per-phase timeouts: it has separate connect and read timeouts through its transport. This client has a connect and an I/O timeout, and no first-byte or idle timeout; see [Limits](#limits).
 - 1xx: `esp_http_client` has no explicit 1xx handling in the code read. This client skips 1xx responses other than 101.
 
 ## Limits
 
-- **One timeout per connection.** `SocketAdapter` applies one timeout at `Open()`. The brief asked for separate connect, first-byte and idle timeouts, which need a change to `SocketAdapter` (for example a read timeout that can change on an open connection). Not done here.
+- **Connect and I/O timeouts are separate, but there is no first-byte or idle timeout.** `Options::connectTimeoutMs` bounds connect and the TLS handshake; `Options::timeoutMs` bounds each read and write. A separate first-byte timeout would need the client to change the read limit between the request and the first response byte.
 - **HTTP/1.0 and HTTP/1.1 only**, and no HTTP/2.
 - **No redirects**, no cookies, no authentication scheme beyond the `Authorization` header the caller sets.
 - **No content decoding.** `gzip` and other `Content-Encoding` bodies are delivered as bytes.

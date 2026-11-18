@@ -12,8 +12,9 @@ using ASOCKET = class SocketAdapterESP;
 // interface is up; the adapter does not bring it up.
 //
 // The lwip_* names are used on purpose: the POSIX names may be redefined as macros by the lwIP configuration.
-// Every connection is blocking with SO_RCVTIMEO and SO_SNDTIMEO set to the timeout, so a single Read() or Write()
-// never waits longer than that.
+// Connections are blocking. SO_RCVTIMEO is the I/O timeout, so a Read() waits at most that long. A zero I/O timeout
+// cannot use SO_RCVTIMEO (lwIP treats 0 as "wait forever"), so Read() switches the socket to O_NONBLOCK for that one
+// call. SO_SNDTIMEO is the I/O timeout as well, or the connect timeout when the I/O timeout is 0.
 class SocketAdapterESP : public SocketAdapter {
 protected:
 	int socketHandle = -1;
@@ -36,7 +37,7 @@ public:
 			return ResultStatus::noInit;
 		}
 
-		if (host == nullptr || host[0] == '\0') {
+		if (host == nullptr || host[0] == '\0' || parameters.connectTimeoutMs == 0) {
 			return ResultStatus::invalidParameter;
 		}
 
@@ -47,6 +48,16 @@ public:
 		}
 
 		return OpenSocket(host, port);
+	}
+
+
+	void SetIoTimeout(uint32 val) override {
+		SocketAdapter::SetIoTimeout(val);
+		int fd = Descriptor();
+		if (fd >= 0) {
+			// A failure here is not reported: the next Read() or Write() then uses the previous limit.
+			SetTimeouts(fd);
+		}
 	}
 
 
@@ -143,8 +154,15 @@ public:
 			return ResultStatus::invalidParameter;
 		}
 
+		// mbedTLS keeps a partly received record when a read returns WANT_READ, so the next Read() continues it.
 		if (tls != nullptr) {
-			ssize_t result = esp_tls_conn_read(tls, buffer, size);
+			ssize_t result = 0;
+			if (ioTimeout == 0) {
+				result = ReadTlsNonBlocking(buffer, size);
+			} else {
+				result = esp_tls_conn_read(tls, buffer, size);
+			}
+
 			if (result > 0) {
 				return static_cast<uint32>(result);
 			}
@@ -157,7 +175,8 @@ public:
 			return ResultStatus::readError;
 		}
 
-		ssize_t result = lwip_recv(socketHandle, buffer, size, 0);
+		int flags = (ioTimeout == 0) ? MSG_DONTWAIT : 0;
+		ssize_t result = lwip_recv(socketHandle, buffer, size, flags);
 		if (result > 0) {
 			return static_cast<uint32>(result);
 		}
@@ -204,12 +223,52 @@ private:
 	}
 
 
+	// Applies the I/O timeout to reads. Writes use the I/O timeout, or the connect timeout when that is 0, because a
+	// zero SO_SNDTIMEO would also wait forever.
 	bool SetTimeouts(int fd) const {
-		timeval limit = MakeTimeval(timeout);
-		if (lwip_setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &limit, sizeof(limit)) != 0) {
+		timeval readLimit = MakeTimeval(ioTimeout);
+		if (lwip_setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &readLimit, sizeof(readLimit)) != 0) {
 			return false;
 		}
-		return lwip_setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &limit, sizeof(limit)) == 0;
+
+		uint32 writeMs = (ioTimeout > 0) ? ioTimeout : parameters.connectTimeoutMs;
+		timeval writeLimit = MakeTimeval(writeMs);
+		return lwip_setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &writeLimit, sizeof(writeLimit)) == 0;
+	}
+
+
+	// The socket under the connection: the TCP socket for Tcp and Udp, the TLS transport's socket for Tls. -1 when
+	// nothing is open.
+	int Descriptor() const {
+		if (tls != nullptr) {
+			int fd = -1;
+			if (esp_tls_get_conn_sockfd(tls, &fd) != ESP_OK) {
+				return -1;
+			}
+
+			return fd;
+		}
+
+		return socketHandle;
+	}
+
+
+	// One TLS read with O_NONBLOCK set on the socket, so it returns EWOULDBLOCK (mapped to WANT_READ) instead of
+	// waiting. The previous flags are restored afterwards.
+	ssize_t ReadTlsNonBlocking(uint8 *buffer, uint32 size) {
+		int fd = Descriptor();
+		if (fd < 0) {
+			return ESP_TLS_ERR_SSL_WANT_READ;
+		}
+
+		int flags = lwip_fcntl(fd, F_GETFL, 0);
+		if (flags < 0 || lwip_fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+			return ESP_TLS_ERR_SSL_WANT_READ;
+		}
+
+		ssize_t result = esp_tls_conn_read(tls, buffer, size);
+		lwip_fcntl(fd, F_SETFL, flags);
+		return result;
 	}
 
 
@@ -274,7 +333,7 @@ private:
 		FD_ZERO(&writeSet);
 		FD_SET(fd, &writeSet);
 
-		timeval limit = MakeTimeval(timeout);
+		timeval limit = MakeTimeval(parameters.connectTimeoutMs);
 		int ready = lwip_select(fd + 1, nullptr, &writeSet, nullptr, &limit);
 		if (ready == 0) {
 			return ResultStatus::timeout;
@@ -296,7 +355,8 @@ private:
 
 	ResultStatus OpenTls(const char *host, uint16 port) {
 		esp_tls_cfg_t cfg = {};
-		cfg.timeout_ms = static_cast<int>(timeout);
+		// esp-tls bounds only the TCP connect and the handshake with this value; reads use the I/O timeout afterwards.
+		cfg.timeout_ms = static_cast<int>(parameters.connectTimeoutMs);
 
 		if (parameters.caCertificate != nullptr) {
 			cfg.cacert_buf = reinterpret_cast<const unsigned char *>(parameters.caCertificate);

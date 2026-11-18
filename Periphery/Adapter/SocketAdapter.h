@@ -20,12 +20,15 @@ public:
 		// Protocol::Tls only. PEM text of the CA certificate that signs the server; it must stay valid until Open()
 		// returns. nullptr verifies the server against the certificate set built into the port.
 		const char *caCertificate = nullptr;
+		// Limit for Open() in milliseconds: the TCP connect and, for Protocol::Tls, the TLS handshake. Must be above 0,
+		// otherwise Open() returns invalidParameter. It does not limit Read() or Write(); see SetIoTimeout().
+		uint32 connectTimeoutMs = 10000;
 	};
 
 
 protected:
 	Parameters parameters;
-	uint32 timeout = 10000;
+	uint32 ioTimeout = 10000;
 
 
 public:
@@ -41,10 +44,21 @@ public:
 	}
 
 
-	// Limit for Open(), for one Read() and for one Write(), in milliseconds.
-	// Takes effect on the next Open().
-	virtual void SetTimeout(uint32 val) {
-		timeout = val;
+	// Limit for one Read() and for one Write(), in milliseconds. A port applies it to an open connection at once, so it
+	// can change between reads. Before the first Open() it is applied by Open().
+	// 0 makes Read() non-blocking: it returns timeout at once when no byte is buffered, and never waits.
+	// Write() has no non-blocking form, because a partly sent buffer cannot be resumed; with 0 it waits up to
+	// Parameters::connectTimeoutMs instead.
+	virtual void SetIoTimeout(uint32 val) {
+		ioTimeout = val;
+	}
+
+
+	// Sets Parameters::connectTimeoutMs and the I/O timeout to val. This is the single timeout of earlier versions,
+	// so existing callers keep their behaviour. Use SetIoTimeout() to change the I/O limit alone.
+	void SetTimeout(uint32 val) {
+		parameters.connectTimeoutMs = val;
+		SetIoTimeout(val);
 	}
 
 
