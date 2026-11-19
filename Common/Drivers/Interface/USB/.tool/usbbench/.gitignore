@@ -1,0 +1,5 @@
+# Downloaded libusb archive and its extracted copy (see cmake/Libusb.cmake).
+third_party/
+
+# Local build trees.
+build/
