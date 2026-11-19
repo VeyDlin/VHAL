@@ -141,8 +141,11 @@ public:
         }
 
 		// Hex and octal of a negative value show the type's width (int8 -1 -> FF), like Bin does
-		if (format != Format::Dec && sizeof(T) < sizeof(uint64)) {
-			unsignedNumber &= (uint64(1) << (sizeof(T) * 8)) - 1;
+		// if constexpr: for a 64-bit T the shift would be by the full width, which is undefined even on a branch never taken.
+		if constexpr (sizeof(T) < sizeof(uint64)) {
+			if (format != Format::Dec) {
+				unsignedNumber &= (uint64(1) << (sizeof(T) * 8)) - 1;
+			}
 		}
 
         return NumberToStringCore(buffer, bufferSize, unsignedNumber, isNegative, sizeof(T), format);

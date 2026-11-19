@@ -1,4 +1,5 @@
 #include <VHAL.h>
+#include <System/NestedCriticalSection.h>
 
 #if defined(VHAL_ENS)
 
@@ -13,11 +14,36 @@ void System::Reset() {
 }
 
 
+// The nesting logic is shared with the other ports (System/NestedCriticalSection.h). This file only supplies the PRIMASK
+// operations, with the CMSIS intrinsics.
+namespace {
+
+
+struct EnsInterrupts {
+    static uint32 ReadMask() {
+        return __get_PRIMASK();
+    }
+
+
+    static void Disable() {
+        __disable_irq();
+    }
+
+
+    static void Enable() {
+        __enable_irq();
+    }
+};
+
+
+}
+
+
 void System::CriticalSection(bool isEnable) {
     if (isEnable) {
-        __disable_irq();
+        NestedCriticalSection<EnsInterrupts>::Enter();
     } else {
-        __enable_irq();
+        NestedCriticalSection<EnsInterrupts>::Leave();
     }
 }
 

@@ -70,6 +70,8 @@ public:
     static void DelayUs(uint32 delay);
     static void Reset();
 	static DeviceId GetDeviceId();
+    // true enters, false leaves. Sections nest on every port: only the outermost leave restores the interrupt state that the
+    // outermost enter found. Keep sections short; never block inside one.
     static void CriticalSection(bool isEnable);
     static void Abort(const char* message = nullptr, const char* file = nullptr, uint32 line = 0);
     static void CriticalError(const char* message = nullptr, const char* file = nullptr, uint32 line = 0);

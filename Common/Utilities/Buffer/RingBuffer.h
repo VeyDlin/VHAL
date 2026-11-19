@@ -1,7 +1,9 @@
 #pragma once
 #include <VHAL.h>
+#include <algorithm>
 #include <limits>
 #include <functional>
+#include <span>
 
 
 template<typename ElementType, uint16 BufferSize>
@@ -78,6 +80,36 @@ public:
     }
 
 
+    // Pushes as many of elements as fit and returns how many were pushed. The whole copy runs in one critical section, where a
+    // Push() per element would take one each. The copy is at most two segments: up to the end of the buffer and from its start.
+    uint16 Push(std::span<const ElementType> elements) {
+        System::CriticalSection(true);
+
+        uint32 count = static_cast<uint32>(elements.size());
+        uint32 freeSpace = BufferSize - size;
+        if (count > freeSpace) {
+            count = freeSpace;
+        }
+
+        uint32 writeIndex = static_cast<uint32>(readIndex) + size;
+        if (writeIndex >= BufferSize) {
+            writeIndex -= BufferSize;
+        }
+
+        uint32 firstSegment = BufferSize - writeIndex;
+        if (firstSegment > count) {
+            firstSegment = count;
+        }
+
+        std::copy_n(elements.data(), firstSegment, &buffer[writeIndex]);
+        std::copy_n(elements.data() + firstSegment, count - firstSegment, buffer);
+        size = static_cast<uint16>(size + count);
+        System::CriticalSection(false);
+
+        return static_cast<uint16>(count);
+    }
+
+
     Result<ElementType> Pop() {
 		System::CriticalSection(true);
 		// Marked elements must stay in place until CommitReads or RollbackReads
@@ -97,6 +129,37 @@ public:
     }
 
 
+    // Pops up to out.size() elements into out and returns how many were popped. Like Pop(), it refuses with 0 while marked reads
+    // are uncommitted. The copy runs in one critical section, in at most two segments, so keep out to what the caller can afford
+    // to copy with interrupts masked.
+    uint16 Pop(std::span<ElementType> out) {
+        System::CriticalSection(true);
+        // Marked elements must stay in place until CommitReads or RollbackReads
+        if (uncommittedReadCount > 0) {
+            System::CriticalSection(false);
+            return 0;
+        }
+
+        uint32 count = static_cast<uint32>(out.size());
+        if (count > size) {
+            count = size;
+        }
+
+        uint32 firstSegment = BufferSize - readIndex;
+        if (firstSegment > count) {
+            firstSegment = count;
+        }
+
+        std::copy_n(&buffer[readIndex], firstSegment, out.data());
+        std::copy_n(buffer, count - firstSegment, out.data() + firstSegment);
+        readIndex = static_cast<uint16>((readIndex + count) % BufferSize);
+        size = static_cast<uint16>(size - count);
+        System::CriticalSection(false);
+
+        return static_cast<uint16>(count);
+    }
+
+
     bool IsFull() const {
         return size == BufferSize;
     }
@@ -107,6 +170,7 @@ public:
     }
 
 
+    // Empties the ring and drops its marks too. It is the reset path: a reset must not keep the bytes of the old session.
     void Clear() {
         System::CriticalSection(true);
         readIndex = 0;
