@@ -2,6 +2,18 @@
 #include <Adapter/TIMAdapter.h>
 
 
+// TIM (general purpose and advanced timer) adapter for STM32F4. It covers every timer the chip defines. TIM8 is absent on
+// F401 and F411, where TIM1 is the only advanced timer. TIM8 exists on F407 and F446 (and on other F4 chips that define
+// TIM8_BASE).
+//
+// The BSP must do the following before the first Initialization():
+//   - Enable the bus clock of each timer it uses: LL_APB2_GRP1_PERIPH_TIM1, TIM8, TIM9, TIM10, TIM11 on APB2, and
+//     LL_APB1_GRP1_PERIPH_TIM2 to TIM7, TIM12, TIM13, TIM14 on APB1. Without the clock, register writes are dropped.
+//   - Route the timer NVIC vectors to IrqHandler() of the adapter that owns each timer. Some vectors serve two timers:
+//     TIM1_BRK_TIM9, TIM1_UP_TIM10, TIM1_TRG_COM_TIM11, TIM8_BRK_TIM12, TIM8_UP_TIM13 and TIM8_TRG_COM_TIM14. Forward the
+//     vector to the IrqHandler() of every adapter on it. Each IrqHandler() reads only the flags of its own timer, so the
+//     adapters ignore each other's events. TIM1_CC and TIM8_CC serve one timer each. TIM2 to TIM5 have one vector each.
+//   - The adapter never touches NVIC: it does not set priorities and does not enable or disable vectors.
 
 
 using ATIM = class TIMAdapterF4;
@@ -24,7 +36,9 @@ public:
 	};
 
 	struct OutputCompare {
-		static inline constexpr OutputCompareOption Forzen         { LL_TIM_OCMODE_FROZEN };
+		static inline constexpr OutputCompareOption Frozen         { LL_TIM_OCMODE_FROZEN };
+		// Deprecated alias: the name was misspelled before. Kept so existing callers still build; use Frozen.
+		[[deprecated("Use Frozen")]] static inline constexpr OutputCompareOption Forzen { LL_TIM_OCMODE_FROZEN };
 		static inline constexpr OutputCompareOption Active         { LL_TIM_OCMODE_ACTIVE };
 		static inline constexpr OutputCompareOption Inactive       { LL_TIM_OCMODE_INACTIVE };
 		static inline constexpr OutputCompareOption Toggle         { LL_TIM_OCMODE_TOGGLE };
@@ -53,13 +67,11 @@ public:
 	};
 
 
-
 public:
 	TIMAdapterF4() { }
+
+
 	TIMAdapterF4(TIM_TypeDef *timer, uint32 busClockHz, Bitness bit = Bitness::B16): TIMAdapter(timer, busClockHz, bit) { }
-
-
-
 
 
 	virtual inline void IrqHandler() override {
@@ -137,9 +149,6 @@ public:
 	}
 
 
-
-
-
 public:
 	virtual inline void EnableCounter(bool enableTimerCounter) override {
 		if(enableTimerCounter) {
@@ -148,9 +157,6 @@ public:
 			LL_TIM_DisableCounter(timHandle);
 		}
 	}
-
-
-
 
 
 	virtual inline void SetChannelsState(const std::initializer_list<EnableChannelParameters>& list) override {
@@ -198,9 +204,6 @@ public:
 	}
 
 
-
-
-
 	virtual inline void SetDivision(ClockDivisionOption division) override {
 		if (IS_TIM_CLOCK_DIVISION_INSTANCE(timHandle)) {
 			auto CR1_REG = LL_TIM_ReadReg(timHandle, CR1);
@@ -210,26 +213,17 @@ public:
 	}
 
 
-
-
-
 	virtual inline void SetPrescaler(uint32 prescaler) override {
-		SystemAssert(parameters.prescaler <= 0xFFFF);
+		SystemAssert(prescaler <= 0xFFFF);
 		LL_TIM_SetPrescaler(timHandle, prescaler);
-		parameters.prescaler = prescaler;
+		parameters.prescaler = static_cast<uint16>(prescaler);
 	}
-
-
-
 
 
 	virtual inline void SetPeriod(uint32 period) override {
 		LL_TIM_SetAutoReload(timHandle, period);
 		parameters.period = period;
 	}
-
-
-
 
 
 	virtual inline void SetCompare(ChannelOption channel, uint32 compare) override {
@@ -246,15 +240,9 @@ public:
 	}
 
 
-
-
-
 	virtual inline void SetCompareMode(ChannelOption channel, OutputCompareOption mode) override {
 		LL_TIM_OC_SetMode(timHandle, channel.Get<1>(), mode.Get());
 	}
-
-
-
 
 
 	virtual inline uint32 GetCapture(ChannelOption channel) override {
@@ -272,15 +260,9 @@ public:
 	}
 
 
-
-
-
 	virtual inline void GenerateUpdateEvent() override {
 		LL_TIM_GenerateEvent_UPDATE(timHandle);
 	}
-
-
-
 
 
 	virtual uint16 GetClockDivision() override {
@@ -294,9 +276,6 @@ public:
 
 		return 1;
 	}
-
-
-
 
 
 	virtual uint8 GetChannelIndex(ChannelOption channel) override {
@@ -316,7 +295,6 @@ public:
 		SystemAbort();
 		return 0;
 	}
-
 
 
 protected:
@@ -342,13 +320,11 @@ protected:
 			return ResultStatus::error;
 		}
 
+		// ARR preload is off: a SetPeriod() write takes effect at once, not at the next update event.
 		LL_TIM_DisableARRPreload(timHandle);
 
 		return AfterInitialization();
 	}
-
-
-
 
 
 	virtual ResultStatus OutputCompareInitialization(const std::initializer_list<OutputCompareParameters>& list) override {
@@ -382,7 +358,12 @@ protected:
 		// TODO: Add Master Slave Mode to settings
 		LL_TIM_DisableMasterSlaveMode(timHandle);
 
-		if(timHandle == TIM1 || timHandle == TIM8) {
+		// TIM8 is absent on F401 and F411, where TIM1 is the only advanced timer. Compile the TIM8 compare only where it exists.
+			#if defined(TIM8)
+			if(timHandle == TIM1 || timHandle == TIM8) {
+			#else
+			if(timHandle == TIM1) {
+			#endif
 			LL_TIM_EnableAllOutputs(timHandle);
 		}
 
@@ -391,23 +372,14 @@ protected:
 	}
 
 
-
-
-
-	virtual ResultStatus InputCaptureInitialization(const std::initializer_list<InputCaptureParameters>& list) override {
+	virtual ResultStatus InputCaptureInitialization(const std::initializer_list<InputCaptureParameters>&) override {
 		return ResultStatus::notSupported;
 	}
 
 
-
-
-
-	virtual ResultStatus BreakAndDeadTimeInitialization(const std::initializer_list<BreakAndDeadTimeParameters>& list) override {
+	virtual ResultStatus BreakAndDeadTimeInitialization(const std::initializer_list<BreakAndDeadTimeParameters>&) override {
 		return ResultStatus::notSupported;
 	}
-
-
-
 
 
 	virtual ResultStatus SetInterrupt(InterruptOption interrupt, bool enable) {
@@ -459,6 +431,9 @@ protected:
 			} else {
 				LL_TIM_DisableIT_COM(timHandle);
 			}
+		} else {
+			// A value outside the Interrupt table is a caller error. Report it instead of returning ok with nothing enabled.
+			return ResultStatus::notSupported;
 		}
 		return ResultStatus::ok;
 	}

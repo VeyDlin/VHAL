@@ -2,6 +2,21 @@
 #include <Adapter/COMPAdapter.h>
 
 
+// COMP (comparator) adapter for STM32G4 (RM0440, COMP chapter). COMP1 to COMP3 exist on STM32G411; COMP1 to COMP4 exist
+// on the other G4 chips whose CMSIS header defines COMP4. COMP5 to COMP7 exist only on STM32G473, G474, G483, G484 and
+// G414. The EXTI line of each comparator is taken from the chip family, so the adapter needs no per-chip table of its own.
+//
+// The BSP must do the following before the first Initialization():
+//   - Enable the SYSCFG bus clock (RCC APB2ENR.SYSCFGEN, LL_APB2_GRP1_PERIPH_SYSCFG). The comparator registers sit in the
+//     SYSCFG block, and register writes are dropped while the clock is off.
+//   - Route the comparator NVIC vectors to IrqHandler() of every comparator adapter that shares a vector:
+//       G431, G441, G471, G491, G4A1: COMP1_2_3_IRQn (64) and COMP4_IRQn (65)
+//       G411:                         COMP1_2_3_IRQn (64) only. COMP4_IRQn (65) is in its vector table, but G411 has no COMP4 instance
+//       G473, G474, G483, G484, G414: COMP1_2_3_IRQn (64), COMP4_5_6_IRQn (65) and COMP7_IRQn (66)
+//     Each IrqHandler() serves only the EXTI line of its own comparator and clears only that flag, so a vector shared by
+//     several comparators is safe when the same handler is called for each of them. The adapter never touches NVIC.
+
+
 using ACOMP = class COMPAdapterG4;
 
 
@@ -94,20 +109,25 @@ public:
 	};
 
 
-
 public:
 	COMPAdapterG4() = default;
+
+
 	COMPAdapterG4(COMP_TypeDef *comp):COMPAdapter(comp) { }
-
-
 
 
 	virtual inline void IrqHandler() override {
 	    uint32 line = GetExtiLine(compHandle);
 	    uint8 flag = 0;
 
+		// An instance without an EXTI line (see GetExtiLine) has no flag to test. Without this return the flag read
+		// below would use line 0, which reads as active on every call, and onInterrupt would fire for no event.
+		if (line == 0) {
+			return;
+		}
+
 		#if defined(COMP7)
-			if ((COMPx == COMP6) || (COMPx == COMP7)) {
+			if ((compHandle == COMP6) || (compHandle == COMP7)) {
 				if (LL_EXTI_IsActiveFlag_32_63(line) != 0) {
 					flag = 2;
 				}
@@ -139,11 +159,9 @@ public:
 	}
 
 
-
 	virtual bool GetOutputLevel() override {
 		return LL_COMP_ReadOutputLevel(compHandle) == LL_COMP_OUTPUT_LEVEL_HIGH;
 	};
-
 
 
 	virtual ResultStatus Enable() override {
@@ -176,13 +194,11 @@ public:
 	}
 
 
-
 	virtual ResultStatus SetInputPlus(InputPlusOption inputPlus) override {
 		LL_COMP_SetInputPlus(compHandle, inputPlus.Get());
 		parameters.inputPlus = inputPlus;
 		return ResultStatus::ok;
 	}
-
 
 
 	virtual ResultStatus SetInputMinus(InputMinusOption inputMinus) override {
@@ -192,13 +208,11 @@ public:
 	}
 
 
-
 	virtual ResultStatus SetInputHysteresis(InputHysteresisOption inputHysteresis) override {
 	    LL_COMP_SetInputHysteresis(compHandle, inputHysteresis.Get());
 	    parameters.inputHysteresis = inputHysteresis;
 	    return ResultStatus::ok;
 	}
-
 
 
 	virtual ResultStatus SetOutputPolarity(OutputPolarity polarity) override {
@@ -208,13 +222,11 @@ public:
 	}
 
 
-
 	virtual ResultStatus SetOutputBlankingSource(OutputBlankingSourceOption outputBlankingSource) override {
 	    LL_COMP_SetOutputBlankingSource(compHandle, outputBlankingSource.Get());
 	    parameters.outputBlankingSource = outputBlankingSource;
 	    return ResultStatus::ok;
 	}
-
 
 
 	virtual ResultStatus SetTriggerMode(TriggerMode triggerMode) override {
@@ -348,7 +360,6 @@ public:
 	}
 
 
-
 protected:
 	virtual ResultStatus Initialization() override {
 		auto status = BeforeInitialization();
@@ -364,16 +375,19 @@ protected:
 			.OutputBlankingSource = parameters.outputBlankingSource.Get()
 		};
 
-		SystemAssert(LL_COMP_Init(compHandle, &init) == ErrorStatus::SUCCESS);
+		// The init call stays outside SystemAssert so that it runs in every build configuration.
+		ErrorStatus initStatus = LL_COMP_Init(compHandle, &init);
+		SystemAssert(initStatus == ErrorStatus::SUCCESS);
+		if (initStatus != ErrorStatus::SUCCESS) {
+			return ResultStatus::error;
+		}
+
 		System::DelayUs(LL_COMP_DELAY_VOLTAGE_SCALER_STAB_US);
 
 		SetTriggerMode(parameters.triggerMode);
 
 		return AfterInitialization();
 	}
-
-
-
 
 
 private:
