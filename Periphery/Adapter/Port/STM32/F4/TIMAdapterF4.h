@@ -88,7 +88,7 @@ public:
 
 
 		// Capture compare 2 event
-		if (LL_TIM_IsActiveFlag_CC1(timHandle) && LL_TIM_IsEnabledIT_CC1(timHandle)) {
+		if (LL_TIM_IsActiveFlag_CC2(timHandle) && LL_TIM_IsEnabledIT_CC2(timHandle)) {
 			LL_TIM_ClearFlag_CC2(timHandle);
 			if ((timHandle->CCMR1 & TIM_CCMR1_CC2S) != 0x00U) {
 				CallInputCaptureEvent(2);
@@ -101,7 +101,7 @@ public:
 		// Capture compare 3 event
 		if (LL_TIM_IsActiveFlag_CC3(timHandle) && LL_TIM_IsEnabledIT_CC3(timHandle)) {
 			LL_TIM_ClearFlag_CC3(timHandle);
-			if ((timHandle->CCMR1 & TIM_CCMR2_CC3S) != 0x00U) {
+			if ((timHandle->CCMR2 & TIM_CCMR2_CC3S) != 0x00U) {
 				CallInputCaptureEvent(3);
 			} else {
 				CallOutputCompareEvent(3);
@@ -110,9 +110,9 @@ public:
 
 
 		// Capture compare 4 event
-		if (LL_TIM_IsActiveFlag_CC3(timHandle) && LL_TIM_IsEnabledIT_CC3(timHandle)) {
+		if (LL_TIM_IsActiveFlag_CC4(timHandle) && LL_TIM_IsEnabledIT_CC4(timHandle)) {
 			LL_TIM_ClearFlag_CC4(timHandle);
-			if ((timHandle->CCMR1 & TIM_CCMR2_CC4S) != 0x00U) {
+			if ((timHandle->CCMR2 & TIM_CCMR2_CC4S) != 0x00U) {
 				CallInputCaptureEvent(4);
 			} else {
 				CallOutputCompareEvent(4);

@@ -6,8 +6,22 @@
 using ASPI = class SPIAdapterF4;
 
 
+// SPI on the F4 peripheral. The BSP enables the instance clock before SetParameters() and forwards SPIx_IRQn to IrqHandler().
+//
+// Asynchronous reads run the clock: a read starts a transmit of dummy bytes (0xFF) with the receive, so a master gives the
+// clock the slave needs. Abort functions stop the whole frame stream, both directions, because the two share one clock.
+// Continuous receive is started with StartContinuousAsyncRxMode() and stopped with StopContinuousAsyncRxMode().
+//
+// Not supported: continuous transmit (SetContinuousAsyncTxMode), CRC, and transfers larger than 65535 bytes, which the base
+// class counts in 16 bits.
+
+
 class SPIAdapterF4: public SPIAdapter<SPI_TypeDef> {
 private:
+	// The base class counts transfers in 16 bits. A longer transfer is refused, not cut to its low 16 bits.
+	constexpr static uint32 maxTransferSize = 0xFFFFU;
+
+
 	struct BaudRatePrescaler {
 		uint32 value;
 		uint16 prescaler;
@@ -23,108 +37,37 @@ public:
 	}
 
 
+
 	virtual void AbortReceive() override {
-
+		AbortAllTransfers();
 	}
-
-
 
 
 
 	virtual void AbortTransmit() override {
-
+		AbortAllTransfers();
 	}
 
 
 
-
+	// Errors are served before data, so an overrun is cleared before the receive handler looks at RXNE.
 	virtual void IrqHandler() override {
+		ErrorInterrupt();
 		ReceiveInterrupt();
 		TransmitInterrupt();
-		ErrorInterrupt();
 	}
 
 
 
-
-
-private:
-	inline void ErrorInterrupt() {
-		if(LL_SPI_IsActiveFlag_MODF(spiHandle) && LL_SPI_IsEnabledIT_ERR(spiHandle)) {
-			CallError(Error::ModeFault);
+	// Parameters are only installed while the instance is idle. The base class would store them before Initialization()
+	// refuses a busy instance, and an in-flight transfer would then run with settings it did not start with.
+	virtual Result<uint32> SetParameters(Parameters val) override {
+		if(txState != ResultStatus::ready || rxState != ResultStatus::ready) {
+			return ResultStatus::busy;
 		}
 
-		if(LL_SPI_IsActiveFlag_FRE(spiHandle) && LL_SPI_IsEnabledIT_ERR(spiHandle)) {
-			CallError(Error::FrameFormat);
-		}
-
-		if(LL_SPI_IsActiveFlag_OVR(spiHandle) && LL_SPI_IsEnabledIT_ERR(spiHandle)) {
-			CallError(Error::Overrun);
-		}
+		return SPIAdapter::SetParameters(val);
 	}
-
-
-
-
-
-	inline void ReceiveInterrupt() {
-		if (LL_SPI_IsActiveFlag_OVR(spiHandle) || !LL_SPI_IsActiveFlag_RXNE(spiHandle) || !LL_SPI_IsEnabledIT_RXNE(spiHandle)) {
-			return;
-		}
-
-		lastRxData = LL_SPI_ReceiveData8(spiHandle);
-
-		if(continuousAsyncRxMode) {
-			CallInterrupt(Irq::Rx);
-			return;
-		}
-
-		*rxDataPointer++ = lastRxData;
-
-		if (++rxDataCounter < rxDataNeed) {
-			return;
-		}
-
-		if(txState == ResultStatus::ready) {
-			LL_SPI_DisableIT_ERR(spiHandle);
-		}
-		LL_SPI_DisableIT_RXNE(spiHandle);
-
-		rxState = ResultStatus::ready;
-
-		CallInterrupt(Irq::Rx);
-	}
-
-
-
-
-
-	inline void TransmitInterrupt() {
-		if (!LL_SPI_IsActiveFlag_TXE(spiHandle) && !LL_SPI_IsEnabledIT_TXE(spiHandle)) {
-			return;
-		}
-
-		if(continuousAsyncTxMode) {
-			SystemAbort(); // TODO: continuous
-			return;
-		}
-
-		LL_SPI_TransmitData8(spiHandle, *(uint8*)txDataPointer++);
-
-		if (++txDataCounter < txDataNeed) {
-			return;
-		}
-
-		if(rxState == ResultStatus::ready) {
-			LL_SPI_DisableIT_ERR(spiHandle);
-		}
-		LL_SPI_DisableIT_TXE(spiHandle);
-
-		txState = ResultStatus::ready;
-
-		CallInterrupt(Irq::Tx);
-	}
-
 
 
 
@@ -132,7 +75,7 @@ private:
 
 protected:
 	virtual ResultStatus Initialization() override {
-		auto status = BeforeInitialization();
+		ResultStatus status = BeforeInitialization();
 		if(status != ResultStatus::ok) {
 			return status;
 		}
@@ -161,7 +104,6 @@ protected:
 
 		return AfterInitialization();
 	}
-
 
 
 
@@ -199,12 +141,13 @@ protected:
 
 
 
-
 	virtual ResultStatus StartContinuousAsyncRxMode() {
-		if (rxState != ResultStatus::ready) {
+		if (txState != ResultStatus::ready || rxState != ResultStatus::ready) {
 			return ResultStatus::busy;
 		}
 
+		// The mode is set before the interrupts are enabled, so a byte that arrives at once takes the continuous path.
+		continuousAsyncRxMode = true;
 		rxState = ResultStatus::busy;
 		txDataNeed = 0;
 		txDataPointer = 0;
@@ -222,8 +165,26 @@ protected:
 
 
 
+	// Stops the continuous receive only. A write in progress keeps its interrupts and state. Outside continuous receive there
+	// is nothing to stop, and a one-shot read in progress is left alone.
 	virtual ResultStatus StopContinuousAsyncRxMode() {
-		return ResultStatus::notSupported;
+		if (!continuousAsyncRxMode) {
+			return ResultStatus::ok;
+		}
+
+		uint32 primask = __get_PRIMASK();
+		__disable_irq();
+		LL_SPI_DisableIT_RXNE(spiHandle);
+		rxState = ResultStatus::ready;
+		rxDataPointer = nullptr;
+		rxDataNeed = 0;
+		rxDataCounter = 0;
+		if (txState == ResultStatus::ready) {
+			LL_SPI_DisableIT_ERR(spiHandle);
+		}
+		__set_PRIMASK(primask);
+
+		return ResultStatus::ok;
 	}
 
 
@@ -231,6 +192,10 @@ protected:
 
 
 	inline virtual ResultStatus WriteByteArray(uint8 *buffer, uint32 size) override {
+		if (size > maxTransferSize) {
+			return ResultStatus::invalidParameter;
+		}
+
 		if (txState != ResultStatus::ready) {
 			return ResultStatus::busy;
 		}
@@ -279,6 +244,10 @@ protected:
 
 
 	inline virtual ResultStatus ReadByteArray(uint8 *buffer, uint32 size) override {
+		if (size > maxTransferSize) {
+			return ResultStatus::invalidParameter;
+		}
+
 		if (rxState != ResultStatus::ready) {
 			return ResultStatus::busy;
 		}
@@ -293,6 +262,18 @@ protected:
 
 
 		for (rxDataCounter = 0; rxDataCounter < rxDataNeed; rxDataCounter++) {
+			// A master receives only while it clocks the bus, so each byte is sent as 0xFF before its reply is read.
+			if (parameters.mode == Mode::Master) {
+				while(!LL_SPI_IsActiveFlag_TXE(spiHandle)) {
+					if((System::GetTick() - tickStart) > timeout) {
+						rxState = ResultStatus::ready;
+						return ResultStatus::timeout;
+					}
+				}
+
+				LL_SPI_TransmitData8(spiHandle, 0xFF);
+			}
+
 			while(!LL_SPI_IsActiveFlag_RXNE(spiHandle)) {
 				if((System::GetTick() - tickStart) > timeout) {
 					// Keep SPI enabled even on timeout
@@ -317,6 +298,10 @@ protected:
 
 
 	inline virtual ResultStatus WriteReadByteArray(uint8 *txBuffer, uint8 *rxBuffer, uint32 size) override {
+		if (size > maxTransferSize) {
+			return ResultStatus::invalidParameter;
+		}
+
 		if (txState != ResultStatus::ready || rxState != ResultStatus::ready) {
 			return ResultStatus::busy;
 		}
@@ -384,6 +369,10 @@ protected:
 
 
 	inline virtual ResultStatus WriteByteArrayAsync(uint8 *buffer, uint32 size) override {
+		if (size == 0 || size > maxTransferSize) {
+			return ResultStatus::invalidParameter;
+		}
+
 		if (txState != ResultStatus::ready) {
 			return ResultStatus::busy;
 		}
@@ -405,20 +394,32 @@ protected:
 
 
 
+	// Receives into the buffer and clocks out dummy bytes at the same time. The transmit counter follows the receive count,
+	// and both directions are busy until each one has finished.
 	inline virtual ResultStatus ReadByteArrayAsync(uint8 *buffer, uint32 size) override {
-		if (rxState != ResultStatus::ready) {
+		if (size == 0 || size > maxTransferSize) {
+			return ResultStatus::invalidParameter;
+		}
+
+		if (rxState != ResultStatus::ready || txState != ResultStatus::ready) {
 			return ResultStatus::busy;
 		}
 
 		rxState = ResultStatus::busy;
+		rxDataNeed = size;
+		rxDataCounter = 0;
+		rxDataPointer = buffer;
+
+		txState = ResultStatus::busy;
 		txDataNeed = size;
-		txDataPointer = buffer;
 		txDataCounter = 0;
+		txDataPointer = nullptr;
 
 		LL_SPI_EnableIT_RXNE(spiHandle);
-		LL_SPI_EnableIT_ERR(spiHandle); // TODO:SetContinuousAsyncRxMode
+		LL_SPI_EnableIT_TXE(spiHandle);
+		LL_SPI_EnableIT_ERR(spiHandle);
 
-		if(!LL_SPI_IsEnabled(spiHandle)) { // TODO:SetContinuousAsyncRxMode
+		if(!LL_SPI_IsEnabled(spiHandle)) {
 			LL_SPI_Enable(spiHandle);
 		}
 
@@ -430,6 +431,10 @@ protected:
 
 
 	inline virtual ResultStatus WriteReadByteArrayAsync(uint8 *txBuffer, uint8 *rxBuffer, uint32 size) override {
+		if (size == 0 || size > maxTransferSize) {
+			return ResultStatus::invalidParameter;
+		}
+
 		if (txState != ResultStatus::ready || rxState != ResultStatus::ready) {
 			return ResultStatus::busy;
 		}
@@ -446,9 +451,9 @@ protected:
 
 		LL_SPI_EnableIT_TXE(spiHandle);
 		LL_SPI_EnableIT_RXNE(spiHandle);
-		LL_SPI_EnableIT_ERR(spiHandle); // TODO:SetContinuousAsyncRxMode
+		LL_SPI_EnableIT_ERR(spiHandle);
 
-		if(!LL_SPI_IsEnabled(spiHandle)) { // TODO:SetContinuousAsyncRxMode
+		if(!LL_SPI_IsEnabled(spiHandle)) {
 			LL_SPI_Enable(spiHandle);
 		}
 
@@ -460,6 +465,167 @@ protected:
 
 
 private:
+	// Reads and clears the error flags. Each flag is reported when its error interrupt is enabled. The flags are cleared
+	// either way, so a flag left set cannot block the receive handler.
+	inline void ErrorInterrupt() {
+		bool errorInterruptEnabled = LL_SPI_IsEnabledIT_ERR(spiHandle);
+
+		if(LL_SPI_IsActiveFlag_MODF(spiHandle)) {
+			// LL_SPI_ClearFlag_MODF clears SPE as well, so the instance is enabled again or it stays silent for good.
+			LL_SPI_ClearFlag_MODF(spiHandle);
+			LL_SPI_Enable(spiHandle);
+
+			if(errorInterruptEnabled) {
+				CallError(Error::ModeFault);
+			}
+		}
+
+		if(LL_SPI_IsActiveFlag_FRE(spiHandle)) {
+			LL_SPI_ClearFlag_FRE(spiHandle);
+
+			if(errorInterruptEnabled) {
+				CallError(Error::FrameFormat);
+			}
+		}
+
+		// An overrun is a fault only while a receive waits for its byte. A write does not read the receive register, so the
+		// overrun it causes is expected. The flag is cleared either way.
+		if(LL_SPI_IsActiveFlag_OVR(spiHandle)) {
+			LL_SPI_ClearFlag_OVR(spiHandle);
+
+			if(errorInterruptEnabled && rxState == ResultStatus::busy) {
+				CallError(Error::Overrun);
+			}
+		}
+
+		// CRC is not enabled by Initialization(), so this flag cannot be raised. Clearing it keeps a stray flag from
+		// holding the error interrupt. The base error enum has no CRC entry, so it is not reported.
+		if(LL_SPI_IsActiveFlag_CRCERR(spiHandle)) {
+			LL_SPI_ClearFlag_CRCERR(spiHandle);
+		}
+	}
+
+
+
+	inline void ReceiveInterrupt() {
+		if (LL_SPI_IsActiveFlag_OVR(spiHandle) || !LL_SPI_IsActiveFlag_RXNE(spiHandle) || !LL_SPI_IsEnabledIT_RXNE(spiHandle)) {
+			return;
+		}
+
+		lastRxData = LL_SPI_ReceiveData8(spiHandle);
+
+		if(continuousAsyncRxMode) {
+			CallInterrupt(Irq::Rx);
+			return;
+		}
+
+		*rxDataPointer++ = lastRxData;
+
+		if (++rxDataCounter < rxDataNeed) {
+			return;
+		}
+
+		if(txState == ResultStatus::ready) {
+			LL_SPI_DisableIT_ERR(spiHandle);
+		}
+		LL_SPI_DisableIT_RXNE(spiHandle);
+
+		rxState = ResultStatus::ready;
+
+		CallInterrupt(Irq::Rx);
+	}
+
+
+
+	// A transmit with no data pointer is the clock of a read: it sends dummy bytes and reports no Tx event.
+	inline void TransmitInterrupt() {
+		if (!LL_SPI_IsEnabledIT_TXE(spiHandle) || !LL_SPI_IsActiveFlag_TXE(spiHandle)) {
+			return;
+		}
+
+		if(continuousAsyncTxMode) {
+			SystemAbort(); // TODO: continuous
+			return;
+		}
+
+		bool isDummy = txDataPointer == nullptr;
+		uint8 frame = 0xFF;
+
+		if(!isDummy) {
+			frame = *txDataPointer;
+			txDataPointer++;
+		}
+
+		LL_SPI_TransmitData8(spiHandle, frame);
+
+		if (++txDataCounter < txDataNeed) {
+			return;
+		}
+
+		if(rxState == ResultStatus::ready) {
+			LL_SPI_DisableIT_ERR(spiHandle);
+		}
+		LL_SPI_DisableIT_TXE(spiHandle);
+
+		txState = ResultStatus::ready;
+
+		if(!isDummy) {
+			CallInterrupt(Irq::Tx);
+		}
+	}
+
+
+
+	// Stops both directions and clears their state. Interrupts are masked while the state changes, so an interrupt cannot
+	// finish the transfer after the caller has aborted it.
+	void StopAsyncState() {
+		LL_SPI_DisableIT_TXE(spiHandle);
+		LL_SPI_DisableIT_RXNE(spiHandle);
+		LL_SPI_DisableIT_ERR(spiHandle);
+
+		txState = ResultStatus::ready;
+		txDataPointer = nullptr;
+		txDataNeed = 0;
+		txDataCounter = 0;
+
+		rxState = ResultStatus::ready;
+		rxDataPointer = nullptr;
+		rxDataNeed = 0;
+		rxDataCounter = 0;
+
+		continuousAsyncRxMode = false;
+	}
+
+
+
+	// A frame on the wire finishes first, then its byte is dropped and the error flags are cleared, so the next transfer
+	// does not start with a stale byte.
+	void AbortAllTransfers() {
+		uint32 primask = __get_PRIMASK();
+		__disable_irq();
+		StopAsyncState();
+		__set_PRIMASK(primask);
+
+		uint32 tickStart = System::GetTick();
+		while(LL_SPI_IsActiveFlag_BSY(spiHandle)) {
+			if((System::GetTick() - tickStart) > timeout) {
+				break;
+			}
+		}
+
+		if(LL_SPI_IsActiveFlag_RXNE(spiHandle)) {
+			lastRxData = LL_SPI_ReceiveData8(spiHandle);
+		}
+
+		if(LL_SPI_IsActiveFlag_OVR(spiHandle)) {
+			LL_SPI_ClearFlag_OVR(spiHandle);
+		}
+
+		ChipSelect(false);
+	}
+
+
+
 	constexpr uint32 CastTransferDirection() const {
 		switch (parameters.direction) {
 			case Direction::Tx: return LL_SPI_HALF_DUPLEX_TX;

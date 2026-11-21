@@ -244,7 +244,7 @@ protected:
 
 
 
-	virtual ResultStatus InjectedInitialization(uint8 rankLength) override {
+	virtual ResultStatus InjectedInitialization(uint8) override {
 		return ResultStatus::notSupported;
 	}
 
@@ -252,8 +252,68 @@ protected:
 
 
 
+	// Blocking single read. With a software trigger it starts one conversion, and with an external trigger it waits for the
+	// trigger. Each end of conversion is waited for with the adapter timeout.
+	// Each result takes the resolution's byte count, low byte first, so a read of size bytes gets size / bytes results.
+	// Results past the length of the regular sequence never come, and the read then ends with timeout.
 	virtual ResultStatus ReadByteArray(uint8 *buffer, uint16 size) override {
-		return ResultStatus::notSupported;
+		if (state != ResultStatus::ready) {
+			return ResultStatus::busy;
+		}
+
+		if (!LL_ADC_IsEnabled(adcHandle)) {
+			LL_ADC_Enable(adcHandle);
+			System::DelayUs(stabilizationTime);
+		}
+
+		if (!LL_ADC_IsEnabled(adcHandle)) {
+			return ResultStatus::notAvailable;
+		}
+
+		uint8 bytes = GetResolutionByte();
+		uint16 count = static_cast<uint16>(size / bytes);
+		if (count == 0) {
+			return ResultStatus::invalidParameter;
+		}
+
+		state = ResultStatus::busy;
+
+		// The end-of-conversion interrupt stays off, so the handler does not take the flag this read polls.
+		LL_ADC_DisableIT_EOCS(adcHandle);
+		LL_ADC_ClearFlag_EOCS(adcHandle);
+
+		if (LL_ADC_REG_IsTriggerSourceSWStart(adcHandle)) {
+			LL_ADC_REG_StartConversionSWStart(adcHandle);
+		}
+
+		ResultStatus status = ResultStatus::ok;
+
+		for (uint16 i = 0; i < count && status == ResultStatus::ok; i++) {
+			uint64 tickStart = System::GetTick();
+
+			while (!LL_ADC_IsActiveFlag_EOCS(adcHandle)) {
+				if ((System::GetTick() - tickStart) > timeout) {
+					status = ResultStatus::timeout;
+					break;
+				}
+			}
+
+			if (status != ResultStatus::ok) {
+				break;
+			}
+
+			LL_ADC_ClearFlag_EOCS(adcHandle);
+			uint16 value = ReadConversionData();
+
+			buffer[0] = static_cast<uint8>(value & 0xFF);
+			if (bytes == 2) {
+				buffer[1] = static_cast<uint8>(value >> 8);
+			}
+			buffer += bytes;
+		}
+
+		state = ResultStatus::ready;
+		return status;
 	}
 
 
@@ -261,6 +321,11 @@ protected:
 
 
 	virtual ResultStatus ReadByteArrayAsync(uint8 *buffer, uint16 size) override {
+		// A size below one result would make dataNeed zero, and the first conversion would then write past the buffer.
+		if (size / GetResolutionByte() == 0) {
+			return ResultStatus::invalidParameter;
+		}
+
 		if (state != ResultStatus::ready) {
 			return ResultStatus::busy;
 		}
@@ -297,7 +362,7 @@ protected:
 
 
 
-	virtual Result<uint32> SetInjectedChannel(const InjecteChannel &channel, uint8 rank) override {
+	virtual Result<uint32> SetInjectedChannel(const InjecteChannel &, uint8) override {
 		return { ResultStatus::notSupported };
 	}
 
