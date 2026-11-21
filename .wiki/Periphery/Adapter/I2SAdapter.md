@@ -246,6 +246,15 @@ if (mic.Receive(samples, 256) == ResultStatus::ok) {
 }
 ```
 
+## STM32 Ports
+
+`AI2S` is `I2SAdapterF4`, `I2SAdapterG0` or `I2SAdapterG4` (`Periphery/Adapter/Port/STM32/<family>/I2SAdapter<family>.h`). `HandleType` is `SPI_TypeDef`: the SPI block in I2S mode.
+
+- `SetParameters()` returns `notSupported` for `Standard::PDM`, for `Direction::TxRx` (full duplex needs a second block, which the ports do not model), for a slot count other than two, and for an instance the chip does not have. `sampleRateHz` of 0 returns `invalidParameter`.
+- `TransmitReceive()` and `TransmitReceiveAsync()` return `notSupported` on every STM32 port. They never return `ok` without moving data.
+- Transmit and receive, blocking, asynchronous and circular, work as the contract above describes. Async and circular sizes must cover whole frames in both halves (see the port header).
+- The BSP enables the bus clock of the instance and selects the I2S kernel clock. Master mode needs `busClockHz`.
+
 ## BSP Configuration Example
 
 ```cpp

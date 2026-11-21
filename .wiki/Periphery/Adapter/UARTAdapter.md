@@ -49,7 +49,7 @@ struct Parameters {
 | `Write(DataType data)` | `ResultStatus` | Send a single value |
 | `WriteArray(DataType* buffer, uint32 size)` | `ResultStatus` | Send an array of values |
 | `WriteString(char* string)` | `ResultStatus` | Send a null-terminated string |
-| `Read(uint32 size)` | `Result<DataType>` | Read a single value |
+| `Read<DataType>()` | `Result<DataType>` | Read one value of `DataType` (`sizeof(DataType)` bytes). For several values use `ReadArray()` |
 | `ReadArray(DataType* buffer, uint32 size)` | `ResultStatus` | Read an array of values |
 
 ## Asynchronous API
@@ -59,8 +59,10 @@ struct Parameters {
 | `WriteAsync(DataType& data)` | `ResultStatus` | Non-blocking send |
 | `WriteArrayAsync(DataType* buffer, uint32 size)` | `ResultStatus` | Non-blocking array send |
 | `WriteStringAsync(char* string)` | `ResultStatus` | Non-blocking string send |
-| `ReadAsync(DataType& data)` | `ResultStatus` | Non-blocking read |
+| `ReadAsync(DataType& data)` | `ResultStatus` | Non-blocking read of one value (`sizeof(DataType)` bytes) |
 | `ReadArrayAsync(DataType* buffer, uint32 size)` | `ResultStatus` | Non-blocking array read |
+
+Every asynchronous call returns `invalidParameter` for a size of 0 (a `WriteStringAsync("")` included), and sends or receives nothing. The synchronous calls keep their behaviour.
 
 ## Configuration & Control
 
@@ -68,11 +70,13 @@ struct Parameters {
 |--------|--------|-------------|
 | `SetParameters(Parameters val)` | `ResultStatus` | Apply configuration and reinitialize |
 | `SetTimeout(uint32 val)` | `void` | Set timeout for synchronous operations (ms) |
-| `SetContinuousAsyncTxMode(bool)` | `ResultStatus` | Enable/disable continuous TX interrupt mode |
+| `SetContinuousAsyncTxMode(bool)` | `ResultStatus` | Continuous TX. Returns `notSupported` on every STM32 port and on the base class |
 | `SetContinuousAsyncRxMode(bool)` | `ResultStatus` | Enable/disable continuous RX interrupt mode |
 | `GetLastRxData()` | `uint16` | Get last received byte |
 | `GetRxState()` | `ResultStatus` | Get RX state (`ready`, `busy`, `error`) |
 | `GetTxState()` | `ResultStatus` | Get TX state |
+| `GetRxDataCounter()` | `uint32` | Bytes received by the current asynchronous read. Counts past 64 KB |
+| `GetTxDataCounter()` | `uint32` | Bytes sent by the current asynchronous write. Counts past 64 KB |
 | `AbortReceive()` | `void` | Abort active receive operation |
 | `AbortTransmit()` | `void` | Abort active transmit operation |
 | `AbortAll()` | `void` | Abort all operations |
@@ -107,6 +111,18 @@ AUART(uart_port_t uartPort, int tx, int rx, int rts = UART_PIN_NO_CHANGE, int ct
 - `WriteArrayAsync` and the other asynchronous writes copy the data into the driver TX buffer and call `onInterrupt(Irq::Tx)` from the calling context before returning.
 - `onError` reports `Error::Overrun` (FIFO overflow or buffer full), `Error::Frame` and `Error::Parity`. `Error::Noise` is not reported.
 - Synchronous `Read` returns `timeout` when fewer bytes than requested arrive within the timeout. Synchronous `Write` returns `timeout` when the TX buffer does not drain within the timeout.
+
+## STM32 Ports
+
+`AUART` is `UARTAdapterF4`, `UARTAdapterG0` or `UARTAdapterG4`, with `HandleType` = `USART_TypeDef`.
+
+- `SetParameters()` waits for the transmitter (TEACK) and the receiver (REACK) that the `mode` enables, up to `SetTimeout()`, and returns `timeout` when one does not come. A receive-only port waits for REACK alone.
+- Continuous TX (`SetContinuousAsyncTxMode(true)`) returns `notSupported`. Continuous RX is supported.
+- Transfers above 64 KB are counted in full: the counters are `uint32`.
+
+### Shared vector on G0
+
+USART3, USART4 and LPUART1 share `USART3_4_LPUART1_IRQn`. The application's handler for that vector calls `IrqHandler()` of every UART adapter on it. Each adapter reads the flags and the interrupt enables of its own USART only, so the call that belongs to another USART does nothing. No adapter needs to know which USART fired.
 
 ## BSP Configuration Example (STM32)
 

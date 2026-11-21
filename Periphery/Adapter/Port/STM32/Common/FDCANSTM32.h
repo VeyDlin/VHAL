@@ -30,7 +30,9 @@
 //     each of them. The adapter serves every source on either line, so both calls are needed only to use both vectors. On
 //     G0 the lines are shared with timers (TIM16_FDCAN_IT0_IRQn, TIM17_FDCAN_IT1_IRQn): the handler calls IrqHandler() and
 //     the timer code.
-//   - Assign onReceive before Start(). The Rx FIFO 0 new-message interrupt is enabled by Start() only when it is set.
+//   - onReceive may be assigned at any time. The Rx FIFO 0 new-message interrupt is on while the controller is started,
+//     so a handler assigned later is served from the next frame. Frames already in FIFO 0 stay there for Receive() until
+//     a new frame arrives.
 //
 // Timestamps: Frame::timestamp is the 16-bit timestamp counter, which counts CAN bit times (TSS = 01, TCP = 0) and wraps
 // every 65536 bit times.
@@ -149,12 +151,10 @@ public:
 			return ResultStatus::ok;
 		}
 
-		// Interrupts are enabled here rather than in Initialization(), so that onReceive assigned after SetParameters() is
-		// honoured. Without onReceive the new-message interrupt stays off: Receive() takes the frames from the FIFO.
-		uint32 interrupts = FDCAN_IE_RF0LE | FDCAN_IE_TEFNE | FDCAN_IE_TFEE | FDCAN_IE_EWE | FDCAN_IE_EPE | FDCAN_IE_BOE | FDCAN_IE_PEAE | FDCAN_IE_PEDE;
-		if (onReceive != nullptr) {
-			interrupts |= FDCAN_IE_RF0NE;
-		}
+		// Interrupts are enabled here rather than in Initialization(). The new-message interrupt is on for as long as the
+		// controller runs, so an onReceive assigned at any time is served. Without onReceive, ServiceReceive() clears the
+		// flag and leaves the frames for Receive(). The flag is an event, so the interrupt cannot re-enter by itself.
+		uint32 interrupts = FDCAN_IE_RF0NE | FDCAN_IE_RF0LE | FDCAN_IE_TEFNE | FDCAN_IE_TFEE | FDCAN_IE_EWE | FDCAN_IE_EPE | FDCAN_IE_BOE | FDCAN_IE_PEAE | FDCAN_IE_PEDE;
 
 		canHandle->IE = interrupts;
 		started = true;

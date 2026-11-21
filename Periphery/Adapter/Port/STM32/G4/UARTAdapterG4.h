@@ -90,8 +90,16 @@ protected:
 
 		LL_USART_Enable(uartHandle);
 
-		// Polling USART initialisation
-		while((!(LL_USART_IsActiveFlag_TEACK(uartHandle))) || (!(LL_USART_IsActiveFlag_REACK(uartHandle))));
+		// Wait for the transmitter and the receiver that the mode enables. A receive-only port never sets TEACK.
+		bool transmitterEnabled = parameters.mode != Mode::Rx;
+		bool receiverEnabled = parameters.mode != Mode::Tx;
+		uint32 tickStart = System::GetTick();
+
+		while((transmitterEnabled && !LL_USART_IsActiveFlag_TEACK(uartHandle)) || (receiverEnabled && !LL_USART_IsActiveFlag_REACK(uartHandle))) {
+			if((System::GetTick() - tickStart) > timeout) {
+				return ResultStatus::timeout;
+			}
+		}
 
 		return AfterInitialization();
 	}
@@ -196,11 +204,29 @@ protected:
 		rxDataNeed = size;
 		rxDataCounter = 0;
 
+		ClearErrorFlags();
+
 		LL_USART_EnableIT_PE(uartHandle);
 		LL_USART_EnableIT_RXNE(uartHandle);
 		LL_USART_EnableIT_ERROR(uartHandle);
 
 		return ResultStatus::ok;
+	}
+
+
+
+
+
+	virtual ResultStatus StartContinuousAsyncTxMode() override {
+		return ResultStatus::notSupported;
+	}
+
+
+
+
+
+	virtual ResultStatus StopContinuousAsyncTxMode() override {
+		return ResultStatus::notSupported;
 	}
 
 
@@ -263,6 +289,19 @@ private:
 		if(LL_USART_IsActiveFlag_ORE(uartHandle) && (LL_USART_IsEnabledIT_ERROR(uartHandle) || LL_USART_IsEnabledIT_RXNE(uartHandle))) {
 			CallError(Error::Overrun);
 		}
+
+		ClearErrorFlags();
+	}
+
+
+
+	// The flags are cleared through the ICR, so they do not wait for a data read. A flag set while the error interrupt is
+	// off is cleared when the next asynchronous read starts, so it is not reported as a stale error.
+	inline void ClearErrorFlags() {
+		LL_USART_ClearFlag_PE(uartHandle);
+		LL_USART_ClearFlag_FE(uartHandle);
+		LL_USART_ClearFlag_NE(uartHandle);
+		LL_USART_ClearFlag_ORE(uartHandle);
 	}
 
 
@@ -303,11 +342,6 @@ private:
 
 	inline void TransmitInterrupt() {
 		if(!LL_USART_IsActiveFlag_TXE(uartHandle) || !LL_USART_IsEnabledIT_TXE(uartHandle)) {
-			return;
-		}
-
-		if(continuousAsyncTxMode) {
-			SystemAbort(); // TODO: [VHAL] [UART] [G4] [ADD SUPPORT] continuous
 			return;
 		}
 

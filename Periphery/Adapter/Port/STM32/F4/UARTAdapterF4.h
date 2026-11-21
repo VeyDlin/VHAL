@@ -188,11 +188,33 @@ protected:
 		rxDataNeed = size;
 		rxDataCounter = 0;
 
+		// A waiting byte is kept: the receive interrupt enabled below reads it, and that read clears the flags. The clear
+		// here reads the data register, so it runs only when no byte is waiting.
+		if(!LL_USART_IsActiveFlag_RXNE(uartHandle) && AnyErrorFlag()) {
+			LL_USART_ClearFlag_ORE(uartHandle);
+		}
+
 		LL_USART_EnableIT_PE(uartHandle);		// parity error interrupt
 		LL_USART_EnableIT_RXNE(uartHandle);		// receive data interrupt
 		LL_USART_EnableIT_ERROR(uartHandle);	// error interrupt (Frame error, noise error, overrun error)
 
 		return ResultStatus::ok;
+	}
+
+
+
+
+
+	virtual ResultStatus StartContinuousAsyncTxMode() override {
+		return ResultStatus::notSupported;
+	}
+
+
+
+
+
+	virtual ResultStatus StopContinuousAsyncTxMode() override {
+		return ResultStatus::notSupported;
 	}
 
 
@@ -255,6 +277,25 @@ private:
 		if(LL_USART_IsActiveFlag_ORE(uartHandle) && (LL_USART_IsEnabledIT_ERROR(uartHandle) || LL_USART_IsEnabledIT_RXNE(uartHandle))) {
 			CallError(Error::Overrun);
 		}
+
+		// A pending receive interrupt reads the data register, which clears the flags together with the status read. The
+		// flags raise this interrupt only with RXNEIE or EIE set; then, without a pending read, they are cleared here so
+		// they do not raise it again. With both off (a blocking Read() waits for the byte) they are left alone, because
+		// the clear reads the data register and would take that byte.
+		bool flagsRaiseInterrupt = LL_USART_IsEnabledIT_RXNE(uartHandle) || LL_USART_IsEnabledIT_ERROR(uartHandle);
+		bool receiveReadPending = LL_USART_IsEnabledIT_RXNE(uartHandle) && LL_USART_IsActiveFlag_RXNE(uartHandle);
+		if(flagsRaiseInterrupt && !receiveReadPending && AnyErrorFlag()) {
+			LL_USART_ClearFlag_ORE(uartHandle);
+		}
+	}
+
+
+
+	// PE, FE, NE and ORE. The status register is read by each test, and the LL ClearFlag call of ORE reads the data
+	// register, which clears all four flags.
+	inline bool AnyErrorFlag() {
+		return LL_USART_IsActiveFlag_PE(uartHandle) || LL_USART_IsActiveFlag_FE(uartHandle)
+			|| LL_USART_IsActiveFlag_NE(uartHandle) || LL_USART_IsActiveFlag_ORE(uartHandle);
 	}
 
 
@@ -295,11 +336,6 @@ private:
 
 	inline void TransmitInterrupt() {
 		if(!LL_USART_IsActiveFlag_TXE(uartHandle) || !LL_USART_IsEnabledIT_TXE(uartHandle)) {
-			return;
-		}
-
-		if(continuousAsyncTxMode) {
-			SystemAbort(); // TODO: continuous
 			return;
 		}
 

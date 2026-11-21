@@ -116,6 +116,8 @@ public:
 
 
 
+
+
 	inline GPIOAdapter& Wait(bool state) {
 		while(GetState() != state);
 		return *this;
@@ -146,7 +148,9 @@ public:
 
 
 
-	inline void IrqHandler() {
+	// Called from the EXTI vector of the pin. The STM32 ports override it: they call this only when their own line is
+	// pending, and clear the pending bit first.
+	virtual inline void IrqHandler() {
 		if(onInterrupt != nullptr) {
 			onInterrupt(GetState());
 		}
@@ -205,6 +209,54 @@ public:
 
 
 protected:
+	// Index of the lowest bit of the pin mask: 0 to 15 for a pin of a port, and the EXTI line of the pin. A zero mask
+	// gives 31.
+	static constexpr uint8 PinIndex(uint32 pinMask) {
+		uint8 index = 0;
+		while(index < 31 && (pinMask & (1u << index)) == 0) {
+			index++;
+		}
+
+		return index;
+	}
+
+
+	static constexpr bool IsInterruptMode(Mode value) {
+		return value == Mode::InterruptRising || value == Mode::InterruptFalling || value == Mode::InterruptRisingFalling;
+	}
+
+
+	static constexpr bool IsEventMode(Mode value) {
+		return value == Mode::EventRising || value == Mode::EventFalling || value == Mode::EventRisingFalling;
+	}
+
+
+	// The rising edge that the mode selects for the EXTI line.
+	static constexpr bool HasRisingEdge(Mode value) {
+		return value == Mode::InterruptRising || value == Mode::InterruptRisingFalling
+			|| value == Mode::EventRising || value == Mode::EventRisingFalling;
+	}
+
+
+	// The falling edge that the mode selects for the EXTI line.
+	static constexpr bool HasFallingEdge(Mode value) {
+		return value == Mode::InterruptFalling || value == Mode::InterruptRisingFalling
+			|| value == Mode::EventFalling || value == Mode::EventRisingFalling;
+	}
+
+
+	// A pin may set up its EXTI line when no other port uses the line, or when this port already owns it.
+	static constexpr bool CanTakeExtiLine(bool lineInUse, bool lineOwned) {
+		return !lineInUse || lineOwned;
+	}
+
+
+	// A pin switches its EXTI line off when it leaves the interrupt or event modes, and only when it owns the line.
+	static constexpr bool ShouldReleaseExtiLine(bool lineInUse, bool lineOwned) {
+		return lineInUse && lineOwned;
+	}
+
+
 	virtual ResultStatus Initialization() = 0;
 
 

@@ -35,15 +35,15 @@ protected:
 
 	bool continuousAsyncRxMode = false;
 	ResultStatus rxState = ResultStatus::ready;
-	uint16 rxDataNeed = 0;
-	uint16 rxDataCounter = 0;
+	uint32 rxDataNeed = 0;
+	uint32 rxDataCounter = 0;
 	uint8 *rxDataPointer = nullptr;
 	uint8 lastRxData = 0;
 
 	bool continuousAsyncTxMode = false;
 	ResultStatus txState = ResultStatus::ready;
-	uint16 txDataNeed = 0;
-	uint16 txDataCounter = 0;
+	uint32 txDataNeed = 0;
+	uint32 txDataCounter = 0;
 	uint8 *txDataPointer = nullptr;
 
 
@@ -102,11 +102,12 @@ public:
 	}
 
 
+	// Reads one value of DataType. For several values use ReadArray().
 	template <typename DataType>
-	inline Result<DataType> Read(uint32 size = 1) {
+	inline Result<DataType> Read() {
 		DataType data;
 		return Result<DataType>::Capture(
-			ReadByteArray(reinterpret_cast<uint8*>(&data), sizeof(DataType) * size), data
+			ReadByteArray(reinterpret_cast<uint8*>(&data), sizeof(DataType)), data
 		);
 	}
 
@@ -122,7 +123,7 @@ public:
 
 	template <typename DataType>
 	inline ResultStatus WriteAsync(DataType &data) {
-		return WriteByteArrayAsync(reinterpret_cast<uint8*>(&data), sizeof(DataType));
+		return StartWriteAsync(reinterpret_cast<uint8*>(&data), sizeof(DataType));
 	}
 
 
@@ -131,7 +132,7 @@ public:
 
 	template <typename DataType>
 	ResultStatus WriteArrayAsync(DataType* buffer, uint32 size) {
-		return WriteByteArrayAsync(reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
+		return StartWriteAsync(reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
 	}
 
 
@@ -140,7 +141,7 @@ public:
 
 	template <typename DataType>
 	inline ResultStatus WriteArrayAsync(const DataType* buffer, uint32 size) {
-		return WriteByteArrayAsync(const_cast<uint8*>(reinterpret_cast<const uint8*>(buffer)), sizeof(DataType) * size);
+		return StartWriteAsync(const_cast<uint8*>(reinterpret_cast<const uint8*>(buffer)), sizeof(DataType) * size);
 	}
 
 
@@ -153,7 +154,7 @@ public:
 			size++;
 		}
 
-		return WriteByteArrayAsync(reinterpret_cast<uint8*>(string), size);
+		return StartWriteAsync(reinterpret_cast<uint8*>(string), static_cast<uint32>(size));
 	}
 
 
@@ -170,16 +171,17 @@ public:
 
 	template <typename DataType>
 	inline ResultStatus ReadArrayAsync(DataType* buffer, uint32 size = 1) {
-		return ReadByteArrayAsync(reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
+		return StartReadAsync(reinterpret_cast<uint8*>(buffer), sizeof(DataType) * size);
 	}
 
 
 
 
 
+	// Reads one value of DataType into data.
 	template <typename DataType>
-	inline ResultStatus ReadAsync(DataType &data, uint32 size = 1) {
-		return ReadByteArrayAsync(reinterpret_cast<uint8*>(&data), sizeof(DataType) * size);
+	inline ResultStatus ReadAsync(DataType &data) {
+		return StartReadAsync(reinterpret_cast<uint8*>(&data), sizeof(DataType));
 	}
 
 
@@ -242,11 +244,11 @@ public:
 		return txState;
 	}
 
-	virtual inline uint16 GetRxDataCounter() {
+	virtual inline uint32 GetRxDataCounter() {
 		return rxDataCounter;
 	}
 
-	virtual inline uint16 GetTxDataCounter() {
+	virtual inline uint32 GetTxDataCounter() {
 		return txDataCounter;
 	}
 
@@ -260,6 +262,27 @@ protected:
 	virtual ResultStatus WriteByteArrayAsync(uint8* buffer, uint32 size) = 0;
 	virtual ResultStatus ReadByteArrayAsync(uint8* buffer, uint32 size) = 0;
 
+
+	// Every asynchronous call returns invalidParameter for a size of 0 and sends or receives nothing. Size 0 is refused
+	// here, so no port starts a transfer that has no byte.
+	inline ResultStatus StartWriteAsync(uint8* buffer, uint32 size) {
+		if (size == 0) {
+			return ResultStatus::invalidParameter;
+		}
+
+		return WriteByteArrayAsync(buffer, size);
+	}
+
+
+	inline ResultStatus StartReadAsync(uint8* buffer, uint32 size) {
+		if (size == 0) {
+			return ResultStatus::invalidParameter;
+		}
+
+		return ReadByteArrayAsync(buffer, size);
+	}
+
+
 	virtual ResultStatus StartContinuousAsyncRxMode() {
 		return ResultStatus::notSupported;
 	}
@@ -268,6 +291,7 @@ protected:
 		return ResultStatus::notSupported;
 	}
 
+	// Continuous TX is not implemented on any port: the default is notSupported.
 	virtual ResultStatus StartContinuousAsyncTxMode() {
 		return ResultStatus::notSupported;
 	}

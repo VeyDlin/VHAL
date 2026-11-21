@@ -15,6 +15,24 @@ public:
 	GPIOAdapterG0(IO &io):GPIOAdapter(io) { }
 
 
+	// Serves only the EXTI line of this pin, and only while the pin is in an interrupt mode. G0 keeps the rising and the
+	// falling pending bits apart, so both are cleared before the user callback runs.
+	virtual inline void IrqHandler() override {
+		if((!LL_EXTI_IsActiveRisingFlag_0_31(pin) && !LL_EXTI_IsActiveFallingFlag_0_31(pin)) || !IsExtiOwned()) {
+			return;
+		}
+
+		LL_EXTI_ClearRisingFlag_0_31(pin);
+		LL_EXTI_ClearFallingFlag_0_31(pin);
+
+		if(!IsInterruptMode(parameters.mode)) {
+			return;
+		}
+
+		GPIOAdapter<GPIO_TypeDef>::IrqHandler();
+	}
+
+
 	static inline ResultStatus AlternateInit(AlternateParameters val) {
 		return GPIOAdapter<GPIO_TypeDef>::AlternateInitBase<AGPIO>(val);
 	}
@@ -71,6 +89,8 @@ protected:
 
 
 		if(IsNormal() || IsAlternate() || IsAnalog()) {
+			ReleaseExti();
+
 			LL_GPIO_InitTypeDef init = {
 				.Pin = pin,
 				.Mode = CastMode(),
@@ -88,8 +108,14 @@ protected:
 		if(IsInterrupt()) {
 			SystemAssert(interruptPeripheryInit != nullptr);
 
+			if(!IsExtiLineAvailable()) {
+				return ResultStatus::notAvailable;
+			}
+
 			LL_GPIO_SetPinPull(port, pin, CastPull());
 			LL_GPIO_SetPinMode(port, pin, LL_GPIO_MODE_INPUT);
+
+			ConfigureExti();
 
 			InterruptInitialization();
 
@@ -100,8 +126,14 @@ protected:
 		if(IsEvent()) {
 			SystemAssert(eventPeripheryInit != nullptr);
 
+			if(!IsExtiLineAvailable()) {
+				return ResultStatus::notAvailable;
+			}
+
 			LL_GPIO_SetPinPull(port, pin, CastPull());
 			LL_GPIO_SetPinMode(port, pin, LL_GPIO_MODE_INPUT);
+
+			ConfigureExti();
 
 			EventInitialization();
 
@@ -200,6 +232,129 @@ protected:
 
 
 private:
+	static inline constexpr uint32 ExtiLines[16] = {
+		LL_EXTI_CONFIG_LINE0, LL_EXTI_CONFIG_LINE1, LL_EXTI_CONFIG_LINE2, LL_EXTI_CONFIG_LINE3,
+		LL_EXTI_CONFIG_LINE4, LL_EXTI_CONFIG_LINE5, LL_EXTI_CONFIG_LINE6, LL_EXTI_CONFIG_LINE7,
+		LL_EXTI_CONFIG_LINE8, LL_EXTI_CONFIG_LINE9, LL_EXTI_CONFIG_LINE10, LL_EXTI_CONFIG_LINE11,
+		LL_EXTI_CONFIG_LINE12, LL_EXTI_CONFIG_LINE13, LL_EXTI_CONFIG_LINE14, LL_EXTI_CONFIG_LINE15
+	};
+
+
+
+	// The line is in use when an interrupt, event or edge enable of it is set. The port selection is in EXTI_EXTICR,
+	// which is part of the EXTI block, so the owner is read without a clock.
+	bool IsExtiLineInUse() {
+		return LL_EXTI_IsEnabledIT_0_31(pin) != 0 || LL_EXTI_IsEnabledEvent_0_31(pin) != 0
+			|| LL_EXTI_IsEnabledRisingTrig_0_31(pin) != 0 || LL_EXTI_IsEnabledFallingTrig_0_31(pin) != 0;
+	}
+
+
+
+	bool IsExtiOwned() {
+		return LL_EXTI_GetEXTISource(ExtiLines[PinIndex(pin)]) == CastExtiPort();
+	}
+
+
+
+	bool IsExtiLineAvailable() {
+		bool lineInUse = IsExtiLineInUse();
+		return CanTakeExtiLine(lineInUse, lineInUse && IsExtiOwned());
+	}
+
+
+
+	// Switches the EXTI line of this pin off when the pin owns it. Called when the pin leaves the interrupt and event
+	// modes, so that its edges no longer raise the line.
+	void ReleaseExti() {
+		bool lineInUse = IsExtiLineInUse();
+		if(!ShouldReleaseExtiLine(lineInUse, lineInUse && IsExtiOwned())) {
+			return;
+		}
+
+		LL_EXTI_DisableIT_0_31(pin);
+		LL_EXTI_DisableEvent_0_31(pin);
+		LL_EXTI_DisableRisingTrig_0_31(pin);
+		LL_EXTI_DisableFallingTrig_0_31(pin);
+		LL_EXTI_ClearRisingFlag_0_31(pin);
+		LL_EXTI_ClearFallingFlag_0_31(pin);
+	}
+
+
+
+	// Selects the port and the edges of the EXTI line, and sets the interrupt or the event mask. The port selection is
+	// in EXTI_EXTICR, which is part of the EXTI block, so no SYSCFG clock is needed.
+	void ConfigureExti() {
+		LL_EXTI_SetEXTISource(CastExtiPort(), ExtiLines[PinIndex(pin)]);
+
+		LL_EXTI_DisableIT_0_31(pin);
+		LL_EXTI_DisableEvent_0_31(pin);
+		LL_EXTI_ClearRisingFlag_0_31(pin);
+		LL_EXTI_ClearFallingFlag_0_31(pin);
+
+		if(HasRisingEdge(parameters.mode)) {
+			LL_EXTI_EnableRisingTrig_0_31(pin);
+		} else {
+			LL_EXTI_DisableRisingTrig_0_31(pin);
+		}
+
+		if(HasFallingEdge(parameters.mode)) {
+			LL_EXTI_EnableFallingTrig_0_31(pin);
+		} else {
+			LL_EXTI_DisableFallingTrig_0_31(pin);
+		}
+
+		if(IsInterruptMode(parameters.mode)) {
+			LL_EXTI_EnableIT_0_31(pin);
+		} else {
+			LL_EXTI_EnableEvent_0_31(pin);
+		}
+	}
+
+
+
+	uint32 CastExtiPort() const {
+#ifdef GPIOA
+		if(port == GPIOA) {
+			return LL_EXTI_CONFIG_PORTA;
+		}
+#endif
+
+#ifdef GPIOB
+		if(port == GPIOB) {
+			return LL_EXTI_CONFIG_PORTB;
+		}
+#endif
+
+#ifdef GPIOC
+		if(port == GPIOC) {
+			return LL_EXTI_CONFIG_PORTC;
+		}
+#endif
+
+#ifdef GPIOD
+		if(port == GPIOD) {
+			return LL_EXTI_CONFIG_PORTD;
+		}
+#endif
+
+#ifdef GPIOE
+		if(port == GPIOE) {
+			return LL_EXTI_CONFIG_PORTE;
+		}
+#endif
+
+#ifdef GPIOF
+		if(port == GPIOF) {
+			return LL_EXTI_CONFIG_PORTF;
+		}
+#endif
+
+		SystemAbort();
+		return 0;
+	}
+
+
+
 	constexpr uint32 CastMode() const {
 		switch (parameters.mode) {
 			case Mode::Output:
@@ -208,6 +363,7 @@ private:
 			break;
 
 			case Mode::Alternate:
+			case Mode::AlternateOpenDrain:
 				return LL_GPIO_MODE_ALTERNATE;
 			break;
 
@@ -275,6 +431,7 @@ private:
 	constexpr uint32 CastOutputType() const {
 		switch (parameters.mode) {
 			case Mode::OpenDrain:
+			case Mode::AlternateOpenDrain:
 				return LL_GPIO_OUTPUT_OPENDRAIN;
 			break;
 
@@ -335,7 +492,7 @@ private:
 
 
 	inline bool IsAlternate() {
-		return parameters.mode == Mode::Alternate;
+		return parameters.mode == Mode::Alternate || parameters.mode == Mode::AlternateOpenDrain;
 	}
 
 

@@ -270,7 +270,7 @@ private:
 						uint32 remaining = static_cast<uint32>(self->rxDataNeed - self->rxDataCounter);
 						int read = uart_read_bytes(self->port, self->rxDataPointer + self->rxDataCounter, remaining, 0);
 						if (read > 0) {
-							self->rxDataCounter = static_cast<uint16>(self->rxDataCounter + read);
+							self->rxDataCounter = static_cast<uint32>(self->rxDataCounter + read);
 						}
 						if (self->rxDataCounter >= self->rxDataNeed) {
 							self->rxState = ResultStatus::ready;

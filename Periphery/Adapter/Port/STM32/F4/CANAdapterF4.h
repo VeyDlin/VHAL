@@ -15,7 +15,10 @@
 //   - NVIC: enable the four vectors of the controller and call CANAdapterF4::IrqHandler() from each of them:
 //       CAN1: CAN1_TX_IRQn, CAN1_RX0_IRQn, CAN1_RX1_IRQn, CAN1_SCE_IRQn
 //       CAN2: CAN2_TX_IRQn, CAN2_RX0_IRQn, CAN2_RX1_IRQn, CAN2_SCE_IRQn
-//   - Assign onReceive before Start(): the RX FIFO 0 interrupt is enabled by Start() only when onReceive is set.
+//   - Assign onReceive before Start(). A handler assigned while started is not served at once: the FIFO 0 interrupt is
+//     switched on by the next IrqHandler() call, so frames already in FIFO 0 wait for an interrupt of this controller
+//     (a transmit, error or overrun event). Receive() takes them while no handler is set.
+//   - Frames are accepted into FIFO 0 only. The RX1 vector serves the FIFO 1 overrun flags, and nothing is routed to FIFO 1.
 //
 // Timestamps: Frame::timestamp is the 16-bit RDTR.TIME value captured at the start of frame, in bit times. TTCM is off.
 // It wraps every 65536 bit times.
@@ -84,10 +87,9 @@ public:
 			return ResultStatus::ok;
 		}
 
-		// Interrupts are enabled here rather than in Initialization(), so that onReceive assigned after SetParameters()
-		// is honoured. The FIFO interrupt stays off without onReceive, otherwise it would fire on frames that Receive()
-		// is meant to take.
-		uint32 interrupts = CAN_IER_TMEIE | CAN_IER_FOVIE0 | CAN_IER_ERRIE | CAN_IER_EWGIE | CAN_IER_EPVIE | CAN_IER_BOFIE | CAN_IER_LECIE;
+		// Interrupts are enabled here rather than in Initialization(). The FIFO 0 interrupt stays off without onReceive,
+		// otherwise it would fire on frames that Receive() is meant to take. IrqHandler() turns it on once onReceive is set.
+		uint32 interrupts = CAN_IER_TMEIE | CAN_IER_FOVIE0 | CAN_IER_FOVIE1 | CAN_IER_ERRIE | CAN_IER_EWGIE | CAN_IER_EPVIE | CAN_IER_BOFIE | CAN_IER_LECIE;
 		if (onReceive != nullptr) {
 			interrupts |= CAN_IER_FMPIE0;
 		}
@@ -327,9 +329,10 @@ public:
 		}
 
 		// The four vectors share this handler. Each service looks only at its own flags, so calling it from any vector
-		// is safe. Only FIFO 0 is used, so the RX1 vector finds nothing to do.
+		// is safe. Frames are accepted into FIFO 0 only, so FIFO 1 is served for its overrun flags alone.
 		ServiceTransmit();
 		ServiceReceive();
+		ServiceReceiveFifo1();
 		ServiceStatus();
 	}
 
@@ -747,15 +750,34 @@ private:
 
 		// Without onReceive the frames stay in the FIFO for Receive(). Reading them here would take them away from it.
 		// The FIFO interrupt is switched off too: while FMP0 stays set and the interrupt stays enabled, the vector would
-		// re-enter forever. Start() enables it again only with onReceive set.
+		// re-enter forever. With onReceive set, the interrupt is switched on again here, so a handler assigned after
+		// Start() is served from the next call of IrqHandler() on any of the vectors.
 		if (onReceive == nullptr) {
 			canHandle->IER &= ~CAN_IER_FMPIE0;
 			return;
 		}
 
+		canHandle->IER |= CAN_IER_FMPIE0;
+
 		while ((canHandle->RF0R & CAN_RF0R_FMP0) != 0) {
 			Frame frame = ReadFifoFrame();
 			CallReceive(frame);
+		}
+	}
+
+
+	// FIFO 1 gets no frames from the filters of this port. Its overrun flag is still served, so the RX1 vector does work.
+	void ServiceReceiveFifo1() {
+		uint32 rf1r = canHandle->RF1R;
+		uint32 flags = rf1r & (CAN_RF1R_FOVR1 | CAN_RF1R_FULL1);
+		if (flags == 0) {
+			return;
+		}
+
+		canHandle->RF1R = flags;
+
+		if ((rf1r & CAN_RF1R_FOVR1) != 0) {
+			CallError(Error::ReceiveOverrun);
 		}
 	}
 
