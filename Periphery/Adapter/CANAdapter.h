@@ -12,7 +12,9 @@
 //
 // Reception: frames that pass a filter go to a hardware FIFO. With onReceive assigned, the interrupt reads every frame and
 // raises onReceive, and Receive() finds nothing. Without it, frames stay in the FIFO for Receive(); when the FIFO is full
-// the hardware drops new frames and the port raises onError(Error::ReceiveOverrun).
+// the hardware drops new frames and the port raises onError(Error::ReceiveOverrun). When a handler assigned while the
+// controller runs takes effect is in the port's header. Assigning onReceive is not atomic: while frames can arrive, assign
+// it with interrupts masked.
 //
 // Transmission: Send() places a frame in a free transmit slot (mailbox or FIFO element) and returns at once.
 //

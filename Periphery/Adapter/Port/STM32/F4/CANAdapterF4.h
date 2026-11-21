@@ -15,10 +15,14 @@
 //   - NVIC: enable the four vectors of the controller and call CANAdapterF4::IrqHandler() from each of them:
 //       CAN1: CAN1_TX_IRQn, CAN1_RX0_IRQn, CAN1_RX1_IRQn, CAN1_SCE_IRQn
 //       CAN2: CAN2_TX_IRQn, CAN2_RX0_IRQn, CAN2_RX1_IRQn, CAN2_SCE_IRQn
-//   - Assign onReceive before Start(). A handler assigned while started is not served at once: the FIFO 0 interrupt is
-//     switched on by the next IrqHandler() call, so frames already in FIFO 0 wait for an interrupt of this controller
-//     (a transmit, error or overrun event). Receive() takes them while no handler is set.
-//   - Frames are accepted into FIFO 0 only. The RX1 vector serves the FIFO 1 overrun flags, and nothing is routed to FIFO 1.
+// Call Stop() before switching the controller's clock off. With the clock off, IrqHandler() cannot clear a flag.
+//
+// Reception: frames are accepted into FIFO 0 only. The RX1 vector serves the FIFO 1 overrun flags, and nothing is routed
+// to FIFO 1. onReceive may be assigned before or after Start(). Start() switches the FIFO 0 interrupt on, so a handler
+// assigned before the first frame arrives is served from that frame. A frame that arrives with no handler is left for
+// Receive(), and the FIFO 0 interrupt switches itself off. A handler assigned after that waits for the next interrupt of
+// this controller (a transmit, an error or a FIFO overrun). On a quiet bus that can be the overrun, which loses a frame.
+// To move from Receive() to a handler, assign it, then call Stop() and Start().
 //
 // Timestamps: Frame::timestamp is the 16-bit RDTR.TIME value captured at the start of frame, in bit times. TTCM is off.
 // It wraps every 65536 bit times.
@@ -87,12 +91,11 @@ public:
 			return ResultStatus::ok;
 		}
 
-		// Interrupts are enabled here rather than in Initialization(). The FIFO 0 interrupt stays off without onReceive,
-		// otherwise it would fire on frames that Receive() is meant to take. IrqHandler() turns it on once onReceive is set.
-		uint32 interrupts = CAN_IER_TMEIE | CAN_IER_FOVIE0 | CAN_IER_FOVIE1 | CAN_IER_ERRIE | CAN_IER_EWGIE | CAN_IER_EPVIE | CAN_IER_BOFIE | CAN_IER_LECIE;
-		if (onReceive != nullptr) {
-			interrupts |= CAN_IER_FMPIE0;
-		}
+		// Interrupts are enabled here rather than in Initialization(). The FIFO 0 interrupt is on whether or not onReceive
+		// is set, so a handler assigned before the first frame arrives is served from that frame, also when it is assigned
+		// after Start(). With no handler, ServiceReceive() switches the interrupt off at the first frame and leaves the
+		// frames for Receive().
+		uint32 interrupts = CAN_IER_TMEIE | CAN_IER_FMPIE0 | CAN_IER_FOVIE0 | CAN_IER_FOVIE1 | CAN_IER_ERRIE | CAN_IER_EWGIE | CAN_IER_EPVIE | CAN_IER_BOFIE | CAN_IER_LECIE;
 
 		canHandle->IER = interrupts;
 
@@ -750,8 +753,10 @@ private:
 
 		// Without onReceive the frames stay in the FIFO for Receive(). Reading them here would take them away from it.
 		// The FIFO interrupt is switched off too: while FMP0 stays set and the interrupt stays enabled, the vector would
-		// re-enter forever. With onReceive set, the interrupt is switched on again here, so a handler assigned after
-		// Start() is served from the next call of IrqHandler() on any of the vectors.
+		// re-enter forever. With onReceive set, the interrupt is switched on again here, so a handler assigned after a
+		// frame was left for Receive() is served once any vector of this controller runs. onReceive is checked for every
+		// frame: a handler cleared during the loop leaves the rest for Receive(), and the interrupt that follows switches
+		// FMPIE0 off.
 		if (onReceive == nullptr) {
 			canHandle->IER &= ~CAN_IER_FMPIE0;
 			return;
@@ -759,7 +764,7 @@ private:
 
 		canHandle->IER |= CAN_IER_FMPIE0;
 
-		while ((canHandle->RF0R & CAN_RF0R_FMP0) != 0) {
+		while (onReceive != nullptr && (canHandle->RF0R & CAN_RF0R_FMP0) != 0) {
 			Frame frame = ReadFifoFrame();
 			CallReceive(frame);
 		}
