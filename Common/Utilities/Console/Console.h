@@ -102,11 +102,11 @@ public:
 		size_t pos = 0;
 
 		if constexpr (std::is_integral_v<T>) {
-			T result;
+			T result{};
 			Print::StringToNumber(buffer, result);
 			return result;
 		} else if constexpr (std::is_floating_point_v<T>) {
-			T result;
+			T result{};
 			Print::StringToFloat(buffer, result);
 			return result;
 		}

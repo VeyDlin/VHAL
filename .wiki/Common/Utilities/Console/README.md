@@ -45,6 +45,8 @@ console.Error("Sensor timeout");
 
 `Print` is an abstract base class that provides all text output and number conversion functionality. Subclasses must implement `WriteRaw(const char* data, size_t size)`.
 
+The number conversions (`NumberToString`, `FloatToString`, `StringToNumber`, `StringToFloat`) and `Console::Read<T>()` use the TextNumber library in `Common/Utilities/TextNumber`. Their signatures and output are unchanged. The one intended difference is that `StringToFloat` is now correctly rounded for any number of significant digits (round half to even). `StringToNumber` and `StringToFloat` still accept a leading `+` and leading blanks, and leave `result` unchanged on failure. `StringToFloat` drops the sign of a `nan` text, so `-nan` reads as a positive NaN.
+
 ### Write / WriteLine
 
 ```cpp

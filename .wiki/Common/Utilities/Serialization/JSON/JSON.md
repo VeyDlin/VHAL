@@ -150,7 +150,7 @@ w.StartObject()
 ```
 
 - Integers are written in decimal with no formatting. Any integer type can be passed; literals such as `16000` need no cast.
-- Floating-point values are rounded to the nearest value at the requested precision (halves round away from zero). Precision is clamped to 0 to 9.
+- Floating-point values are rounded to the nearest value at the requested precision (halves round away from zero). Precision is clamped to 0 to 9. The rounding is done by the TextNumber library's fixed-point formatter (`Common/Utilities/TextNumber`), with the same results as before.
 - `NaN`, infinity, and values whose magnitude is at least `9.0e18 / 10^precision` cannot be written as a plain JSON number. They set `HasError()` and write nothing.
 
 ### Error Handling
@@ -209,11 +209,11 @@ parser.ParseNumber(intVal);  // intVal = 42
 // Also supports uint64 and double overloads
 ```
 
-Numbers follow the JSON grammar exactly: an optional `-`, no leading `+`, no leading zeros, digits required after `.` and after `e`/`E`.
+Numbers follow the JSON grammar exactly: an optional `-`, no leading `+`, no leading zeros, digits required after `.` and after `e`/`E`. The grammar is checked here, and the TextNumber library (`Common/Utilities/TextNumber`) does the conversion: integer tokens with its integer parser, and fraction and exponent tokens with its whole-string float helper, which is correctly rounded for any token length.
 
 - The `int64` and `uint64` overloads accept only integer tokens. `1.5`, `1e3` and out-of-range values return `false`.
 - The `double` overload accepts fractions and exponents. A value that overflows the double range (`1e400`) returns `false` instead of becoming infinity.
-- Token length is not limited, and the value is correctly rounded (`std::from_chars`, locale-free, independent of the token length). `0.` followed by 399 zeros and `1e400` reads as `1`.
+- Token length is not limited, and the value is correctly rounded for any token length (the TextNumber library, locale-free). `0.` followed by 399 zeros and `1e400` reads as `1`.
 - Subnormal values are read: `1e-320` gives the subnormal value, as `strtod` does. A value below the subnormal range (`1e-400`) reads as `0` and succeeds.
 - Overflow (`1e400`, `1.8e308`) returns `false`.
 - A valid integer token that is out of range for `int64` or `uint64` returns `false` for those overloads. The `double` overload accepts it.

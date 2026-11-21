@@ -1,9 +1,9 @@
 #pragma once
 #include <VHAL.h>
 #include <Utilities/Console/Print.h>
+#include <Utilities/TextNumber/TextNumber.h>
 #include <algorithm>
 #include <array>
-#include <charconv>
 #include <cmath>
 #include <span>
 #include <string_view>
@@ -27,11 +27,6 @@ public:
 		static constexpr std::array<char, 16> hexDigits = {
 			'0', '1', '2', '3', '4', '5', '6', '7',
 			'8', '9', 'a', 'b', 'c', 'd', 'e', 'f'
-		};
-
-		static constexpr std::array<uint64, 10> powersOfTen = {
-			1ULL, 10ULL, 100ULL, 1000ULL, 10000ULL,
-			100000ULL, 1000000ULL, 10000000ULL, 100000000ULL, 1000000000ULL
 		};
 
 		std::span<char> buffer;
@@ -103,7 +98,7 @@ public:
 		// >= 9.0e18 / 10^precision set HasError() because they cannot be written as a plain JSON number.
 		Writer& Number(double value, int precision = 6) {
 			char numBuffer[32];
-			size_t len = FormatFixed(std::span(numBuffer), value, precision);
+			size_t len = FormatFixedPoint(std::span(numBuffer), value, precision);
 			if (len == 0) {
 				hasError = true;
 				return *this;
@@ -253,50 +248,6 @@ public:
 		}
 
 
-		// JSON needs its own fixed-point formatting (no exponent form, its own range limit), so the digits are produced
-		// here rather than through Print. Returns 0 when the value cannot be represented.
-		static size_t FormatFixed(std::span<char> output, double value, int precision) {
-			if (!std::isfinite(value)) {
-				return 0;
-			}
-
-			size_t digits = static_cast<size_t>(std::clamp(precision, 0, 9));
-			uint64 scale = powersOfTen[digits];
-			double scaled = std::fabs(value) * static_cast<double>(scale);
-			if (scaled >= 9.0e18) {
-				return 0;
-			}
-
-			uint64 rounded = static_cast<uint64>(std::llround(scaled));
-			uint64 integerPart = rounded / scale;
-			uint64 fractionPart = rounded % scale;
-
-			// Digits are produced least significant first and copied out in reverse.
-			char reversed[32];
-			size_t count = 0;
-			for (size_t i = 0; i < digits; ++i) {
-				reversed[count++] = static_cast<char>('0' + fractionPart % 10);
-				fractionPart /= 10;
-			}
-			if (digits > 0) {
-				reversed[count++] = '.';
-			}
-			do {
-				reversed[count++] = static_cast<char>('0' + integerPart % 10);
-				integerPart /= 10;
-			} while (integerPart > 0);
-			if (value < 0.0 && rounded != 0) {
-				reversed[count++] = '-';
-			}
-
-			if (count > output.size()) {
-				return 0;
-			}
-			for (size_t i = 0; i < count; ++i) {
-				output[i] = reversed[count - 1 - i];
-			}
-			return count;
-		}
 	};
 
 
@@ -1024,84 +975,37 @@ private:
 	}
 
 
-	// The token is copied into a bounded, NUL-terminated buffer first: Print's converters read until a NUL.
+	// The grammar check above keeps out '+', blanks and leading zeros, so the integer library reads the token as it is.
 	template<typename T>
 	static bool ParseIntegerToken(std::string_view token, T& value) {
 		if (!IsIntegerToken(token)) {
 			return false;
 		}
 
-		std::array<char, 32> buffer{};
-		if (token.size() >= buffer.size()) {
+		NumberResult<T> parsed = ParseInteger<T>(token);
+		if (!parsed.IsOk()) {
 			return false;
 		}
-		std::copy(token.begin(), token.end(), buffer.begin());
-		return Print::StringToNumber(buffer.data(), value);
+
+		value = parsed.value;
+		return true;
 	}
 
 
-	// Decimal exponent of the first significant digit, explicit exponent included. Only consulted for a token that
-	// from_chars reports as out of range, to tell underflow (a zero result) from overflow (an error).
-	static int64 DecimalExponentOf(std::string_view token) {
-		std::string_view unsignedToken = !token.empty() && token.front() == '-' ? token.substr(1) : token;
-
-		size_t expPos = unsignedToken.find_first_of("eE");
-		std::string_view mantissa = unsignedToken.substr(0, expPos);
-		std::string_view expPart = expPos == std::string_view::npos ? std::string_view{} : unsignedToken.substr(expPos + 1);
-
-		size_t dotPos = mantissa.find('.');
-		std::string_view intDigits = mantissa.substr(0, dotPos);
-		std::string_view fracDigits = dotPos == std::string_view::npos ? std::string_view{} : mantissa.substr(dotPos + 1);
-
-		int64 exponent = 0;
-		bool expNegative = !expPart.empty() && expPart.front() == '-';
-		size_t expStart = (!expPart.empty() && (expPart.front() == '+' || expPart.front() == '-')) ? 1 : 0;
-		for (size_t i = expStart; i < expPart.size(); ++i) {
-			// Saturates: an exponent this large is out of range whatever the digits are.
-			if (exponent < 100000000) {
-				exponent = exponent * 10 + (expPart[i] - '0');
-			}
-		}
-		if (expNegative) {
-			exponent = -exponent;
-		}
-
-		size_t totalDigits = intDigits.size() + fracDigits.size();
-		size_t first = 0;
-		while (first < totalDigits && (first < intDigits.size() ? intDigits[first] : fracDigits[first - intDigits.size()]) == '0') {
-			++first;
-		}
-		if (first == totalDigits) {
-			return 0;
-		}
-		return exponent + static_cast<int64>(intDigits.size()) - static_cast<int64>(first) - 1;
-	}
-
-
-	// from_chars is correctly rounded, locale-free and reads subnormals; the grammar check above it keeps out the
-	// forms it accepts but JSON does not (leading '+', a bare '.', a leading zero, inf and nan).
+	// The TextNumber library rounds the whole token correctly, for any token length. The grammar check above keeps out the
+	// forms it accepts but JSON does not (leading '+', a bare '.', a leading zero, inf and nan). A value beyond the double range
+	// is infinite and is refused; a value below it is a signed zero.
 	static bool ParseFloatToken(std::string_view token, double& value) {
 		if (!IsNumberToken(token)) {
 			return false;
 		}
 
-		double parsed = 0.0;
-		const char* begin = token.data();
-		const char* end = begin + token.size();
-		std::from_chars_result result = std::from_chars(begin, end, parsed);
-		if (result.ec == std::errc{} && result.ptr == end) {
-			value = parsed;
-			return true;
-		}
-		if (result.ec != std::errc::result_out_of_range) {
+		NumberResult<double> parsed = ParseFloat<double>(token);
+		if (!parsed.IsOk() || parsed.endPosition != token.size() || std::isinf(parsed.value)) {
 			return false;
 		}
 
-		// Beyond the double range: below it reads as a signed zero, above it cannot be represented.
-		if (DecimalExponentOf(token) >= 0) {
-			return false;
-		}
-		value = !token.empty() && token.front() == '-' ? -0.0 : 0.0;
+		value = parsed.value;
 		return true;
 	}
 };
