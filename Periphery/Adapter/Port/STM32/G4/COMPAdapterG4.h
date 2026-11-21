@@ -8,7 +8,8 @@
 //
 // The BSP must do the following before the first Initialization():
 //   - Enable the SYSCFG bus clock (RCC APB2ENR.SYSCFGEN, LL_APB2_GRP1_PERIPH_SYSCFG). The comparator registers sit in the
-//     SYSCFG block, and register writes are dropped while the clock is off.
+//     SYSCFG block, and register writes are dropped while the clock is off. While it is off, Initialization() and
+//     Enable() return notReady.
 //   - Route the comparator NVIC vectors to IrqHandler() of every comparator adapter that shares a vector:
 //       G431, G441, G471, G491, G4A1: COMP1_2_3_IRQn (64) and COMP4_IRQn (65)
 //       G411:                         COMP1_2_3_IRQn (64) only. COMP4_IRQn (65) is in its vector table, but G411 has no COMP4 instance
@@ -165,6 +166,11 @@ public:
 
 
 	virtual ResultStatus Enable() override {
+		// Without the SYSCFG clock the comparator register writes are dropped. Report it instead of returning ok.
+		if (!LL_APB2_GRP1_IsEnabledClock(LL_APB2_GRP1_PERIPH_SYSCFG)) {
+			return ResultStatus::notReady;
+		}
+
 		if (LL_COMP_IsEnabled(compHandle)) {
 			return ResultStatus::ok;
 		}
@@ -362,6 +368,11 @@ public:
 
 protected:
 	virtual ResultStatus Initialization() override {
+		// Checked before BeforeInitialization(): the hook must not run while the registers are not clocked.
+		if (!LL_APB2_GRP1_IsEnabledClock(LL_APB2_GRP1_PERIPH_SYSCFG)) {
+			return ResultStatus::notReady;
+		}
+
 		auto status = BeforeInitialization();
 		if(status != ResultStatus::ok) {
 			return status;

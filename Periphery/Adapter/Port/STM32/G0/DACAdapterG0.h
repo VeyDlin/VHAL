@@ -98,11 +98,18 @@ public:
 	}
 
 
+	// count is in samples of 16 bits. The DMA must move 16-bit items, so the count is not doubled.
 	virtual ResultStatus WriteContinuous(uint16 *buffer, uint32 count) override {
 		if (dma == nullptr) {
 			return ResultStatus::notAvailable;
 		}
-		auto status = dma->Start(buffer, (uint16*)GetDataRegisterAddress(), count);
+
+		ResultStatus status = CheckDma();
+		if (status != ResultStatus::ok) {
+			return status;
+		}
+
+		status = dma->Start(buffer, (uint16*)GetDataRegisterAddress(), count);
 		if (status != ResultStatus::ok) {
 			return status;
 		}
@@ -190,7 +197,9 @@ protected:
 			: LL_DAC_TRIG_SOFTWARE,
 			.WaveAutoGeneration = LL_DAC_WAVE_AUTO_GENERATION_NONE,
 			.WaveAutoGenerationConfig = LL_DAC_NOISE_LFSR_UNMASK_BIT0,
-			.OutputBuffer = CastOutputBuffer()
+			.OutputBuffer = CastOutputBuffer(),
+			.OutputConnection = LL_DAC_OUTPUT_CONNECT_GPIO,
+			.OutputMode = LL_DAC_OUTPUT_MODE_NORMAL
 		};
 
 		SystemAssert(LL_DAC_Init(dacHandle, CastChannel(), &init) == ErrorStatus::SUCCESS);
@@ -206,6 +215,23 @@ protected:
 
 
 private:
+	// The DMA must carry the request of this channel, move 16-bit items in the memory-to-peripheral direction.
+	ResultStatus CheckDma() const {
+		return dma->CheckPeripheral(
+			DmaRequest(),
+			ADMA::Direction::MemoryToPeripheral,
+			ADMA::DataWidth::B16
+		);
+	}
+
+
+	uint32 DmaRequest() const {
+		return dacChannel == 1
+			? ADMA::Peripheral::Dac1Channel1.Get()
+			: ADMA::Peripheral::Dac1Channel2.Get();
+	}
+
+
 	constexpr uint32 CastChannel() const {
 		switch (dacChannel) {
 			case 1: return LL_DAC_CHANNEL_1;

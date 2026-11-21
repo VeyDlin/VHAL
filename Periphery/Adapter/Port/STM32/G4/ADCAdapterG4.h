@@ -438,7 +438,7 @@ protected:
 
 
 
-	virtual Result<uint32> SetInjectedChannel(const InjecteChannel &channel, uint8 rank) override {
+	virtual Result<uint32> SetInjectedChannel(const InjecteChannel &, uint8) override {
 		// TODO: [VHAL] [ADC] [G4] [ADD SUPPORT]
 		return { ResultStatus::notSupported };
 	}

@@ -2,6 +2,8 @@
 
 Abstract adapter for analog comparator peripherals. Compares two analog inputs and produces a digital output. Supports configurable hysteresis, output blanking, polarity inversion, and interrupt/event trigger modes.
 
+On STM32 the port needs the SYSCFG clock: `Initialization()` and `Enable()` return `notReady` while it is off. The chip-specific rules are on the port pages: [G0](Port/STM32/G0/COMPAdapterG0.md) (the class does not exist on chips without COMP1) and [G4](Port/STM32/G4/COMPAdapterG4.md).
+
 Header: `#include <Adapter/COMPAdapter.h>`
 
 ## Template Parameter
@@ -44,7 +46,7 @@ struct Parameters {
 
 | Method | Return | Description |
 |--------|--------|-------------|
-| `SetParameters(Parameters val)` | `void` | Apply configuration and enable comparator |
+| `SetParameters(Parameters val)` | `ResultStatus` | Apply configuration and enable comparator. Returns the status of `Initialization()`, or of `Enable()` when the initialization is `ok` |
 | `GetOutputLevel()` | `bool` | Read current output level |
 | `Enable()` | `ResultStatus` | Enable comparator |
 | `Disable()` | `ResultStatus` | Disable comparator |

@@ -2,8 +2,10 @@
 #include <Adapter/COMPAdapter.h>
 
 
-// COMP (comparator) adapter for STM32G0 (RM0444, COMP chapter). It covers COMP1 and COMP2 on every G0 chip and COMP3
-// where the chip defines it (STM32G0B1xx, STM32G0C1xx). STM32G071xx has no COMP3.
+// COMP (comparator) adapter for STM32G0 (RM0444, COMP chapter). It covers COMP1 and COMP2 where the chip defines them
+// (STM32G051xx, G061xx, G071xx, G081xx, G0B1xx, G0C1xx) and COMP3 where the chip defines it (STM32G0B1xx, STM32G0C1xx).
+// G030, G031, G041, G050, G070 and G0B0 have no comparator. The whole class is guarded by the COMP1 define, so this
+// file compiles to nothing for them.
 //
 // The BSP must do the following before the first Initialization():
 //   - Enable the SYSCFG bus clock (RCC APBENR2.SYSCFGEN, LL_APB2_GRP1_PERIPH_SYSCFG). The comparator registers sit in the
@@ -16,6 +18,9 @@
 // Window mode is not exposed. COMP12_COMMON and COMP23_COMMON hold the WINMODE and WINOUT bits shared by a pair of
 // comparators. The adapter never writes them, so they keep the reset value (window mode off). The BSP must not enable window
 // mode on a comparator this adapter drives.
+
+
+#if defined(COMP1)
 
 
 using ACOMP = class COMPAdapterG0;
@@ -285,3 +290,5 @@ private:
 		return 0;
 	}
 };
+
+#endif

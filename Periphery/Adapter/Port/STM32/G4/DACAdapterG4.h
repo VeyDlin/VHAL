@@ -80,11 +80,18 @@ public:
 	}
 
 
+	// count is in samples of 16 bits. The DMA must move 16-bit items, so the count is not doubled.
 	virtual ResultStatus WriteContinuous(uint16 *buffer, uint32 count) override {
 		if (dma == nullptr) {
 			return ResultStatus::notAvailable;
 		}
-		auto status = dma->Start(buffer, (uint16*)GetDataRegisterAddress(), count);
+
+		ResultStatus status = CheckDma();
+		if (status != ResultStatus::ok) {
+			return status;
+		}
+
+		status = dma->Start(buffer, (uint16*)GetDataRegisterAddress(), count);
 		if (status != ResultStatus::ok) {
 			return status;
 		}
@@ -193,6 +200,50 @@ protected:
 
 
 private:
+	// The DMA must carry the request of this channel, move 16-bit items in the memory-to-peripheral direction.
+	ResultStatus CheckDma() const {
+		return dma->CheckPeripheral(
+			DmaRequest(),
+			ADMA::Direction::MemoryToPeripheral,
+			ADMA::DataWidth::B16
+		);
+	}
+
+
+	// A request no DMAMUX entry carries, so the check refuses a DAC instance that has no entry in this table.
+	uint32 DmaRequest() const {
+		if (dacHandle == DAC1) {
+			return dacChannel == 1
+				? ADMA::Peripheral::Dac1Channel1.Get()
+				: ADMA::Peripheral::Dac1Channel2.Get();
+		}
+
+#if defined(DAC2)
+		if (dacHandle == DAC2 && dacChannel == 1) {
+			return ADMA::Peripheral::Dac2Channel1.Get();
+		}
+#endif
+
+#if defined(DAC3)
+		if (dacHandle == DAC3) {
+			return dacChannel == 1
+				? ADMA::Peripheral::Dac3Channel1.Get()
+				: ADMA::Peripheral::Dac3Channel2.Get();
+		}
+#endif
+
+#if defined(DAC4)
+		if (dacHandle == DAC4) {
+			return dacChannel == 1
+				? ADMA::Peripheral::Dac4Channel1.Get()
+				: ADMA::Peripheral::Dac4Channel2.Get();
+		}
+#endif
+
+		return 0xFFFFFFFFu;
+	}
+
+
 	constexpr uint32 CastChannel() const {
 		switch (dacChannel) {
 			case 1: return LL_DAC_CHANNEL_1;

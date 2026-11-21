@@ -165,27 +165,54 @@ public:
 
 
 
+protected:
+	volatile bool running;
+	volatile bool transferComplete;
+	volatile bool transferError;
+
+
+
+private:
+#if defined(DMA1_Channel8)
+	static inline constexpr uint32 dma1ChannelCount { 8 };
+#elif defined(DMA1_Channel7)
+	static inline constexpr uint32 dma1ChannelCount { 7 };
+#else
+	static inline constexpr uint32 dma1ChannelCount { 6 };
+#endif
+
+#if defined(DMA2_Channel8)
+	static inline constexpr uint32 dma2ChannelCount { 8 };
+#elif defined(DMA2_Channel7)
+	static inline constexpr uint32 dma2ChannelCount { 7 };
+#else
+	static inline constexpr uint32 dma2ChannelCount { 6 };
+#endif
+
+
+
 public:
-	DMAAdapterG4() { }
-	DMAAdapterG4(DMA_TypeDef *dma, uint32 channel): DMAAdapter(dma, channel) { }
+	DMAAdapterG4()
+		: DMAAdapter(), running(false), transferComplete(false), transferError(false) { }
+
+	DMAAdapterG4(DMA_TypeDef *dma, uint32 channel)
+		: DMAAdapter(dma, channel), running(false), transferComplete(false), transferError(false) { }
 
 
 
+	// Applies the stored parameters and calls the hooks. A start applies them without the hooks, see StartTransfer().
 	virtual ResultStatus Initialization() override {
-		auto status = BeforeInitialization();
+		ResultStatus status = CheckConfiguration();
 		if (status != ResultStatus::ok) {
 			return status;
 		}
 
-		LL_DMA_SetPeriphRequest(dmaHandle, LLChannel(), parameters.peripheral.Get());
-		LL_DMA_SetDataTransferDirection(dmaHandle, LLChannel(), CastDirection());
-		LL_DMA_SetChannelPriorityLevel(dmaHandle, LLChannel(), CastPriority());
-		LL_DMA_SetMode(dmaHandle, LLChannel(), parameters.circularMode ? LL_DMA_MODE_CIRCULAR : LL_DMA_MODE_NORMAL);
-		LL_DMA_SetPeriphIncMode(dmaHandle, LLChannel(), CastPeriphIncMode());
-		LL_DMA_SetMemoryIncMode(dmaHandle, LLChannel(), CastMemoryIncMode());
-		LL_DMA_SetPeriphSize(dmaHandle, LLChannel(), CastPeriphDataWidth());
-		LL_DMA_SetMemorySize(dmaHandle, LLChannel(), CastMemoryDataWidth());
+		status = BeforeInitialization();
+		if (status != ResultStatus::ok) {
+			return status;
+		}
 
+		WriteChannelConfiguration();
 		return AfterInitialization();
 	}
 
@@ -193,13 +220,33 @@ public:
 
 
 	virtual ResultStatus StartTransfer(const uint8* from, uint8* to, uint32 size) override {
-		uint32 count = size / DataWidthBytes();
+		if (!IsChannelValid()) {
+			return ResultStatus::invalidParameter;
+		}
 
-		LL_DMA_DisableChannel(dmaHandle, LLChannel());
+		// The counter is defined only for equal widths, see CheckWidths().
+		ResultStatus status = CheckWidths();
+		if (status != ResultStatus::ok) {
+			return status;
+		}
 
-		ClearFlag_TC();
-		ClearFlag_HT();
-		ClearFlag_TE();
+		uint32 count = 0;
+		status = ItemCount(size, ItemBytes(), 0xFFFFu, count);
+		if (status != ResultStatus::ok) {
+			return status;
+		}
+
+		// The channel must be idle: a run in progress is not aborted, so the start returns busy instead.
+		status = CheckConfiguration();
+		if (status != ResultStatus::ok) {
+			return status;
+		}
+
+		// Applies the stored parameters without the hooks, so a start does not run the user's init callbacks.
+		WriteChannelConfiguration();
+
+		// Flags left by an earlier run would fire as soon as the channel is enabled.
+		ClearAllFlags();
 
 		if (parameters.direction == Direction::MemoryToPeripheral) {
 			LL_DMA_SetMemoryAddress(dmaHandle, LLChannel(), (uint32)from);
@@ -213,19 +260,38 @@ public:
 
 		if (parameters.enableTransferCompleteIT) {
 			LL_DMA_EnableIT_TC(dmaHandle, LLChannel());
+		} else {
+			LL_DMA_DisableIT_TC(dmaHandle, LLChannel());
 		}
+
+		if (onHalfTransfer) {
+			LL_DMA_EnableIT_HT(dmaHandle, LLChannel());
+		} else {
+			LL_DMA_DisableIT_HT(dmaHandle, LLChannel());
+		}
+
 		LL_DMA_EnableIT_TE(dmaHandle, LLChannel());
 
-		LL_DMA_EnableChannel(dmaHandle, LLChannel());
-
+		transferComplete = false;
+		transferError = false;
 		lastTransferSize = count;
+		LatchRunMode();
+
+		running = true;
+		LL_DMA_EnableChannel(dmaHandle, LLChannel());
 		return ResultStatus::ok;
 	}
 
 
 
 
+	// Stops the channel and its interrupts. The callbacks of a run stopped this way are not called.
 	virtual ResultStatus Stop() override {
+		if (!IsChannelValid()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		running = false;
 		LL_DMA_DisableChannel(dmaHandle, LLChannel());
 		LL_DMA_DisableIT_TC(dmaHandle, LLChannel());
 		LL_DMA_DisableIT_HT(dmaHandle, LLChannel());
@@ -236,51 +302,133 @@ public:
 
 
 
+	// The completion and the error are latched by the interrupt, so the result stays right after the flags are cleared.
 	virtual ResultStatus GetStatus() override {
-		if (IsActiveFlag_TE()) {
-			return ResultStatus::error;
+		if (!IsChannelValid()) {
+			return ResultStatus::invalidParameter;
 		}
-		if (IsActiveFlag_TC()) {
-			return ResultStatus::ok;
-		}
-		return ResultStatus::busy;
+
+		return LatchedStatus(
+			transferError || IsActiveFlag_TE(),
+			transferComplete || IsActiveFlag_TC(),
+			IsRunCircular(),
+			IsChannelEnabled()
+		);
 	}
 
 
 
 
 	virtual inline void IrqHandler() override {
+		if (!IsChannelValid()) {
+			return;
+		}
+
+		// A stopped channel can still raise its flags while it drains. Clear them and report nothing.
+		if (!running) {
+			ClearAllFlags();
+			return;
+		}
+
+		// DMA transfer error. The channel stops in hardware, and it is disabled here as well.
+		if (IsActiveFlag_TE() && LL_DMA_IsEnabledIT_TE(dmaHandle, LLChannel())) {
+			LL_DMA_DisableChannel(dmaHandle, LLChannel());
+			LL_DMA_DisableIT_TE(dmaHandle, LLChannel());
+			LL_DMA_DisableIT_TC(dmaHandle, LLChannel());
+			LL_DMA_DisableIT_HT(dmaHandle, LLChannel());
+
+			ClearAllFlags();
+			running = false;
+			transferError = true;
+			CallError();
+			return;
+		}
+
+		// DMA half transfer. Normal mode raises it once, circular mode for every half.
 		if (IsActiveFlag_HT() && LL_DMA_IsEnabledIT_HT(dmaHandle, LLChannel())) {
-			if (LL_DMA_GetMode(dmaHandle, LLChannel()) == LL_DMA_MODE_NORMAL) {
+			if (!IsRunCircular()) {
 				LL_DMA_DisableIT_HT(dmaHandle, LLChannel());
 			}
+
 			ClearFlag_HT();
 			CallHalfTransfer();
 		}
 
+
+		// DMA transfer complete. In normal mode the channel has stopped, so the run ends here.
 		if (IsActiveFlag_TC() && LL_DMA_IsEnabledIT_TC(dmaHandle, LLChannel())) {
-			if (LL_DMA_GetMode(dmaHandle, LLChannel()) == LL_DMA_MODE_NORMAL) {
+			if (!IsRunCircular()) {
+				running = false;
 				LL_DMA_DisableIT_TC(dmaHandle, LLChannel());
 				LL_DMA_DisableIT_HT(dmaHandle, LLChannel());
 				LL_DMA_DisableIT_TE(dmaHandle, LLChannel());
 			}
-			ClearFlag_TC();
-			CallTransferComplete();
-		}
 
-		if (IsActiveFlag_TE() && LL_DMA_IsEnabledIT_TE(dmaHandle, LLChannel())) {
-			LL_DMA_DisableIT_TE(dmaHandle, LLChannel());
-			LL_DMA_DisableIT_TC(dmaHandle, LLChannel());
-			LL_DMA_DisableIT_HT(dmaHandle, LLChannel());
-			ClearFlag_HT();
 			ClearFlag_TC();
-			ClearFlag_TE();
-			CallError();
+			transferComplete = true;
+			CallTransferComplete();
 		}
 	}
 
 
 protected:
+	bool IsChannelValid() const {
+		if (dmaHandle == DMA1) {
+			return dmaChannel >= 1 && dmaChannel <= dma1ChannelCount;
+		}
+
+		if (dmaHandle == DMA2) {
+			return dmaChannel >= 1 && dmaChannel <= dma2ChannelCount;
+		}
+
+		return false;
+	}
+
+
+	// The checks of a configuration. The channel is busy while it runs: CCR is write-protected, and the stored parameters are
+	// written by the next call that finds the channel idle.
+	ResultStatus CheckConfiguration() const {
+		if (!IsChannelValid()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		if (parameters.priority > 3) {
+			return ResultStatus::invalidParameter;
+		}
+
+		if (IsChannelEnabled()) {
+			return ResultStatus::busy;
+		}
+
+		return ResultStatus::ok;
+	}
+
+
+	// Writes the stored parameters to the channel. It does not call the hooks.
+	void WriteChannelConfiguration() {
+		LL_DMA_SetPeriphRequest(dmaHandle, LLChannel(), parameters.peripheral.Get());
+		LL_DMA_SetDataTransferDirection(dmaHandle, LLChannel(), CastDirection());
+		LL_DMA_SetChannelPriorityLevel(dmaHandle, LLChannel(), CastPriority());
+		LL_DMA_SetMode(dmaHandle, LLChannel(), parameters.circularMode ? LL_DMA_MODE_CIRCULAR : LL_DMA_MODE_NORMAL);
+		LL_DMA_SetPeriphIncMode(dmaHandle, LLChannel(), CastPeriphIncMode());
+		LL_DMA_SetMemoryIncMode(dmaHandle, LLChannel(), CastMemoryIncMode());
+		LL_DMA_SetPeriphSize(dmaHandle, LLChannel(), CastPeriphDataWidth());
+		LL_DMA_SetMemorySize(dmaHandle, LLChannel(), CastMemoryDataWidth());
+	}
+
+
+	bool IsChannelEnabled() const {
+		return LL_DMA_IsEnabledChannel(dmaHandle, LLChannel());
+	}
+
+
+	void ClearAllFlags() {
+		ClearFlag_TC();
+		ClearFlag_HT();
+		ClearFlag_TE();
+	}
+
+
 	bool IsActiveFlag_HT() {
 		switch (dmaChannel) {
 			case 1: return LL_DMA_IsActiveFlag_HT1(dmaHandle);
@@ -289,6 +437,12 @@ protected:
 			case 4: return LL_DMA_IsActiveFlag_HT4(dmaHandle);
 			case 5: return LL_DMA_IsActiveFlag_HT5(dmaHandle);
 			case 6: return LL_DMA_IsActiveFlag_HT6(dmaHandle);
+#if defined(DMA1_Channel7)
+			case 7: return LL_DMA_IsActiveFlag_HT7(dmaHandle);
+#endif
+#if defined(DMA1_Channel8)
+			case 8: return LL_DMA_IsActiveFlag_HT8(dmaHandle);
+#endif
 			default: SystemAbort();
 		}
 		return false;
@@ -303,6 +457,12 @@ protected:
 			case 4: return LL_DMA_IsActiveFlag_TC4(dmaHandle);
 			case 5: return LL_DMA_IsActiveFlag_TC5(dmaHandle);
 			case 6: return LL_DMA_IsActiveFlag_TC6(dmaHandle);
+#if defined(DMA1_Channel7)
+			case 7: return LL_DMA_IsActiveFlag_TC7(dmaHandle);
+#endif
+#if defined(DMA1_Channel8)
+			case 8: return LL_DMA_IsActiveFlag_TC8(dmaHandle);
+#endif
 			default: SystemAbort();
 		}
 		return false;
@@ -317,6 +477,12 @@ protected:
 			case 4: return LL_DMA_IsActiveFlag_TE4(dmaHandle);
 			case 5: return LL_DMA_IsActiveFlag_TE5(dmaHandle);
 			case 6: return LL_DMA_IsActiveFlag_TE6(dmaHandle);
+#if defined(DMA1_Channel7)
+			case 7: return LL_DMA_IsActiveFlag_TE7(dmaHandle);
+#endif
+#if defined(DMA1_Channel8)
+			case 8: return LL_DMA_IsActiveFlag_TE8(dmaHandle);
+#endif
 			default: SystemAbort();
 		}
 		return false;
@@ -331,6 +497,12 @@ protected:
 			case 4: LL_DMA_ClearFlag_HT4(dmaHandle); break;
 			case 5: LL_DMA_ClearFlag_HT5(dmaHandle); break;
 			case 6: LL_DMA_ClearFlag_HT6(dmaHandle); break;
+#if defined(DMA1_Channel7)
+			case 7: LL_DMA_ClearFlag_HT7(dmaHandle); break;
+#endif
+#if defined(DMA1_Channel8)
+			case 8: LL_DMA_ClearFlag_HT8(dmaHandle); break;
+#endif
 			default: SystemAbort();
 		}
 	}
@@ -344,6 +516,12 @@ protected:
 			case 4: LL_DMA_ClearFlag_TC4(dmaHandle); break;
 			case 5: LL_DMA_ClearFlag_TC5(dmaHandle); break;
 			case 6: LL_DMA_ClearFlag_TC6(dmaHandle); break;
+#if defined(DMA1_Channel7)
+			case 7: LL_DMA_ClearFlag_TC7(dmaHandle); break;
+#endif
+#if defined(DMA1_Channel8)
+			case 8: LL_DMA_ClearFlag_TC8(dmaHandle); break;
+#endif
 			default: SystemAbort();
 		}
 	}
@@ -357,6 +535,12 @@ protected:
 			case 4: LL_DMA_ClearFlag_TE4(dmaHandle); break;
 			case 5: LL_DMA_ClearFlag_TE5(dmaHandle); break;
 			case 6: LL_DMA_ClearFlag_TE6(dmaHandle); break;
+#if defined(DMA1_Channel7)
+			case 7: LL_DMA_ClearFlag_TE7(dmaHandle); break;
+#endif
+#if defined(DMA1_Channel8)
+			case 8: LL_DMA_ClearFlag_TE8(dmaHandle); break;
+#endif
 			default: SystemAbort();
 		}
 	}
@@ -389,10 +573,7 @@ private:
 
 
 	constexpr uint32 CastPeriphDataWidth() const {
-		DataWidth pw = (parameters.periphDataWidth != static_cast<DataWidth>(0))
-			? parameters.periphDataWidth
-			: parameters.dataWidth;
-		switch (pw) {
+		switch (GetPeriphDataWidth()) {
 			case DataWidth::B8:  return LL_DMA_PDATAALIGN_BYTE;
 			case DataWidth::B16: return LL_DMA_PDATAALIGN_HALFWORD;
 			case DataWidth::B32: return LL_DMA_PDATAALIGN_WORD;
@@ -413,7 +594,8 @@ private:
 	}
 
 
-	constexpr uint32 DataWidthBytes() const {
+	// The transfer counter counts items of the width both sides share, which CheckWidths() has matched.
+	constexpr uint32 ItemBytes() const {
 		return static_cast<uint32>(parameters.dataWidth) / 8;
 	}
 

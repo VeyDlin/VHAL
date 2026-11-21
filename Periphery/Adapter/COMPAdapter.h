@@ -70,10 +70,12 @@ public:
 	virtual inline void IrqHandler() = 0;
 
 
-	virtual void SetParameters(Parameters val) {
+	// Returns the status of the initialization. The comparator is enabled in any case, as before, and the enable has its own status.
+	virtual ResultStatus SetParameters(Parameters val) {
 		parameters = val;
-		Initialization();
-		Enable();
+		ResultStatus initStatus = Initialization();
+		ResultStatus enableStatus = Enable();
+		return (initStatus != ResultStatus::ok) ? initStatus : enableStatus;
 	}
 
 	virtual bool GetOutputLevel() = 0;

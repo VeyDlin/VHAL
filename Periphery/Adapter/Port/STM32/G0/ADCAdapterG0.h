@@ -387,7 +387,7 @@ protected:
 
 
 
-	virtual ResultStatus InjectedInitialization(uint8 rankLength) override {
+	virtual ResultStatus InjectedInitialization(uint8) override {
 		return ResultStatus::notSupported;
 	}
 
@@ -489,10 +489,24 @@ protected:
 
 		// DMA path
 		if (dma != nullptr) {
-			LL_ADC_REG_SetDMATransfer(adcHandle, LL_ADC_REG_DMA_TRANSFER_UNLIMITED);
+			ResultStatus dmaStatus = CheckDma();
+			if (dmaStatus != ResultStatus::ok) {
+				state = ResultStatus::ready;
+				return dmaStatus;
+			}
 
-			auto adcDataAddr = LL_ADC_DMA_GetRegAddr(adcHandle, LL_ADC_DMA_REG_REGULAR_DATA);
-			dma->Start((uint16*)adcDataAddr, (uint16*)buffer, dataNeed);
+			// The count is in bytes. The DMA divides it by its item width, which CheckDma() has matched to the resolution,
+			// so a 6 or 8-bit conversion fills one byte per sample.
+			uint32 adcDataAddr = LL_ADC_DMA_GetRegAddr(adcHandle, LL_ADC_DMA_REG_REGULAR_DATA);
+			dmaStatus = dma->Start((const uint8*)adcDataAddr, buffer, dataNeed * GetResolutionByte());
+			if (dmaStatus != ResultStatus::ok) {
+				state = ResultStatus::ready;
+				return dmaStatus;
+			}
+
+			// An overrun is reported in DMA mode too, the same as in the interrupt mode below.
+			LL_ADC_EnableIT_OVR(adcHandle);
+			LL_ADC_REG_SetDMATransfer(adcHandle, LL_ADC_REG_DMA_TRANSFER_UNLIMITED);
 
 			if (LL_ADC_REG_IsTriggerSourceSWStart(adcHandle)) {
 				LL_ADC_REG_StartConversion(adcHandle);
@@ -515,7 +529,7 @@ protected:
 
 
 
-	virtual Result<uint32> SetInjectedChannel(const InjecteChannel &channel, uint8 rank) override {
+	virtual Result<uint32> SetInjectedChannel(const InjecteChannel &, uint8) override {
 		return { ResultStatus::notSupported };
 	}
 
@@ -538,6 +552,24 @@ protected:
 
 
 private:
+	// The DMA must carry the ADC1 request, move peripheral-to-memory, and use one item per sample: a byte at 6 and 8 bits,
+	// a halfword at 10 and 12 bits. A byte read of the left-aligned register would take the wrong bits, so 6 and 8 bits
+	// with left alignment are refused.
+	ResultStatus CheckDma() {
+		if (GetResolutionByte() == 1 && parameters.dataAlignment == DataAlignment::Left) {
+			return ResultStatus::invalidParameter;
+		}
+
+		ADMA::DataWidth width = (GetResolutionByte() == 1) ? ADMA::DataWidth::B8 : ADMA::DataWidth::B16;
+
+		return dma->CheckPeripheral(
+			ADMA::Peripheral::Adc1.Get(),
+			ADMA::Direction::PeripheralToMemory,
+			width
+		);
+	}
+
+
 	constexpr uint32 CastResolution() const {
 		switch (parameters.resolution) {
 			case Resolution::B12: return LL_ADC_RESOLUTION_12B;
