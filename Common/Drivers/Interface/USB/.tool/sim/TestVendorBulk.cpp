@@ -12,9 +12,9 @@
 #include <span>
 
 // The vendor bulk function in buffered mode, run through the simulated controller with exact bytes. The rings are small so
-// the limits are reached with few bytes: the TX ring is 100 bytes, the RX ring is 256, and a transfer is 2 packets (128
-// bytes). The cases are a full OUT FIFO, an empty IN FIFO, a wrap-around, a transfer that ends on a 64-byte boundary, and a
-// zero-length packet.
+// the limits are reached with few bytes: the TX ring is 100 bytes, the RX ring is 256, an IN transfer is 2 packets (128 bytes),
+// and an OUT transfer is one packet (64 bytes). The cases are a full OUT FIFO, an empty IN FIFO, a wrap-around, a transfer that
+// ends on a 64-byte boundary, a zero-length packet, and host writes of whole packets that reach Read() without one.
 //
 // IN has two stages (InStageCount). The cases from TestStagesBackToBack on use CountingFunction, a 512-byte TX ring whose
 // ProduceIn() is counted, so a case sees which side filled each stage: Process() or the completion interrupt. A hook runs
@@ -283,14 +283,18 @@ void TestOutFifoFullAndNak() {
 	std::array<uint8, 300> read = {};
 	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x01));
 
-	// The first host packets fill one 128-byte transfer, which the function stores. The next 128 bytes fill the RX ring to 256.
-	// HostOut() takes the packets up to the one that completes the transfer and leaves the rest of the data to the host.
+	// Each OUT transfer is one packet, so each host packet completes its own transfer and the function stores it at once. Four
+	// packets of 64 bytes fill the RX ring to 256. HostOut() takes one packet, the one that completes the transfer, and leaves the
+	// rest of the data to the host.
 	Result<uint32> stored = fixture.sim.HostOut(0x01, std::span<const uint8>(data).first(256));
 	SIM_EXPECT(stored.IsOk());
-	SIM_EXPECT_EQ(stored.Value(), 128);
-	stored = fixture.sim.HostOut(0x01, std::span<const uint8>(data).subspan(128, 128));
-	SIM_EXPECT(stored.IsOk());
-	SIM_EXPECT_EQ(stored.Value(), 128);
+	SIM_EXPECT_EQ(stored.Value(), 64);
+	for (std::size_t packet = 1; packet < 4; packet++) {
+		stored = fixture.sim.HostOut(0x01, std::span<const uint8>(data).subspan(packet * 64, 64));
+		SIM_EXPECT(stored.IsOk());
+		SIM_EXPECT_EQ(stored.Value(), 64);
+	}
+
 	SIM_EXPECT_EQ(fixture.function.GetReadableCount(), 256);
 
 	// The RX ring is full, so the next transfer is not armed. The host's packets are NAKed, and nothing is taken.
@@ -317,8 +321,9 @@ void TestOutFifoFullAndNak() {
 }
 
 
-// A zero-length OUT packet on its own completes an empty transfer, and the function re-arms without taking any data. A transfer
-// of 64 bytes ends with a zero-length packet too, because a full packet does not complete a 128-byte buffer.
+// A zero-length OUT packet on its own completes an empty transfer, and the function re-arms without taking any data. A full packet
+// completes its one-packet transfer at once, so the 64 bytes are stored with no zero-length packet after them. The zero-length
+// packet that follows is then an empty transfer of its own.
 void TestOutZeroLengthPacketAndBoundary() {
 	VendorFixture fixture;
 	fixture.Configure();
@@ -333,15 +338,15 @@ void TestOutZeroLengthPacketAndBoundary() {
 	SIM_EXPECT_EQ(fixture.function.Read(read), 0);
 	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x01));
 
-	// One full packet does not complete the 128-byte buffer, so the transfer is still armed. The zero-length packet after it
-	// is the short packet that completes it with the 64 bytes.
+	// One full packet completes the transfer, so the 64 bytes are stored and the endpoint is armed again.
 	stored = fixture.sim.HostOut(0x01, data);
 	SIM_EXPECT(stored.IsOk());
 	SIM_EXPECT_EQ(stored.Value(), 64);
 	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x01));
+	// The zero-length packet after it is an empty transfer, so it stores nothing: 0 bytes, not 64.
 	stored = fixture.sim.HostOut(0x01, std::span<const uint8>());
 	SIM_EXPECT(stored.IsOk());
-	SIM_EXPECT_EQ(stored.Value(), 64);
+	SIM_EXPECT_EQ(stored.Value(), 0);
 	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x01));
 	uint16 count = fixture.function.Read(read);
 	SIM_EXPECT_EQ(count, 64);
@@ -351,7 +356,7 @@ void TestOutZeroLengthPacketAndBoundary() {
 
 
 // Configures the function on an endpoint pair and checks the buffering the port granted, then moves data both ways. The OUT
-// transfer is a full packet and a zero-length packet, which completes it with 64 bytes.
+// transfer is one packet, so the full packet completes it with 64 bytes, and the zero-length packet after it is an empty transfer.
 void TestEndpointPair(std::span<const uint8> endpoints, uint8 outAddress, bool doubleBuffered) {
 	VendorFixture fixture(endpoints);
 	fixture.Configure();
@@ -375,7 +380,7 @@ void TestEndpointPair(std::span<const uint8> endpoints, uint8 outAddress, bool d
 	SIM_EXPECT_EQ(stored.Value(), 64);
 	stored = fixture.sim.HostOut(outAddress, std::span<const uint8>());
 	SIM_EXPECT(stored.IsOk());
-	SIM_EXPECT_EQ(stored.Value(), 64);
+	SIM_EXPECT_EQ(stored.Value(), 0);
 
 	std::array<uint8, 64> read = {};
 	SIM_EXPECT_EQ(fixture.function.Read(read), 64);
@@ -881,18 +886,20 @@ struct HoldingFixture {
 };
 
 
-// The receive ring holds 256 bytes and a transfer needs 128 free, so after two full transfers the endpoint cannot be armed. A
-// 10-byte packet the host sends then has nowhere to go and is held. The application reads 128 bytes, and Process() arms the endpoint:
-// the held packet is delivered inside that call, and its bytes are stored after the critical section, with the endpoint armed again
-// only when a whole transfer fits. The checks read the bytes back in order, so a lost, moved or duplicated byte shows.
+// The receive ring holds 256 bytes and an OUT transfer needs one packet (64 bytes) free, so after four full packets the endpoint
+// cannot be armed. A 10-byte packet the host sends then has nowhere to go and is held. The application reads 64 bytes, and Process()
+// arms the endpoint: the held packet is delivered inside that call, and its bytes are stored after the critical section, with the
+// endpoint armed again only when a whole packet fits. The checks read the bytes back in order, so a lost, moved or duplicated byte shows.
 void TestOutHeldPacketDeliveredFromProcess() {
 	HoldingFixture fixture;
 	fixture.Configure();
 
 	std::array<uint8, 256> pattern = {};
 	FillPattern(pattern);
-	SIM_EXPECT_EQ(fixture.sim.HostOut(0x01, std::span<const uint8>(pattern).first(128)).Value(), 128U);
-	SIM_EXPECT_EQ(fixture.sim.HostOut(0x01, std::span<const uint8>(pattern).subspan(128, 128)).Value(), 128U);
+	for (std::size_t packet = 0; packet < 4; packet++) {
+		SIM_EXPECT_EQ(fixture.sim.HostOut(0x01, std::span<const uint8>(pattern).subspan(packet * 64, 64)).Value(), 64U);
+	}
+
 	SIM_EXPECT_EQ(fixture.function.GetReadableCount(), 256);
 	SIM_EXPECT(!fixture.sim.HasArmedTransfer(0x01));
 
@@ -904,24 +911,415 @@ void TestOutHeldPacketDeliveredFromProcess() {
 	SIM_EXPECT_EQ(fixture.sim.HostOut(0x01, packet).Error(), ResultStatus::notReady);
 	fixture.sim.HoldPacket(packet);
 
-	std::array<uint8, 128> first = {};
-	SIM_EXPECT_EQ(fixture.function.Read(first), 128);
-	SIM_EXPECT(SameBytes(std::span<const uint8>(first), std::span<const uint8>(pattern).first(128)));
+	std::array<uint8, 64> first = {};
+	SIM_EXPECT_EQ(fixture.function.Read(first), 64);
+	SIM_EXPECT(SameBytes(std::span<const uint8>(first), std::span<const uint8>(pattern).first(64)));
 
+	// The room of one packet is armed, and the held packet arrives in it. 256 - 64 read + 10 held is 202 bytes, and the 10 bytes
+	// leave less than a packet free, so the endpoint stays unarmed.
 	fixture.device.Process();
 	SIM_EXPECT_EQ(fixture.sim.deliveredInCall, 1U);
-	SIM_EXPECT_EQ(fixture.function.GetReadableCount(), 128 + 10);
+	SIM_EXPECT_EQ(fixture.function.GetReadableCount(), 192 + 10);
 	SIM_EXPECT(!fixture.sim.HasArmedTransfer(0x01));
 
 	std::array<uint8, 256> rest = {};
-	SIM_EXPECT_EQ(fixture.function.Read(rest), 138);
-	SIM_EXPECT(SameBytes(std::span<const uint8>(rest).first(128), std::span<const uint8>(pattern).subspan(128, 128)));
-	SIM_EXPECT(SameBytes(std::span<const uint8>(rest).subspan(128, 10), std::span<const uint8>(packet)));
+	SIM_EXPECT_EQ(fixture.function.Read(rest), 202);
+	SIM_EXPECT(SameBytes(std::span<const uint8>(rest).first(192), std::span<const uint8>(pattern).subspan(64, 192)));
+	SIM_EXPECT(SameBytes(std::span<const uint8>(rest).subspan(192, 10), std::span<const uint8>(packet)));
+	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
+}
+
+
+// A host write is sent as its packets, one OUT transfer at a time, and no zero-length packet follows it. The host sends the next
+// packet as soon as the endpoint is armed again, as a host does. A 64-byte write and a 128-byte write both reach Read() whole, with
+// the endpoint armed after each. Before the fix the OUT transfer was four packets long, and these bytes waited in it.
+template<typename TFixture>
+void HostWrite(TFixture& fixture, std::span<const uint8> data) {
+	std::size_t sent = 0;
+	while (sent < data.size()) {
+		Result<uint32> stored = fixture.sim.HostOut(0x01, data.subspan(sent));
+		SIM_EXPECT(stored.IsOk());
+		if (!stored.IsOk() || stored.Value() == 0) {
+			break;
+		}
+
+		sent += stored.Value();
+	}
+
+	SIM_EXPECT_EQ(sent, data.size());
+}
+
+
+void TestWholePacketWritesReachRead() {
+	VendorFixture fixture;
+	fixture.Configure();
+
+	std::array<uint8, 128> data = {};
+	FillPattern(data);
+	std::array<uint8, 128> read = {};
+
+	HostWrite(fixture, std::span<const uint8>(data).first(64));
+	SIM_EXPECT_EQ(fixture.function.GetReadableCount(), 64);
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x01));
+	SIM_EXPECT_EQ(fixture.function.Read(read), 64);
+	SIM_EXPECT(SameBytes(std::span<const uint8>(read).first(64), std::span<const uint8>(data).first(64)));
+
+	HostWrite(fixture, data);
+	SIM_EXPECT_EQ(fixture.function.GetReadableCount(), 128);
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x01));
+	SIM_EXPECT_EQ(fixture.function.Read(read), 128);
+	SIM_EXPECT(SameBytes(std::span<const uint8>(read), std::span<const uint8>(data)));
+	SIM_EXPECT_EQ(fixture.function.GetReadableCount(), 0);
+	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
+}
+
+
+// The vendor raw channel of the first hardware run: VendorBulkFunction<512, 512, 4>. Its OUT transfer used to be four packets, so a
+// 64-byte write hung there (the looped counter stayed at 64). Both writes reach Read() whole now.
+using WideOutFixture = FixtureOf<VendorBulkFunction<512, 512, 4>>;
+
+
+void TestWholePacketWritesWithFourPacketInTransfers() {
+	WideOutFixture fixture;
+	fixture.Configure();
+
+	std::array<uint8, 128> data = {};
+	FillPattern(data);
+	std::array<uint8, 128> read = {};
+
+	HostWrite(fixture, std::span<const uint8>(data).first(64));
+	SIM_EXPECT_EQ(fixture.function.GetReadableCount(), 64);
+	SIM_EXPECT_EQ(fixture.function.Read(read), 64);
+	SIM_EXPECT(SameBytes(std::span<const uint8>(read).first(64), std::span<const uint8>(data).first(64)));
+
+	HostWrite(fixture, data);
+	SIM_EXPECT_EQ(fixture.function.Read(read), 128);
+	SIM_EXPECT(SameBytes(std::span<const uint8>(read), std::span<const uint8>(data)));
+	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
+}
+
+
+// A halt of the bulk OUT endpoint NAKs the host's data; after the clear, the host's packets are taken. The same case as the CDC-ACM
+// data interface's, on the vendor pair's OUT 0x01.
+void TestOutHaltNaksThenAccepts() {
+	VendorFixture fixture;
+	fixture.Configure();
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x01));
+
+	SIM_EXPECT_EQ(SimHost::Control(fixture.sim, SimHost::MakeSetup(0x02, 3, 0x0000, 0x0001, 0)), ResultStatus::ok);
+	SIM_EXPECT(!fixture.sim.HasArmedTransfer(0x01));
+	// A halted endpoint answers the host's packet with STALL, which the simulator reports as accessError.
+	std::array<uint8, 64> data = {};
+	FillPattern(data);
+	SIM_EXPECT_EQ(fixture.sim.HostOut(0x01, data).Error(), ResultStatus::accessError);
+
+	SIM_EXPECT_EQ(SimHost::Control(fixture.sim, SimHost::MakeSetup(0x02, 1, 0x0000, 0x0001, 0)), ResultStatus::ok);
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x01));
+	SIM_EXPECT(fixture.sim.HostOut(0x01, data).IsOk());
+	SIM_EXPECT(fixture.sim.HostOut(0x01, std::span<const uint8>()).IsOk());
+	SIM_EXPECT_EQ(fixture.function.GetReadableCount(), 64);
+	std::array<uint8, 64> read = {};
+	SIM_EXPECT_EQ(fixture.function.Read(read), 64);
+	SIM_EXPECT(SameBytes(std::span<const uint8>(read), std::span<const uint8>(data)));
+	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
+}
+
+
+// The zero-length packet on the buffered vendor pair, through the DATA PID as in TestCdcAcmData: the stage is 128 bytes (two packets)
+// in CountingFunction, and a full stage with nothing behind it ends with one. The same three cases as the CDC-ACM data interface.
+void TestWriteOfFullStageEndsWithZeroLengthPacket() {
+	CountingFixture fixture;
+	fixture.Configure();
+	SIM_EXPECT_EQ(WritePattern(fixture.function, 0, 128), 128);
+
+	fixture.device.Process();
+	bool toggleBefore = fixture.sim.GetDataToggle(0x81);
+	SIM_EXPECT_EQ(HostReadPattern(fixture, 0), 128);
+	SIM_EXPECT(fixture.sim.GetDataToggle(0x81) != toggleBefore);
+	SIM_EXPECT(!fixture.sim.HasArmedTransfer(0x81));
+	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
+}
+
+
+void TestWriteOfTwoStagesZeroLengthPacketOnlyAfterLast() {
+	CountingFixture fixture;
+	fixture.Configure();
+	SIM_EXPECT_EQ(WritePattern(fixture.function, 0, 256), 256);
+
+	fixture.device.Process();
+	fixture.device.Process();
+	bool toggleBefore = fixture.sim.GetDataToggle(0x81);
+
+	SIM_EXPECT_EQ(HostReadPattern(fixture, 0), 128);
+	SIM_EXPECT(fixture.sim.GetDataToggle(0x81) == toggleBefore);
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x81));
+
+	SIM_EXPECT_EQ(HostReadPattern(fixture, 128), 128);
+	SIM_EXPECT(fixture.sim.GetDataToggle(0x81) != toggleBefore);
+	SIM_EXPECT(!fixture.sim.HasArmedTransfer(0x81));
+	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
+}
+
+
+void TestWriteOf64KeepsZeroLengthPacket() {
+	CountingFixture fixture;
+	fixture.Configure();
+	SIM_EXPECT_EQ(WritePattern(fixture.function, 0, 64), 64);
+
+	fixture.device.Process();
+	bool toggleBefore = fixture.sim.GetDataToggle(0x81);
+	SIM_EXPECT_EQ(HostReadPattern(fixture, 0), 64);
+	SIM_EXPECT(fixture.sim.GetDataToggle(0x81) == toggleBefore);
+	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
+}
+
+
+// The stream's consumer records each packet it is given: how many calls, the largest call, and whether the bytes match the pattern.
+struct ConsumerState {
+	uint32 calls = 0;
+	uint32 received = 0;
+	std::size_t largest = 0;
+	bool matches = true;
+};
+
+
+void ConsumePattern(void* context, std::span<const uint8> packets) {
+	ConsumerState& state = *static_cast<ConsumerState*>(context);
+	state.calls++;
+	if (packets.size() > state.largest) {
+		state.largest = packets.size();
+	}
+
+	if (!MatchesPattern(packets, state.received)) {
+		state.matches = false;
+	}
+
+	state.received += static_cast<uint32>(packets.size());
+}
+
+
+// A host write of N whole packets, each packet one OUT transfer and no zero-length packet after the write: the consumer gets every
+// byte, one call per packet. The writes are 64, 128 and 576 bytes. 576 is not a multiple of the old 512-byte OUT transfer, which is
+// the case that stayed armed before the fix.
+void TestStreamOutDeliversEveryPacket() {
+	ConsumerState state;
+	StreamFixture fixture;
+	SIM_EXPECT_EQ(fixture.function.SetConsumer(StreamFunction::Consumer::FromRaw(&ConsumePattern, &state)), ResultStatus::ok);
+	fixture.Configure();
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x01));
+
+	// One stream of 768 bytes, sent as three writes in order, so the consumer's position check runs across the writes.
+	std::array<uint8, 768> data = {};
+	for (std::size_t index = 0; index < data.size(); index++) {
+		data[index] = PatternByte(static_cast<uint32>(index));
+	}
+
+	std::span<const uint8> stream(data);
+	HostWrite(fixture, stream.first(64));
+	SIM_EXPECT_EQ(state.received, 64);
+	SIM_EXPECT_EQ(state.calls, 1);
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x01));
+
+	HostWrite(fixture, stream.subspan(64, 128));
+	SIM_EXPECT_EQ(state.received, 192);
+	SIM_EXPECT_EQ(state.calls, 3);
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x01));
+
+	HostWrite(fixture, stream.subspan(192, 576));
+	SIM_EXPECT_EQ(state.received, 768);
+	SIM_EXPECT_EQ(state.calls, 12);
+	SIM_EXPECT_EQ(state.largest, 64U);
+	SIM_EXPECT(state.matches);
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x01));
+	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
+}
+
+
+// The stream's producer for the zero-length packet cases: it hands out limit bytes of the pattern, then nothing.
+struct LimitedState {
+	uint32 limit = 0;
+	uint32 produced = 0;
+};
+
+
+size_t ProduceLimited(void* context, std::span<uint8> packets) {
+	LimitedState& state = *static_cast<LimitedState*>(context);
+	size_t count = packets.size();
+	if (count > state.limit - state.produced) {
+		count = state.limit - state.produced;
+	}
+
+	for (std::size_t index = 0; index < count; index++) {
+		packets[index] = PatternByte(state.produced + static_cast<uint32>(index));
+	}
+
+	state.produced += static_cast<uint32>(count);
+	return count;
+}
+
+
+// A stream of one stage, 128 bytes, and nothing after it. Two packets flip the DATA PID twice, so it is as it was before the transfer.
+// A zero-length packet would flip it a third time. The host's read is the length it asked for, and it never ends early.
+void TestStreamStageEndsWithoutZeroLengthPacket() {
+	StreamFixture fixture;
+	LimitedState state;
+	state.limit = 128;
+	SIM_EXPECT_EQ(fixture.function.SetProducer(StreamFunction::Producer::FromRaw(&ProduceLimited, &state)), ResultStatus::ok);
+	fixture.Configure();
+
+	fixture.device.Process();
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x81));
+	bool toggleBefore = fixture.sim.GetDataToggle(0x81);
+	SIM_EXPECT_EQ(HostReadPattern(fixture, 0), 128);
+	SIM_EXPECT(fixture.sim.GetDataToggle(0x81) == toggleBefore);
+
+	// The producer has nothing more, so neither the interrupt nor Process() arms another stage.
+	SIM_EXPECT(!fixture.sim.HasArmedTransfer(0x81));
+	fixture.device.Process();
+	SIM_EXPECT(!fixture.sim.HasArmedTransfer(0x81));
+	SIM_EXPECT_EQ(state.produced, 128);
+	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
+}
+
+
+// A stream whose last stage is one whole packet, 64 bytes. The transfer has one packet, so the DATA PID flips once, and no
+// zero-length packet follows it.
+void TestStreamPartialStageEndsWithoutZeroLengthPacket() {
+	StreamFixture fixture;
+	LimitedState state;
+	state.limit = 64;
+	SIM_EXPECT_EQ(fixture.function.SetProducer(StreamFunction::Producer::FromRaw(&ProduceLimited, &state)), ResultStatus::ok);
+	fixture.Configure();
+
+	fixture.device.Process();
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x81));
+	bool toggleBefore = fixture.sim.GetDataToggle(0x81);
+	SIM_EXPECT_EQ(HostReadPattern(fixture, 0), 64);
+	SIM_EXPECT(fixture.sim.GetDataToggle(0x81) != toggleBefore);
+	SIM_EXPECT(!fixture.sim.HasArmedTransfer(0x81));
+	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
+}
+
+
+// Three full stages produced back to back and then nothing: each 128-byte transfer leaves the DATA PID as it was, so none of the three
+// has a zero-length packet, and the bytes come out in order.
+void TestStreamStagesWithoutZeroLengthPackets() {
+	StreamFixture fixture;
+	LimitedState state;
+	state.limit = 384;
+	SIM_EXPECT_EQ(fixture.function.SetProducer(StreamFunction::Producer::FromRaw(&ProduceLimited, &state)), ResultStatus::ok);
+	fixture.Configure();
+
+	fixture.device.Process();
+	fixture.device.Process();
+	SIM_EXPECT_EQ(state.produced, 256);
+
+	bool toggleBefore = fixture.sim.GetDataToggle(0x81);
+	SIM_EXPECT_EQ(HostReadPattern(fixture, 0), 128);
+	SIM_EXPECT(fixture.sim.GetDataToggle(0x81) == toggleBefore);
+
+	toggleBefore = fixture.sim.GetDataToggle(0x81);
+	SIM_EXPECT_EQ(HostReadPattern(fixture, 128), 128);
+	SIM_EXPECT(fixture.sim.GetDataToggle(0x81) == toggleBefore);
+
+	toggleBefore = fixture.sim.GetDataToggle(0x81);
+	SIM_EXPECT_EQ(HostReadPattern(fixture, 256), 128);
+	SIM_EXPECT(fixture.sim.GetDataToggle(0x81) == toggleBefore);
+	SIM_EXPECT(!fixture.sim.HasArmedTransfer(0x81));
+	SIM_EXPECT_EQ(state.produced, 384);
+	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
+}
+
+
+// Takes the armed IN transfer, of up to 512 bytes, and checks it against the pattern from position. Returns the count received.
+template<typename TFixture>
+uint32 HostReadWide(TFixture& fixture, uint32 position) {
+	std::array<uint8, 512> in = {};
+	uint32 received = 0;
+	SIM_EXPECT_EQ(fixture.sim.HostIn(0x81, in, received), ResultStatus::ok);
+	SIM_EXPECT(MatchesPattern(std::span<const uint8>(in).first(received), position));
+	return received;
+}
+
+
+// The buffered function with 512-byte IN stages (eight packets), so a 448-byte stage is a whole-packet stage below the stage size.
+using WideStageFixture = FixtureOf<VendorBulkFunction<1024, 256, 8>>;
+
+
+// A 64-byte stage starts with nothing behind it, so its packet count is fixed at its start and it keeps its zero-length packet. The
+// 448-byte stage starts after that one completes, with 64 more bytes queued behind it, so it gets none: the host's read continues into the
+// last stage. That last stage, 64 bytes with nothing behind it, ends with a zero-length packet. The toggles show each packet count.
+void TestWholePacketStageWithBytesBehindHasNoZeroLengthPacket() {
+	WideStageFixture fixture;
+	fixture.Configure();
+
+	SIM_EXPECT_EQ(WritePattern(fixture.function, 0, 64), 64);
+	fixture.device.Process();
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x81));
+	bool toggleFirst = fixture.sim.GetDataToggle(0x81);
+
+	// The 448 bytes are written while the first stage is in flight, and the thread fills them into the second stage.
+	SIM_EXPECT_EQ(WritePattern(fixture.function, 64, 448), 448);
+	fixture.device.Process();
+	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
+	SIM_EXPECT_EQ(WritePattern(fixture.function, 512, 64), 64);
+
+	// The first stage completes with its zero-length packet. The second starts from the completion, and nothing is armed with a
+	// zero-length packet until the second stage completes.
+	SIM_EXPECT_EQ(HostReadWide(fixture, 0), 64);
+	SIM_EXPECT(fixture.sim.GetDataToggle(0x81) == toggleFirst);
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x81));
+	bool toggleSecond = fixture.sim.GetDataToggle(0x81);
+	SIM_EXPECT_EQ(HostReadWide(fixture, 64), 448);
+	SIM_EXPECT(fixture.sim.GetDataToggle(0x81) != toggleSecond);
+
+	// The third stage starts from the completion, because nothing was staged and the interrupt produces it. Nothing is behind it.
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x81));
+	bool toggleThird = fixture.sim.GetDataToggle(0x81);
+	SIM_EXPECT_EQ(HostReadWide(fixture, 512), 64);
+	SIM_EXPECT(fixture.sim.GetDataToggle(0x81) == toggleThird);
+	SIM_EXPECT(!fixture.sim.HasArmedTransfer(0x81));
+	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
+}
+
+
+// The sequence as written in the review: a 64-byte write is started, then a 448-byte write fills the second stage while the first is in
+// flight. The first stage was started with nothing behind it, so its zero-length packet is decided then and stays. The second has nothing
+// behind it when it starts, so it ends with one too. Both stages end with a zero-length packet.
+void TestWriteBehindInFlightStageKeepsZeroLengthPackets() {
+	WideStageFixture fixture;
+	fixture.Configure();
+
+	SIM_EXPECT_EQ(WritePattern(fixture.function, 0, 64), 64);
+	fixture.device.Process();
+	bool toggleFirst = fixture.sim.GetDataToggle(0x81);
+	SIM_EXPECT_EQ(WritePattern(fixture.function, 64, 448), 448);
+	fixture.device.Process();
+
+	SIM_EXPECT_EQ(HostReadWide(fixture, 0), 64);
+	SIM_EXPECT(fixture.sim.GetDataToggle(0x81) == toggleFirst);
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x81));
+	bool toggleSecond = fixture.sim.GetDataToggle(0x81);
+	SIM_EXPECT_EQ(HostReadWide(fixture, 64), 448);
+	SIM_EXPECT(fixture.sim.GetDataToggle(0x81) == toggleSecond);
+	SIM_EXPECT(!fixture.sim.HasArmedTransfer(0x81));
 	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
 }
 
 
 int main() {
+	TestStreamStageEndsWithoutZeroLengthPacket();
+	TestStreamPartialStageEndsWithoutZeroLengthPacket();
+	TestStreamStagesWithoutZeroLengthPackets();
+	TestWholePacketStageWithBytesBehindHasNoZeroLengthPacket();
+	TestWriteBehindInFlightStageKeepsZeroLengthPackets();
+	TestOutHaltNaksThenAccepts();
+	TestWriteOfFullStageEndsWithZeroLengthPacket();
+	TestWriteOfTwoStagesZeroLengthPacketOnlyAfterLast();
+	TestWriteOf64KeepsZeroLengthPacket();
+	TestStreamOutDeliversEveryPacket();
+	TestWholePacketWritesWithFourPacketInTransfers();
+	TestWholePacketWritesReachRead();
 	TestOutHeldPacketDeliveredFromProcess();
 	TestInFifoEmptyNaks();
 	TestInFifoFullAndWrap();

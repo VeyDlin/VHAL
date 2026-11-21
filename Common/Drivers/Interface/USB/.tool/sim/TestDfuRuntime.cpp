@@ -24,6 +24,8 @@ namespace {
 
 constexpr uint8 RequestDetach = static_cast<uint8>(DfuRequest::Detach);
 constexpr uint8 RequestDnload = static_cast<uint8>(DfuRequest::Dnload);
+constexpr uint8 RequestGetStatus = static_cast<uint8>(DfuRequest::GetStatus);
+constexpr uint8 RequestGetState = static_cast<uint8>(DfuRequest::GetState);
 
 
 // Wait for the detach timer in the tests: the shim's clock is the steady clock, so a test sleeps past the timeout.
@@ -58,6 +60,58 @@ void OnDetach(bool willDetach) {
 	detachCalls++;
 	lastWillDetach = willDetach;
 }
+
+
+// A device context whose control answers can be made to fail. The other calls are not used by DFU and answer notSupported.
+class FailingSendContext : public USBDeviceContext {
+public:
+	bool sendFails = false;
+
+
+	ResultStatus OpenEndpoint(const USBDeviceAdapter::EndpointConfig&) override {
+		return ResultStatus::notSupported;
+	}
+
+
+	ResultStatus CloseEndpoint(uint8) override {
+		return ResultStatus::notSupported;
+	}
+
+
+	ResultStatus StartInTransfer(uint8, std::span<const uint8>, bool) override {
+		return ResultStatus::notSupported;
+	}
+
+
+	ResultStatus StartOutTransfer(uint8, std::span<uint8>) override {
+		return ResultStatus::notSupported;
+	}
+
+
+	ResultStatus Stall(uint8) override {
+		return ResultStatus::notSupported;
+	}
+
+
+	ResultStatus ClearStall(uint8) override {
+		return ResultStatus::notSupported;
+	}
+
+
+	ResultStatus RemoteWakeup() override {
+		return ResultStatus::notSupported;
+	}
+
+
+	ResultStatus ControlSendData(std::span<const uint8>) override {
+		return sendFails ? ResultStatus::notSupported : ResultStatus::ok;
+	}
+
+
+	ResultStatus ControlReceiveData(std::span<uint8>) override {
+		return ResultStatus::notSupported;
+	}
+};
 
 
 void CheckDetachReachesDelegateAndAnswersAppDetach() {
@@ -211,6 +265,19 @@ void CheckResetAfterTimeoutDropsRequest() {
 }
 
 
+// A status or state answer the core cannot send is returned as the request's result, so the core stalls the request.
+void CheckFailedAnswerStalls() {
+	DfuRuntimeFunction function(RuntimeUsb::Function(0));
+	FailingSendContext context;
+	context.sendFails = true;
+	SIM_EXPECT_EQ(function.OnConfigured(context), ResultStatus::ok);
+
+	SIM_EXPECT_EQ(function.OnControlRequest(USBSetupPacket::Parse(SimHost::MakeSetup(0xA1, RequestGetStatus, 0, 0, 6)), context), ResultStatus::notSupported);
+	SIM_EXPECT_EQ(function.OnControlRequest(USBSetupPacket::Parse(SimHost::MakeSetup(0xA1, RequestGetState, 0, 0, 1)), context), ResultStatus::notSupported);
+	SIM_EXPECT(function.GetState() == DfuState::appIDLE);
+}
+
+
 }
 
 
@@ -224,5 +291,6 @@ int main() {
 	CheckZeroTimeoutUsesDescriptor();
 	CheckResetInsideTimeoutDeliversLateProcess();
 	CheckResetAfterTimeoutDropsRequest();
+	CheckFailedAnswerStalls();
 	return SimTest::Finish("TestDfuRuntime");
 }

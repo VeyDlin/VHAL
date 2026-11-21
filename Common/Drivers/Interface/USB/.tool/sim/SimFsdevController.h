@@ -1,6 +1,7 @@
 #pragma once
 #include <VHAL.h>
 #include <Adapter/Port/STM32/Common/USBFsdev.h>
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstring>
@@ -52,6 +53,10 @@ public:
 	alignas(4) uint8 packetMemory[PacketMemorySize] = {};
 	// OUT packets the controller ACKed and dropped because their PID was not the expected one.
 	uint32 discardedOutPackets = 0;
+	// Isochronous OUT packets longer than their block. The block takes the first bytes and the rest is not written (see OutToken()).
+	uint32 oversizedOutPackets = 0;
+	// IN packets longer than the span the caller gave InToken(), which the copy cut to that span.
+	uint32 oversizedInPackets = 0;
 	// Register accesses the port has made since ResetAccessCounts(). Reads and writes are counted apart, so a test can count the
 	// accesses the port makes before one of its writes.
 	uint32 registerReads = 0;
@@ -91,6 +96,8 @@ public:
 		btable = 0;
 		bcdr = 0;
 		discardedOutPackets = 0;
+		oversizedOutPackets = 0;
+		oversizedInPackets = 0;
 		beforeEprWrite = nullptr;
 		afterEprWrite = nullptr;
 		ResetAccessCounts();
@@ -112,7 +119,8 @@ public:
 	}
 
 
-	// The DATA PID the next packet on an address carries: DTOG_TX for IN, DTOG_RX for OUT (true is DATA1).
+	// The DATA PID the next packet on an address carries: DTOG_TX for IN, DTOG_RX for OUT (true is DATA1). On an isochronous endpoint the same
+	// bit selects the buffer the next packet uses; it is not a PID, and the model asserts none for it.
 	bool GetDataToggle(uint8 address) const {
 		uint8 number = USBEndpoint::Number(address);
 		if (USBEndpoint::IsIn(address)) {
@@ -123,10 +131,12 @@ public:
 	}
 
 
-	// One IN token from the host. The controller sends the packet of the buffer it owns. In double-buffer mode that is buffer
-	// DTOG_TX (ADDR_RX for buffer 1). The PID is DTOG_TX in both modes (RM0440: the data toggle of a double-buffered endpoint
-	// selects its buffer). The host always ACKs, so the ACK effects are applied here: CTR_TX is set, DTOG_TX toggles, and a
-	// single-buffered endpoint goes to NAK. packet must hold a whole maximum packet.
+	// One IN token from the host. The controller sends the packet of the buffer DTOG_TX selects, with that buffer's COUNT: a COUNT of 0 is a
+	// zero-length packet. In double-buffer mode the buffer is DTOG_TX (ADDR_RX for buffer 1). The host always ACKs, so the ACK effects are applied
+	// here: CTR_TX is set, DTOG_TX toggles, and a single-buffered bulk endpoint goes to NAK. packet takes the largest packet the endpoint can, and a longer one is cut to its size (oversizedInPackets). The endpoint can
+	// send (1023 bytes for an isochronous one). The rules for an isochronous endpoint are the isochronous model of USBDeviceAdapter.h, applied
+	// here without the port: the token is always answered, with EP_KIND and SW_BUF ignored, and no PID is returned for it. The token is Ack in
+	// every case but a disabled endpoint, which gives None (no answer at all). A stalled isochronous endpoint cannot occur: the port never stalls one.
 	SimHandshake InToken(uint8 number, std::span<uint8> packet, uint32& length, bool& dataOne) {
 		length = 0;
 		dataOne = false;
@@ -141,24 +151,33 @@ public:
 		}
 
 		bool doubleBuffer = IsDoubleBuffered(value);
-		// The hardware NAKs while the software owns the buffer: DTOG_TX equal to SW_BUF (DTOG_RX) is the buffer conflict.
-		if (status == USBFsdevEpr::TxNak || (doubleBuffer && IsConflict(value))) {
+		bool isochronous = IsIsochronous(value);
+		// The hardware NAKs while the software owns the buffer: DTOG_TX equal to SW_BUF (DTOG_RX) is the buffer conflict. That is a bulk rule.
+		if (!isochronous && (status == USBFsdevEpr::TxNak || (doubleBuffer && IsConflict(value)))) {
 			return SimHandshake::Nak;
 		}
 
-		bool buffer1 = doubleBuffer && (value & USBFsdevEpr::DtogTx) != 0;
+		// The buffer is the one DTOG_TX selects. A single-buffered bulk endpoint always uses buffer 0.
+		bool buffer1 = (isochronous || doubleBuffer) && (value & USBFsdevEpr::DtogTx) != 0;
 		uint16 address = ReadBdWord(number, buffer1 ? USBFsdevBuffer::AddrRx : USBFsdevBuffer::AddrTx);
 		uint16 countField = ReadBdWord(number, buffer1 ? USBFsdevBuffer::CountRx : USBFsdevBuffer::CountTx);
 		uint32 count = countField & USBFsdevBuffer::CountMask;
-		if (count != 0) {
-			std::memcpy(packet.data(), packetMemory + address, count);
+		// The copy stops at the end of the span. A packet longer than the span is cut to it and counted, so the caller sees the length it got.
+		std::size_t copied = std::min<std::size_t>(count, packet.size());
+		if (copied != 0) {
+			std::memcpy(packet.data(), packetMemory + address, copied);
 		}
 
-		length = count;
-		dataOne = (value & USBFsdevEpr::DtogTx) != 0;
+		if (copied < count) {
+			oversizedInPackets++;
+		}
+
+		length = static_cast<uint32>(copied);
+		// No PID is modelled for an isochronous packet, so dataOne stays false there and means nothing.
+		dataOne = !isochronous && (value & USBFsdevEpr::DtogTx) != 0;
 		epr[number] = static_cast<uint16>(epr[number] ^ USBFsdevEpr::DtogTx);
 		epr[number] = static_cast<uint16>(epr[number] | USBFsdevEpr::CtrTx);
-		if (!doubleBuffer) {
+		if (!isochronous && !doubleBuffer) {
 			SetStatus(number, USBFsdevEpr::TxStatus, USBFsdevEpr::TxNak);
 		}
 
@@ -168,8 +187,12 @@ public:
 
 	// One OUT packet from the host, with the PID the host sends. The controller stores the packet in the buffer of DTOG_RX and
 	// accepts it only when the PID is DTOG_RX (USB 2.0 section 8.6.4). A packet with another PID is ACKed and discarded. In
-	// double-buffer mode buffer 0 is ADDR_TX (DTOG_RX 0) and buffer 1 is ADDR_RX (DTOG_RX 1); a single-buffered endpoint uses
-	// ADDR_RX. After an accepted packet CTR_RX is set and DTOG_RX toggles; a single-buffered endpoint goes to NAK.
+	// double-buffer mode buffer 0 is ADDR_TX (DTOG_RX 0) and buffer 1 is ADDR_RX (DTOG_RX 1); a single-buffered bulk endpoint uses
+	// ADDR_RX. After an accepted packet CTR_RX is set and DTOG_RX toggles; a single-buffered bulk endpoint goes to NAK.
+	// An isochronous endpoint stores every packet in the buffer DTOG_RX selects, whatever SW_BUF and the armed transfer are, and
+	// no PID is checked. A packet longer than that buffer's block is not written past the block, and it is counted in oversizedOutPackets.
+	// The COUNT of such a packet is not established on the hardware; this model writes the length the host sent, so the port sees it as
+	// too large for its block and drops it.
 	SimHandshake OutToken(uint8 number, std::span<const uint8> data, bool dataOne) {
 		uint16 value = epr[number];
 		uint16 status = static_cast<uint16>(value & USBFsdevEpr::RxStatus);
@@ -182,27 +205,35 @@ public:
 		}
 
 		bool doubleBuffer = IsDoubleBuffered(value);
-		if (status == USBFsdevEpr::RxNak || (doubleBuffer && IsConflict(value))) {
+		bool isochronous = IsIsochronous(value);
+		// The NAK of a single-buffered endpoint and the buffer conflict of a double-buffered one are bulk rules. An isochronous endpoint has neither.
+		if (!isochronous && (status == USBFsdevEpr::RxNak || (doubleBuffer && IsConflict(value)))) {
 			return SimHandshake::Nak;
 		}
 
-		bool buffer0 = doubleBuffer && (value & USBFsdevEpr::DtogRx) == 0;
+		bool buffer0 = (isochronous || doubleBuffer) && (value & USBFsdevEpr::DtogRx) == 0;
 		uint16 address = ReadBdWord(number, buffer0 ? USBFsdevBuffer::AddrTx : USBFsdevBuffer::AddrRx);
 		uint16 countField = ReadBdWord(number, buffer0 ? USBFsdevBuffer::CountTx : USBFsdevBuffer::CountRx);
-		if (dataOne != ((value & USBFsdevEpr::DtogRx) != 0)) {
+		if (!isochronous && dataOne != ((value & USBFsdevEpr::DtogRx) != 0)) {
 			discardedOutPackets++;
 			return SimHandshake::Ack;
 		}
 
-		if (!data.empty()) {
-			std::memcpy(packetMemory + address, data.data(), data.size());
+		std::size_t stored = data.size();
+		if (isochronous && stored > BlockSizeOf(countField)) {
+			oversizedOutPackets++;
+			stored = BlockSizeOf(countField);
+		}
+
+		if (stored != 0) {
+			std::memcpy(packetMemory + address, data.data(), stored);
 		}
 
 		uint16 count = static_cast<uint16>(data.size());
 		WriteBdWord(number, buffer0 ? USBFsdevBuffer::CountTx : USBFsdevBuffer::CountRx, static_cast<uint16>((countField & ~USBFsdevBuffer::CountMask) | count));
 		epr[number] = static_cast<uint16>(epr[number] | USBFsdevEpr::CtrRx);
 		epr[number] = static_cast<uint16>(epr[number] ^ USBFsdevEpr::DtogRx);
-		if (!doubleBuffer) {
+		if (!isochronous && !doubleBuffer) {
 			SetStatus(number, USBFsdevEpr::RxStatus, USBFsdevEpr::RxNak);
 		}
 
@@ -270,6 +301,24 @@ private:
 	}
 
 
+	// EP_TYPE of the endpoint register. An isochronous endpoint has no handshake and no data toggle PID (USB 2.0 section 5.6.4).
+	static bool IsIsochronous(uint16 value) {
+		return (value & USBFsdevEpr::Type) == USBFsdevEpr::TypeIsochronous;
+	}
+
+
+	// The block of an OUT buffer, from its COUNT_RX field (RM0440, USB chapter): BL_SIZE clear is 2-byte blocks, NUM_BLOCK times 2 bytes;
+	// BL_SIZE set is 32-byte blocks, NUM_BLOCK plus one times 32 bytes. The port writes this field when it opens the endpoint.
+	static uint32 BlockSizeOf(uint16 countField) {
+		uint32 numBlock = (countField >> USBFsdevBuffer::NumBlockShift) & 0x1FU;
+		if ((countField & USBFsdevBuffer::BlockSize32) != 0) {
+			return (numBlock + 1U) * 32U;
+		}
+
+		return numBlock * 2U;
+	}
+
+
 	// A buffer conflict is DTOG_TX equal to SW_BUF (DTOG_RX). RM0440 names the conflict and masks the STAT reads during it.
 	static bool IsConflict(uint16 value) {
 		return ((value & USBFsdevEpr::DtogTx) != 0) == ((value & USBFsdevEpr::DtogRx) != 0);
@@ -277,10 +326,11 @@ private:
 
 
 	// The EPnR read. RM0440: "the actual endpoint status will be masked as 10 (NAK) when a buffer conflict between the USB
-	// peripheral and the application software is detected". The status the controller holds is not changed by the read.
+	// peripheral and the application software is detected". The status the controller holds is not changed by the read. The masking is
+	// a double-buffer rule, so an isochronous endpoint, whose STAT is always VALID, is read as it is.
 	uint16 ReadEpr(uint8 number) const {
 		uint16 value = epr[number];
-		if (IsDoubleBuffered(value) && IsConflict(value)) {
+		if (!IsIsochronous(value) && IsDoubleBuffered(value) && IsConflict(value)) {
 			value = static_cast<uint16>((value & ~EprMaskStatus) | USBFsdevEpr::TxNak | USBFsdevEpr::RxNak);
 		}
 

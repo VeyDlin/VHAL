@@ -16,8 +16,8 @@
 // pads the last unit with 0xFF and programs it. Write() and Manifest() unlock the flash for the time they program it and lock it
 // again, so an upload, an abort or an error never leaves the flash open. Begin() and Read() do not touch the lock.
 //
-// The region size must be a multiple of WriteUnit and of the page size. Otherwise the last unit does not fit and the transfer fails
-// with errADDRESS.
+// The region size must be a multiple of WriteUnit and of the page size, and the page size must not be 0. Begin() refuses any other
+// region with errTARGET, before anything is erased: a page that runs past the region would erase memory that is not the region's.
 //
 // The adapter is a template argument and only its methods are used: Unlock(key1, key2), Lock(), PageErase(uint8*), WriteData(uint32*,
 // const void*, size_t), Read(uint8*) returning a Result of the byte. The FLASHAdapter of the family satisfies this; the host tests
@@ -43,8 +43,9 @@ private:
 
 
 public:
-	// region is the first byte of the region in memory, size its length and page the erase unit; size is a multiple of page.
-	// keyOne and keyTwo unlock the flash. pollTimeoutMs is reported for both writes and manifestation.
+	// region is the first byte of the region in memory, size its length and page the erase unit. size must be a multiple of page and
+	// of WriteUnit; Begin() refuses the transfer otherwise. keyOne and keyTwo unlock the flash. pollTimeoutMs is reported for both
+	// writes and manifestation.
 	DfuFlashTarget(
 		FlashType& flashAdapter,
 		uint8* region,
@@ -59,12 +60,19 @@ public:
 		  pageSize(page),
 		  keyOne(key1),
 		  keyTwo(key2),
-		  pollTimeoutMs(pollMs) {
+		  pollTimeoutMs(pollMs)
+	{
 	}
 
 
 	DfuStatus Begin(uint8 alternate) override {
 		if (alternate != 0) {
+			return DfuStatus::errTARGET;
+		}
+
+		// A page size of 0 would never advance the erase, and a region that is not whole pages or units would put the last erase or
+		// unit past its end. Both are refused here, before the first erase.
+		if (pageSize == 0 || regionSize % pageSize != 0 || regionSize % WriteUnit != 0) {
 			return DfuStatus::errTARGET;
 		}
 
@@ -185,8 +193,13 @@ private:
 	}
 
 
-	// Erases the page at a region offset and checks that every byte of it reads 0xFF.
+	// Erases the page at a region offset and checks that every byte of it reads 0xFF. A page that ends past the region is refused
+	// before the erase: Begin() keeps the region whole pages, so this is the second guard against erasing outside the region.
 	DfuStatus ErasePage(uint32 pageOffset) {
+		if (pageOffset + pageSize > regionSize) {
+			return DfuStatus::errADDRESS;
+		}
+
 		if (flash.PageErase(regionStart + pageOffset) != ResultStatus::ok) {
 			return DfuStatus::errERASE;
 		}

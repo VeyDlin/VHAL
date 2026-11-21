@@ -10,14 +10,20 @@
 
 // Software controller for the host tests on the PC. It implements the USBDeviceAdapter contract and enforces its rules
 // (see that header), so the core is tested against a controller that behaves like the hardware does. There is no USB
-// timing: each injection or host transaction raises the events it causes before it returns, as an interrupt would.
+// timing: each injection or host transaction raises the events it causes before it returns, as an interrupt would. The one
+// timing rule that is modelled is the isochronous deferral of an IN packet (see IsoInFrame()).
 //
 // The limits are those of the G431 fsdev: 8 endpoint numbers and 1 KB of packet memory.
 class SimUSBDeviceAdapter : public USBDeviceAdapter {
 public:
 	static constexpr uint8 HardwareEndpointCount = 8;
 	static constexpr uint32 PacketMemorySize = 1024;
+	// The port takes the buffer table (8 bytes per endpoint register, 64 bytes on G4) out of packet memory when it is initialized, and
+	// endpoint 0 takes two 64-byte blocks above it. The endpoints the core opens are placed above those, block by block, as the port places
+	// them (FindBlock()).
+	static constexpr uint32 BufferTableSize = 64;
 	static constexpr uint16 FullSpeedMaxPacketSize = 64;
+	static constexpr uint16 MaxIsochronousPacketSize = 1023;
 
 
 	// The last completed endpoint 0 transfer, as the core received it.
@@ -38,7 +44,20 @@ private:
 		bool sendZeroLengthPacket = false;
 		// Accepted Stall() calls for this address. Kept across bus resets and closes, so a test can count them.
 		uint32 stallCount = 0;
-		uint32 packetMemory = 0;
+		// Isochronous only: the buffer the next packet uses. It flips in every frame, armed or not, as DTOG does on the hardware. Reset with the endpoint.
+		bool isoBufferSelect = false;
+		// Isochronous only: frames in which the host found no transfer armed (see GetMissedFrames()).
+		uint32 missedFrames = 0;
+		// Isochronous IN only: the armed packet is not in the buffer yet. It is set when the packet is armed from outside the endpoint's own
+		// completion callback, and the next token clears it: that token sends a zero-length packet and the packet is written (see IsoInFrame()).
+		bool pending = false;
+		// The endpoint's completion callback is running, so a packet armed now is written at once and is not pending.
+		bool inCompletion = false;
+		// The packet memory blocks of the endpoint: one for a single-buffered endpoint, two for a double-buffered or an isochronous one (ADDR_TX
+		// and ADDR_RX on the port). Each block is blockSize bytes at the address in blockAddress.
+		std::array<uint32, 2> blockAddress{};
+		uint32 blockSize = 0;
+		uint32 blockCount = 0;
 		// Bytes moved so far in the armed transfer.
 		uint32 position = 0;
 		USBDeviceAdapter::EndpointConfig config;
@@ -59,7 +78,6 @@ private:
 	uint8 deviceAddress = 0;
 	uint8 pendingAddress = 0;
 	uint16 frameNumber = 0;
-	uint32 packetMemoryUsed = 0;
 	ControlCompletion lastControlCompletion;
 	uint32 controlCompletionCount = 0;
 	// Endpoint 0 stages that reached the host with DATA0 instead of DATA1 (see CountStageStart()).
@@ -153,6 +171,11 @@ public:
 			return ResultStatus::notExist;
 		}
 
+		// An isochronous endpoint moves one packet per frame: IsoOutFrame() is its host call.
+		if (slot->config.type == USBEndpointType::Isochronous) {
+			return ResultStatus::invalidParameter;
+		}
+
 		if (slot->halted) {
 			return ResultStatus::accessError;
 		}
@@ -204,6 +227,11 @@ public:
 
 		if (slot == nullptr || !slot->open) {
 			return ResultStatus::notExist;
+		}
+
+		// An isochronous endpoint moves one packet per frame: IsoInFrame() is its host call.
+		if (slot->config.type == USBEndpointType::Isochronous) {
+			return ResultStatus::invalidParameter;
 		}
 
 		if (slot->halted) {
@@ -259,6 +287,122 @@ public:
 	}
 
 
+	// One frame of the host's IN token on an isochronous endpoint. The packet armed for the frame is copied to out, and length is its size.
+	// A frame with no packet armed is answered with a zero-length packet: length is 0, nothing completes and no event is raised, and the
+	// frame is counted in GetMissedFrames(). Every frame flips the buffer select, armed or not, as the hardware's DTOG does. invalidParameter
+	// for an endpoint that is not isochronous, or when out cannot hold the packet (then nothing is taken and nothing moves).
+	//
+	// A packet armed from outside its endpoint's completion callback is pending, as the port's txDeferred is (USBDeviceAdapter.h, "Isochronous
+	// endpoints"): the first token after the arm sends a zero-length packet with no completion, and writes the packet, and the next token sends
+	// it. A pending token is not a missed frame, because a transfer is armed; it copies nothing into out, so out needs no room for the packet.
+	ResultStatus IsoInFrame(uint8 address, std::span<uint8> out, uint32& length) {
+		length = 0;
+		if (!USBEndpoint::IsIn(address)) {
+			return ResultStatus::invalidParameter;
+		}
+
+		Slot* slot = FindSlot(address);
+
+		if (slot == nullptr || !slot->open) {
+			return ResultStatus::notExist;
+		}
+
+		if (slot->config.type != USBEndpointType::Isochronous) {
+			return ResultStatus::invalidParameter;
+		}
+
+		if (!connected) {
+			return ResultStatus::notReady;
+		}
+
+		// The pending packet is not in the buffer, so this token finds it empty and sends a zero-length packet. Nothing completes; the packet is
+		// written for the next token.
+		if (slot->armed && slot->pending) {
+			slot->pending = false;
+			slot->isoBufferSelect = !slot->isoBufferSelect;
+			return ResultStatus::ok;
+		}
+
+		std::span<const uint8> data = slot->armed ? slot->source : std::span<const uint8>();
+
+		if (data.size() > out.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		std::copy(data.begin(), data.end(), out.begin());
+		length = static_cast<uint32>(data.size());
+		slot->isoBufferSelect = !slot->isoBufferSelect;
+
+		if (!slot->armed) {
+			slot->missedFrames++;
+			return ResultStatus::ok;
+		}
+
+		FinishTransfer(address, length);
+		return ResultStatus::ok;
+	}
+
+
+	// One frame of the host's OUT token on an isochronous endpoint, carrying data. The frame is stored whatever is armed, and the buffer select
+	// flips in every frame. With a transfer armed the packet completes it with its byte count; a packet that does not fit is dropped whole, with
+	// DataOverrun, and the transfer completes with 0. With no transfer armed the packet is dropped with no event, and the frame is counted in
+	// GetMissedFrames(). The call returns ok when the endpoint took the frame (stored or dropped by overrun) and notReady when the packet was
+	// dropped for want of an armed transfer, so a test sees both.
+	ResultStatus IsoOutFrame(uint8 address, std::span<const uint8> data) {
+		if (USBEndpoint::IsIn(address)) {
+			return ResultStatus::invalidParameter;
+		}
+
+		Slot* slot = FindSlot(address);
+
+		if (slot == nullptr || !slot->open) {
+			return ResultStatus::notExist;
+		}
+
+		if (slot->config.type != USBEndpointType::Isochronous) {
+			return ResultStatus::invalidParameter;
+		}
+
+		if (!connected) {
+			return ResultStatus::notReady;
+		}
+
+		slot->isoBufferSelect = !slot->isoBufferSelect;
+
+		if (!slot->armed) {
+			slot->missedFrames++;
+			return ResultStatus::notReady;
+		}
+
+		uint32 room = static_cast<uint32>(slot->target.size());
+
+		if (data.size() > room) {
+			CallError(Error::DataOverrun);
+			FinishTransfer(address, 0);
+			return ResultStatus::ok;
+		}
+
+		std::copy(data.begin(), data.end(), slot->target.begin());
+		FinishTransfer(address, static_cast<uint32>(data.size()));
+		return ResultStatus::ok;
+	}
+
+
+	// Frames the host found no transfer armed for, on an isochronous endpoint: an IN frame answered with a zero-length packet, or an OUT packet
+	// dropped. Zero for any other endpoint.
+	uint32 GetMissedFrames(uint8 address) const {
+		const Slot* slot = FindSlot(address);
+		return slot != nullptr ? slot->missedFrames : 0;
+	}
+
+
+	// The buffer the next isochronous packet uses. Every frame flips it, as the hardware's DTOG does, so it is not a PID.
+	bool GetIsoBufferSelect(uint8 address) const {
+		const Slot* slot = FindSlot(address);
+		return slot != nullptr && slot->isoBufferSelect;
+	}
+
+
 	uint8 GetAddress() const {
 		return deviceAddress;
 	}
@@ -294,11 +438,11 @@ public:
 	}
 
 
-	// True when the endpoint is open and was granted double buffering. A request can be refused with notSupported, so a test
-	// checks what the port granted and not only what it was asked for.
+	// True when the endpoint is open and has two buffers: a double-buffered bulk endpoint, or an isochronous one (which has no flag of
+	// its own). A request can be refused with notSupported, so a test checks what the port granted and not only what it was asked for.
 	bool IsDoubleBuffered(uint8 address) const {
 		const Slot* slot = FindSlot(address);
-		return slot != nullptr && slot->open && slot->config.doubleBuffer;
+		return slot != nullptr && slot->open && HasTwoBuffers(slot->config);
 	}
 
 
@@ -371,7 +515,11 @@ public:
 			return ResultStatus::invalidParameter;
 		}
 
-		if (config.type == USBEndpointType::Control || config.type == USBEndpointType::Isochronous) {
+		if (config.type == USBEndpointType::Control) {
+			return ResultStatus::invalidParameter;
+		}
+
+		if (config.type == USBEndpointType::Isochronous && (config.maxPacketSize == 0 || config.maxPacketSize > MaxIsochronousPacketSize)) {
 			return ResultStatus::invalidParameter;
 		}
 
@@ -406,28 +554,38 @@ public:
 			}
 
 			// The register cannot hold double buffering next to the other direction, so the port refuses it as a capability.
-			if (config.doubleBuffer) {
+			if (HasTwoBuffers(config)) {
 				return ResultStatus::notSupported;
 			}
 
 			// A single-buffered request beside a double-buffered other direction is a conflict the caller created.
-			if (other.config.doubleBuffer) {
+			if (HasTwoBuffers(other.config)) {
 				return ResultStatus::invalidParameter;
 			}
 		}
 
-		uint32 memory = static_cast<uint32>(config.maxPacketSize) * (config.doubleBuffer ? 2u : 1u);
-		uint32 reclaimed = slot.open ? slot.packetMemory : 0;
+		// The blocks are looked for before the slot gives up its old ones, and the slot is skipped while they are, as the port zeroes its sizes
+		// first. A refused call changes nothing.
+		uint32 blockSize = BlockSizeOf(config.maxPacketSize);
+		uint32 blockCount = HasTwoBuffers(config) ? 2U : 1U;
+		uint32 first = 0;
+		uint32 second = 0;
+		bool fits = FindBlock(blockSize, 0, 0, slot, first);
+		if (fits && blockCount == 2U) {
+			fits = FindBlock(blockSize, first, blockSize, slot, second);
+		}
 
-		if (packetMemoryUsed - reclaimed + memory > PacketMemorySize) {
+		if (!fits) {
 			return ResultStatus::outOfMemory;
 		}
 
 		CloseSlot(slot);
 		slot.open = true;
 		slot.config = config;
-		slot.packetMemory = memory;
-		packetMemoryUsed += memory;
+		slot.blockSize = blockSize;
+		slot.blockCount = blockCount;
+		slot.blockAddress[0] = first;
+		slot.blockAddress[1] = second;
 		return ResultStatus::ok;
 	}
 
@@ -475,11 +633,19 @@ public:
 			return ResultStatus::busy;
 		}
 
+		// An isochronous transfer is one packet, so its data fits one packet of the endpoint. An empty span is a zero-length packet.
+		if (slot->config.type == USBEndpointType::Isochronous && data.size() > slot->config.maxPacketSize) {
+			return ResultStatus::invalidParameter;
+		}
+
 		slot->armed = true;
 		slot->source = data;
 		slot->target = {};
 		slot->sendZeroLengthPacket = sendZeroLengthPacket;
 		slot->position = 0;
+		// An isochronous IN packet armed from its own completion callback goes out at the next token. Armed from anywhere else it is pending
+		// (see IsoInFrame()).
+		slot->pending = slot->config.type == USBEndpointType::Isochronous && !slot->inCompletion;
 		StartControlStage(*slot, address);
 		return ResultStatus::ok;
 	}
@@ -521,6 +687,11 @@ public:
 			return ResultStatus::notExist;
 		}
 
+		// An isochronous endpoint has no halt, so the request is refused and nothing is counted or abandoned.
+		if (slot->config.type == USBEndpointType::Isochronous) {
+			return ResultStatus::invalidParameter;
+		}
+
 		slot->stallCount++;
 
 		if (USBEndpoint::IsControl(address)) {
@@ -542,6 +713,11 @@ public:
 
 		if (slot == nullptr || !slot->open) {
 			return ResultStatus::notExist;
+		}
+
+		// An isochronous endpoint is never halted and has no toggle to reset, so the request is acknowledged and changes nothing.
+		if (slot->config.type == USBEndpointType::Isochronous) {
+			return ResultStatus::ok;
 		}
 
 		if (USBEndpoint::IsControl(address)) {
@@ -589,6 +765,7 @@ public:
 protected:
 	ResultStatus Initialization() override {
 		initialized = false;
+		ReserveControlBlocks();
 
 		ResultStatus status = BeforeInitialization();
 
@@ -622,6 +799,68 @@ private:
 	}
 
 
+	// The endpoint has two buffers on the port: a double-buffered bulk endpoint, and every isochronous endpoint (the port keeps the
+	// frame's buffer and the next one apart, see USBFsdev.h).
+	static bool HasTwoBuffers(const EndpointConfig& config) {
+		return config.doubleBuffer || config.type == USBEndpointType::Isochronous;
+	}
+
+
+	// The size of one packet memory block, as the port's PmaBlockSize() gives it (USBFsdev.h): the packet size rounded up to an even size, or to
+	// 32 bytes above 62 bytes, so a 200-byte packet takes blocks of 224. Every endpoint type is rounded the same way.
+	static uint32 BlockSizeOf(uint16 maxPacketSize) {
+		uint32 size = maxPacketSize;
+		return size > 62 ? (size + 31U) & ~31U : (size + 1U) & ~1U;
+	}
+
+
+	// The first block of size bytes above the buffer table that no block held by the slots overlaps, as the port's FindPmaBlock() finds it.
+	// The candidate starts at the table and moves to the first 4-byte boundary past each block in its way. reservedSize names a block the
+	// caller has found already (the first of a two-block endpoint), which counts as held. The slot being opened is skipped, because the port
+	// zeroes its sizes before it looks.
+	bool FindBlock(uint32 size, uint32 reservedAddress, uint32 reservedSize, const Slot& skip, uint32& address) const {
+		uint32 candidate = BufferTableSize;
+		while (candidate + size <= PacketMemorySize) {
+			uint32 conflictEnd = 0;
+			if (reservedSize != 0) {
+				conflictEnd = ConflictEnd(candidate, size, reservedAddress, reservedSize);
+			}
+
+			for (std::size_t index = 0; index < slots.size() && conflictEnd == 0; index++) {
+				const Slot& other = slots[index];
+				if (&other == &skip) {
+					continue;
+				}
+
+				for (uint32 block = 0; block < other.blockCount && conflictEnd == 0; block++) {
+					conflictEnd = ConflictEnd(candidate, size, other.blockAddress[block], other.blockSize);
+				}
+			}
+
+			if (conflictEnd == 0) {
+				address = candidate;
+				return true;
+			}
+
+			candidate = AlignUp(conflictEnd);
+		}
+
+		return false;
+	}
+
+
+	static uint32 ConflictEnd(uint32 start, uint32 size, uint32 blockStart, uint32 blockSize) {
+		bool overlap = start < blockStart + blockSize && blockStart < start + size;
+		return overlap ? blockStart + blockSize : 0;
+	}
+
+
+	// The port's BufferAlignment: blocks start on a 4-byte boundary.
+	static uint32 AlignUp(uint32 value) {
+		return (value + 3U) & ~3U;
+	}
+
+
 	static std::size_t SlotIndex(uint8 address) {
 		return static_cast<std::size_t>(USBEndpoint::Number(address) * 2 + (USBEndpoint::IsIn(address) ? 1 : 0));
 	}
@@ -652,15 +891,28 @@ private:
 		slot.config.type = USBEndpointType::Control;
 		slot.config.maxPacketSize = ControlMaxPacketSize;
 		slot.config.doubleBuffer = false;
-		slot.packetMemory = ControlMaxPacketSize;
-		packetMemoryUsed += ControlMaxPacketSize;
+		// The bus reset closed the blocks with the slots, so they are put back here.
+		ReserveControlBlocks();
+	}
+
+
+	// Endpoint 0 has its two blocks above the buffer table from initialization on, as the port places them: IN takes the first and OUT the
+	// second. The slots keep them whether or not the control pipe is open.
+	void ReserveControlBlocks() {
+		Slot& in = slots[SlotIndex(USBEndpoint::ControlIn)];
+		in.blockAddress[0] = BufferTableSize;
+		in.blockSize = ControlMaxPacketSize;
+		in.blockCount = 1;
+		Slot& out = slots[SlotIndex(USBEndpoint::ControlOut)];
+		out.blockAddress[0] = BufferTableSize + ControlMaxPacketSize;
+		out.blockSize = ControlMaxPacketSize;
+		out.blockCount = 1;
 	}
 
 
 	// Closes a slot and gives its packet memory back. The stall count is history, so it survives the close.
-	void CloseSlot(Slot& slot) {
+	static void CloseSlot(Slot& slot) {
 		uint32 stallCount = slot.stallCount;
-		packetMemoryUsed -= slot.packetMemory;
 		slot = Slot{};
 		slot.stallCount = stallCount;
 	}
@@ -668,6 +920,7 @@ private:
 
 	static void AbandonSlot(Slot& slot) {
 		slot.armed = false;
+		slot.pending = false;
 		slot.sendZeroLengthPacket = false;
 		slot.source = {};
 		slot.target = {};
@@ -727,7 +980,16 @@ private:
 			lastControlCompletion.byteCount = byteCount;
 		}
 
+		// The endpoint's own callback runs with the flag set, so a packet it arms goes out at the next token (see StartInTransfer()).
+		if (slot != nullptr) {
+			slot->inCompletion = true;
+		}
+
 		CallTransferComplete(address, byteCount);
+		slot = FindSlot(address);
+		if (slot != nullptr) {
+			slot->inCompletion = false;
+		}
 	}
 
 

@@ -38,6 +38,16 @@ public:
 
 
 	FixedList<Completion, 16> completions;
+	// The errors and the start-of-frame events the port raised, in order. The isochronous tests read them.
+	FixedList<Error, 8> errors;
+	FixedList<uint16, 16> frames;
+	// Isochronous IN packets for 0x81, armed one after another by the completion callback, as a function arms its next packet from the
+	// completion of the one before. isoInNext is the next one to arm.
+	FixedList<std::span<const uint8>, 4> isoInQueue;
+	std::size_t isoInNext = 0;
+	// When set, the completion of the OUT on 0x02 arms outCompletionInPacket on the IN 0x81: an arm from another endpoint's callback.
+	bool armInOnOutCompletion = false;
+	std::span<const uint8> outCompletionInPacket;
 
 
 	TestFsdevPort()
@@ -45,9 +55,47 @@ public:
 	}
 
 
+	// The EPnR value of an endpoint as the port reads it.
+	uint16 Epr(uint8 number) const {
+		return ReadEpr(number);
+	}
+
+
+	// The COUNT of one buffer of an endpoint, without its block bits. Buffer 1 is the COUNT_RX field.
+	uint16 Count(uint8 number, bool buffer1) const {
+		return ReadBd(number, buffer1 ? USBFsdevBuffer::CountRx : USBFsdevBuffer::CountTx) & USBFsdevBuffer::CountMask;
+	}
+
+
+	// The packet memory address of one buffer of an endpoint. Buffer 1 is the ADDR_RX field.
+	uint16 Address(uint8 number, bool buffer1) const {
+		return ReadBd(number, buffer1 ? USBFsdevBuffer::AddrRx : USBFsdevBuffer::AddrTx);
+	}
+
+
 protected:
 	void CallTransferComplete(uint8 address, uint32 byteCount) override {
 		completions.Push(Completion{address, byteCount});
+		if (address == 0x81 && isoInNext < isoInQueue.count) {
+			ResultStatus status = StartInTransfer(0x81, isoInQueue[isoInNext], false);
+			SIM_EXPECT(status == ResultStatus::ok);
+			isoInNext++;
+		}
+
+		if (address == 0x02 && armInOnOutCompletion) {
+			armInOnOutCompletion = false;
+			SIM_EXPECT(StartInTransfer(0x81, outCompletionInPacket, false) == ResultStatus::ok);
+		}
+	}
+
+
+	void CallError(Error error) override {
+		errors.Push(error);
+	}
+
+
+	void CallStartOfFrame(uint16 frameNumber) override {
+		frames.Push(frameNumber);
 	}
 };
 
@@ -1140,6 +1188,913 @@ void TestInReleaseIsFirstWriteInInterrupt() {
 }
 
 
+// Isochronous endpoints (see USBFsdev.h, ArmIsoIn(), HandleIsoInCompletion() and HandleIsoOutCompletion()). A frame is one token of the host:
+// the controller answers it at once, as it does on the bus, and the port's interrupt runs after the token. An isochronous token is always
+// answered, so the frame helpers return Ack for it. No PID is asserted, so the frame helpers do not return one, and the buffer select is read
+// from EPnR as the bit that picks the buffer of the next packet.
+
+constexpr uint32 IsoMaxPacket = 1023;
+constexpr uint32 IsoPacketSize = 300;
+
+
+// One IN token of a frame. The packet goes to packet, and length is its byte count: 0 for a zero-length packet, which is what a frame with
+// nothing armed gets.
+SimHandshake IsoInFrame(TestFsdevPort& port, uint8 address, std::span<uint8> packet, uint32& length) {
+	bool dataOne = false;
+	SimHandshake handshake = simFsdev.InToken(USBEndpoint::Number(address), packet, length, dataOne);
+	port.IrqHandler();
+	if (handshake != SimHandshake::Ack) {
+		length = 0;
+	}
+
+	return handshake;
+}
+
+
+// One OUT token of a frame, carrying data. The controller stores the packet in buffer DTOG_RX selects whatever is armed, so Ack is the
+// answer; the port then decides what the packet is worth (see TestIsoOutMissedFrameIsDropped()).
+SimHandshake IsoOutFrame(TestFsdevPort& port, uint8 address, std::span<const uint8> data) {
+	SimHandshake handshake = simFsdev.OutToken(USBEndpoint::Number(address), data, false);
+	port.IrqHandler();
+	return handshake;
+}
+
+
+// The buffer select of an isochronous IN address (DTOG_TX) and OUT address (DTOG_RX). It names the buffer of the next packet, and the model
+// does not give it a PID.
+bool InBufferSelect(const TestFsdevPort& port, uint8 address) {
+	return (port.Epr(USBEndpoint::Number(address)) & USBFsdevEpr::DtogTx) != 0;
+}
+
+
+bool OutBufferSelect(const TestFsdevPort& port, uint8 address) {
+	return (port.Epr(USBEndpoint::Number(address)) & USBFsdevEpr::DtogRx) != 0;
+}
+
+
+// A packet of size bytes with a pattern that depends on seed, so two packets of one stream differ.
+std::array<uint8, IsoMaxPacket> MakeIsoPacket(uint8 seed) {
+	std::array<uint8, IsoMaxPacket> packet{};
+	for (uint32 index = 0; index < IsoMaxPacket; ++index) {
+		packet[index] = static_cast<uint8>((index * 29U + seed * 53U + 7U) & 0xFF);
+	}
+
+	return packet;
+}
+
+
+// Isochronous IN, three packets (300, 300 and a short 17 bytes). The first is armed at stream start, and each completion arms the next from
+// the callback (TestFsdevPort::CallTransferComplete()), so every packet is armed a frame ahead of its token. Each frame carries one packet whole,
+// with one completion of its size, and the buffer select flips in every frame: buffer 0 in frame 0, buffer 1 in frame 1, and so on.
+void TestIsoInDeliversOnePacketPerFrame() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, IsoPacketSize, false)) == ResultStatus::ok);
+
+	std::array<uint8, IsoMaxPacket> first = MakeIsoPacket(1);
+	std::array<uint8, IsoMaxPacket> second = MakeIsoPacket(2);
+	std::array<uint8, IsoMaxPacket> third = MakeIsoPacket(3);
+	std::span<const uint8> packets[] = {
+		std::span<const uint8>(first).first(IsoPacketSize),
+		std::span<const uint8>(second).first(IsoPacketSize),
+		std::span<const uint8>(third).first(17)
+	};
+
+	port.isoInQueue.Push(packets[1]);
+	port.isoInQueue.Push(packets[2]);
+	// Armed from thread context, so the packet is deferred: the token of frame 0 finds nothing written, sends a zero-length packet and
+	// writes the packet into the buffer it leaves free. The packet goes out at frame 1.
+	SIM_EXPECT(port.StartInTransfer(0x81, packets[0], false) == ResultStatus::ok);
+
+	// Frame 0 is the zero-length packet. Frames 1 to 3 carry the three packets, each armed by the completion callback of the one before, so
+	// that packet goes out at the next token: the callback arm of packets[1] is sent at frame 2, and that of packets[2] at frame 3.
+	std::span<const uint8> expected[4] = { std::span<const uint8>(), packets[0], packets[1], packets[2] };
+	for (uint32 frame = 0; frame < 4; ++frame) {
+		std::array<uint8, 1024> received{};
+		uint32 length = 0;
+		SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+		SIM_EXPECT_EQ(length, expected[frame].size());
+		SIM_EXPECT(SameBytes(expected[frame], std::span<const uint8>(received).first(length)));
+		SIM_EXPECT_EQ(port.completions.count, frame == 0 ? 0U : frame);
+		if (frame > 0) {
+			SIM_EXPECT_EQ(port.completions.Back().address, 0x81);
+			SIM_EXPECT_EQ(port.completions.Back().byteCount, expected[frame].size());
+		}
+
+		if (frame == 0) {
+			// The deferred write landed in buffer 1 at the zero-length token, and buffer 0 is still empty.
+			SIM_EXPECT_EQ(port.Count(1, true), IsoPacketSize);
+			SIM_EXPECT_EQ(port.Count(1, false), 0U);
+		}
+
+		// After frame f the select has flipped f + 1 times from its value at open (0), so it is set after an even frame index.
+		SIM_EXPECT(InBufferSelect(port, 0x81) == ((frame % 2) == 0));
+	}
+
+	SIM_EXPECT_EQ(port.isoInNext, 2U);
+	SIM_EXPECT(!port.completions.overflowed);
+	SIM_EXPECT_EQ(port.errors.count, 0U);
+}
+
+
+// A frame with no packet armed is answered with a zero-length packet: the controller sends the buffer DTOG_TX selects, whose COUNT the port
+// zeroed when that buffer's packet went out, so the stale packet is never sent again. The frame raises no completion, and it flips the buffer
+// select like any other. A packet armed afterwards goes out at the next token, from the buffer the select now picks.
+void TestIsoInFrameWithNothingArmedSendsZeroLengthPacket() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	std::array<uint8, IsoMaxPacket> first = MakeIsoPacket(4);
+	std::array<uint8, IsoMaxPacket> second = MakeIsoPacket(5);
+	std::array<uint8, 1024> received{};
+	uint32 length = 0;
+
+	// Frame 0: nothing armed. Buffer 0 has COUNT 0, so the token gets a zero-length packet, no completion, and the select goes to buffer 1.
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT_EQ(port.completions.count, 0U);
+	SIM_EXPECT_EQ(port.errors.count, 0U);
+	SIM_EXPECT((port.Epr(1) & USBFsdevEpr::CtrTx) == 0);
+	SIM_EXPECT(InBufferSelect(port, 0x81));
+
+	// The first packet is armed from thread context. Nothing is copied yet: it waits for the next token.
+	SIM_EXPECT(port.StartInTransfer(0x81, std::span<const uint8>(first).first(64), false) == ResultStatus::ok);
+	SIM_EXPECT_EQ(port.Count(1, false), 0U);
+	SIM_EXPECT_EQ(port.Count(1, true), 0U);
+
+	// Frame 1: the token finds buffer 1 empty and sends a zero-length packet. The deferred packet is written into buffer 0, which the
+	// select now points to, and it completes nothing.
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT_EQ(port.completions.count, 0U);
+	SIM_EXPECT_EQ(port.Count(1, false), 64U);
+	SIM_EXPECT_EQ(port.Count(1, true), 0U);
+	SIM_EXPECT(!InBufferSelect(port, 0x81));
+
+	// Frame 2: the first packet goes out from buffer 0. Its COUNT is zeroed after the send and the select goes to buffer 1.
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 64U);
+	SIM_EXPECT(SameBytes(std::span<const uint8>(first).first(64), std::span<const uint8>(received).first(length)));
+	SIM_EXPECT_EQ(port.completions.count, 1U);
+	SIM_EXPECT_EQ(port.Count(1, false), 0U);
+	SIM_EXPECT(InBufferSelect(port, 0x81));
+
+	// Frame 3: nothing armed. Buffer 1 has COUNT 0, so the token gets a zero-length packet, not the packet of frame 2.
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT_EQ(port.completions.count, 1U);
+	SIM_EXPECT_EQ(port.errors.count, 0U);
+	SIM_EXPECT(!InBufferSelect(port, 0x81));
+
+	// Frames 4 and 5: the second packet is armed from thread context after frame 3. Frame 4 is its zero-length packet, which writes it into
+	// buffer 1, and frame 5 sends it.
+	SIM_EXPECT(port.StartInTransfer(0x81, std::span<const uint8>(second).first(64), false) == ResultStatus::ok);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT_EQ(port.completions.count, 1U);
+	SIM_EXPECT_EQ(port.Count(1, true), 64U);
+	SIM_EXPECT(InBufferSelect(port, 0x81));
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 64U);
+	SIM_EXPECT(SameBytes(std::span<const uint8>(second).first(64), std::span<const uint8>(received).first(length)));
+	SIM_EXPECT_EQ(port.completions.count, 2U);
+	SIM_EXPECT(!InBufferSelect(port, 0x81));
+}
+
+
+// Arming an isochronous IN writes no EPnR bit. STAT stays VALID from open, and SW_BUF (DTOG_RX) is left alone: the copy goes to the buffer the
+// select picks and sets its COUNT, nothing else. The COUNTs are both 0 after open.
+void TestIsoInArmWritesNoRegister() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+
+	SIM_EXPECT_EQ(port.Count(1, false), 0U);
+	SIM_EXPECT_EQ(port.Count(1, true), 0U);
+	SIM_EXPECT((port.Epr(1) & USBFsdevEpr::TxStatus) == USBFsdevEpr::TxValid);
+	SIM_EXPECT((port.Epr(1) & USBFsdevEpr::DtogRx) == 0);
+	uint16 before = port.Epr(1);
+
+	// Armed from thread context the packet is deferred: no register and no buffer is written by the call. The token that comes first writes it.
+	std::array<uint8, IsoMaxPacket> packet = MakeIsoPacket(15);
+	SIM_EXPECT(port.StartInTransfer(0x81, std::span<const uint8>(packet).first(64), false) == ResultStatus::ok);
+	SIM_EXPECT(port.Epr(1) == before);
+	SIM_EXPECT_EQ(port.Count(1, false), 0U);
+	SIM_EXPECT_EQ(port.Count(1, true), 0U);
+
+	std::array<uint8, 1024> received{};
+	uint32 length = 0;
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT_EQ(port.Count(1, true), 64U);
+	SIM_EXPECT_EQ(port.Count(1, false), 0U);
+}
+
+
+// An isochronous endpoint has no EP_KIND: the bit is clear for isochronous and set for a double-buffered bulk endpoint, and a single-buffered
+// bulk endpoint has it clear too.
+void TestEpKindFollowsDoubleBuffer() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x02, USBEndpointType::Bulk, 64, true)) == ResultStatus::ok);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x83, USBEndpointType::Bulk, 64, false)) == ResultStatus::ok);
+	SIM_EXPECT((port.Epr(1) & USBFsdevEpr::Kind) == 0);
+	SIM_EXPECT((port.Epr(2) & USBFsdevEpr::Kind) != 0);
+	SIM_EXPECT((port.Epr(3) & USBFsdevEpr::Kind) == 0);
+}
+
+
+// Isochronous OUT, one packet per frame: a full one, a zero-length one (a completion of 0 bytes) and a short one. Each is stored and
+// completed in its own frame, with the byte count the frame carried.
+void TestIsoOutStoresOnePacketPerFrame() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x02, USBEndpointType::Isochronous, IsoPacketSize, false)) == ResultStatus::ok);
+	std::array<uint8, IsoMaxPacket> data = MakeIsoPacket(6);
+	std::array<uint8, IsoMaxPacket> sink{};
+
+	SIM_EXPECT(port.StartOutTransfer(0x02, std::span<uint8>(sink).first(IsoPacketSize)) == ResultStatus::ok);
+	SIM_EXPECT(IsoOutFrame(port, 0x02, std::span<const uint8>(data).first(IsoPacketSize)) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(port.completions.count, 1U);
+	SIM_EXPECT_EQ(port.completions.Back().byteCount, IsoPacketSize);
+	SIM_EXPECT(SameBytes(std::span<const uint8>(data).first(IsoPacketSize), std::span<const uint8>(sink).first(IsoPacketSize)));
+
+	SIM_EXPECT(port.StartOutTransfer(0x02, std::span<uint8>(sink)) == ResultStatus::ok);
+	SIM_EXPECT(IsoOutFrame(port, 0x02, std::span<const uint8>()) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(port.completions.count, 2U);
+	SIM_EXPECT_EQ(port.completions.Back().byteCount, 0U);
+
+	SIM_EXPECT(port.StartOutTransfer(0x02, std::span<uint8>(sink)) == ResultStatus::ok);
+	SIM_EXPECT(IsoOutFrame(port, 0x02, std::span<const uint8>(data).first(17)) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(port.completions.count, 3U);
+	SIM_EXPECT_EQ(port.completions.Back().byteCount, 17U);
+	SIM_EXPECT(SameBytes(std::span<const uint8>(data).first(17), std::span<const uint8>(sink).first(17)));
+	SIM_EXPECT(!port.completions.overflowed);
+	SIM_EXPECT_EQ(port.errors.count, 0U);
+}
+
+
+// Isochronous OUT with no transfer armed for a frame. The controller stores the packet in buffer DTOG_RX selects, whatever is armed, and the
+// port drops it: the frame is lost, nothing is delivered later, and no event is raised. The next armed transfer gets the packet of its own frame.
+void TestIsoOutMissedFrameIsDropped() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x02, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	std::array<uint8, IsoMaxPacket> frame0 = MakeIsoPacket(7);
+	std::array<uint8, IsoMaxPacket> frame1 = MakeIsoPacket(8);
+	std::array<uint8, IsoMaxPacket> frame2 = MakeIsoPacket(9);
+	std::array<uint8, IsoMaxPacket> sink{};
+
+	SIM_EXPECT(port.StartOutTransfer(0x02, std::span<uint8>(sink).first(64)) == ResultStatus::ok);
+	SIM_EXPECT(IsoOutFrame(port, 0x02, std::span<const uint8>(frame0).first(64)) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(port.completions.count, 1U);
+
+	// Frame 1 comes with nothing armed. The controller stores it in the buffer that frame 0 left the select on, and the port drops it: no
+	// completion, no error, and the frame's packet is not kept.
+	SIM_EXPECT(IsoOutFrame(port, 0x02, std::span<const uint8>(frame1).first(64)) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(port.completions.count, 1U);
+	SIM_EXPECT(port.errors.count == 0);
+	// The select moved in frame 1 as well: DTOG_RX went 1 -> 0 with the dropped packet.
+	SIM_EXPECT(!OutBufferSelect(port, 0x02));
+
+	SIM_EXPECT(port.StartOutTransfer(0x02, std::span<uint8>(sink).first(64)) == ResultStatus::ok);
+	SIM_EXPECT(IsoOutFrame(port, 0x02, std::span<const uint8>(frame2).first(64)) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(port.completions.count, 2U);
+	SIM_EXPECT(SameBytes(std::span<const uint8>(frame2).first(64), std::span<const uint8>(sink).first(64)));
+	SIM_EXPECT(!port.completions.overflowed);
+}
+
+
+// Arming an isochronous OUT writes no EPnR bit: the hardware stores the next packet whatever is armed, so the arm only sets the buffer.
+void TestIsoOutArmWritesNoRegister() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x02, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	SIM_EXPECT((port.Epr(2) & USBFsdevEpr::RxStatus) == USBFsdevEpr::RxValid);
+	SIM_EXPECT((port.Epr(2) & USBFsdevEpr::Kind) == 0);
+	uint16 before = port.Epr(2);
+
+	std::array<uint8, 64> sink{};
+	SIM_EXPECT(port.StartOutTransfer(0x02, sink) == ResultStatus::ok);
+	SIM_EXPECT(port.Epr(2) == before);
+	SIM_EXPECT(!OutBufferSelect(port, 0x02));
+}
+
+
+// An isochronous OUT packet longer than its block is not written past the block, and the port drops it. The sink is 1024 bytes, so the room
+// left in the buffer is not the reason for the drop: only the block guard can refuse the 200-byte packet, whose COUNT is 200 against a
+// 64-byte block, so the completion is 0 bytes with DataOverrun. Without the guard the port would copy 200 bytes from the block, 136 of them
+// past its end. The sentinel after the block checks the simulator's clamp (SimFsdevController::OutToken() writes only the block and counts
+// oversizedOutPackets), so it shows that the model stored no bytes past the block; the port's answer is the completion above.
+void TestIsoOutOversizedPacketNeverWritesPastBlock() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x02, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	std::array<uint8, IsoMaxPacket> data = MakeIsoPacket(16);
+	std::array<uint8, 1024> sink{};
+
+	// The first OUT packet of the stream goes to buffer 0 (DTOG_RX is 0 after open), at ADDR_TX. The sentinel covers the 200 bytes after its block.
+	uint16 block = port.Address(2, false);
+	constexpr uint8 Sentinel = 0xA5;
+	constexpr uint32 Written = 200;
+	for (uint32 index = 0; index < Written; ++index) {
+		simFsdev.packetMemory[block + 64 + index] = Sentinel;
+	}
+
+	SIM_EXPECT(port.StartOutTransfer(0x02, sink) == ResultStatus::ok);
+	SIM_EXPECT(IsoOutFrame(port, 0x02, std::span<const uint8>(data).first(200)) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(simFsdev.oversizedOutPackets, 1U);
+	SIM_EXPECT_EQ(port.errors.count, 1U);
+	if (port.errors.count == 1) {
+		SIM_EXPECT(port.errors.Back() == USBDeviceAdapter::Error::DataOverrun);
+	}
+
+	SIM_EXPECT_EQ(port.completions.count, 1U);
+	SIM_EXPECT_EQ(port.completions.Back().byteCount, 0U);
+	SIM_EXPECT(sink[0] == 0);
+	for (uint32 index = 0; index < Written; ++index) {
+		SIM_EXPECT(simFsdev.packetMemory[block + 64 + index] == Sentinel);
+	}
+}
+
+
+// An isochronous OUT packet that does not fit the armed buffer is dropped whole, with DataOverrun, and the transfer completes with 0 bytes.
+void TestIsoOutOverrunDropsPacket() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x02, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	std::array<uint8, IsoMaxPacket> data = MakeIsoPacket(10);
+	std::array<uint8, IsoMaxPacket> sink{};
+
+	SIM_EXPECT(port.StartOutTransfer(0x02, std::span<uint8>(sink).first(32)) == ResultStatus::ok);
+	SIM_EXPECT(IsoOutFrame(port, 0x02, std::span<const uint8>(data).first(64)) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(port.errors.count, 1U);
+	if (port.errors.count == 1) {
+		SIM_EXPECT(port.errors.Back() == USBDeviceAdapter::Error::DataOverrun);
+	}
+
+	SIM_EXPECT_EQ(port.completions.count, 1U);
+	SIM_EXPECT_EQ(port.completions.Back().byteCount, 0U);
+	SIM_EXPECT(sink[0] == 0);
+}
+
+
+// Stall() is refused on an isochronous endpoint, and ClearStall() is acknowledged and changes nothing: the endpoint is never halted and has no
+// toggle to reset. The EPnR value is the same before and after the ClearStall(), and the packet armed before it still goes out, at the
+// second token after the arm.
+void TestIsoStallRefusedClearStallAcknowledged() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	std::array<uint8, IsoMaxPacket> data = MakeIsoPacket(11);
+	std::array<uint8, 1024> received{};
+	uint32 length = 0;
+
+	SIM_EXPECT(port.Stall(0x81) == ResultStatus::invalidParameter);
+	SIM_EXPECT(!port.IsStalled(0x81));
+	SIM_EXPECT(port.StartInTransfer(0x81, std::span<const uint8>(data).first(64), false) == ResultStatus::ok);
+	uint16 before = port.Epr(1);
+	SIM_EXPECT(port.ClearStall(0x81) == ResultStatus::ok);
+	SIM_EXPECT(port.Epr(1) == before);
+	SIM_EXPECT(!port.IsStalled(0x81));
+	// The packet was armed from thread context, so the first token sends a zero-length packet and the packet goes out at the second.
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT_EQ(port.completions.count, 0U);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 64U);
+	SIM_EXPECT(SameBytes(std::span<const uint8>(data).first(64), std::span<const uint8>(received).first(length)));
+
+	// A direction that is not open is notExist, as for the other types.
+	SIM_EXPECT(port.ClearStall(0x82) == ResultStatus::notExist);
+}
+
+
+// The open rules of an isochronous endpoint: the packet size range, the refused doubleBuffer flag, the sharing of the number's register with
+// the other direction, and the packet memory (two blocks of the packet size, rounded to 32 bytes above 62).
+void TestIsoOpenRules() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 0, false)) == ResultStatus::invalidParameter);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 1024, false)) == ResultStatus::invalidParameter);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 64, true)) == ResultStatus::invalidParameter);
+	// Two blocks of 1024 bytes do not fit the 832 bytes left after the buffer table and endpoint 0.
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 1023, false)) == ResultStatus::outOfMemory);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, IsoPacketSize, false)) == ResultStatus::ok);
+
+	// The other direction of the number is a bulk endpoint: the type is shared, so it is refused.
+	SIM_EXPECT(port.OpenEndpoint(Config(0x01, USBEndpointType::Bulk, 64, false)) == ResultStatus::invalidParameter);
+	// An isochronous OUT beside the open IN is double-buffered, which the register cannot hold beside the other direction.
+	SIM_EXPECT(port.OpenEndpoint(Config(0x01, USBEndpointType::Isochronous, 64, false)) == ResultStatus::notSupported);
+}
+
+
+// The largest isochronous packet beside endpoint 0. The buffer table takes 64 bytes and endpoint 0 takes 128, which leaves 832. Two blocks of
+// 416 bytes fill them exactly: the first at 192, the second at 608, ending at 1024. A 417-byte packet rounds to a 448 block, and two of those
+// need 896, so the port refuses it with outOfMemory and keeps the 416-byte endpoint as it was.
+void TestIsoLargestPacketBesideEndpointZero() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 416, false)) == ResultStatus::ok);
+	SIM_EXPECT_EQ(port.Address(1, false), 192U);
+	SIM_EXPECT_EQ(port.Address(1, true), 608U);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 417, false)) == ResultStatus::outOfMemory);
+	SIM_EXPECT_EQ(port.Address(1, false), 192U);
+	SIM_EXPECT_EQ(port.Address(1, true), 608U);
+
+	std::array<uint8, IsoMaxPacket> data = MakeIsoPacket(17);
+	std::array<uint8, IsoMaxPacket> received{};
+	uint32 length = 0;
+	// Armed from thread context: the 416 bytes are written at the first token, which sends a zero-length packet, and go out at the second.
+	SIM_EXPECT(port.StartInTransfer(0x81, std::span<const uint8>(data).first(416), false) == ResultStatus::ok);
+	SIM_EXPECT_EQ(port.Count(1, false), 0U);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT_EQ(port.Count(1, true), 416U);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 416U);
+	SIM_EXPECT(SameBytes(std::span<const uint8>(data).first(416), std::span<const uint8>(received).first(length)));
+}
+
+
+// Packet memory of an isochronous endpoint is two blocks of its packet size, rounded to 32 bytes above 62 (300 bytes take 2 * 320). Closing
+// an endpoint gives its blocks back for the next one.
+void TestIsoPacketMemoryAndClose() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, IsoPacketSize, false)) == ResultStatus::ok);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x82, USBEndpointType::Isochronous, IsoPacketSize, false)) == ResultStatus::outOfMemory);
+	SIM_EXPECT(port.CloseEndpoint(0x81) == ResultStatus::ok);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x82, USBEndpointType::Isochronous, IsoPacketSize, false)) == ResultStatus::ok);
+}
+
+
+// The start-of-frame event of the port, with an isochronous packet in the same interrupt: the event is raised and the packet completes.
+void TestIsoStartOfFrameWithPacket() {
+	TestFsdevPort port;
+	simFsdev.Reset();
+	USBDeviceAdapter::Parameters parameters;
+	parameters.endpointCount = SimFsdevController::EndpointCount;
+	parameters.startOfFrameEvents = true;
+	SIM_EXPECT(port.SetParameters(parameters) == ResultStatus::ok);
+	SIM_EXPECT(port.Connect() == ResultStatus::ok);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	std::array<uint8, IsoMaxPacket> data = MakeIsoPacket(12);
+	SIM_EXPECT(port.StartInTransfer(0x81, std::span<const uint8>(data).first(64), false) == ResultStatus::ok);
+
+	simFsdev.RaiseIstrFlags(USBFsdevIstr::Sof);
+	std::array<uint8, 1024> received{};
+	uint32 length = 0;
+	// The packet was armed from thread context, so this frame's token sends a zero-length packet and the event is raised for the frame.
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT_EQ(port.frames.count, 1U);
+	SIM_EXPECT_EQ(port.completions.count, 0U);
+
+	// The interrupt cleared the flag, so the next frame raises no start-of-frame until the controller sets it again. The packet goes out here.
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 64U);
+	SIM_EXPECT_EQ(port.frames.count, 1U);
+	SIM_EXPECT_EQ(port.completions.count, 1U);
+
+	// Armed again from thread context: the zero-length token comes first, then the packet, and no start-of-frame is raised for either.
+	SIM_EXPECT(port.StartInTransfer(0x81, std::span<const uint8>(data).first(64), false) == ResultStatus::ok);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 64U);
+	SIM_EXPECT_EQ(port.frames.count, 1U);
+	SIM_EXPECT_EQ(port.completions.count, 2U);
+}
+
+
+// The IN 0x81 is armed from the completion of the OUT 0x02, which is another endpoint's callback. The write waits for the IN's next token: the
+// first token sends a zero-length packet and writes the packet, and the packet goes out at the second token.
+void TestIsoInArmFromOtherEndpointCallbackIsDeferred() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x02, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	std::array<uint8, IsoMaxPacket> packet = MakeIsoPacket(18);
+	std::array<uint8, IsoMaxPacket> data = MakeIsoPacket(19);
+	std::array<uint8, 64> sink{};
+	std::array<uint8, 1024> received{};
+	uint32 length = 0;
+
+	port.outCompletionInPacket = std::span<const uint8>(packet).first(64);
+	port.armInOnOutCompletion = true;
+	SIM_EXPECT(port.StartOutTransfer(0x02, sink) == ResultStatus::ok);
+	SIM_EXPECT(IsoOutFrame(port, 0x02, std::span<const uint8>(data).first(64)) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(port.completions.count, 1U);
+	SIM_EXPECT_EQ(port.completions.Back().address, 0x02);
+
+	// The arm happened in the OUT's callback, which is not the IN's own, so nothing is copied into the IN buffers yet.
+	SIM_EXPECT_EQ(port.Count(1, false), 0U);
+	SIM_EXPECT_EQ(port.Count(1, true), 0U);
+
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT_EQ(port.completions.count, 1U);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 64U);
+	SIM_EXPECT(SameBytes(std::span<const uint8>(packet).first(64), std::span<const uint8>(received).first(length)));
+	SIM_EXPECT_EQ(port.completions.count, 2U);
+	SIM_EXPECT_EQ(port.completions.Back().address, 0x81);
+}
+
+
+// While a packet is pending (not yet written) and while it is armed (written, waiting for its token), StartInTransfer() is busy. A new packet
+// is taken only after the one before has completed.
+void TestIsoInBusyWhilePendingOrArmed() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	std::array<uint8, IsoMaxPacket> packet = MakeIsoPacket(20);
+	std::span<const uint8> first = std::span<const uint8>(packet).first(64);
+	std::array<uint8, 1024> received{};
+	uint32 length = 0;
+
+	SIM_EXPECT(port.StartInTransfer(0x81, first, false) == ResultStatus::ok);
+	SIM_EXPECT(port.StartInTransfer(0x81, first, false) == ResultStatus::busy);
+	SIM_EXPECT_EQ(port.Count(1, false), 0U);
+	SIM_EXPECT_EQ(port.Count(1, true), 0U);
+
+	// The first token writes the packet: it is armed now, and still busy.
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT_EQ(port.Count(1, true), 64U);
+	SIM_EXPECT(port.StartInTransfer(0x81, first, false) == ResultStatus::busy);
+
+	// The second token sends it. The completion ends the transfer, and the endpoint takes a new packet.
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 64U);
+	SIM_EXPECT_EQ(port.completions.count, 1U);
+	SIM_EXPECT(port.StartInTransfer(0x81, first, false) == ResultStatus::ok);
+}
+
+
+// Disconnect() drops a deferred packet and an armed one with no event, and empties the IN buffers. Each token after the reconnect sends a
+// zero-length packet, so neither the dropped packet nor a stale one goes out.
+void TestIsoInDisconnectDropsPendingAndArmedPackets() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	std::array<uint8, IsoMaxPacket> packet = MakeIsoPacket(21);
+	std::span<const uint8> first = std::span<const uint8>(packet).first(64);
+	std::array<uint8, 1024> received{};
+	uint32 length = 0;
+
+	// A deferred packet, dropped before any token.
+	SIM_EXPECT(port.StartInTransfer(0x81, first, false) == ResultStatus::ok);
+	SIM_EXPECT(port.Disconnect() == ResultStatus::ok);
+	SIM_EXPECT_EQ(port.Count(1, false), 0U);
+	SIM_EXPECT_EQ(port.Count(1, true), 0U);
+	SIM_EXPECT(port.Connect() == ResultStatus::ok);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT_EQ(port.completions.count, 0U);
+
+	// An armed packet, written by a token and dropped by the detach before its own token.
+	SIM_EXPECT(port.StartInTransfer(0x81, first, false) == ResultStatus::ok);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(port.Count(1, true), 64U);
+	SIM_EXPECT(port.Disconnect() == ResultStatus::ok);
+	SIM_EXPECT_EQ(port.Count(1, false), 0U);
+	SIM_EXPECT_EQ(port.Count(1, true), 0U);
+	SIM_EXPECT(port.Connect() == ResultStatus::ok);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT_EQ(port.completions.count, 0U);
+	SIM_EXPECT_EQ(port.errors.count, 0U);
+}
+
+
+// CloseEndpoint() drops a deferred packet and an armed one, and zeroes the IN buffers, so a reopened endpoint sends zero-length packets only.
+void TestIsoInCloseDropsPendingAndArmedPackets() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	std::array<uint8, IsoMaxPacket> packet = MakeIsoPacket(22);
+	std::span<const uint8> first = std::span<const uint8>(packet).first(64);
+	std::array<uint8, 1024> received{};
+	uint32 length = 0;
+
+	// A deferred packet, dropped by the close before any token.
+	SIM_EXPECT(port.StartInTransfer(0x81, first, false) == ResultStatus::ok);
+	SIM_EXPECT(port.CloseEndpoint(0x81) == ResultStatus::ok);
+	SIM_EXPECT_EQ(port.Count(1, false), 0U);
+	SIM_EXPECT_EQ(port.Count(1, true), 0U);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+
+	// An armed packet, written by a token and dropped by the close before its own token.
+	SIM_EXPECT(port.StartInTransfer(0x81, first, false) == ResultStatus::ok);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(port.Count(1, true), 64U);
+	SIM_EXPECT(port.CloseEndpoint(0x81) == ResultStatus::ok);
+	SIM_EXPECT_EQ(port.Count(1, false), 0U);
+	SIM_EXPECT_EQ(port.Count(1, true), 0U);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT_EQ(port.completions.count, 0U);
+	SIM_EXPECT_EQ(port.errors.count, 0U);
+}
+
+
+// A bus reset closes every endpoint, which drops an armed packet and empties the IN buffers. The reopened endpoint sends zero-length packets.
+void TestIsoInBusResetDropsArmedPacket() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	std::array<uint8, IsoMaxPacket> packet = MakeIsoPacket(23);
+	std::array<uint8, 1024> received{};
+	uint32 length = 0;
+
+	SIM_EXPECT(port.StartInTransfer(0x81, std::span<const uint8>(packet).first(64), false) == ResultStatus::ok);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(port.Count(1, true), 64U);
+
+	simFsdev.RaiseIstrFlags(USBFsdevIstr::Reset);
+	port.IrqHandler();
+	SIM_EXPECT_EQ(port.Count(1, false), 0U);
+	SIM_EXPECT_EQ(port.Count(1, true), 0U);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT_EQ(port.completions.count, 0U);
+}
+
+
+// The isochronous OUT completion toggles DTOG_TX once (ST's PCD_FREE_USER_BUFFER), in the write that clears CTR_RX. The hardware's own
+// changes are DTOG_RX and CTR_RX, so after one frame the EPnR differs from its value before the frame by exactly those two toggles and
+// the clear of CTR_RX.
+void TestIsoOutCompletionTogglesDtogTxOnce() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x02, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	std::array<uint8, IsoMaxPacket> data = MakeIsoPacket(24);
+	std::array<uint8, 64> sink{};
+
+	SIM_EXPECT(port.StartOutTransfer(0x02, sink) == ResultStatus::ok);
+	uint16 before = port.Epr(2);
+	SIM_EXPECT(IsoOutFrame(port, 0x02, std::span<const uint8>(data).first(64)) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(port.completions.count, 1U);
+	uint16 after = port.Epr(2);
+	SIM_EXPECT((after & USBFsdevEpr::CtrRx) == 0);
+	SIM_EXPECT(after == static_cast<uint16>(before ^ (USBFsdevEpr::DtogRx | USBFsdevEpr::DtogTx)));
+
+	// The next frame toggles DTOG_TX back, once more.
+	SIM_EXPECT(port.StartOutTransfer(0x02, sink) == ResultStatus::ok);
+	uint16 middle = port.Epr(2);
+	SIM_EXPECT(IsoOutFrame(port, 0x02, std::span<const uint8>(data).first(64)) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(port.completions.count, 2U);
+	SIM_EXPECT(port.Epr(2) == static_cast<uint16>(middle ^ (USBFsdevEpr::DtogRx | USBFsdevEpr::DtogTx)));
+}
+
+
+// Stall() answers notExist for a direction that is not open, before it answers the isochronous refusal. Number 1 is open as an isochronous
+// IN, so its OUT direction is closed: Stall(0x01) is notExist, and Stall(0x81) is the refusal.
+void TestIsoStallOnClosedDirectionIsNotExist() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	SIM_EXPECT(port.Stall(0x01) == ResultStatus::notExist);
+	SIM_EXPECT(port.Stall(0x81) == ResultStatus::invalidParameter);
+	SIM_EXPECT(!port.IsStalled(0x01));
+	SIM_EXPECT(!port.IsStalled(0x81));
+}
+
+
+// The probe of TestIsoInCloseDisablesStatBeforeEmptyingBuffers(): the first EPnR write that CloseEndpoint() makes is observed after it is
+// applied, with the status and the COUNTs the controller holds at that moment.
+TestFsdevPort* closeProbePort = nullptr;
+bool closeProbeTaken = false;
+uint16 closeProbeStatus = 0;
+uint32 closeProbeCount = 0;
+
+
+void ProbeFirstCloseWrite() {
+	if (closeProbeTaken || closeProbePort == nullptr) {
+		return;
+	}
+
+	closeProbeTaken = true;
+	closeProbeStatus = static_cast<uint16>(closeProbePort->Epr(1) & USBFsdevEpr::TxStatus);
+	closeProbeCount = closeProbePort->Count(1, false) + closeProbePort->Count(1, true);
+}
+
+
+// CloseEndpoint() of an isochronous IN writes STAT DISABLED first and empties the COUNTs after it, so the controller answers no token for the
+// endpoint from the first write on, and the buffers are emptied after that. The packet is still in its buffer when the STAT write is applied.
+void TestIsoInCloseDisablesStatBeforeEmptyingBuffers() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	std::array<uint8, IsoMaxPacket> packet = MakeIsoPacket(25);
+	std::array<uint8, 1024> received{};
+	uint32 length = 0;
+
+	// Armed from thread context: the first token writes the packet into the buffer DTOG_TX selects, and nothing completes.
+	SIM_EXPECT(port.StartInTransfer(0x81, std::span<const uint8>(packet).first(64), false) == ResultStatus::ok);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(port.Count(1, true), 64U);
+
+	closeProbePort = &port;
+	closeProbeTaken = false;
+	simFsdev.afterEprWrite = &ProbeFirstCloseWrite;
+	SIM_EXPECT(port.CloseEndpoint(0x81) == ResultStatus::ok);
+	simFsdev.afterEprWrite = nullptr;
+	closeProbePort = nullptr;
+	SIM_EXPECT(closeProbeTaken);
+	SIM_EXPECT_EQ(closeProbeStatus, USBFsdevEpr::TxDisabled);
+	SIM_EXPECT_EQ(closeProbeCount, 64U);
+	SIM_EXPECT_EQ(port.Count(1, false), 0U);
+	SIM_EXPECT_EQ(port.Count(1, true), 0U);
+	SIM_EXPECT(port.completions.count == 0);
+}
+
+
+// A completion the controller holds from before CloseEndpoint() is not served against the next transfer of the endpoint. The host takes a
+// bulk IN packet and the interrupt is not served, so CTR_TX stays set. The endpoint is closed and reopened, and a packet is armed. OpenEndpoint()
+// clears the flag of the direction, so the interrupt that follows finds nothing to complete: the new packet is taken by the host, and only then
+// does it complete.
+void TestBulkInStaleCompletionAfterReopen() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x83, USBEndpointType::Bulk, 64, false)) == ResultStatus::ok);
+	std::array<uint8, IsoMaxPacket> firstPacket = MakeIsoPacket(26);
+	std::array<uint8, IsoMaxPacket> secondPacket = MakeIsoPacket(27);
+	SimFsdevHost host;
+	uint32 length = 0;
+
+	SIM_EXPECT(port.StartInTransfer(0x83, std::span<const uint8>(firstPacket).first(64), false) == ResultStatus::ok);
+	SIM_EXPECT(host.InPacket(port, 0x83, false, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 64U);
+	SIM_EXPECT(CompletionPending(0x83));
+	SIM_EXPECT(port.CloseEndpoint(0x83) == ResultStatus::ok);
+
+	SIM_EXPECT(port.OpenEndpoint(Config(0x83, USBEndpointType::Bulk, 64, false)) == ResultStatus::ok);
+	SIM_EXPECT(!CompletionPending(0x83));
+	SIM_EXPECT(port.StartInTransfer(0x83, std::span<const uint8>(secondPacket).first(64), false) == ResultStatus::ok);
+	port.IrqHandler();
+	SIM_EXPECT_EQ(port.completions.count, 0U);
+
+	// The reopened endpoint starts with DATA0, so the host that starts afresh takes the new packet, and that completes it.
+	SimFsdevHost nextHost;
+	SIM_EXPECT(nextHost.InPacket(port, 0x83, true, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 64U);
+	SIM_EXPECT(!port.completions.overflowed);
+	SIM_EXPECT_EQ(port.completions.count, 1U);
+	if (port.completions.count == 1) {
+		SIM_EXPECT_EQ(port.completions.Back().address, 0x83);
+		SIM_EXPECT_EQ(port.completions.Back().byteCount, 64U);
+	}
+
+	SIM_EXPECT(SameBytes(std::span<const uint8>(secondPacket).first(64), nextHost.Received()));
+}
+
+
+// The same for an isochronous OUT: the host's frame stores its packet and leaves CTR_RX set, the endpoint is closed and reopened and a transfer
+// is armed, and the interrupt does not complete that transfer with the old packet. The next frame completes it with its own packet.
+void TestIsoOutStaleCompletionAfterReopen() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x02, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	std::array<uint8, IsoMaxPacket> data = MakeIsoPacket(28);
+	std::array<uint8, 64> sink{};
+	std::array<uint8, 64> nextSink{};
+
+	SIM_EXPECT(port.StartOutTransfer(0x02, sink) == ResultStatus::ok);
+	SIM_EXPECT(simFsdev.OutToken(2, std::span<const uint8>(data).first(64), false) == SimHandshake::Ack);
+	SIM_EXPECT(CompletionPending(0x02));
+	SIM_EXPECT(port.CloseEndpoint(0x02) == ResultStatus::ok);
+
+	SIM_EXPECT(port.OpenEndpoint(Config(0x02, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	SIM_EXPECT(!CompletionPending(0x02));
+	SIM_EXPECT(port.StartOutTransfer(0x02, nextSink) == ResultStatus::ok);
+	port.IrqHandler();
+	SIM_EXPECT_EQ(port.completions.count, 0U);
+
+	SIM_EXPECT(IsoOutFrame(port, 0x02, std::span<const uint8>(data).first(64)) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(port.completions.count, 1U);
+	if (port.completions.count == 1) {
+		SIM_EXPECT_EQ(port.completions.Back().byteCount, 64U);
+	}
+
+	SIM_EXPECT(SameBytes(std::span<const uint8>(data).first(64), std::span<const uint8>(nextSink)));
+}
+
+
+// An isochronous IN completion that the interrupt has not served when the number is reopened as an isochronous OUT. CloseEndpoint() leaves
+// CTR_TX set, and OpenEndpoint() of the OUT clears only CTR_RX. The interrupt serves CTR_TX first, so the IN handler runs against the OUT's
+// buffers: it must clear its flag and leave the COUNTs alone. The OUT packet of the frame then completes with its bytes.
+void TestIsoInStaleCompletionBeforeReopenAsOut() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	std::array<uint8, IsoMaxPacket> inPacket = MakeIsoPacket(29);
+	std::array<uint8, IsoMaxPacket> outPacket = MakeIsoPacket(30);
+	std::array<uint8, IsoMaxPacket> received{};
+	std::array<uint8, 64> sink{};
+	uint32 length = 0;
+
+	// The first token sends the zero-length packet of a frame nobody armed, and the interrupt writes the packet into the buffer the next
+	// token sends. That token runs without the interrupt, so CTR_TX stays set with the packet sent.
+	SIM_EXPECT(port.StartInTransfer(0x81, std::span<const uint8>(inPacket).first(64), false) == ResultStatus::ok);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT_EQ(port.Count(1, true), 64U);
+	bool dataOne = false;
+	SIM_EXPECT(simFsdev.InToken(1, received, length, dataOne) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 64U);
+	SIM_EXPECT(CompletionPending(0x81));
+	SIM_EXPECT(port.CloseEndpoint(0x81) == ResultStatus::ok);
+
+	SIM_EXPECT(port.OpenEndpoint(Config(0x01, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	SIM_EXPECT(CompletionPending(0x81));
+	SIM_EXPECT(port.StartOutTransfer(0x01, sink) == ResultStatus::ok);
+	SIM_EXPECT(simFsdev.OutToken(1, std::span<const uint8>(outPacket).first(64), false) == SimHandshake::Ack);
+	port.IrqHandler();
+	SIM_EXPECT(port.errors.count == 0);
+	SIM_EXPECT(!port.completions.overflowed);
+	SIM_EXPECT_EQ(port.completions.count, 1U);
+	if (port.completions.count == 1) {
+		SIM_EXPECT_EQ(port.completions.Back().address, 0x01);
+		SIM_EXPECT_EQ(port.completions.Back().byteCount, 64U);
+	}
+
+	SIM_EXPECT(SameBytes(std::span<const uint8>(outPacket).first(64), std::span<const uint8>(sink)));
+	SIM_EXPECT(!CompletionPending(0x81));
+}
+
+
+// The reverse: a completion of a closed isochronous OUT that the interrupt has not served when the number is reopened as an isochronous IN.
+// CTR_RX stays set through the close, and the IN's OpenEndpoint() clears only CTR_TX. The stale OUT handler toggles DTOG_TX, which is the buffer
+// select of the IN, so a completion for a closed direction must leave it alone. The IN then goes on as a fresh endpoint.
+void TestIsoOutStaleCompletionBeforeReopenAsIn() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x01, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	std::array<uint8, IsoMaxPacket> outPacket = MakeIsoPacket(31);
+	std::array<uint8, IsoMaxPacket> inPacket = MakeIsoPacket(32);
+	std::array<uint8, IsoMaxPacket> received{};
+	std::array<uint8, 64> sink{};
+	uint32 length = 0;
+
+	SIM_EXPECT(port.StartOutTransfer(0x01, sink) == ResultStatus::ok);
+	SIM_EXPECT(simFsdev.OutToken(1, std::span<const uint8>(outPacket).first(64), false) == SimHandshake::Ack);
+	SIM_EXPECT(CompletionPending(0x01));
+	SIM_EXPECT(port.CloseEndpoint(0x01) == ResultStatus::ok);
+
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 64, false)) == ResultStatus::ok);
+	SIM_EXPECT(CompletionPending(0x01));
+	SIM_EXPECT(!InBufferSelect(port, 0x81));
+	port.IrqHandler();
+	SIM_EXPECT(!CompletionPending(0x01));
+	SIM_EXPECT(!InBufferSelect(port, 0x81));
+	SIM_EXPECT_EQ(port.completions.count, 0U);
+	SIM_EXPECT_EQ(port.errors.count, 0U);
+
+	SIM_EXPECT(port.StartInTransfer(0x81, std::span<const uint8>(inPacket).first(64), false) == ResultStatus::ok);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 0U);
+	SIM_EXPECT(IsoInFrame(port, 0x81, received, length) == SimHandshake::Ack);
+	SIM_EXPECT_EQ(length, 64U);
+	SIM_EXPECT(SameBytes(std::span<const uint8>(inPacket).first(64), std::span<const uint8>(received).first(length)));
+	SIM_EXPECT_EQ(port.completions.count, 1U);
+}
+
+
+// Two stereo 48 kHz isochronous endpoints of 196 bytes. A block is 224 bytes, the packet rounded up to 32 above 62 bytes, and an isochronous
+// endpoint holds two blocks whichever direction it is. The buffer table takes 64 bytes and endpoint 0 takes 128, so the IN takes the blocks at
+// 192 and 416, and the OUT finds 640 and 864 as its first and second. The second needs 864 + 224 = 1088, over the 1024 of the packet memory, so
+// the OUT is refused with outOfMemory and the IN keeps its blocks. Closing the IN frees them, and then the OUT fits at 192 and 416.
+void TestIsoStereoPairOutOfMemory() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 196, false)) == ResultStatus::ok);
+	SIM_EXPECT_EQ(port.Address(1, false), 192U);
+	SIM_EXPECT_EQ(port.Address(1, true), 416U);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x02, USBEndpointType::Isochronous, 196, false)) == ResultStatus::outOfMemory);
+	SIM_EXPECT_EQ(port.Address(1, false), 192U);
+	SIM_EXPECT_EQ(port.Address(1, true), 416U);
+
+	SIM_EXPECT(port.CloseEndpoint(0x81) == ResultStatus::ok);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x02, USBEndpointType::Isochronous, 196, false)) == ResultStatus::ok);
+	SIM_EXPECT_EQ(port.Address(2, false), 192U);
+	SIM_EXPECT_EQ(port.Address(2, true), 416U);
+}
 }
 
 
@@ -1178,5 +2133,32 @@ int main() {
 	TestInCloseWithBothBuffersInUse();
 	TestInBusResetWithBothBuffersInUse();
 	TestInReleaseIsFirstWriteInInterrupt();
+	TestIsoInDeliversOnePacketPerFrame();
+	TestIsoInFrameWithNothingArmedSendsZeroLengthPacket();
+	TestIsoInArmWritesNoRegister();
+	TestEpKindFollowsDoubleBuffer();
+	TestIsoOutStoresOnePacketPerFrame();
+	TestIsoOutMissedFrameIsDropped();
+	TestIsoOutArmWritesNoRegister();
+	TestIsoOutOversizedPacketNeverWritesPastBlock();
+	TestIsoOutOverrunDropsPacket();
+	TestIsoStallRefusedClearStallAcknowledged();
+	TestIsoOpenRules();
+	TestIsoLargestPacketBesideEndpointZero();
+	TestIsoPacketMemoryAndClose();
+	TestIsoStartOfFrameWithPacket();
+	TestIsoInArmFromOtherEndpointCallbackIsDeferred();
+	TestIsoInBusyWhilePendingOrArmed();
+	TestIsoInDisconnectDropsPendingAndArmedPackets();
+	TestIsoInCloseDropsPendingAndArmedPackets();
+	TestIsoInBusResetDropsArmedPacket();
+	TestIsoOutCompletionTogglesDtogTxOnce();
+	TestIsoStallOnClosedDirectionIsNotExist();
+	TestIsoInCloseDisablesStatBeforeEmptyingBuffers();
+	TestBulkInStaleCompletionAfterReopen();
+	TestIsoOutStaleCompletionAfterReopen();
+	TestIsoInStaleCompletionBeforeReopenAsOut();
+	TestIsoOutStaleCompletionBeforeReopenAsIn();
+	TestIsoStereoPairOutOfMemory();
 	return SimTest::Finish("TestFsdevPort");
 }

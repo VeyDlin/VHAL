@@ -27,12 +27,20 @@
 // or the block buffer the work reads. A result that comes back after the device left the state it started in is dropped, so a
 // write that finishes after a reset, or after a stall, does not change the state.
 //
-// Answers while a write or a manifestation is running: DFU_GETSTATUS reports the busy state with the poll timeout, instead of a
-// stall, because the target may take longer than the timeout it reported. The other requests stall and move to dfuERROR as the
-// table of appendix A says.
+// Answers while a write or a manifestation is running: DFU_GETSTATE stalls and moves to dfuERROR, and DFU_DNLOAD and DFU_UPLOAD
+// stall the same way, as appendix A.2.5 and A.2.7 say (any class request in those states stalls). DFU_GETSTATUS is the one
+// deliberate difference: it answers the busy state with the poll timeout instead of stalling, because the target may take longer
+// than the timeout it reported and a stall would fail the host for a slow flash. A host that waits the reported timeout never sees
+// the difference. A host that polls early gets the busy answer, not dfuERROR.
 //
 // wBlockNum is not checked. The stream offset orders the blocks, so a host that repeats a block writes it again at the next
 // offset. dfu-util numbers the blocks of one transfer from 0 and does not repeat them.
+//
+// Memory regions are alternate settings (USBDfuBuilder::Region()). SET_INTERFACE selects one, and the transfer that starts after it
+// goes to that region: Begin() receives the alternate. SET_INTERFACE is accepted only in dfuIDLE with no write or manifestation
+// running, so a transfer keeps its region from start to end; a switch in the middle of a download would send the rest of the
+// stream elsewhere. An alternate the descriptor does not list, or a switch at the wrong time, stalls and leaves the state alone.
+// GET_INTERFACE answers the selection. A bus reset, deconfiguration or configuration returns to alternate 0.
 //
 // TransferSize is the size of the block buffer. It must be at least the wTransferSize of the descriptor, which OnConfigured checks.
 template<std::size_t TransferSize>
@@ -51,11 +59,13 @@ private:
 	IDfuTarget& target;
 	DetachDelegate detachDelegate;
 	USBDfuFunctional functional;
+	USBDfuAlternates alternates;
 	std::array<uint8, TransferSize> block{};
 	DfuState state = DfuState::dfuIDLE;
 	DfuStatus status = DfuStatus::OK;
 	uint32 blockLength = 0;
 	uint32 offset = 0;
+	uint8 selectedAlternate = 0;
 	bool writePending = false;
 	bool manifestComplete = false;
 	bool targetBusy = false;
@@ -69,7 +79,8 @@ public:
 	DfuFunction(const USBFunctionLayout& layout, IDfuTarget& dfuTarget)
 		: USBFunction(layout),
 		  target(dfuTarget),
-		  functional(ParseUSBDfuFunctional(layout.descriptors)) {
+		  functional(ParseUSBDfuFunctional(layout.descriptors)),
+		  alternates(ParseUSBDfuAlternates(layout.descriptors, layout.interfaces)) {
 	}
 
 
@@ -89,8 +100,10 @@ public:
 	}
 
 
+	// The layout must hold exactly one interface: the requests read interfaceNumbers[0] to name the alternate they start, so a
+	// layout without one would read past the span.
 	ResultStatus OnConfigured(USBDeviceContext&) override {
-		if (!functional.found || functional.transferSize > TransferSize) {
+		if (!functional.found || functional.transferSize > TransferSize || interfaceNumbers.size() != 1) {
 			return ResultStatus::invalidParameter;
 		}
 
@@ -111,6 +124,29 @@ public:
 		}
 
 		ResetState();
+	}
+
+
+	// SET_INTERFACE selects a memory region. Only an alternate the descriptor lists is accepted, and only while the device is idle with
+	// no write or manifestation running (see the comment at the top). Anything else returns notSupported, which the core stalls; the
+	// state stays as it was, since SET_INTERFACE is a standard request and not a DFU one.
+	ResultStatus OnSetInterface(uint8 interfaceNumber, uint8 alternate, USBDeviceContext&) override {
+		if (interfaceNumber != interfaceNumbers[0] || !alternates.Has(alternate)) {
+			return ResultStatus::notSupported;
+		}
+
+		if (state != DfuState::dfuIDLE || targetBusy) {
+			return ResultStatus::notSupported;
+		}
+
+		selectedAlternate = alternate;
+		return ResultStatus::ok;
+	}
+
+
+	// GET_INTERFACE answers the selected alternate. The function has one interface (OnConfigured checks it), so the number is not needed.
+	uint8 GetInterface(uint8) const override {
+		return selectedAlternate;
 	}
 
 
@@ -250,6 +286,7 @@ private:
 		status = DfuStatus::OK;
 		blockLength = 0;
 		offset = 0;
+		selectedAlternate = 0;
 		writePending = false;
 		manifestComplete = false;
 	}
@@ -282,7 +319,7 @@ private:
 		}
 
 		if (state == DfuState::dfuIDLE) {
-			DfuStatus begun = target.Begin(GetInterface(interfaceNumbers[0]));
+			DfuStatus begun = target.Begin(selectedAlternate);
 			if (begun != DfuStatus::OK) {
 				return Stall(begun);
 			}
@@ -300,15 +337,17 @@ private:
 	}
 
 
-	// DFU_UPLOAD. The target's read fills the block; a block shorter than the request ends the upload and leaves dfuIDLE. A read
-	// error stalls with errUNKNOWN, since the target gives no finer code for a read. A busy target stalls the upload.
+	// DFU_UPLOAD. The target's read fills the block; a block shorter than wLength ends the upload and leaves dfuIDLE (appendix A.2.2:
+	// the short frame is the one shorter than the request). A block that fills wLength, even one that is wTransferSize long, keeps
+	// the upload going. A read error stalls with errUNKNOWN, since the target gives no finer code for a read. A busy target stalls
+	// the upload.
 	ResultStatus HandleUpload(const USBSetupPacket& setup, USBDeviceContext& context) {
 		if (!CanUpload() || setup.length == 0 || targetBusy) {
 			return Stall(DfuStatus::errSTALLEDPKT);
 		}
 
 		if (state == DfuState::dfuIDLE) {
-			DfuStatus begun = target.Begin(GetInterface(interfaceNumbers[0]));
+			DfuStatus begun = target.Begin(selectedAlternate);
 			if (begun != DfuStatus::OK) {
 				return Stall(begun);
 			}
@@ -325,9 +364,12 @@ private:
 		}
 
 		uint32 count = read.Value() < requested ? read.Value() : requested;
+		if (context.ControlSendData(std::span<const uint8>(block).first(count)) != ResultStatus::ok) {
+			return Stall(DfuStatus::errUNKNOWN);
+		}
+
 		offset += count;
-		state = count < requested ? DfuState::dfuIDLE : DfuState::dfuUPLOAD_IDLE;
-		context.ControlSendData(std::span<const uint8>(block).first(count));
+		state = count < setup.length ? DfuState::dfuIDLE : DfuState::dfuUPLOAD_IDLE;
 		return ResultStatus::ok;
 	}
 
@@ -361,19 +403,26 @@ private:
 		}
 
 		statusResponse = MakeUSBDfuStatusResponse(reported, pollTimeoutMs, state);
-		context.ControlSendData(statusResponse);
+		if (context.ControlSendData(statusResponse) != ResultStatus::ok) {
+			return Stall(DfuStatus::errUNKNOWN);
+		}
+
 		return ResultStatus::ok;
 	}
 
 
-	// DFU_GETSTATE. Reports the state without changing it. Not answered while a write or a manifestation runs.
+	// DFU_GETSTATE. Reports the state without changing it. Not answered while a write or a manifestation runs (appendix A.2.5 and
+	// A.2.7 stall every class request there).
 	ResultStatus HandleGetState(USBDeviceContext& context) {
 		if (state == DfuState::dfuDNBUSY || state == DfuState::dfuMANIFEST) {
 			return Stall(DfuStatus::errSTALLEDPKT);
 		}
 
 		stateResponse[0] = static_cast<uint8>(state);
-		context.ControlSendData(stateResponse);
+		if (context.ControlSendData(stateResponse) != ResultStatus::ok) {
+			return Stall(DfuStatus::errUNKNOWN);
+		}
+
 		return ResultStatus::ok;
 	}
 

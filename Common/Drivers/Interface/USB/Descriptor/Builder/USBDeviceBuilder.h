@@ -33,6 +33,9 @@ struct USBDescriptorParts {
 	uint8 webUsbVendorCode = 0;
 	USBBuildBuffer webUsbUrl;
 	bool serialNumberAtRuntime = false;
+	// String index of each run-time string, in the order the classes reserved them. Each follows the fixed strings.
+	std::array<uint8, USBMaxRuntimeStrings> runtimeStringIndexes{};
+	std::size_t runtimeStringIndexCount = 0;
 	std::array<USBFunctionRecord, USBMaxFunctions> functions{};
 	std::size_t functionCount = 0;
 	std::array<uint8, USBMaxEndpoints> endpointAddresses{};
@@ -234,6 +237,11 @@ public:
 		configuration = source;
 		configurationSet = true;
 
+		// A run-time string that no descriptor carries could never be read by the host, so it is refused.
+		for (std::size_t runtime = 0; runtime < source.runtimeStringCount; runtime++) {
+			Require<USBText{"a run-time string is written into a descriptor"}>(RuntimeStringWritten(source, runtime));
+		}
+
 		std::array<std::size_t, USBMaxStrings + 1> mapping{};
 		for (std::size_t local = 1; local <= source.stringCount; local++) {
 			mapping[local] = USBInternString(strings, stringCount, source.strings[local - 1]);
@@ -300,6 +308,11 @@ public:
 		BuildConfiguration(parts);
 		BuildStrings(parts);
 		parts.serialNumberAtRuntime = serialRuntime;
+		parts.runtimeStringIndexCount = configuration.runtimeStringCount;
+		for (std::size_t index = 0; index < configuration.runtimeStringCount; index++) {
+			parts.runtimeStringIndexes[index] = RuntimeStringIndex(index);
+		}
+
 		parts.msOs20 = vendorCodeSet;
 		parts.msOs20VendorCode = vendorCode;
 		parts.webUsb = webUsbSet;
@@ -326,10 +339,36 @@ public:
 
 
 private:
+	// True when some descriptor of the configuration carries the run-time string with the given position.
+	static constexpr bool RuntimeStringWritten(const USBConfigurationBuilder& source, std::size_t runtime) {
+		for (std::size_t index = 0; index < source.runtimePatches.count; index++) {
+			if (source.runtimePatches.entries[index].local == runtime) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+
+	// String index of the run-time string with the given position. The fixed strings are 1 to stringCount, so the run-time strings
+	// follow them in the order they were reserved.
+	constexpr uint8 RuntimeStringIndex(std::size_t runtime) const {
+		return static_cast<uint8>(stringCount + 1 + runtime);
+	}
+
+
 	// The configuration header (USB 2.0 section 9.6.3) and the body the configuration kept. bNumEndpoints of each interface is
-	// set when the bytes are checked in USBDescriptors, where the array has its exact size.
+	// set when the bytes are checked in USBDescriptors, where the array has its exact size. The run-time string indexes are
+	// written into a copy of the body here, because only now are the fixed strings all numbered.
 	constexpr void BuildConfiguration(USBDescriptorParts& parts) const {
-		std::size_t total = 9 + configuration.body.size;
+		USBBuildBuffer body = configuration.body;
+		for (std::size_t index = 0; index < configuration.runtimePatches.count; index++) {
+			const USBStringPatch& patch = configuration.runtimePatches.entries[index];
+			body.bytes[patch.offset] = RuntimeStringIndex(patch.local);
+		}
+
+		std::size_t total = 9 + body.size;
 		Require<USBText{"bMaxPower is at most 500 mA"}>(configuration.maxPower <= 250);
 		uint8 attributes = 0x80;
 		if (configuration.selfPowered) {
@@ -348,12 +387,14 @@ private:
 		parts.configuration.Put(0);
 		parts.configuration.Put(attributes);
 		parts.configuration.Put(configuration.maxPower);
-		parts.configuration.Append(std::span<const uint8>(configuration.body.bytes).first(configuration.body.size));
+		parts.configuration.Append(std::span<const uint8>(body.bytes).first(body.size));
 	}
 
 
-	// The language descriptor, then the device's strings in the order they were numbered.
+	// The language descriptor, then the device's strings in the order they were numbered, then the run-time placeholders. Each
+	// placeholder is an empty string descriptor until SetRuntimeString() replaces it before Start().
 	constexpr void BuildStrings(USBDescriptorParts& parts) const {
+		Require<USBText{"too many strings in one device"}>(stringCount + configuration.runtimeStringCount <= USBMaxStrings);
 		parts.stringOffsets[0] = 0;
 		parts.strings.Append(MakeUSBLanguageIdDescriptor(languageId));
 		for (std::size_t index = 0; index < stringCount; index++) {
@@ -361,8 +402,14 @@ private:
 			USBBuildStringDescriptor(strings[index], parts.strings);
 		}
 
-		parts.stringOffsets[stringCount + 1] = parts.strings.size;
-		parts.stringCount = stringCount + 1;
+		for (std::size_t index = 0; index < configuration.runtimeStringCount; index++) {
+			parts.stringOffsets[stringCount + 1 + index] = parts.strings.size;
+			USBBuildStringDescriptor(std::string_view(), parts.strings);
+		}
+
+		std::size_t count = stringCount + configuration.runtimeStringCount;
+		parts.stringOffsets[count + 1] = parts.strings.size;
+		parts.stringCount = count + 1;
 	}
 
 

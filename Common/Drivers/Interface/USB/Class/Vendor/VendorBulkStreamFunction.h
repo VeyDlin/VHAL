@@ -6,10 +6,19 @@
 
 
 // Streaming mode of the vendor bulk function, the throughput path. The application supplies a producer that fills an IN
-// transfer buffer and a consumer that takes each received OUT transfer. The consumer runs under a critical section, called
-// from OnTransferComplete in interrupt context, or from Process() when the port completes an OUT transfer inside the arm.
+// transfer buffer and a consumer that takes the bytes of each received OUT packet. The consumer runs under a critical section,
+// called from OnTransferComplete in interrupt context, or from Process() when the port completes an OUT transfer inside the arm.
 // It must be safe in both places. The endpoints are re-armed at once, so the adapter's double buffering stays fed.
-// Process() starts the first IN transfer, arms the OUT endpoint while a consumer is set, and fills the second IN stage
+//
+// The consumer is called once per OUT packet, with 1 to 64 bytes: each OUT transfer is one packet, so a host write of N packets
+// gives N calls, and the last call of a write that ends on a packet boundary is a full packet. The span is valid only during the
+// call: the function keeps no copy of it.
+// The consumer must take every packet. It runs in interrupt context, once per OUT packet, and the function has no backpressure:
+// the endpoint is re-armed as soon as the consumer returns, so a packet the consumer does not keep is lost. The consumer copies
+// the bytes or handles them before it returns. The bench takes every packet in its own StoreOut() override, which checks or loops
+// each one, so it sets no consumer.
+// Process() starts the first IN transfer, arms the OUT endpoint while CanAcceptOut() allows it (by default while a consumer is
+// set; the bench overrides it), and fills the second IN stage
 // while the first one is in flight. So the application must call Process() from its loop.
 //
 // The producer runs in Process() when a stage is free, so it is not called at the end of every IN transfer. It runs in
@@ -25,22 +34,24 @@
 // must resynchronise itself after a halt; the function does not replay the bytes.
 //
 // PacketsPerTransfer is the length of each transfer buffer in packets. IN has InStageCount such buffers, so the RAM for IN is
-// InStageCount * PacketsPerTransfer * 64 bytes, and OUT has one.
+// InStageCount * PacketsPerTransfer * 64 bytes. OUT is one packet (64 bytes), whatever PacketsPerTransfer is.
 template<uint8 PacketsPerTransfer = 8>
 class VendorBulkStreamFunction : public VendorBulkFunctionBase {
 	static_assert(PacketsPerTransfer > 0, "A transfer buffer holds at least one packet");
 
 
 public:
-	// Fills packets with bytes and returns how many, at most packets.size(). A short count ends the host's IN transfer: a count
-	// that is not a multiple of PacketSize ends it with a short packet, and a whole number of packets ends it with a
-	// zero-length packet. Only the last packet of a stream may be short.
+	// Fills packets with bytes and returns how many, at most packets.size(). A count that is not a multiple of PacketSize ends
+	// the host's IN transfer with a short packet, so only the last packet of a stream may be short. A whole number of packets
+	// gets no zero-length packet: the host reads the length it asked for (the bench protocol), and a zero-length packet would end
+	// that read early. The stage just completes, and the next stage goes out when the producer has bytes for it. A producer
+	// whose protocol needs a terminator sends a short packet itself, as its last bytes.
 	// A delegate, not std::function: it holds a function pointer and a context pointer, so it never allocates. The context is the
 	// application's object, which must outlive the function.
 	using Producer = VSTD::Delegate<size_t(std::span<uint8> packets)>;
 
 
-	// Takes the bytes of one received OUT transfer. The span is valid only during the call. Same delegate as the producer.
+	// Takes the bytes of one received OUT packet (1 to 64 bytes). The span is valid only during the call. Same delegate as the producer.
 	using Consumer = VSTD::Delegate<void(std::span<const uint8> packets)>;
 
 
@@ -51,17 +62,19 @@ private:
 	Producer producer;
 	Consumer consumer;
 	std::array<std::array<uint8, TransferSize>, InStageCount> inBuffers{};
-	std::array<uint8, TransferSize> outBuffer{};
+	// One packet: an OUT transfer is one packet, so the consumer gets each packet as it arrives.
+	std::array<uint8, PacketSize> outBuffer{};
 
 
 public:
 	VendorBulkStreamFunction(std::span<const uint8> interfaces, std::span<const uint8> endpoints)
 		: VendorBulkFunctionBase(interfaces, endpoints) {
+		std::array<std::span<uint8>, InStageCount> stages{};
 		for (uint8 index = 0; index < InStageCount; index++) {
-			inStages[index] = inBuffers[index];
+			stages[index] = inBuffers[index];
 		}
 
-		outStage = outBuffer;
+		SetBulkStages(stages, outBuffer);
 	}
 
 
@@ -122,6 +135,18 @@ protected:
 
 	// The producer has already moved past the bytes it handed out, so there is nothing to give back.
 	void RollbackIn() override {
+	}
+
+
+	// The producer's next bytes are not known here. Nothing reads the answer, because EndsIdleRunsWithZeroLengthPacket() is false.
+	bool HasMoreIn() const override {
+		return false;
+	}
+
+
+	// A stream never closes a run with a zero-length packet: its host reads the length it asked for (see the producer's comment).
+	bool EndsIdleRunsWithZeroLengthPacket() const override {
+		return false;
 	}
 
 

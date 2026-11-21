@@ -222,9 +222,10 @@ void TestAppSectionAroundCalls() {
 	Result<uint32> stored = fixture.sim.HostOut(0x01, host);
 	SIM_EXPECT(stored.IsOk());
 	SIM_EXPECT_EQ(stored.Value(), 64);
+	// The OUT transfer is one packet, so the full packet above completed it. The zero-length packet is an empty transfer of its own.
 	stored = fixture.sim.HostOut(0x01, std::span<const uint8>());
 	SIM_EXPECT(stored.IsOk());
-	SIM_EXPECT_EQ(stored.Value(), 64);
+	SIM_EXPECT_EQ(stored.Value(), 0);
 	SIM_EXPECT_EQ(fixture.function.Read(in), 64);
 	System::CriticalSection(false);
 	SimAssertNoCriticalSection();
@@ -233,16 +234,18 @@ void TestAppSectionAroundCalls() {
 }
 
 
-// The RX ring holds two transfers. The application reads one, and Process() arms the OUT endpoint: the packet the port held
-// is delivered inside that call and stored at once, and the function leaves no section open after Process() returns.
+// The RX ring holds four OUT packets. The application reads one packet, and Process() arms the OUT endpoint: the packet the port
+// held is delivered inside that call and stored at once, and the function leaves no section open after Process() returns.
 void TestHeldPacketStoredInsideProcessSection() {
 	HoldingFixture fixture;
 	fixture.Configure();
 
 	std::array<uint8, 256> pattern = {};
 	FillPattern(pattern);
-	SIM_EXPECT_EQ(fixture.sim.HostOut(0x01, std::span<const uint8>(pattern).first(128)).Value(), 128U);
-	SIM_EXPECT_EQ(fixture.sim.HostOut(0x01, std::span<const uint8>(pattern).subspan(128, 128)).Value(), 128U);
+	for (std::size_t packet = 0; packet < 4; packet++) {
+		SIM_EXPECT_EQ(fixture.sim.HostOut(0x01, std::span<const uint8>(pattern).subspan(packet * 64, 64)).Value(), 64U);
+	}
+
 	SIM_EXPECT(!fixture.sim.HasArmedTransfer(0x01));
 
 	std::array<uint8, 10> packet = {};
@@ -253,19 +256,20 @@ void TestHeldPacketStoredInsideProcessSection() {
 	SIM_EXPECT_EQ(fixture.sim.HostOut(0x01, packet).Error(), ResultStatus::notReady);
 	fixture.sim.HoldPacket(packet);
 
-	std::array<uint8, 128> first = {};
-	SIM_EXPECT_EQ(fixture.function.Read(first), 128);
+	std::array<uint8, 64> first = {};
+	SIM_EXPECT_EQ(fixture.function.Read(first), 64);
 
+	// 256 - 64 read + 10 held is 202 bytes, and 54 bytes free are less than a packet, so the endpoint stays unarmed.
 	fixture.device.Process();
 	SIM_EXPECT_EQ(fixture.sim.deliveredInCall, 1U);
 	SIM_EXPECT_EQ(SimCriticalDepth(), 0);
 	SimAssertNoCriticalSection();
-	SIM_EXPECT_EQ(fixture.function.GetReadableCount(), 128 + 10);
+	SIM_EXPECT_EQ(fixture.function.GetReadableCount(), 192 + 10);
 	SIM_EXPECT(!fixture.sim.HasArmedTransfer(0x01));
 
 	std::array<uint8, 256> rest = {};
-	SIM_EXPECT_EQ(fixture.function.Read(rest), 138);
-	SIM_EXPECT(SimHost::SameBytes(std::span<const uint8>(rest).subspan(128, 10), std::span<const uint8>(packet)));
+	SIM_EXPECT_EQ(fixture.function.Read(rest), 202);
+	SIM_EXPECT(SimHost::SameBytes(std::span<const uint8>(rest).subspan(192, 10), std::span<const uint8>(packet)));
 	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
 }
 

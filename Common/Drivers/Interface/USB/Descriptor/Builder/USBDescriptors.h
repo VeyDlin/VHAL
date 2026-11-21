@@ -97,6 +97,18 @@ constexpr std::array<uint8, Count> USBCopyEndpointAddresses(const std::array<uin
 }
 
 
+// The first Count run-time string indexes, copied into an array of their exact size.
+template<std::size_t Count>
+constexpr std::array<uint8, Count> USBCopyRuntimeStringIndexes(const std::array<uint8, USBMaxRuntimeStrings>& indexes) {
+	std::array<uint8, Count> copy{};
+	for (std::size_t index = 0; index < Count; index++) {
+		copy[index] = indexes[index];
+	}
+
+	return copy;
+}
+
+
 // Interface numbers 0 to Count-1, in order. The configuration numbers its interfaces this way.
 template<std::size_t Count>
 constexpr std::array<uint8, Count> USBSequentialInterfaces() {
@@ -136,13 +148,16 @@ public:
 		USBSequentialInterfaces<USBBuiltParts<Make>.interfaceCount>();
 	static constexpr std::array<uint8, USBBuiltParts<Make>.endpointAddressCount> EndpointAddresses =
 		USBCopyEndpointAddresses<USBBuiltParts<Make>.endpointAddressCount>(USBBuiltParts<Make>.endpointAddresses);
+	static constexpr std::array<uint8, USBBuiltParts<Make>.runtimeStringIndexCount> RuntimeStringIndexes =
+		USBCopyRuntimeStringIndexes<USBBuiltParts<Make>.runtimeStringIndexCount>(USBBuiltParts<Make>.runtimeStringIndexes);
 	static constexpr USBDescriptorSet Set = {
 		Device,
 		Configuration,
 		StringTable,
 		Bos,
 		VendorRequests,
-		USBBuiltParts<Make>.serialNumberAtRuntime
+		USBBuiltParts<Make>.serialNumberAtRuntime,
+		RuntimeStringIndexes
 	};
 
 
@@ -159,7 +174,8 @@ public:
 		return USBFunctionLayout{
 			std::span<const uint8>(InterfaceNumbers).subspan(record.firstInterface, record.interfaceCount),
 			std::span<const uint8>(EndpointAddresses).subspan(record.endpointStart, record.endpointCount),
-			std::span<const uint8>(Configuration).subspan(record.descriptorOffset, record.descriptorSize)
+			std::span<const uint8>(Configuration).subspan(record.descriptorOffset, record.descriptorSize),
+			std::span<const uint8>(RuntimeStringIndexes).subspan(record.runtimeStart, record.runtimeCount)
 		};
 	}
 };

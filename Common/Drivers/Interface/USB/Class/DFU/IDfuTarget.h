@@ -22,8 +22,8 @@ public:
 	virtual ~IDfuTarget() = default;
 
 
-	// Starts a transfer on an alternate setting (0 for a device with one memory region). errTARGET when the alternate is not
-	// one of the device's.
+	// Starts a transfer on the alternate setting the host selected with SET_INTERFACE: the memory region (0 when it selected none,
+	// and always 0 for a device with one region). errTARGET when the alternate is not one this target serves.
 	virtual DfuStatus Begin(uint8 alternate) = 0;
 
 

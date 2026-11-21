@@ -334,6 +334,38 @@ void EjectAndPreventRemoval() {
 }
 
 
+// The presence sample and an eject overlap. While the function samples the medium's presence, the host's START STOP UNIT ejects the
+// medium from inside IsPresent(). The sample answered "present" before the eject, so it must not overwrite the eject's "not present":
+// the next TEST UNIT READY fails with MEDIUM NOT PRESENT.
+void EjectDuringPresenceSampleStays() {
+	MscTest::MscDevice<512, MscTest::HookedDisk<512, 128>> fixture;
+	BotHost host(fixture.sim, fixture.device);
+	EjectRecorder recorder;
+	recorder.disk = &fixture.disk;
+	SIM_EXPECT_EQ(fixture.function.SetEjectDelegate(MscFunction<512>::EjectDelegate::Bind<EjectRecorder, &EjectRecorder::OnEject>(&recorder)), ResultStatus::ok);
+	SIM_EXPECT_EQ(fixture.Attach(), ResultStatus::ok);
+
+	uint32 tag = 0x700;
+	const std::array<uint8, 6> stopAndEject{ 0x1B, 0x00, 0x00, 0x00, 0x02, 0x00 };
+	fixture.disk.onPresent = [&]() {
+		tag++;
+		Outcome eject = host.Command(tag, stopAndEject, 0, false, {}, {});
+		SIM_EXPECT_EQ(eject.csw.status, MscStatusPassed);
+	};
+
+	fixture.device.Process();
+	SIM_EXPECT_EQ(recorder.count, 1);
+
+	Outcome testUnitReady = host.Command(++tag, TestUnitReadyCdb, 0, false, {}, {});
+	SIM_EXPECT_EQ(testUnitReady.csw.status, MscStatusFailed);
+
+	std::array<uint8, 18> sense{};
+	Outcome reply = host.Command(++tag, RequestSenseCdb, 18, true, {}, sense);
+	SIM_EXPECT_EQ(reply.csw.status, MscStatusPassed);
+	ExpectSense(sense, 0x02, 0x3A, 0x00);
+}
+
+
 void VerifyAndSynchronize() {
 	Session session;
 	session.Attach();
@@ -388,6 +420,7 @@ int main() {
 	ReadFormatCapacitiesAnswers();
 	ModeSenseAnswers();
 	EjectAndPreventRemoval();
+	EjectDuringPresenceSampleStays();
 	VerifyAndSynchronize();
 	ReadBeyondTheEndIsRefused();
 	return SimTest::Finish("TestMscScsi");

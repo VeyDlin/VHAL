@@ -12,8 +12,8 @@
 // The USB-MIDI function run through the simulated controller with exact bytes. Every expected packet is written by hand from
 // the USB-MIDI event packet layout (MIDI 1.0 section 4): byte 0 is cable << 4 | code index, bytes 1 to 3 the MIDI bytes. The
 // queues are small, so their limits are reached with few events. The cases are the channel helpers, the argument checks,
-// SysEx splitting for lengths 1 to 7 and a long message, the queue limits, the receive path with its SysEx stream, the OUT
-// back-pressure, the bus reset and the endpoint halt.
+// SysEx splitting for lengths 2 to 7 and a long message, the SysEx framing and data rules, the queue limits, the receive path with
+// its SysEx stream, the OUT back-pressure, the bus reset, the endpoint halt, and a start that fails after a completion ran inside it.
 
 
 namespace {
@@ -189,20 +189,19 @@ void TestArgumentChecks() {
 }
 
 
-// SysEx split for every length from 1 to 7, with cable 1. Every packet before the last one is CIN 0x4 with three bytes. The last
-// one closes the message: CIN 0x7 when the bytes left are three, 0x6 for two and 0x5 for one. The 20-byte message is in
-// TestSysExLongMessage.
+// SysEx split for every valid length from 2 to 7, with cable 1. A message is framed by F0 and F7, so the shortest is {F0, F7}. Every
+// packet before the last one is CIN 0x4 with three bytes. The last one closes the message: CIN 0x7 when the bytes left are three, 0x6
+// for two and 0x5 for one. The 20-byte message is in TestSysExLongMessage.
 void TestSysExSplit() {
 	MidiFixture fixture;
 	fixture.Configure();
 
-	constexpr uint8 message1[] = { 0xF0 };
-	constexpr uint8 message2[] = { 0xF0, 0x01 };
-	constexpr uint8 message3[] = { 0xF0, 0x01, 0xF7 };
-	constexpr uint8 message4[] = { 0xF0, 0x01, 0x02, 0xF7 };
-	constexpr uint8 message5[] = { 0xF0, 0x01, 0x02, 0x03, 0xF7 };
-	constexpr uint8 message6[] = { 0xF0, 0x01, 0x02, 0x03, 0x04, 0xF7 };
-	constexpr uint8 message7[] = { 0xF0, 0x01, 0x02, 0x03, 0x04, 0x05, 0xF7 };
+	constexpr uint8 message1[] = { 0xF0, 0xF7 };
+	constexpr uint8 message2[] = { 0xF0, 0x01, 0xF7 };
+	constexpr uint8 message3[] = { 0xF0, 0x01, 0x02, 0xF7 };
+	constexpr uint8 message4[] = { 0xF0, 0x01, 0x02, 0x03, 0xF7 };
+	constexpr uint8 message5[] = { 0xF0, 0x01, 0x02, 0x03, 0x04, 0xF7 };
+	constexpr uint8 message6[] = { 0xF0, 0x01, 0x02, 0x03, 0x04, 0x05, 0xF7 };
 
 	SIM_EXPECT_EQ(fixture.midi.SendSysEx(1, message1), ResultStatus::ok);
 	SIM_EXPECT_EQ(fixture.midi.SendSysEx(1, message2), ResultStatus::ok);
@@ -210,12 +209,10 @@ void TestSysExSplit() {
 	SIM_EXPECT_EQ(fixture.midi.SendSysEx(1, message4), ResultStatus::ok);
 	SIM_EXPECT_EQ(fixture.midi.SendSysEx(1, message5), ResultStatus::ok);
 	SIM_EXPECT_EQ(fixture.midi.SendSysEx(1, message6), ResultStatus::ok);
-	SIM_EXPECT_EQ(fixture.midi.SendSysEx(1, message7), ResultStatus::ok);
 
-	// Twelve packets in all: one each for lengths 1 to 3, two each for 4 to 6, three for 7. They fit one transfer.
+	// Eleven packets in all: one each for lengths 2 and 3, two each for 4 to 6, three for 7. They fit one transfer.
 	constexpr uint8 expected[] = {
-		0x15, 0xF0, 0x00, 0x00,
-		0x16, 0xF0, 0x01, 0x00,
+		0x16, 0xF0, 0xF7, 0x00,
 		0x17, 0xF0, 0x01, 0xF7,
 		0x14, 0xF0, 0x01, 0x02,
 		0x15, 0xF7, 0x00, 0x00,
@@ -283,8 +280,11 @@ void TestQueueLimits() {
 	SIM_EXPECT_EQ(fixture.midi.SendSysEx(0, small), ResultStatus::busy);
 	SIM_EXPECT_EQ(fixture.midi.GetSendableCount(), 32);
 
-	// A message longer than the queue can never fit: 33 packets (97 to 99 bytes) against 32 events.
+	// A message longer than the queue can never fit: 33 packets (97 to 99 bytes) against 32 events. It is framed, so the length is the
+	// only reason it is refused.
 	std::array<uint8, 97> tooLong{};
+	tooLong[0] = 0xF0;
+	tooLong.back() = 0xF7;
 	SIM_EXPECT_EQ(fixture.midi.SendSysEx(0, tooLong), ResultStatus::invalidParameter);
 	SIM_EXPECT_EQ(fixture.midi.SendSysEx(0, std::span<const uint8>()), ResultStatus::invalidParameter);
 	SIM_EXPECT_EQ(fixture.midi.SendSysEx(2, small), ResultStatus::invalidParameter);
@@ -671,6 +671,136 @@ void TestSysExDataBytesAre7Bit() {
 }
 
 
+// A SysEx message is framed by F0 at its start and F7 at its end. A message without either, a single F0 or F7, and one that starts with
+// a data byte are refused, and a refused message queues nothing. A framed message on the same cable still goes out.
+void TestSysExFramingRejected() {
+	MidiFixture fixture;
+	fixture.Configure();
+
+	constexpr uint8 onlyStart[] = { 0xF0 };
+	constexpr uint8 onlyEnd[] = { 0xF7 };
+	constexpr uint8 noStart[] = { 0x01, 0xF7 };
+	constexpr uint8 noEnd[] = { 0xF0, 0x01 };
+	constexpr uint8 noEndThreeBytes[] = { 0xF0, 0x01, 0x02 };
+	constexpr uint8 dataFirst[] = { 0x01, 0x02, 0xF7 };
+	SIM_EXPECT_EQ(fixture.midi.SendSysEx(0, onlyStart), ResultStatus::invalidParameter);
+	SIM_EXPECT_EQ(fixture.midi.SendSysEx(0, onlyEnd), ResultStatus::invalidParameter);
+	SIM_EXPECT_EQ(fixture.midi.SendSysEx(0, noStart), ResultStatus::invalidParameter);
+	SIM_EXPECT_EQ(fixture.midi.SendSysEx(0, noEnd), ResultStatus::invalidParameter);
+	SIM_EXPECT_EQ(fixture.midi.SendSysEx(0, noEndThreeBytes), ResultStatus::invalidParameter);
+	SIM_EXPECT_EQ(fixture.midi.SendSysEx(0, dataFirst), ResultStatus::invalidParameter);
+	SIM_EXPECT_EQ(fixture.midi.GetSendableCount(), 0);
+
+	constexpr uint8 framed[] = { 0xF0, 0xF7 };
+	SIM_EXPECT_EQ(fixture.midi.SendSysEx(0, framed), ResultStatus::ok);
+	SIM_EXPECT_EQ(fixture.midi.GetSendableCount(), 1);
+}
+
+
+// A context for the function's own calls, without a device. Its start calls can run the completion of their own transfer before they
+// return an error. The adapter contract never does that for a failed start, so the cases check that the function keeps the state the
+// completion set, in case an adapter ever does.
+class NestingContext : public USBDeviceContext {
+public:
+	Midi* target = nullptr;
+	bool nestOutStart = false;
+	bool nestInStart = false;
+	uint32 outStarts = 0;
+
+
+	ResultStatus OpenEndpoint(const USBDeviceAdapter::EndpointConfig&) override {
+		return ResultStatus::ok;
+	}
+
+
+	ResultStatus CloseEndpoint(uint8) override {
+		return ResultStatus::ok;
+	}
+
+
+	ResultStatus StartInTransfer(uint8 address, std::span<const uint8>, bool) override {
+		if (nestInStart) {
+			nestInStart = false;
+			target->OnTransferComplete(address, 64, *this);
+			return ResultStatus::notReady;
+		}
+
+		return ResultStatus::ok;
+	}
+
+
+	ResultStatus StartOutTransfer(uint8 address, std::span<uint8>) override {
+		outStarts++;
+		if (nestOutStart) {
+			nestOutStart = false;
+			target->OnTransferComplete(address, 0, *this);
+			return ResultStatus::notReady;
+		}
+
+		return ResultStatus::ok;
+	}
+
+
+	ResultStatus Stall(uint8) override {
+		return ResultStatus::notReady;
+	}
+
+
+	ResultStatus ClearStall(uint8) override {
+		return ResultStatus::notReady;
+	}
+
+
+	ResultStatus RemoteWakeup() override {
+		return ResultStatus::notReady;
+	}
+
+
+	ResultStatus ControlSendData(std::span<const uint8>) override {
+		return ResultStatus::notReady;
+	}
+
+
+	ResultStatus ControlReceiveData(std::span<uint8>) override {
+		return ResultStatus::notReady;
+	}
+};
+
+
+// The OUT start arms the endpoint, and its failure comes after a completion inside the call that re-armed it. The failure must keep that
+// arm: the next Process() sees the endpoint armed and starts nothing. Clearing the flag would start a second transfer, so outStarts
+// would be 3.
+void TestNestedOutStartFailureKeepsArm() {
+	Midi midi(Interfaces, Endpoints);
+	NestingContext context;
+	context.target = &midi;
+	context.nestOutStart = true;
+
+	SIM_EXPECT_EQ(midi.OnConfigured(context), ResultStatus::ok);
+	SIM_EXPECT_EQ(context.outStarts, 2);
+
+	midi.Process(context);
+	SIM_EXPECT_EQ(context.outStarts, 2);
+}
+
+
+// The IN start fails after a completion inside the call committed both packets. They are the completion's, so the failure must not give
+// them back to the queue. Returning them would send them to the host a second time.
+void TestNestedInStartFailureKeepsCommittedPackets() {
+	Midi midi(Interfaces, Endpoints);
+	NestingContext context;
+	context.target = &midi;
+
+	SIM_EXPECT_EQ(midi.OnConfigured(context), ResultStatus::ok);
+	SIM_EXPECT_EQ(midi.SendEvent(USBMidiPacket::Make(0, 0x9, 0x90, 0x3C, 0x64)), ResultStatus::ok);
+	SIM_EXPECT_EQ(midi.SendEvent(USBMidiPacket::Make(0, 0x9, 0x90, 0x3E, 0x64)), ResultStatus::ok);
+
+	context.nestInStart = true;
+	midi.Process(context);
+	SIM_EXPECT_EQ(midi.GetSendableCount(), 0);
+}
+
+
 // A packet on a cable the function does not have is dropped, so it reaches neither the RX queue nor the event handler. The packets
 // on cables 0 and 1 around it are kept, in order.
 void TestReceiveDropsOtherCables() {
@@ -700,7 +830,88 @@ void TestReceiveDropsOtherCables() {
 }
 
 
+// The longest SysEx message is the whole queue: 96 bytes are 32 packets, and they are queued whole. A message of 97 bytes is 33 packets,
+// which no queue of 32 can hold, so it is refused as invalid even when the queue is empty, not as busy.
+void TestSysExLongestMessageFitsQueue() {
+	MidiFixture fixture;
+	fixture.Configure();
+
+	std::array<uint8, 97> tooLong{};
+	tooLong[0] = 0xF0;
+	tooLong.back() = 0xF7;
+	SIM_EXPECT_EQ(fixture.midi.SendSysEx(0, tooLong), ResultStatus::invalidParameter);
+	SIM_EXPECT_EQ(fixture.midi.GetSendableCount(), 0);
+
+	std::array<uint8, 96> longest{};
+	longest[0] = 0xF0;
+	longest.back() = 0xF7;
+	SIM_EXPECT_EQ(fixture.midi.SendSysEx(0, longest), ResultStatus::ok);
+	SIM_EXPECT_EQ(fixture.midi.GetSendableCount(), 32);
+
+	// 32 packets of 4 bytes, in two full transfers of 64 bytes.
+	std::array<uint8, 512> in{};
+	std::size_t count = fixture.ReadIn(in);
+	SIM_EXPECT_EQ(count, 128);
+	SIM_EXPECT_EQ(in[0], 0x04);
+	SIM_EXPECT_EQ(in[1], 0xF0);
+	SIM_EXPECT_EQ(fixture.midi.GetSendableCount(), 0);
+}
+
+
+// A transfer of 16 events is one full packet of 64 bytes. With nothing queued behind it, it ends with a zero-length packet, so the
+// host's read ends there. The zero-length packet flips the DATA PID back, so the PID is as it was after the transfer.
+void TestFullTransferWithNothingBehindEndsWithZeroLengthPacket() {
+	MidiFixture fixture;
+	fixture.Configure();
+
+	for (uint8 note = 0; note < 16; note++) {
+		SIM_EXPECT_EQ(fixture.midi.NoteOn(0, 0, note, 1), ResultStatus::ok);
+	}
+
+	fixture.device.Process();
+	bool toggleBefore = fixture.sim.GetDataToggle(0x81);
+	std::array<uint8, 64> in{};
+	uint32 received = 0;
+	SIM_EXPECT_EQ(fixture.sim.HostIn(0x81, in, received), ResultStatus::ok);
+	SIM_EXPECT_EQ(received, 64);
+	SIM_EXPECT(fixture.sim.GetDataToggle(0x81) == toggleBefore);
+	SIM_EXPECT(!fixture.sim.HasArmedTransfer(0x81));
+	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
+}
+
+
+// The same full transfer with an event behind it: the transfer ends without a zero-length packet, so the PID flips once, and the
+// next transfer, one event of 4 bytes, starts at the completion and ends with a short packet, which flips the PID back.
+void TestFullTransferWithEventBehindHasNoZeroLengthPacket() {
+	MidiFixture fixture;
+	fixture.Configure();
+
+	for (uint8 note = 0; note < 17; note++) {
+		SIM_EXPECT_EQ(fixture.midi.NoteOn(0, 0, note, 1), ResultStatus::ok);
+	}
+
+	fixture.device.Process();
+	bool toggleBefore = fixture.sim.GetDataToggle(0x81);
+	std::array<uint8, 64> in{};
+	uint32 received = 0;
+	SIM_EXPECT_EQ(fixture.sim.HostIn(0x81, in, received), ResultStatus::ok);
+	SIM_EXPECT_EQ(received, 64);
+	SIM_EXPECT(fixture.sim.GetDataToggle(0x81) != toggleBefore);
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x81));
+
+	std::array<uint8, 64> second{};
+	SIM_EXPECT_EQ(fixture.sim.HostIn(0x81, second, received), ResultStatus::ok);
+	SIM_EXPECT_EQ(received, 4);
+	SIM_EXPECT(fixture.sim.GetDataToggle(0x81) == toggleBefore);
+	SIM_EXPECT(!fixture.sim.HasArmedTransfer(0x81));
+	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
+}
+
+
 int main() {
+	TestSysExLongestMessageFitsQueue();
+	TestFullTransferWithNothingBehindEndsWithZeroLengthPacket();
+	TestFullTransferWithEventBehindHasNoZeroLengthPacket();
 	TestChannelHelpers();
 	TestArgumentChecks();
 	TestSysExSplit();
@@ -721,5 +932,8 @@ int main() {
 	TestRefusedInStartKeepsPackets();
 	TestSysExDataBytesAre7Bit();
 	TestReceiveDropsOtherCables();
+	TestSysExFramingRejected();
+	TestNestedOutStartFailureKeepsArm();
+	TestNestedInStartFailureKeepsCommittedPackets();
 	return SimTest::Finish("TestMidi");
 }

@@ -146,18 +146,18 @@ void CheckDescriptorRequests() {
 	SIM_EXPECT_EQ(hid.status, ResultStatus::ok);
 	SIM_EXPECT_EQ(hid.data.size(), 9);
 	SIM_EXPECT_EQ(hid.data[1], 0x21);
-	SIM_EXPECT_EQ(hid.data[7], 0x3B);
+	SIM_EXPECT_EQ(hid.data[7], 0x40);
 	SIM_EXPECT_EQ(hid.data[8], 0x00);
 
 	// The report descriptor, read in full and in part: a host that asks for less gets the first bytes.
 	Answer report = In(sim, SimHost::MakeSetup(0x81, 6, 0x2200, 0, 64));
 	SIM_EXPECT_EQ(report.status, ResultStatus::ok);
-	HID_EXPECT_BYTES(report.data, HidTest::KeyboardReport::Info.descriptor);
-	SIM_EXPECT_EQ(report.data.size(), 59);
+	SIM_EXPECT_BYTES(report.data, HidTest::KeyboardReport::Info.descriptor);
+	SIM_EXPECT_EQ(report.data.size(), 64);
 
 	Answer part = In(sim, SimHost::MakeSetup(0x81, 6, 0x2200, 0, 16));
 	SIM_EXPECT_EQ(part.data.size(), 16);
-	HID_EXPECT_BYTES(part.data, std::span<const uint8>(HidTest::KeyboardReport::Info.descriptor).first(16));
+	SIM_EXPECT_BYTES(part.data, std::span<const uint8>(HidTest::KeyboardReport::Info.descriptor).first(16));
 
 	// Another descriptor type of the interface is not answered.
 	Answer other = In(sim, SimHost::MakeSetup(0x81, 6, 0x2300, 0, 16));
@@ -182,7 +182,7 @@ void CheckGetReportInput() {
 	SIM_EXPECT_EQ(sent.size(), 1);
 
 	Answer after = In(sim, ReportRequest(true, GetReport, TypeInput, 0, 8));
-	HID_EXPECT_BYTES(after.data, ReportA);
+	SIM_EXPECT_BYTES(after.data, ReportA);
 
 	// A feature report that the descriptor does not have is refused.
 	Answer feature = In(sim, ReportRequest(true, GetReport, TypeFeature, 0, 8));
@@ -205,10 +205,10 @@ void CheckSetReportOutput() {
 	std::array<uint8, 1> leds = { 0x03 };
 	SIM_EXPECT_EQ(Out(sim, ReportRequest(false, SetReport, TypeOutput, 0, 1), leds), ResultStatus::ok);
 	SIM_EXPECT_EQ(record.outputs.size(), 1);
-	HID_EXPECT_BYTES(record.outputs[0], leds);
+	SIM_EXPECT_BYTES(record.outputs[0], leds);
 
 	Answer last = In(sim, ReportRequest(true, GetReport, TypeOutput, 0, 1));
-	HID_EXPECT_BYTES(last.data, leds);
+	SIM_EXPECT_BYTES(last.data, leds);
 
 	// Two bytes against a one-byte output report: the request is refused, and the delegate is not called.
 	std::array<uint8, 2> wrong = { 0x01, 0x02 };
@@ -233,13 +233,13 @@ void CheckFeatureReports() {
 	// The get delegate fills the report, ID byte included: 4 bytes for feature 2.
 	Answer feature = In(unsetSim, ReportRequest(true, GetReport, TypeFeature, 2, 4));
 	SIM_EXPECT_EQ(feature.status, ResultStatus::ok);
-	HID_EXPECT_BYTES(feature.data, Bytes({ 0x02, 0xA1, 0xA2, 0xA3 }));
+	SIM_EXPECT_BYTES(feature.data, Bytes({ 0x02, 0xA1, 0xA2, 0xA3 }));
 	SIM_EXPECT_EQ(record.featureGets, 1);
 
 	std::array<uint8, 4> set = { 0x02, 0x07, 0x08, 0x09 };
 	SIM_EXPECT_EQ(Out(unsetSim, ReportRequest(false, SetReport, TypeFeature, 2, 4), set), ResultStatus::ok);
 	SIM_EXPECT_EQ(record.featureSets.size(), 1);
-	HID_EXPECT_BYTES(record.featureSets[0], set);
+	SIM_EXPECT_BYTES(record.featureSets[0], set);
 
 	// A delegate that refuses stalls the request.
 	record.featureSetAccept = false;
@@ -288,10 +288,10 @@ void CheckReportIdsAndLengths() {
 	std::array<uint8, 2> output = { 0x03, 0x55 };
 	SIM_EXPECT_EQ(Out(sim, ReportRequest(false, SetReport, TypeOutput, 3, 2), output), ResultStatus::ok);
 	SIM_EXPECT_EQ(record.outputs.size(), 1);
-	HID_EXPECT_BYTES(record.outputs[0], output);
+	SIM_EXPECT_BYTES(record.outputs[0], output);
 
 	Answer back = In(sim, ReportRequest(true, GetReport, TypeOutput, 3, 2));
-	HID_EXPECT_BYTES(back.data, output);
+	SIM_EXPECT_BYTES(back.data, output);
 
 	std::array<uint8, 3> wrongLength = { 0x03, 0x55, 0x66 };
 	SIM_EXPECT_EQ(Out(sim, ReportRequest(false, SetReport, TypeOutput, 3, 3), wrongLength), ResultStatus::accessError);
@@ -418,7 +418,7 @@ void CheckIdleRepeat() {
 		device.device.Process();
 		std::vector<std::vector<uint8>> again = HidTest::DrainIn(sim, 0x81);
 		for (const std::vector<uint8>& report : again) {
-			HID_EXPECT_BYTES(report, ReportA);
+			SIM_EXPECT_BYTES(report, ReportA);
 		}
 
 		repeats += again.size();
@@ -516,7 +516,7 @@ void CheckVendorRawPaths() {
 	std::array<uint8, 8> out = { 8, 7, 6, 5, 4, 3, 2, 1 };
 	SIM_EXPECT(sim.HostOut(0x02, out).IsOk());
 	SIM_EXPECT_EQ(record.outputs.size(), 1);
-	HID_EXPECT_BYTES(record.outputs[0], out);
+	SIM_EXPECT_BYTES(record.outputs[0], out);
 
 	std::array<uint8, 4> shortOut = { 9, 9, 9, 9 };
 	SIM_EXPECT(sim.HostOut(0x02, shortOut).IsOk());
@@ -538,7 +538,7 @@ void CheckOutEndpoint() {
 	std::array<uint8, 1> leds = { 0x02 };
 	SIM_EXPECT(sim.HostOut(0x02, leds).IsOk());
 	SIM_EXPECT_EQ(record.outputs.size(), 1);
-	HID_EXPECT_BYTES(record.outputs[0], leds);
+	SIM_EXPECT_BYTES(record.outputs[0], leds);
 
 	// A zero-length packet carries no report: nothing is delivered, and the endpoint takes the next one.
 	SIM_EXPECT(sim.HostOut(0x02, std::span<const uint8>()).IsOk());
@@ -547,7 +547,7 @@ void CheckOutEndpoint() {
 	std::array<uint8, 1> next = { 0x04 };
 	SIM_EXPECT(sim.HostOut(0x02, next).IsOk());
 	SIM_EXPECT_EQ(record.outputs.size(), 2);
-	HID_EXPECT_BYTES(record.outputs[1], next);
+	SIM_EXPECT_BYTES(record.outputs[1], next);
 }
 
 
@@ -682,12 +682,12 @@ public:
 };
 
 
-// The vendor interface's descriptors written out by hand: interface, HID descriptor with a 26-byte report, interrupt IN 0x81 and
+// The vendor interface's descriptors written out by hand: interface, HID descriptor with a 27-byte report, interrupt IN 0x81 and
 // interrupt OUT 0x02, each with the packet size given as two bytes.
 std::array<uint8, 32> VendorDescriptors(uint16 inPacket, uint16 outPacket) {
 	std::array<uint8, 32> bytes = {
 		0x09, 0x04, 0x00, 0x00, 0x02, 0x03, 0x00, 0x00, 0x00,
-		0x09, 0x21, 0x11, 0x01, 0x00, 0x01, 0x22, 0x1A, 0x00,
+		0x09, 0x21, 0x11, 0x01, 0x00, 0x01, 0x22, 0x1B, 0x00,
 		0x07, 0x05, 0x81, 0x03, static_cast<uint8>(inPacket & 0xFF), static_cast<uint8>(inPacket >> 8), 0x01,
 		0x07, 0x05, 0x02, 0x03, static_cast<uint8>(outPacket & 0xFF), static_cast<uint8>(outPacket >> 8), 0x01
 	};

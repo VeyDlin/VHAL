@@ -138,7 +138,7 @@ void MountVolume(BotHost& host, uint32 firstTag) {
 }
 
 
-// Windows: the device descriptor, the address, the configuration and the strings, GET_MAX_LUN, the configuration, and the mounting reads.
+// Windows: the device descriptor, the address, the configuration and the strings, the configuration itself, GET_MAX_LUN, and the mounting reads.
 void TestWindowsOrder() {
 	Device fixture(MscTest::SmallVolume::Bytes);
 	SIM_EXPECT_EQ(fixture.device.Start(USBDeviceAdapter::Parameters()), ResultStatus::ok);
@@ -163,7 +163,7 @@ void TestWindowsOrder() {
 }
 
 
-// Linux: the device descriptor, the address, GET_MAX_LUN before the configuration, and a first TEST UNIT READY and REQUEST SENSE
+// Linux: the device descriptor, the address, the configuration, GET_MAX_LUN after it, and a first TEST UNIT READY and REQUEST SENSE
 // before the mounting reads, as usb-storage sends them.
 void TestLinuxOrder() {
 	Device fixture(MscTest::SmallVolume::Bytes);

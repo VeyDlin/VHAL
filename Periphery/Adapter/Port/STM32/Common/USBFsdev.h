@@ -56,6 +56,7 @@ struct USBFsdevEpr {
 	static constexpr uint16 Stable = static_cast<uint16>(Address | Type | Kind);
 	static constexpr uint16 TypeBulk = 0x0000;
 	static constexpr uint16 TypeControl = 0x0200;
+	static constexpr uint16 TypeIsochronous = 0x0400;
 	static constexpr uint16 TypeInterrupt = 0x0600;
 	static constexpr uint16 TxDisabled = 0x0000;
 	static constexpr uint16 TxStall = 0x0010;
@@ -148,6 +149,8 @@ public:
 	struct EndpointState {
 		bool txOpen = false;
 		bool rxOpen = false;
+		// Two buffers for the direction: a double-buffered bulk endpoint (EP_KIND set), or an isochronous endpoint, which has them
+		// without EP_KIND. The STAT copies below serve both.
 		bool doubleBuffer = false;
 		bool txStalled = false;
 		bool rxStalled = false;
@@ -155,6 +158,10 @@ public:
 		bool rxActive = false;
 		bool txZeroLengthRequested = false;
 		bool txZeroLengthQueued = false;
+		// Isochronous IN. txDeferred: the packet of StartInTransfer() is not in a buffer yet; the next CTR_TX writes it (see
+		// HandleIsoInCompletion()). txCompleting: the completion callback of this endpoint is running, so a call from it arms at once.
+		bool txDeferred = false;
+		bool txCompleting = false;
 		USBEndpointType type = USBEndpointType::Bulk;
 		uint16 txPacketSize = 0;
 		uint16 rxPacketSize = 0;
@@ -225,6 +232,7 @@ public:
 
 
 	// Abandons transfers in flight without events; endpoints stay open so the core can keep its configuration across a detach.
+	// The isochronous IN buffers are emptied, so a packet armed before the detach cannot go out after the next connection.
 	// A caller in thread context must mask the USB interrupt (NVIC) around the call: IrqHandler() may change CNTR and the transfer
 	// state of the endpoints meanwhile.
 	ResultStatus Disconnect() override {
@@ -235,8 +243,14 @@ public:
 		WriteReg(USBFsdevRegister::Bcdr, static_cast<uint16>(ReadReg(USBFsdevRegister::Bcdr) & ~USBFsdevBcdr::DpPu));
 		connected = false;
 		for (uint32 number = 0; number < Family::HardwareEndpointCount; ++number) {
-			endpoints[number].txActive = false;
-			endpoints[number].rxActive = false;
+			EndpointState& ep = endpoints[number];
+			if (ep.txOpen && ep.type == USBEndpointType::Isochronous) {
+				ZeroIsoInCounts(static_cast<uint8>(number));
+			}
+
+			ep.txActive = false;
+			ep.txDeferred = false;
+			ep.rxActive = false;
 		}
 
 		return ResultStatus::ok;
@@ -279,12 +293,8 @@ public:
 			return ResultStatus::invalidParameter;
 		}
 
+		// doubleBuffer is a bulk option. An isochronous endpoint has its two buffers without it (twoBuffers below), so the flag is refused.
 		if (config.doubleBuffer && config.type != USBEndpointType::Bulk) {
-			return ResultStatus::invalidParameter;
-		}
-
-		// The port has no isochronous path, so this endpoint type does not fit the hardware.
-		if (config.type == USBEndpointType::Isochronous) {
 			return ResultStatus::invalidParameter;
 		}
 
@@ -293,6 +303,9 @@ public:
 		}
 
 		EndpointState& ep = endpoints[number];
+		// Two buffers for this direction: a double-buffered bulk endpoint, and every isochronous endpoint. The isochronous endpoint works
+		// on the buffer the hardware selects with DTOG and keeps the other one for the next frame (see ArmIsoIn()).
+		bool twoBuffers = config.doubleBuffer || config.type == USBEndpointType::Isochronous;
 		bool sameOpen = isIn ? ep.txOpen : ep.rxOpen;
 		bool otherOpen = isIn ? ep.rxOpen : ep.txOpen;
 		if (sameOpen && (isIn ? ep.txActive : ep.rxActive)) {
@@ -307,7 +320,7 @@ public:
 		// The register cannot hold double buffering beside the other direction. That is a capability the port does not have
 		// here, so it is notSupported and the endpoints stay as they were. A single-buffered request beside a double-buffered
 		// other direction is a conflict the caller created, so it is invalidParameter.
-		if (otherOpen && config.doubleBuffer) {
+		if (otherOpen && twoBuffers) {
 			return ResultStatus::notSupported;
 		}
 
@@ -315,11 +328,10 @@ public:
 			return ResultStatus::invalidParameter;
 		}
 
-		// Packet memory is accessed as 16-bit elements, so each block is a whole number of them: an odd packet size takes one extra byte.
-		uint16 size = static_cast<uint16>((config.maxPacketSize + 1U) & ~1U);
+		uint16 size = PmaBlockSize(config.maxPacketSize);
 		// A double-buffered endpoint holds both blocks, so reopening it in either direction releases both.
-		bool replacesTx = isIn || config.doubleBuffer || ep.doubleBuffer;
-		bool replacesRx = !isIn || config.doubleBuffer || ep.doubleBuffer;
+		bool replacesTx = isIn || twoBuffers || ep.doubleBuffer;
+		bool replacesRx = !isIn || twoBuffers || ep.doubleBuffer;
 		uint16 savedSizeTx = ep.sizeTx;
 		uint16 savedSizeRx = ep.sizeRx;
 		if (replacesTx) {
@@ -333,7 +345,7 @@ public:
 		uint16 firstBlock = 0;
 		uint16 secondBlock = 0;
 		bool fits = FindPmaBlock(size, 0, 0, firstBlock);
-		if (fits && config.doubleBuffer) {
+		if (fits && twoBuffers) {
 			fits = FindPmaBlock(size, firstBlock, size, secondBlock);
 		}
 
@@ -343,7 +355,7 @@ public:
 			return ResultStatus::outOfMemory;
 		}
 
-		if (config.doubleBuffer) {
+		if (twoBuffers) {
 			ep.pmaTx = firstBlock;
 			ep.sizeTx = size;
 			ep.pmaRx = secondBlock;
@@ -389,12 +401,12 @@ public:
 		if (isIn) {
 			WriteBd(number, USBFsdevBuffer::AddrTx, ep.pmaTx);
 			WriteBd(number, USBFsdevBuffer::CountTx, 0);
-		} else if (config.doubleBuffer) {
+		} else if (twoBuffers) {
 			WriteBd(number, USBFsdevBuffer::AddrTx, ep.pmaTx);
 			WriteBd(number, USBFsdevBuffer::CountTx, receiveCount);
 		}
 
-		if (config.doubleBuffer) {
+		if (twoBuffers) {
 			WriteBd(number, USBFsdevBuffer::AddrRx, ep.pmaRx);
 			WriteBd(number, USBFsdevBuffer::CountRx, isIn ? static_cast<uint16>(0) : receiveCount);
 		} else if (!isIn) {
@@ -402,10 +414,11 @@ public:
 			WriteBd(number, USBFsdevBuffer::CountRx, receiveCount);
 		}
 
-		uint16 typeBits = config.type == USBEndpointType::Interrupt ? USBFsdevEpr::TypeInterrupt : USBFsdevEpr::TypeBulk;
+		uint16 typeBits = TypeBitsOf(config.type);
+		// EP_KIND is the bulk double buffer. An isochronous endpoint has its two buffers without it, so the bit stays clear for it.
 		uint16 kindBits = config.doubleBuffer ? USBFsdevEpr::Kind : static_cast<uint16>(0);
 		uint16 dtogMask = 0;
-		if (config.doubleBuffer) {
+		if (twoBuffers) {
 			dtogMask = static_cast<uint16>(USBFsdevEpr::DtogTx | USBFsdevEpr::DtogRx);
 		} else if (isIn) {
 			dtogMask = USBFsdevEpr::DtogTx;
@@ -414,12 +427,24 @@ public:
 		}
 
 		uint16 statMask = isIn ? USBFsdevEpr::TxStatus : USBFsdevEpr::RxStatus;
-		uint16 statNak = isIn ? USBFsdevEpr::TxNak : USBFsdevEpr::RxNak;
+		// The status an open endpoint starts in. Bulk and interrupt start with NAK, which holds the host until the first transfer is armed. An
+		// isochronous endpoint has no NAK: its status stays VALID from open, and it answers every token (see ArmIsoIn()).
+		uint16 statIdle = 0;
+		if (config.type == USBEndpointType::Isochronous) {
+			statIdle = isIn ? USBFsdevEpr::TxValid : USBFsdevEpr::RxValid;
+		} else {
+			statIdle = isIn ? USBFsdevEpr::TxNak : USBFsdevEpr::RxNak;
+		}
+
 		uint16 stableBits = static_cast<uint16>(number | typeBits | kindBits);
 		// The flag is set after the write. The write then takes its STAT from the copies while the endpoint still counts as double-buffered,
 		// so a reopen from double to single does not take the masked STAT read of a buffer conflict.
-		EprWriteStable(number, stableBits, 0, static_cast<uint16>(dtogMask | statMask), statNak);
-		ep.doubleBuffer = config.doubleBuffer;
+		// The direction's CTR flag is cleared by this write. A flag the controller holds from a token before the close is a completion of the old
+		// endpoint, and the interrupt would serve it against the transfer armed now. The other direction keeps its flag, because that one may be
+		// a completion the interrupt has not served yet.
+		uint16 ctrBit = isIn ? USBFsdevEpr::CtrTx : USBFsdevEpr::CtrRx;
+		EprWriteStable(number, stableBits, ctrBit, static_cast<uint16>(dtogMask | statMask), statIdle);
+		ep.doubleBuffer = twoBuffers;
 		return ResultStatus::ok;
 	}
 
@@ -443,10 +468,16 @@ public:
 		if (isIn) {
 			ep.txOpen = false;
 			ep.txActive = false;
+			ep.txDeferred = false;
 			ep.txStalled = false;
 			ep.txHasPrefilled = false;
 			ep.sizeTx = 0;
+			// STAT goes to DISABLED first, so the controller answers no token for the endpoint from this write on. Only then do the buffers of a
+			// closed isochronous IN go empty, as in Disconnect(): nothing armed before the close goes out later.
 			EprWrite(number, 0, USBFsdevEpr::TxStatus, USBFsdevEpr::TxDisabled);
+			if (ep.type == USBEndpointType::Isochronous) {
+				ZeroIsoInCounts(number);
+			}
 		} else {
 			ep.rxOpen = false;
 			ep.rxActive = false;
@@ -503,6 +534,11 @@ public:
 			return ResultStatus::busy;
 		}
 
+		// An isochronous transfer is one packet of one frame, so the data fits one packet. An empty span is a zero-length packet.
+		if (ep.type == USBEndpointType::Isochronous && data.size() > ep.txPacketSize) {
+			return ResultStatus::invalidParameter;
+		}
+
 		ep.txActive = true;
 		ep.txData = data;
 		ep.txSize = static_cast<uint32>(data.size());
@@ -511,7 +547,16 @@ public:
 		ep.txHasPrefilled = false;
 		ep.txZeroLengthRequested = sendZeroLengthPacket;
 		ep.txZeroLengthQueued = false;
-		if (ep.doubleBuffer) {
+		if (ep.type == USBEndpointType::Isochronous) {
+			// Armed from the completion callback of this endpoint, the packet is written now: that token has finished, so the buffer
+			// DTOG_TX selects is free, and the packet goes out at the next token. Armed from anywhere else, the write waits for the next
+			// CTR_TX (HandleIsoInCompletion()). The token that comes first sends a zero-length packet, so the packet goes out at the one after.
+			if (ep.txCompleting) {
+				ArmIsoIn(number, data);
+			} else {
+				ep.txDeferred = true;
+			}
+		} else if (ep.doubleBuffer) {
 			// The start keeps DTOG_TX as it is: the buffer the hardware sends next carries the DATA PID the host expects.
 			LoadDoubleBufferIn(number, (ReadEpr(number) & USBFsdevEpr::DtogTx) != 0);
 		} else {
@@ -554,6 +599,12 @@ public:
 		ep.rxActive = true;
 		ep.rxBuffer = buffer;
 		ep.rxDone = 0;
+		// An isochronous OUT has nothing to write when it is armed. The hardware stores the next packet whatever the software has set, and the
+		// completion hands the packet on (HandleIsoOutCompletion()).
+		if (ep.type == USBEndpointType::Isochronous) {
+			return ResultStatus::ok;
+		}
+
 		if (ep.doubleBuffer && ep.rxHeld) {
 			// A packet that arrived before the transfer is delivered first. The buffers are handed on only when the transfer goes on.
 			if (!DeliverHeldOut(number)) {
@@ -577,6 +628,17 @@ public:
 		}
 
 		EndpointState& ep = endpoints[number];
+
+		// The direction must be open first, so a closed one is notExist even when the other direction is isochronous. An isochronous endpoint
+		// has no halt (USB 2.0 section 5.6.4): the request is refused and nothing changes. The type is the one of the open direction.
+		if (USBEndpoint::IsIn(address) ? !ep.txOpen : !ep.rxOpen) {
+			return ResultStatus::notExist;
+		}
+
+		if (ep.type == USBEndpointType::Isochronous) {
+			return ResultStatus::invalidParameter;
+		}
+
 		if (number == 0) {
 			if (!ep.txOpen) {
 				return ResultStatus::notExist;
@@ -616,12 +678,18 @@ public:
 
 	// Clears the halt and resets the data toggle to DATA0 (USB 2.0 section 9.4.5), also when the endpoint is not halted. A
 	// transfer armed while stalled starts now. On a double-buffered endpoint the toggle is the buffer select as well, so the
-	// active transfer is restarted in buffer 0 (see ClearDoubleBufferIn() and ClearDoubleBufferOut()). A caller in thread context must mask
+	// active transfer is restarted in buffer 0 (see ClearDoubleBufferIn() and ClearDoubleBufferOut()). An isochronous endpoint is never
+	// halted and has no toggle to reset, so the call is acknowledged and changes nothing. A caller in thread context must mask
 	// the USB interrupt (NVIC) around the call: IrqHandler() may change EPnR of the same number meanwhile.
 	ResultStatus ClearStall(uint8 address) override {
 		uint8 number = USBEndpoint::Number(address);
 		if (number >= Family::HardwareEndpointCount) {
 			return ResultStatus::notExist;
+		}
+
+		if (IsIsochronous(number)) {
+			bool open = USBEndpoint::IsIn(address) ? endpoints[number].txOpen : endpoints[number].rxOpen;
+			return open ? ResultStatus::ok : ResultStatus::notExist;
 		}
 
 		EndpointState& ep = endpoints[number];
@@ -1032,7 +1100,37 @@ protected:
 			return size == 8 || size == 16 || size == 32 || size == 64;
 		}
 
+		if (type == USBEndpointType::Isochronous) {
+			return size >= 1 && size <= 1023;
+		}
+
 		return size >= 1 && size <= 64;
+	}
+
+
+	// The EPnR type bits of an endpoint type (EP_TYPE, RM0440 USB chapter). Control is never opened here.
+	static uint16 TypeBitsOf(USBEndpointType type) {
+		if (type == USBEndpointType::Interrupt) {
+			return USBFsdevEpr::TypeInterrupt;
+		}
+
+		if (type == USBEndpointType::Isochronous) {
+			return USBFsdevEpr::TypeIsochronous;
+		}
+
+		return USBFsdevEpr::TypeBulk;
+	}
+
+
+	// The packet memory block of a packet size, in bytes. The block is a whole number of 16-bit elements, so an odd size takes one more
+	// byte. A block above 62 bytes is counted in 32-byte blocks (COUNT_RX BL_SIZE, see EncodeReceiveCount()), so it is rounded up to 32:
+	// that count is the only one the field can state. Sizes up to 64 are unchanged, and so are bulk and interrupt endpoints.
+	static uint16 PmaBlockSize(uint16 maxPacketSize) {
+		if (maxPacketSize > 62) {
+			return static_cast<uint16>((maxPacketSize + 31U) & ~31U);
+		}
+
+		return static_cast<uint16>((maxPacketSize + 1U) & ~1U);
 	}
 
 
@@ -1090,6 +1188,102 @@ protected:
 		uint16 status = ep.txStalled ? USBFsdevEpr::TxStall : USBFsdevEpr::TxValid;
 		uint16 mask = static_cast<uint16>(USBFsdevEpr::DtogTx | USBFsdevEpr::DtogRx | USBFsdevEpr::TxStatus);
 		EprWrite(number, 0, mask, static_cast<uint16>(select | release | status));
+	}
+
+
+	// True for an open isochronous endpoint. Its two directions share the type, so either one shows it.
+	bool IsIsochronous(uint8 number) const {
+		const EndpointState& ep = endpoints[number];
+		return ep.type == USBEndpointType::Isochronous && (ep.txOpen || ep.rxOpen);
+	}
+
+
+	// Isochronous IN, one packet for the next token. The hardware sends the buffer DTOG_TX selects, and the completion of the packet before
+	// toggled DTOG_TX onto the buffer that was not sent, so that is the buffer this copy fills. The COUNT is set with the copy. No EPnR bit
+	// is written: STAT stays VALID from open, and SW_BUF is not used for an isochronous endpoint. A token that finds COUNT 0 in the buffer
+	// it selects gets a zero-length packet (HandleIsoInCompletion()). The caller must not call this while a token of this endpoint can
+	// be sending the selected buffer: it runs from the completion callback (the token has finished) or from HandleIsoInCompletion().
+	void ArmIsoIn(uint8 number, std::span<const uint8> data) {
+		bool buffer1 = (ReadEpr(number) & USBFsdevEpr::DtogTx) != 0;
+		FillInBuffer(number, buffer1, data);
+	}
+
+
+	// Both buffers of an isochronous IN endpoint are emptied. A token after this sends a zero-length packet, never a packet armed before
+	// (the COUNT of a sent buffer is zeroed by HandleIsoInCompletion(), and this covers the ones that were armed and not sent).
+	void ZeroIsoInCounts(uint8 number) {
+		WriteBd(number, USBFsdevBuffer::CountTx, 0);
+		WriteBd(number, USBFsdevBuffer::CountRx, 0);
+	}
+
+
+	// Isochronous IN, a completion (CTR_TX). The hardware sent the buffer DTOG_TX selected before its toggle, so the buffer just sent is the one
+	// that DTOG_TX no longer selects in the value read here. Its COUNT is zeroed, so a later token with nothing armed sends a zero-length packet
+	// and never this packet again. CTR_TX is cleared and the toggles are left as they are. With no transfer active (the zero-length packet of a
+	// frame nobody armed) the completion only does that, and raises no event.
+	//
+	// A packet armed from outside the completion callback is deferred (StartInTransfer()): the token that finds it not yet written sent a
+	// zero-length packet, and the packet is written here into the buffer DTOG_TX now selects, which is free. It goes out at the next token and
+	// completes then. Nothing completes at this token. That is why the arm never races a token: no copy runs while a token can read the buffer.
+	// Otherwise the transfer completes with the packet that was sent. The completion callback may arm the next packet, which goes out at the
+	// next token, so the endpoint streams one packet per frame (USBDeviceAdapter.h, "Isochronous endpoints").
+	//
+	// This relies on the interrupt being served within one frame of the token. A later service merges two tokens' completions, and the buffer
+	// that went out cannot be told apart from the one after it.
+	void HandleIsoInCompletion(uint8 number) {
+		EndpointState& ep = endpoints[number];
+		uint16 epr = ReadEpr(number);
+		bool sentBuffer1 = (epr & USBFsdevEpr::DtogTx) == 0;
+		EprWrite(number, USBFsdevEpr::CtrTx, 0, 0);
+		WriteBd(number, sentBuffer1 ? USBFsdevBuffer::CountRx : USBFsdevBuffer::CountTx, 0);
+		if (!ep.txActive) {
+			return;
+		}
+
+		if (ep.txDeferred) {
+			ep.txDeferred = false;
+			ArmIsoIn(number, ep.txData);
+			return;
+		}
+
+		ep.txCompleting = true;
+		FinishIn(number);
+		ep.txCompleting = false;
+	}
+
+
+	// Isochronous OUT, a completion (CTR_RX). The hardware stored the packet in the buffer DTOG_RX selected before its toggle, so the buffer just
+	// filled is the one that DTOG_RX no longer selects in the value read here, and its COUNT is the packet length. The hardware toggles DTOG_RX
+	// for the next frame by itself. The write also clears CTR_RX and toggles DTOG_TX (see below). A packet that arrives with no transfer armed is dropped with no event
+	// and no copy, because a stale frame must not be delivered as if it came now. The packet is not held for a later transfer. A packet longer
+	// than its block cannot have been stored whole, and one that does not fit the buffer is dropped too; both are dropped whole, with DataOverrun,
+	// and the transfer completes with the bytes stored before it, which is 0 for a one-packet transfer.
+	void HandleIsoOutCompletion(uint8 number) {
+		EndpointState& ep = endpoints[number];
+		uint16 epr = ReadEpr(number);
+		bool received1 = (epr & USBFsdevEpr::DtogRx) == 0;
+		uint32 count = ReadBd(number, received1 ? USBFsdevBuffer::CountRx : USBFsdevBuffer::CountTx) & USBFsdevBuffer::CountMask;
+		// ST toggles DTOG_TX once per isochronous OUT completion (PCD_FREE_USER_BUFFER, stm32g4xx_hal_pcd.c lines 1785-1800). The
+		// isochronous model says the controller needs no such toggle for OUT. It is kept in case that model is wrong for OUT, and it
+		// is the only change this write makes: CTR_RX is cleared, CTR_TX and DTOG_RX are written as they are. A number carries one
+		// isochronous direction, so the toggle moves no IN buffer select.
+		uint16 toggleTx = (epr & USBFsdevEpr::DtogTx) != 0 ? static_cast<uint16>(0) : USBFsdevEpr::DtogTx;
+		EprWrite(number, USBFsdevEpr::CtrRx, USBFsdevEpr::DtogTx, toggleTx);
+		if (!ep.rxActive) {
+			return;
+		}
+
+		uint32 block = received1 ? ep.sizeRx : ep.sizeTx;
+		uint32 room = static_cast<uint32>(ep.rxBuffer.size()) - ep.rxDone;
+		if (count > block || count > room) {
+			CallError(Error::DataOverrun);
+			FinishOut(number);
+			return;
+		}
+
+		CopyFromPma(received1 ? ep.pmaRx : ep.pmaTx, ep.rxBuffer.subspan(0, count));
+		ep.rxDone = count;
+		FinishOut(number);
 	}
 
 
@@ -1212,7 +1406,11 @@ protected:
 	void FinishIn(uint8 number) {
 		EndpointState& ep = endpoints[number];
 		ep.txActive = false;
-		EprWrite(number, 0, USBFsdevEpr::TxStatus, USBFsdevEpr::TxNak);
+		// An isochronous endpoint has no NAK, so its STAT stays VALID from open (see ArmIsoIn()).
+		if (ep.type != USBEndpointType::Isochronous) {
+			EprWrite(number, 0, USBFsdevEpr::TxStatus, USBFsdevEpr::TxNak);
+		}
+
 		if (number == 0 && pendingAddressValid) {
 			WriteReg(USBFsdevRegister::Daddr, static_cast<uint16>(USBFsdevDaddr::Ef | pendingAddress));
 			pendingAddressValid = false;
@@ -1266,7 +1464,19 @@ protected:
 	}
 
 
+	// A completion of an IN direction that is not open is only acknowledged. The flag may be left from before a close, and the endpoint
+	// number may now be an OUT, whose COUNTs and toggles must not be touched by an IN handler.
 	void HandleInCompletion(uint8 number) {
+		if (!endpoints[number].txOpen) {
+			EprWrite(number, USBFsdevEpr::CtrTx, 0, 0);
+			return;
+		}
+
+		if (endpoints[number].type == USBEndpointType::Isochronous) {
+			HandleIsoInCompletion(number);
+			return;
+		}
+
 		if (endpoints[number].doubleBuffer) {
 			HandleDoubleBufferInCompletion(number, ReadEpr(number));
 			return;
@@ -1320,7 +1530,14 @@ protected:
 	}
 
 
+	// A completion of an OUT direction that is not open is only acknowledged. A closed OUT must not hold a packet for a later transfer, and an
+	// isochronous one must not toggle DTOG_TX, which is the buffer select of the IN when the number is open as an IN.
 	void HandleOutCompletion(uint8 number) {
+		if (!endpoints[number].rxOpen) {
+			EprWrite(number, USBFsdevEpr::CtrRx, 0, 0);
+			return;
+		}
+
 		if (endpoints[number].doubleBuffer) {
 			HandleDoubleBufferOutCompletion(number);
 			return;
@@ -1359,6 +1576,11 @@ protected:
 	// refused packet is never released to the hardware.
 	void HandleDoubleBufferOutCompletion(uint8 number) {
 		EndpointState& ep = endpoints[number];
+		if (ep.type == USBEndpointType::Isochronous) {
+			HandleIsoOutCompletion(number);
+			return;
+		}
+
 		uint16 epr = ReadEpr(number);
 		bool received1 = (epr & USBFsdevEpr::DtogRx) == 0;
 		uint32 count = ReadBd(number, received1 ? USBFsdevBuffer::CountRx : USBFsdevBuffer::CountTx) & USBFsdevBuffer::CountMask;

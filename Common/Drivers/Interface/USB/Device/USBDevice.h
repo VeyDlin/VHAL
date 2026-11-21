@@ -6,6 +6,7 @@
 #include <Drivers/Interface/USB/USBProtocol.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/ResultStatus.h>
+#include <array>
 #include <cstddef>
 #include <span>
 
@@ -49,6 +50,9 @@ private:
 	USBDescriptorSet descriptorSet;
 	// The complete serial number string from SetSerialNumber(). Empty when none was given. Its array must have static storage too.
 	std::span<const uint8> runtimeSerialNumber;
+	// The run-time strings from SetRuntimeString(), one slot per reserved index in the order the set lists them. Each span is kept,
+	// so its array must have static storage too. An empty slot is a reserved string the application has not given yet.
+	std::array<std::span<const uint8>, USBMaxRuntimeStrings> runtimeStringSlots{};
 	std::span<USBFunction* const> functionList;
 	USBDeviceState state = USBDeviceState::Detached;
 	USBDeviceState stateBeforeSuspend = USBDeviceState::Default;
@@ -111,7 +115,7 @@ public:
 			return ResultStatus::busy;
 		}
 
-		if (!IsDescriptorSetValid(descriptorSet) || !AreFunctionsValid() || !IsSerialNumberValid()) {
+		if (!IsDescriptorSetValid(descriptorSet) || !AreFunctionsValid() || !IsSerialNumberValid() || !AreRuntimeStringsValid()) {
 			return ResultStatus::invalidParameter;
 		}
 
@@ -166,6 +170,32 @@ public:
 		}
 
 		runtimeSerialNumber = descriptor;
+		return ResultStatus::ok;
+	}
+
+
+	// Supplies the complete string descriptor of one run-time string the set reserves, for a string known only on the device, such as
+	// a MAC address (MakeUSBHexStringDescriptor() builds it). The index is one of the set's runtimeStringIndexes. Thread context, before
+	// Start(). The span is kept, not copied, so its array must have static storage. A later call for the same index replaces the
+	// descriptor, until Start(). busy once the device is started. invalidParameter when the set does not reserve the index, and unless
+	// the descriptor is a string descriptor: bLength equal to its size, bDescriptorType 3, an even size, and at least one character
+	// (4 bytes), so an empty string is refused as it is for the serial number. Start() refuses a device that has a reserved run-time
+	// string with no descriptor.
+	ResultStatus SetRuntimeString(uint8 index, std::span<const uint8> descriptor) {
+		if (started) {
+			return ResultStatus::busy;
+		}
+
+		std::size_t slot = FindRuntimeStringSlot(index);
+		if (slot == USBMaxRuntimeStrings) {
+			return ResultStatus::invalidParameter;
+		}
+
+		if (descriptor.size() < 4 || !IsStringDescriptorValid(descriptor) || descriptor.size() % 2 != 0) {
+			return ResultStatus::invalidParameter;
+		}
+
+		runtimeStringSlots[slot] = descriptor;
 		return ResultStatus::ok;
 	}
 
@@ -685,6 +715,14 @@ private:
 			return;
 		}
 
+		if (descriptorType == static_cast<uint8>(USBDescriptorType::String)) {
+			std::span<const uint8> runtimeString = RuntimeStringAt(descriptorIndex);
+			if (!runtimeString.empty()) {
+				AnswerIn(runtimeString);
+				return;
+			}
+		}
+
 		if (descriptorType == static_cast<uint8>(USBDescriptorType::String)
 			&& static_cast<std::size_t>(descriptorIndex) < descriptorSet.strings.size()) {
 			AnswerIn(descriptorSet.strings[descriptorIndex]);
@@ -911,7 +949,9 @@ private:
 	}
 
 
-	// Sets or clears the halt and informs the owner of a non-control endpoint, which has no transfer left to finish.
+	// Sets or clears the halt and informs the owner of a non-control endpoint, which has no transfer left to finish. An isochronous
+	// endpoint has no halt: Stall() is refused with invalidParameter, so SET_FEATURE is stalled and no owner is told. ClearStall() is
+	// acknowledged and changes nothing, so CLEAR_FEATURE succeeds and the owner is told, as for any endpoint.
 	ResultStatus SetEndpointHalt(uint8 endpointAddress, bool halted) {
 		ResultStatus status = halted ? adapter.Stall(endpointAddress) : adapter.ClearStall(endpointAddress);
 		if (status != ResultStatus::ok) {
@@ -1154,6 +1194,48 @@ private:
 		}
 
 		return descriptorSet.device[DeviceSerialNumberIndex] != 0 && !runtimeSerialNumber.empty();
+	}
+
+
+	// Every run-time string the set reserves needs its descriptor from SetRuntimeString(). A set that reserves more than the device
+	// has slots for is refused here too, because it could not be served.
+	bool AreRuntimeStringsValid() const {
+		std::size_t count = descriptorSet.runtimeStringIndexes.size();
+		if (count > USBMaxRuntimeStrings) {
+			return false;
+		}
+
+		for (std::size_t slot = 0; slot < count; slot++) {
+			if (runtimeStringSlots[slot].empty()) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+
+	// The slot of a run-time string index the set reserves, or USBMaxRuntimeStrings when the set does not reserve it.
+	std::size_t FindRuntimeStringSlot(uint8 index) const {
+		std::size_t count = descriptorSet.runtimeStringIndexes.size();
+		for (std::size_t slot = 0; slot < count && slot < USBMaxRuntimeStrings; slot++) {
+			if (descriptorSet.runtimeStringIndexes[slot] == index) {
+				return slot;
+			}
+		}
+
+		return USBMaxRuntimeStrings;
+	}
+
+
+	// The descriptor the application gave for a run-time string index, or an empty span when the index is not one of them or it has none yet.
+	std::span<const uint8> RuntimeStringAt(uint8 index) const {
+		std::size_t slot = FindRuntimeStringSlot(index);
+		if (slot == USBMaxRuntimeStrings) {
+			return std::span<const uint8>();
+		}
+
+		return runtimeStringSlots[slot];
 	}
 
 

@@ -21,6 +21,7 @@ using MscTest::BotHost;
 using MscTest::Outcome;
 using MscTest::HandCbw;
 using MscTest::InAddress;
+using MscTest::InterfaceNumber;
 using MscTest::OutAddress;
 
 
@@ -437,6 +438,73 @@ void CaseNotMeaningfulCbwFails() {
 }
 
 
+// The class requests name the interface and carry the wLength of their data stage: GET_MAX_LUN one byte, the reset none. A request with
+// another wIndex, another wValue or another wLength is stalled and does nothing. wIndex 0x0100 reaches the function, because the core
+// routes by the low byte of wIndex, so it checks that the whole field matches. A reset that is stalled leaves the transfer it would have
+// abandoned in place.
+void ClassRequestsCheckTheirFields() {
+	Device fixture;
+	Attach(fixture);
+	BotHost host(fixture.sim, fixture.device);
+
+	uint8 maxLun = 0xFF;
+	SIM_EXPECT_EQ(host.GetMaxLun(maxLun), ResultStatus::ok);
+	SIM_EXPECT_EQ(maxLun, 0);
+
+	std::array<uint8, 1> answer{};
+	uint32 received = 0;
+	SIM_EXPECT(SimHost::Control(fixture.sim, SimHost::MakeSetup(0xA1, MscRequestGetMaxLun, 0, InterfaceNumber, 2), {}, answer, received) != ResultStatus::ok);
+	SIM_EXPECT(SimHost::Control(fixture.sim, SimHost::MakeSetup(0xA1, MscRequestGetMaxLun, 0, 0x0100, 1), {}, answer, received) != ResultStatus::ok);
+	SIM_EXPECT(SimHost::Control(fixture.sim, SimHost::MakeSetup(0xA1, MscRequestGetMaxLun, 1, InterfaceNumber, 1), {}, answer, received) != ResultStatus::ok);
+
+	std::array<uint8, MscCbwLength> cbw = HandCbw(4, Block, MscFlagDataIn, 0, 10, Read1);
+	SIM_EXPECT(fixture.sim.HostOut(OutAddress, cbw).IsOk());
+	fixture.device.Process();
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(InAddress));
+
+	SIM_EXPECT(SimHost::Control(fixture.sim, SimHost::MakeSetup(0x21, MscRequestBulkOnlyReset, 0, 0x0100, 0)) != ResultStatus::ok);
+	SIM_EXPECT(SimHost::Control(fixture.sim, SimHost::MakeSetup(0x21, MscRequestBulkOnlyReset, 1, InterfaceNumber, 0)) != ResultStatus::ok);
+	SIM_EXPECT(SimHost::Control(fixture.sim, SimHost::MakeSetup(0x21, MscRequestBulkOnlyReset, 0, InterfaceNumber, 1)) != ResultStatus::ok);
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(InAddress));
+	SIM_EXPECT(!fixture.sim.IsStalled(InAddress));
+
+	SIM_EXPECT_EQ(host.Reset(), ResultStatus::ok);
+	SIM_EXPECT(!fixture.sim.HasArmedTransfer(InAddress));
+	SIM_EXPECT_EQ(host.ClearHalt(InAddress), ResultStatus::ok);
+	SIM_EXPECT_EQ(host.ClearHalt(OutAddress), ResultStatus::ok);
+
+	Outcome outcome = host.Command(Tag, TestUnitReady, 0, false, {}, {});
+	ExpectCsw(outcome, Tag, MscStatusPassed, 0);
+}
+
+
+// A command block shorter than its opcode needs is not answered from zeros, since the bytes past the command length are not the host's.
+// READ(10) with a 6-byte block fails with INVALID FIELD IN CDB, and its IN pipe is stalled for the data the host expected. INQUIRY with a
+// 5-byte block fails the same way, with no data stage.
+void ShortCommandBlockIsInvalidField() {
+	Device fixture;
+	Attach(fixture);
+	BotHost host(fixture.sim, fixture.device);
+
+	const std::array<uint8, 6> shortRead{ 0x28, 0x00, 0x00, 0x00, 0x00, 0x00 };
+	std::array<uint8, Block> in{};
+	Outcome read = host.Command(Tag, shortRead, Block, true, {}, in);
+	ExpectCsw(read, Tag, MscStatusFailed, Block);
+	SIM_EXPECT_EQ(read.dataIn, 0);
+	SIM_EXPECT(read.inStalled);
+
+	std::array<uint8, 18> sense{};
+	Outcome reply = host.Command(Tag + 1, RequestSense, 18, true, {}, sense);
+	ExpectCsw(reply, Tag + 1, MscStatusPassed, 0);
+	SIM_EXPECT_EQ(sense[2], 0x05);
+	SIM_EXPECT_EQ(sense[12], 0x24);
+
+	const std::array<uint8, 5> shortInquiry{ 0x12, 0x00, 0x00, 0x00, 36 };
+	Outcome inquiry = host.Command(Tag + 2, shortInquiry, 0, false, {}, {});
+	ExpectCsw(inquiry, Tag + 2, MscStatusFailed, 0);
+}
+
+
 }
 
 
@@ -460,5 +528,7 @@ int main() {
 	CaseResetWhileDataIsArmed();
 	CaseUnknownOpcode();
 	CaseNotMeaningfulCbwFails();
+	ClassRequestsCheckTheirFields();
+	ShortCommandBlockIsInvalidField();
 	return SimTest::Finish("TestMscBot");
 }

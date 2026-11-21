@@ -102,7 +102,8 @@ public:
         }
 
         std::copy_n(elements.data(), firstSegment, &buffer[writeIndex]);
-        std::copy_n(elements.data() + firstSegment, count - firstSegment, buffer);
+        // The second segment is at most readIndex, which is below BufferSize, so the bound changes no value; it tells GCC the length too.
+        std::copy_n(elements.data() + firstSegment, std::min<uint32>(count - firstSegment, BufferSize), buffer);
         size = static_cast<uint16>(size + count);
         System::CriticalSection(false);
 
@@ -263,14 +264,16 @@ public:
 
     // Commit all marked reads - actually remove them from buffer
     void CommitReads() {
+        // One step, not one per element: a whole transfer can be committed at once, and the interrupts stay masked meanwhile.
         System::CriticalSection(true);
-        
-        while (uncommittedReadCount > 0) {
-            readIndex = (readIndex + 1) % BufferSize;
-            size--;
-            uncommittedReadCount--;
+        uint32 nextIndex = static_cast<uint32>(readIndex) + uncommittedReadCount;
+        if (nextIndex >= BufferSize) {
+            nextIndex -= BufferSize;
         }
-        
+
+        readIndex = static_cast<uint16>(nextIndex);
+        size = static_cast<uint16>(size - uncommittedReadCount);
+        uncommittedReadCount = 0;
         System::CriticalSection(false);
     }
 

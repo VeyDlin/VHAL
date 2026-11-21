@@ -6,6 +6,7 @@
 #include <array>
 #include <chrono>
 #include <cstddef>
+#include <limits>
 #include <span>
 #include <thread>
 #include <vector>
@@ -370,20 +371,48 @@ void CheckMouseButtonsKeptWhenBusy() {
 }
 
 
-// Key codes above the key array's range are refused, whether pressed or tapped. The modifiers are the exception: they have their own range.
+// The key codes of the keyboard page are 0x04 (a) to 0xDD. The error codes 0x00 to 0x03, the reserved 0xDE and 0xDF and the modifiers
+// above the page are refused, whether pressed or tapped; the modifiers have their own path (Press(0xE0..0xE7) sets a modifier bit).
 void CheckKeyCodeRange() {
 	KeyboardDevice device;
 	HidKeyboard<40> keyboard(device.function);
 	device.Configure();
 
-	SIM_EXPECT_EQ(keyboard.Press(0x66), ResultStatus::invalidParameter);
-	SIM_EXPECT_EQ(keyboard.Press(0xE8), ResultStatus::invalidParameter);
-	SIM_EXPECT_EQ(keyboard.Press(0xFF), ResultStatus::invalidParameter);
-	SIM_EXPECT_EQ(keyboard.Tap(0x66, 0), ResultStatus::invalidParameter);
-	SIM_EXPECT_EQ(keyboard.Press(0x65), ResultStatus::ok);
+	for (uint8 refused : { 0x00, 0x01, 0x02, 0x03, 0xDE, 0xDF, 0xE8, 0xFF }) {
+		SIM_EXPECT_EQ(keyboard.Press(refused), ResultStatus::invalidParameter);
+		SIM_EXPECT_EQ(keyboard.Tap(refused, 0), ResultStatus::invalidParameter);
+	}
+
+	SIM_EXPECT_EQ(keyboard.Press(0x04), ResultStatus::ok);
+	SIM_EXPECT_EQ(keyboard.Press(0xDD), ResultStatus::ok);
 
 	std::vector<std::vector<uint8>> sent = Flush(device);
-	HidTest::ExpectReports(sent, { Bytes({ 0x00, 0x00, 0x65, 0x00, 0x00, 0x00, 0x00, 0x00 }) }, "key code at the top of the range", __LINE__);
+	HidTest::ExpectReports(sent, {
+		Bytes({ 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00 }),
+		Bytes({ 0x00, 0x00, 0x04, 0xDD, 0x00, 0x00, 0x00, 0x00 })
+	}, "key codes at the ends of the keyboard page", __LINE__);
+}
+
+
+// F13 (0x68) and F24 (0x73) are keyboard page usages above the boot keyboard's old range of 0x65, so they are sent like any key. The
+// reports list the keys in the order they were pressed, and a release removes one key and keeps the order of the others.
+void CheckFunctionKeysAreSent() {
+	KeyboardDevice device;
+	HidKeyboard<40> keyboard(device.function);
+	device.Configure();
+
+	SIM_EXPECT_EQ(keyboard.Press(0x68), ResultStatus::ok);
+	SIM_EXPECT_EQ(keyboard.Press(0x73), ResultStatus::ok);
+	SIM_EXPECT_EQ(keyboard.Release(0x68), ResultStatus::ok);
+	SIM_EXPECT_EQ(keyboard.ReleaseAll(), ResultStatus::ok);
+
+	std::vector<std::vector<uint8>> sent = Flush(device);
+	HidTest::ExpectReports(sent, {
+		Bytes({ 0x00, 0x00, 0x68, 0x00, 0x00, 0x00, 0x00, 0x00 }),
+		Bytes({ 0x00, 0x00, 0x68, 0x73, 0x00, 0x00, 0x00, 0x00 }),
+		Bytes({ 0x00, 0x00, 0x73, 0x00, 0x00, 0x00, 0x00, 0x00 }),
+		Bytes({ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 })
+	}, "F13 and F24 are sent", __LINE__);
 }
 
 
@@ -456,6 +485,89 @@ void CheckMouseClickWaitsForPendingRoom() {
 }
 
 
+// The pending movement is bounded to MaxPendingSteps (32767) on each axis. A Move or Scroll that would pass the bound is refused with busy
+// and changes nothing, whatever the arguments: the sums are taken in 64 bits, so the largest int32 values cannot overflow. The movement
+// that was accepted is all sent, and the refused part is not: 32000 + 1783 steps reach the host, 1784 steps are refused.
+void CheckMouseBoundedPending() {
+	MouseDevice device;
+	HidMouse<8> mouse(device.function);
+	device.Configure();
+
+	SIM_EXPECT_EQ(mouse.Move(std::numeric_limits<int32>::max(), 0), ResultStatus::outOfRange);
+	SIM_EXPECT_EQ(mouse.Move(std::numeric_limits<int32>::min(), std::numeric_limits<int32>::min()), ResultStatus::outOfRange);
+	SIM_EXPECT_EQ(mouse.Scroll(40000), ResultStatus::outOfRange);
+	SIM_EXPECT(Flush(device).empty());
+
+	// 8 reports of 127 steps fill the queue and 30984 steps stay pending, so the call is busy: the movement was taken.
+	SIM_EXPECT_EQ(mouse.Move(32000, 0), ResultStatus::busy);
+	// 30984 + 1784 is one past the bound: refused, with nothing changed.
+	SIM_EXPECT_EQ(mouse.Move(1784, 0), ResultStatus::outOfRange);
+	// 30984 + 1783 is exactly the bound: accepted, and the queue is still full.
+	SIM_EXPECT_EQ(mouse.Move(1783, 0), ResultStatus::busy);
+
+	std::vector<std::vector<uint8>> all;
+	for (std::size_t round = 0; round < 300; round++) {
+		std::vector<std::vector<uint8>> got = Flush(device);
+		all.insert(all.end(), got.begin(), got.end());
+		mouse.Flush();
+	}
+
+	std::vector<std::vector<uint8>> rest = Flush(device);
+	all.insert(all.end(), rest.begin(), rest.end());
+	SIM_EXPECT_EQ(mouse.Flush(), ResultStatus::ok);
+
+	int64 sum = 0;
+	for (const std::vector<uint8>& report : all) {
+		SIM_EXPECT_EQ(report.size(), 4);
+		sum += static_cast<int8>(report[1]);
+	}
+
+	SIM_EXPECT_EQ(sum, 33783);
+}
+
+
+// The movement the mouse holds when the host deconfigures the device is dropped with the queue, and so is the wheel. After the next
+// enumeration the host sees only the movement made from then on, not one jump for the movement made while it was away.
+void CheckPendingDroppedOnDeconfigure() {
+	SmallMouseDevice device;
+	HidMouse<2> mouse(device.function);
+	device.Configure();
+	SimUSBDeviceAdapter& sim = device.sim;
+
+	SIM_EXPECT_EQ(mouse.Move(1, 0), ResultStatus::ok);
+	SIM_EXPECT_EQ(mouse.Move(1, 0), ResultStatus::ok);
+	SIM_EXPECT_EQ(mouse.Move(5, 0), ResultStatus::busy);
+	SIM_EXPECT_EQ(mouse.Scroll(3), ResultStatus::busy);
+
+	// SET_CONFIGURATION 0 deconfigures the function.
+	SIM_EXPECT_EQ(SimHost::Control(sim, SimHost::MakeSetup(0x00, 9, 0, 0, 0)), ResultStatus::ok);
+	device.Enumerate();
+	SIM_EXPECT(device.device.GetState() == USBDeviceState::Configured);
+
+	SIM_EXPECT_EQ(mouse.Move(1, 0), ResultStatus::ok);
+	HidTest::ExpectReports(Flush(device), { Bytes({ 0x00, 0x01, 0x00, 0x00 }) }, "movement after deconfigure", __LINE__);
+	SIM_EXPECT_EQ(mouse.Flush(), ResultStatus::ok);
+}
+
+
+// A bus reset drops the pending movement the same way. The reset keeps the function configured until the host enumerates again.
+void CheckPendingDroppedOnBusReset() {
+	SmallMouseDevice device;
+	HidMouse<2> mouse(device.function);
+	device.Configure();
+
+	SIM_EXPECT_EQ(mouse.Move(1, 0), ResultStatus::ok);
+	SIM_EXPECT_EQ(mouse.Move(1, 0), ResultStatus::ok);
+	SIM_EXPECT_EQ(mouse.Move(5, 0), ResultStatus::busy);
+
+	device.Enumerate();
+	SIM_EXPECT(device.device.GetState() == USBDeviceState::Configured);
+
+	SIM_EXPECT_EQ(mouse.Move(1, 0), ResultStatus::ok);
+	HidTest::ExpectReports(Flush(device), { Bytes({ 0x00, 0x01, 0x00, 0x00 }) }, "movement after bus reset", __LINE__);
+}
+
+
 // A relative device's idle repeat and GET_REPORT carry the buttons and no motion, so a repeat does not move the pointer again.
 void CheckMouseIdleIsStill() {
 	MouseDevice device;
@@ -477,7 +589,7 @@ void CheckMouseIdleIsStill() {
 	ResultStatus status = SimHost::Control(sim, SimHost::MakeSetup(0xA1, 0x01, 0x0100, 0, 4), std::span<const uint8>(), answer, received);
 	SIM_EXPECT_EQ(status, ResultStatus::ok);
 	std::vector<uint8> got(answer.begin(), answer.begin() + received);
-	HID_EXPECT_BYTES(got, Bytes({ 0x01, 0x00, 0x00, 0x00 }));
+	SIM_EXPECT_BYTES(got, Bytes({ 0x01, 0x00, 0x00, 0x00 }));
 }
 
 
@@ -500,9 +612,13 @@ int main() {
 	CheckMouseAccumulatesWhileQueueIsFull();
 	CheckMouseButtonsKeptWhenBusy();
 	CheckKeyCodeRange();
+	CheckFunctionKeysAreSent();
 	CheckTypeTextIgnoresHeldModifiers();
 	CheckTypeTextStopsAtHeldKey();
 	CheckMouseClickWaitsForPendingRoom();
+	CheckMouseBoundedPending();
+	CheckPendingDroppedOnDeconfigure();
+	CheckPendingDroppedOnBusReset();
 	CheckMouseIdleIsStill();
 	return SimTest::Finish("TestHidInput");
 }

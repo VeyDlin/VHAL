@@ -49,13 +49,16 @@ constexpr std::size_t USBNoString = static_cast<std::size_t>(-1);
 
 // One endpoint a class asks for. A class states what it needs; the configuration builder assigns the address unless the
 // application gave one. address 0 means assigned by the builder. maxPacketSize and interval are checked by
-// MakeUSBEndpointDescriptor() when the endpoint is written.
+// MakeUSBEndpointDescriptor() when the endpoint is written. An isochronous request sets interval 1 and may set the sync type and
+// the usage; the other kinds leave both at None and Data.
 struct USBEndpointRequest {
 	USBEndpointType type = USBEndpointType::Bulk;
 	USBDirection direction = USBDirection::In;
 	uint8 address = 0;
 	uint16 maxPacketSize = 64;
 	uint8 interval = 0;
+	USBIsoSync isoSync = USBIsoSync::None;
+	USBIsoUsage isoUsage = USBIsoUsage::Data;
 };
 
 
@@ -90,6 +93,9 @@ struct USBFunctionSlot {
 	std::size_t endpointCount = 0;
 	std::array<std::size_t, USBMaxFunctionStrings> strings{};
 	std::size_t stringCount = 0;
+	// Position of the function's first run-time string in the configuration's list, and how many it reserved.
+	std::size_t runtimeStart = 0;
+	std::size_t runtimeCount = 0;
 };
 
 
@@ -99,13 +105,23 @@ class USBFunctionEmitter {
 private:
 	USBBuildBuffer& body;
 	USBPatchList& patches;
+	USBPatchList& runtimePatches;
 	const USBFunctionSlot& slot;
+	// The interface whose run of alternate settings is open, and the last alternate setting written for it. Alternate() checks
+	// them, so the settings of one interface are listed directly after its alternate 0, in ascending order.
+	std::size_t openIndex = USBNoString;
+	uint8 lastAlternate = 0;
 
 
 public:
-	constexpr USBFunctionEmitter(USBBuildBuffer& bodyBuffer, USBPatchList& patchList, const USBFunctionSlot& functionSlot)
+	constexpr USBFunctionEmitter(
+		USBBuildBuffer& bodyBuffer,
+		USBPatchList& patchList,
+		USBPatchList& runtimePatchList,
+		const USBFunctionSlot& functionSlot)
 		: body(bodyBuffer),
 		  patches(patchList),
+		  runtimePatches(runtimePatchList),
 		  slot(functionSlot) {
 	}
 
@@ -125,14 +141,34 @@ public:
 
 
 	// Interface descriptor with alternate setting 0. stringIndex is an index into the function's strings, or USBNoString.
-	// bNumEndpoints is set by the configuration after the endpoints are written.
+	// bNumEndpoints is set by the configuration after the endpoints are written. It opens the run of alternate settings of
+	// the interface, so Alternate() may follow it.
 	constexpr void Interface(std::size_t index, uint8 interfaceClass, uint8 subClass, uint8 protocol, std::size_t stringIndex) {
-		if (stringIndex != USBNoString) {
-			Require<USBText{"string index is outside the function"}>(stringIndex < slot.stringCount);
-			patches.Add(body.size + 8, slot.strings[stringIndex]);
-		}
+		WriteInterface(index, 0, interfaceClass, subClass, protocol, stringIndex);
+		openIndex = index;
+		lastAlternate = 0;
+	}
 
-		body.Append(MakeUSBInterfaceDescriptor(InterfaceNumber(index), 0, interfaceClass, subClass, protocol, 0));
+
+	// Interface descriptor with alternate setting alternateSetting (USB 2.0 section 9.6.5) of the index-th interface. It shares
+	// the interface number of alternate 0, so the configuration counts the interface once and bNumInterfaces does not change.
+	// The settings of one interface are listed one after another, directly after its alternate 0, in ascending order, each once:
+	// the host reads them in that order, and a setting out of place would not be the one the host selects. Alternate 0 is
+	// written by Interface(). stringIndex is as in Interface(), so each setting can name its own memory region.
+	constexpr void Alternate(
+		std::size_t index,
+		uint8 alternateSetting,
+		uint8 interfaceClass,
+		uint8 subClass,
+		uint8 protocol,
+		std::size_t stringIndex)
+	{
+		Require<USBText{"alternate 0 is written by Interface()"}>(alternateSetting != 0);
+		Require<USBText{"an alternate setting follows its alternate 0 directly"}>(index == openIndex);
+		Require<USBText{"an alternate setting is given once"}>(alternateSetting != lastAlternate);
+		Require<USBText{"alternate settings are listed in ascending order"}>(alternateSetting > lastAlternate);
+		WriteInterface(index, alternateSetting, interfaceClass, subClass, protocol, stringIndex);
+		lastAlternate = alternateSetting;
 	}
 
 
@@ -140,16 +176,31 @@ public:
 	constexpr void Endpoint(std::size_t index) {
 		Require<USBText{"endpoint index is outside the function"}>(index < slot.endpointCount);
 		const USBEndpointRequest& request = slot.requests[index];
-		body.Append(MakeUSBEndpointDescriptor(slot.addresses[index], request.type, request.maxPacketSize, request.interval));
+		body.Append(MakeUSBEndpointDescriptor(
+			slot.addresses[index],
+			request.type,
+			request.maxPacketSize,
+			request.interval,
+			request.isoSync,
+			request.isoUsage
+		));
 	}
 
 
 	// Endpoint descriptor of the index-th endpoint request in the audio-class form (9 bytes, see MakeUSBAudioEndpointDescriptor()),
-	// with the address the configuration resolved. Used by USB-MIDI for its bulk endpoints.
+	// with the address the configuration resolved. Used by USB-MIDI for its bulk endpoints and by USB Audio for its endpoints, which
+	// are isochronous or bulk.
 	constexpr void AudioEndpoint(std::size_t index) {
 		Require<USBText{"endpoint index is outside the function"}>(index < slot.endpointCount);
 		const USBEndpointRequest& request = slot.requests[index];
-		body.Append(MakeUSBAudioEndpointDescriptor(slot.addresses[index], request.type, request.maxPacketSize, request.interval));
+		body.Append(MakeUSBAudioEndpointDescriptor(
+			slot.addresses[index],
+			request.type,
+			request.maxPacketSize,
+			request.interval,
+			request.isoSync,
+			request.isoUsage
+		));
 	}
 
 
@@ -177,7 +228,40 @@ public:
 	}
 
 
+	// A class-specific descriptor with the index of one of the function's run-time strings at stringOffset, such as iMACAddress of
+	// the Ethernet functional descriptor. The byte is given as 0. The index is not known until the device joins the configuration
+	// (its fixed strings come first), so the device writes it then. runtimeIndex counts the function's run-time strings from 0, in
+	// the order the class reserved them. The class cannot read the index in Emit(); the function gets it from its layout.
+	constexpr void RawWithRuntimeString(std::span<const uint8> bytes, std::size_t stringOffset, std::size_t runtimeIndex) {
+		CheckRaw(bytes);
+		Require<USBText{"the run-time string index byte is inside the descriptor"}>(stringOffset < bytes.size());
+		Require<USBText{"the run-time string index byte is given as 0 and filled in by the device"}>(bytes[stringOffset] == 0);
+		Require<USBText{"run-time string index is outside the function"}>(runtimeIndex < slot.runtimeCount);
+		runtimePatches.Add(body.size + stringOffset, slot.runtimeStart + runtimeIndex);
+		body.Append(bytes);
+	}
+
+
 private:
+	// Writes one interface descriptor and records the patch of its iInterface byte, the byte 8 of the descriptor. The alternate
+	// setting is given as it is; Interface() and Alternate() check the order before they call this.
+	constexpr void WriteInterface(
+		std::size_t index,
+		uint8 alternateSetting,
+		uint8 interfaceClass,
+		uint8 subClass,
+		uint8 protocol,
+		std::size_t stringIndex)
+	{
+		if (stringIndex != USBNoString) {
+			Require<USBText{"string index is outside the function"}>(stringIndex < slot.stringCount);
+			patches.Add(body.size + 8, slot.strings[stringIndex]);
+		}
+
+		body.Append(MakeUSBInterfaceDescriptor(InterfaceNumber(index), alternateSetting, interfaceClass, subClass, protocol, 0));
+	}
+
+
 	// The rules Raw() and RawWithString() share: the size, bLength and the structural types.
 	static constexpr void CheckRaw(std::span<const uint8> bytes) {
 		Require<USBText{"a descriptor is 2 to 255 bytes"}>(bytes.size() >= 2 && bytes.size() <= 255);
@@ -200,6 +284,10 @@ private:
 //   FunctionClass(), FunctionSubClass(), FunctionProtocol()   the interface association when the function has two or more
 //   HasWinUsb(), WinUsbGuid()      an optional WinUSB binding; an empty GUID gives the compatible ID only
 //   Emit(emitter)         the interface, class-specific and endpoint descriptors, once numbers, addresses and strings are known
+//
+// Optional, not part of the concept: RuntimeStringCount(), the number of run-time strings the class reserves (see
+// USBDevice::SetRuntimeString()). A class without it reserves none. The class writes each string's index with
+// emitter.RawWithRuntimeString(). Every reserved string must be written, or the configuration is refused.
 template<typename T>
 concept USBClassFunctionBuilder = requires(const T& function, USBFunctionEmitter& emitter) {
 	{ function.InterfaceCount() } -> std::convertible_to<std::size_t>;
@@ -214,3 +302,17 @@ concept USBClassFunctionBuilder = requires(const T& function, USBFunctionEmitter
 	{ function.WinUsbGuid() } -> std::convertible_to<std::string_view>;
 	{ function.Emit(emitter) } -> std::same_as<void>;
 };
+
+
+// The run-time strings a class reserves through its optional RuntimeStringCount(). A class without the member reserves none.
+template<typename T>
+constexpr std::size_t USBRuntimeStringCount(const T& function) {
+	if constexpr (requires(const T& value) {
+		{ value.RuntimeStringCount() } -> std::convertible_to<std::size_t>;
+	}) {
+		return function.RuntimeStringCount();
+	} else {
+		static_cast<void>(function);
+		return 0;
+	}
+}

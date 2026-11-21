@@ -6,6 +6,7 @@
 #include <Drivers/Interface/USB/Descriptor/Builder/USBBuilderBuffer.h>
 #include <Drivers/Interface/USB/Descriptor/Builder/USBFunctionBuilder.h>
 #include <Drivers/Interface/USB/Descriptor/USBConfigurationDescriptor.h>
+#include <Drivers/Interface/USB/Descriptor/USBDescriptorSet.h>
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorString.h>
 #include <Drivers/Interface/USB/USBProtocol.h>
 
@@ -14,7 +15,8 @@ class USBDeviceBuilder;
 
 
 // What the configuration keeps for one function: where its interfaces and endpoints are, and where its descriptors are in
-// the configuration's body (offsets from the first byte after the configuration header).
+// the configuration's body (offsets from the first byte after the configuration header). Its run-time strings are the ones
+// from runtimeStart on, counted over the whole configuration.
 struct USBFunctionRecord {
 	uint8 firstInterface = 0;
 	std::size_t interfaceCount = 0;
@@ -24,6 +26,8 @@ struct USBFunctionRecord {
 	std::size_t descriptorSize = 0;
 	bool winUsb = false;
 	std::string_view guid;
+	std::size_t runtimeStart = 0;
+	std::size_t runtimeCount = 0;
 };
 
 
@@ -57,6 +61,10 @@ private:
 
 	USBBuildBuffer body;
 	USBPatchList patches;
+	// The run-time string indexes the functions write. Each entry's local is the run-time string's position in the configuration's
+	// list; the device turns it into a string index when it joins the configuration.
+	USBPatchList runtimePatches;
+	std::size_t runtimeStringCount = 0;
 	std::array<std::string_view, USBMaxStrings> strings{};
 	std::size_t stringCount = 0;
 	std::array<USBFunctionRecord, USBMaxFunctions> functions{};
@@ -121,11 +129,18 @@ public:
 			slot.addresses[index] = ResolveEndpoint(slot.requests[index]);
 		}
 
+		slot.runtimeStart = runtimeStringCount;
+		slot.runtimeCount = USBRuntimeStringCount(function);
+		Require<USBText{"too many run-time strings in one configuration"}>(runtimeStringCount + slot.runtimeCount <= USBMaxRuntimeStrings);
+		runtimeStringCount += slot.runtimeCount;
+
 		USBFunctionRecord record;
 		record.firstInterface = slot.firstInterface;
 		record.interfaceCount = count;
 		record.endpointStart = endpointAddressCount;
 		record.endpointCount = slot.endpointCount;
+		record.runtimeStart = slot.runtimeStart;
+		record.runtimeCount = slot.runtimeCount;
 		for (std::size_t index = 0; index < slot.endpointCount; index++) {
 			Require<USBText{"too many endpoints in one configuration"}>(endpointAddressCount < USBMaxEndpoints);
 			endpointAddresses[endpointAddressCount] = slot.addresses[index];
@@ -145,7 +160,7 @@ public:
 			associated = true;
 		}
 
-		USBFunctionEmitter emitter(body, patches, slot);
+		USBFunctionEmitter emitter(body, patches, runtimePatches, slot);
 		function.Emit(emitter);
 		record.descriptorSize = body.size - record.descriptorOffset;
 		record.winUsb = function.HasWinUsb();
@@ -169,8 +184,10 @@ private:
 	// The address of one endpoint request: the explicit address as given, or the smallest number that neither direction uses
 	// yet, from 1. A number above the device's limit is rejected when the configuration joins the device.
 	constexpr uint8 ResolveEndpoint(const USBEndpointRequest& request) {
-		Require<USBText{"endpoints are bulk or interrupt"}>(
-			request.type == USBEndpointType::Bulk || request.type == USBEndpointType::Interrupt);
+		Require<USBText{"endpoints are bulk, interrupt or isochronous"}>(
+			request.type == USBEndpointType::Bulk
+			|| request.type == USBEndpointType::Interrupt
+			|| request.type == USBEndpointType::Isochronous);
 		bool in = request.direction == USBDirection::In;
 		if (request.address != 0) {
 			uint8 address = request.address;

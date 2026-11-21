@@ -38,6 +38,50 @@
 //     A rejected request is answered with Stall(0x80), which halts both endpoint 0 directions.
 //   - SET_ADDRESS: the core calls SetAddress() when the request arrives. The address takes effect at the status stage
 //     (see SetAddress()).
+//
+// Isochronous endpoints (USB 2.0 section 5.6.4). One packet per frame, with no handshake and no retry. The model is the one the
+// fsdev ports follow (Port/STM32/Common/USBFsdev.h). A port that moves packets another way says so in its own page.
+//   - Opened with type Isochronous, a packet size of 1 to 1023 bytes and doubleBuffer false. The port always gives the endpoint
+//     both buffers of its direction, so the flag is not used. A packet size the port cannot place in its memory is outOfMemory.
+//   - StartInTransfer() and StartOutTransfer() arm one packet. An IN span holds at most maxPacketSize bytes (an empty span is a
+//     zero-length packet, and sendZeroLengthPacket is ignored). An OUT buffer holds the packet. One transfer per direction: busy
+//     while one is armed. A completion fires once the packet is done.
+//   - Pace: the function arms the next packet in the completion callback of the packet before, so the packet is in place about a
+//     frame before its token. Arming at the start of a frame races that frame's token (the host schedules periodic transfers early
+//     in the frame), so a function does not arm there.
+//   - IN: a packet armed from inside its own endpoint's completion callback (the streaming path) goes out at the host's token of the
+//     next frame. A packet armed from anywhere else (thread context, the control request that selects the alternate setting, another
+//     endpoint's callback) is pending: the next token of the endpoint sends a zero-length packet with no completion and writes the
+//     packet, and the token after that sends it and completes. A packet armed while that endpoint's CTR_TX is already set, and not yet
+//     served by the interrupt, goes out one token earlier: the interrupt writes it after the finished token, so it is sent at the next
+//     token. The write never races a token, because it happens after a token has finished. onTransferComplete(address, size) fires when
+//     the packet has left.
+//     Every frame's token is answered. A frame with no packet armed is a zero-length IN packet: nothing completes, no event is
+//     raised and the port counts nothing. The packet armed after a frame goes out at the following token, never at the one
+//     before it, so a stale packet is never sent. The port keeps that true by writing a packet from outside the callback only at a token,
+//     never while a token reads the buffer, so the write cannot race the host.
+//   - The bound: the USB interrupt must be served within one frame of the token. A later service merges the completions of two tokens,
+//     and the port cannot tell which buffer went out, so the completion and the arm that follows it go wrong.
+//   - OUT: the packet of a frame is stored in the armed buffer and completes the transfer, with byteCount the bytes it carried:
+//     0 for a zero-length packet, and any size up to the buffer. A packet that does not fit is dropped whole, with
+//     onError(DataOverrun), and the completion is the bytes stored before it, which is 0 for a one-packet transfer. A frame with
+//     no transfer armed is still stored by the hardware, and the port drops it: no event, and the packet is not kept for a later
+//     transfer, so the host's stale packet is never delivered.
+//   - No data toggle to reset and no retry. The port alternates the two buffers of the endpoint with each frame, whether or not
+//     a packet was armed, so consecutive packets sit in different buffers. The function does not see the buffers. No PID is
+//     assumed for an isochronous packet.
+//   - No halt. Stall() returns notExist for a direction that is not open and invalidParameter for an open one, and ClearStall() returns ok and changes nothing, because an isochronous endpoint
+//     is never halted. The core therefore refuses SET_FEATURE(ENDPOINT_HALT) on it with a stall, acknowledges
+//     CLEAR_FEATURE(ENDPOINT_HALT), and GET_STATUS reports no halt (IsStalled() is false). Close, a bus reset and Disconnect()
+//     work as they do for the other types: an armed packet is abandoned with no event.
+//   - One number, one pair: the two directions of a number share one register, so an isochronous IN and an isochronous OUT on
+//     the same number cannot both be open. The second one is notSupported (see OpenEndpoint()).
+//   - Bus errors: fsdev reports no CRC per packet. A bus error raises its ERR flag, which the port reports as Error::Unknown,
+//     and the packet of that frame does not complete the transfer, so the transfer waits for the next packet. A port that
+//     can see a CRC error reports Error::Crc.
+//   - Start of frame: onStartOfFrame, with startOfFrameEvents on, fires once per frame in interrupt context, before the
+//     completions of that frame's interrupt. The core does not subscribe to it. It is for timekeeping, for example an application
+//     that counts frames or paces a producer. The function arms from the completions, so it does not need the event for each packet.
 class USBDeviceAdapter : public IAdapter {
 public:
 	// Errors reported by the hardware. Errors on a healthy bus (for example a CRC error the host retries) are reported
@@ -59,7 +103,9 @@ public:
 		// SetParameters() returns invalidParameter for 0 or for more than the hardware has (8 on fsdev, 4 on F4 OTG_FS).
 		// 4 is the default because every planned port has at least that many; an application that needs more sets it.
 		uint8 endpointCount = 4;
-		// Raises onStartOfFrame every 1 ms. Off by default because the interrupt costs time on every frame.
+		// Raises onStartOfFrame every 1 ms. Off by default because the interrupt costs time on every frame. The event runs in
+		// interrupt context at the start of the frame, before the transfer completions of that frame's interrupt (see "Isochronous
+		// endpoints" below for how an isochronous function is paced).
 		bool startOfFrameEvents = false;
 	};
 
@@ -67,10 +113,12 @@ public:
 	struct EndpointConfig {
 		uint8 address = 0;
 		USBEndpointType type = USBEndpointType::Bulk;
-		// Full speed limits: 8, 16, 32 or 64 for bulk, up to 64 for interrupt. Endpoint 0 is not opened here.
+		// Full speed limits: 8, 16, 32 or 64 for bulk, up to 64 for interrupt, 1 to 1023 for isochronous. A port may refuse an isochronous size its
+		// packet memory cannot hold (outOfMemory). Endpoint 0 is not opened here.
 		uint16 maxPacketSize = 64;
 		// Bulk only: two packet buffers, so the hardware keeps one busy while the other is handled. A port that cannot
-		// provide it returns notSupported. Any other type with this set returns invalidParameter.
+		// provide it returns notSupported. Any other type with this set returns invalidParameter. An isochronous endpoint always
+		// has its two buffers in the port, so it must leave this false (invalidParameter otherwise).
 		bool doubleBuffer = false;
 	};
 
@@ -155,14 +203,15 @@ public:
 	// from interrupt context (the core calls it from SET_CONFIGURATION). Returns:
 	//   ok               opened
 	//   invalidParameter address is not a direction and number the configured endpointCount allows, or the type, maximum
-	//                    packet size or doubleBuffer do not fit
+	//                    packet size or doubleBuffer do not fit (an isochronous endpoint with doubleBuffer set does not fit)
 	//   busy             a transfer is in flight on the address
 	//   notSupported     doubleBuffer is asked for and the port cannot give it
 	//   outOfMemory      packet memory (fsdev) or FIFO space (dwc2) does not fit the request
 	// Some ports share one register between the two directions of a number (fsdev). There the directions must have the same
 	// type, and a double-buffered endpoint uses both directions of its number. So a doubleBuffer request beside an open other
 	// direction is notSupported, and a single-buffered request beside a double-buffered other direction is invalidParameter:
-	// the caller created that conflict. The refused call leaves the endpoints as they were.
+	// the caller created that conflict. An isochronous endpoint has two buffers too, so an isochronous IN and OUT on one number
+	// are notSupported as well. The refused call leaves the endpoints as they were.
 	// The adapter allocates the memory and keeps it until CloseEndpoint() or CloseAllEndpoints().
 	virtual ResultStatus OpenEndpoint(const EndpointConfig& config) = 0;
 
@@ -183,7 +232,8 @@ public:
 	// sends exactly one zero-length packet (the status stage of an IN control request), whatever the flag.
 	// onTransferComplete(address, data.size()) fires when the host has taken the last packet. The span must stay valid until
 	// then. One transfer per direction: returns busy while another is in flight. Returns invalidParameter for an OUT
-	// address, notExist for an endpoint that is not open, notReady while disconnected. Callable from both contexts.
+	// address, notExist for an endpoint that is not open, notReady while disconnected, and invalidParameter for an isochronous
+	// span longer than maxPacketSize (see "Isochronous endpoints"). Callable from both contexts.
 	//
 	// The completion never runs inside this call. It follows the host's IN token, so it runs in interrupt context after the
 	// call has returned: the fsdev port raises it once the hardware reports the last packet taken (IrqHandler()), and the sim
@@ -224,14 +274,15 @@ public:
 
 	// Halts an endpoint: the next IN or OUT token gets STALL. A transfer in flight is abandoned without an event.
 	// Endpoint 0 has one halt for both directions, so Stall(0x00) and Stall(0x80) halt the control pipe. A SETUP clears the
-	// endpoint 0 halt (see the control stages above). Returns notExist for an endpoint that is not open. Callable from both
-	// contexts; the port takes no critical section.
+	// endpoint 0 halt (see the control stages above). Returns notExist for an endpoint that is not open, and invalidParameter for
+	// an isochronous endpoint, which has no halt (see "Isochronous endpoints" above). Callable from both contexts; the port takes
+	// no critical section.
 	virtual ResultStatus Stall(uint8 address) = 0;
 
 
 	// Clears the halt and resets the data toggle to DATA0 (USB 2.0 section 9.4.5). Returns notExist for an endpoint that is
-	// not open. Callable from both contexts; the port takes no critical section, so a thread-context caller wraps the call in
-	// System::CriticalSection(), as for StartInTransfer().
+	// not open, and ok for an isochronous endpoint, which has no halt and no toggle to reset, so the call changes nothing. Callable from both contexts; the port takes
+	// no critical section, so a thread-context caller wraps the call in System::CriticalSection(), as for StartInTransfer().
 	// Exception to the IN contract: on a double-buffered IN endpoint (fsdev) a transfer the hardware had already finished can
 	// complete inside this call. onTransferComplete then runs before ClearStall() returns, and the function may start its next
 	// IN transfer there. The core calls the function's OnEndpointHaltChanged() only after this call returns, so a function must

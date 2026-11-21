@@ -39,6 +39,13 @@ public:
 	bool eraseKeepsData = false;
 	bool programFails = false;
 	bool corruptWrites = false;
+	bool readFails = false;
+	// Program and read calls are counted from 0. A call at or past failProgramFrom (or failReadFrom) fails, so a test can fail one
+	// unit of a block, or the verify read of a unit, and not the calls before it.
+	uint32 programCalls = 0;
+	uint32 failProgramFrom = 0xFFFFFFFF;
+	uint32 readCalls = 0;
+	uint32 failReadFrom = 0xFFFFFFFF;
 
 
 	FakeFlash() {
@@ -65,12 +72,20 @@ public:
 
 
 	Result<uint8> Read(uint8* address) {
+		uint32 call = readCalls;
+		readCalls++;
+		if (readFails || call >= failReadFrom) {
+			return Result<uint8>(Err<ResultStatus>(ResultStatus::readError));
+		}
+
 		return Result<uint8>(Ok<uint8>(*address));
 	}
 
 
 	ResultStatus WriteData(uint32* address, const void* data, std::size_t size) {
-		if (programFails) {
+		uint32 call = programCalls;
+		programCalls++;
+		if (programFails || call >= failProgramFrom) {
 			return ResultStatus::writeError;
 		}
 
@@ -295,6 +310,119 @@ void CheckManifestWithNothingStaged() {
 }
 
 
+// A region must be whole pages and whole units, and the page size must not be 0. Each of these is refused by Begin() before any erase.
+void CheckRegionMustBeWholePages() {
+	FakeFlash flash;
+
+	// Not a whole number of pages: the last page would run to 1024, past the 1000-byte region.
+	Target pageTail(flash, flash.memory.data(), 1000, PageSize, Key1, Key2, 7);
+	SIM_EXPECT_EQ(pageTail.Begin(0), DfuStatus::errTARGET);
+	SIM_EXPECT(flash.erasedPages.empty());
+
+	// Whole pages but not whole units: the last 8-byte unit would be cut by the region's end.
+	Target unitTail(flash, flash.memory.data(), 1020, 4, Key1, Key2, 7);
+	SIM_EXPECT_EQ(unitTail.Begin(0), DfuStatus::errTARGET);
+
+	// A page size of 0 would never advance the erase.
+	Target noPage(flash, flash.memory.data(), RegionSize, 0, Key1, Key2, 7);
+	SIM_EXPECT_EQ(noPage.Begin(0), DfuStatus::errTARGET);
+
+	// The region as the tests use it, whole pages and whole units, is accepted.
+	Target whole = MakeTarget(flash);
+	SIM_EXPECT_EQ(whole.Begin(0), DfuStatus::OK);
+}
+
+
+// The guard in ErasePage: a page that would end past the region is never erased. Begin() refuses this region, so the test writes
+// without it. That leaves ErasePage as the only check between the write and the page past the region.
+void CheckErasePastRegionIsRefused() {
+	FakeFlash flash;
+	Target target(flash, flash.memory.data(), 1000, PageSize, Key1, Key2, 7);
+	SIM_EXPECT_EQ(target.Write(0, Pattern(1000, 0)), DfuStatus::errADDRESS);
+
+	// Pages 0, 256 and 512 lie in the region and were erased. The page at 768 runs to 1024 and was not erased.
+	SIM_EXPECT_EQ(flash.erasedPages.size(), 3);
+	SIM_EXPECT_EQ(flash.erasedPages[2], 512);
+	SIM_EXPECT(flash.locked);
+}
+
+
+// A read that fails reaches the caller: the target's own read, the blank check after an erase and the verify after a program.
+void CheckReadErrorsAreReported() {
+	FakeFlash flash;
+	flash.readFails = true;
+	Target target = MakeTarget(flash);
+	std::array<uint8, 4> buffer{};
+	SIM_EXPECT(!target.Read(0, buffer).IsOk());
+	flash.readFails = false;
+
+	// The first read of an erase is the blank check, so it fails with errCHECK_ERASED.
+	FakeFlash blankFlash;
+	blankFlash.failReadFrom = 0;
+	Target blankTarget = MakeTarget(blankFlash);
+	SIM_EXPECT_EQ(blankTarget.Begin(0), DfuStatus::OK);
+	SIM_EXPECT_EQ(blankTarget.Write(0, Pattern(8, 0)), DfuStatus::errCHECK_ERASED);
+
+	// The erase reads one page of bytes, so the read after them is the verify of the first unit: it fails with errVERIFY.
+	FakeFlash verifyFlash;
+	verifyFlash.failReadFrom = PageSize;
+	Target verifyTarget = MakeTarget(verifyFlash);
+	SIM_EXPECT_EQ(verifyTarget.Begin(0), DfuStatus::OK);
+	SIM_EXPECT_EQ(verifyTarget.Write(0, Pattern(8, 0)), DfuStatus::errVERIFY);
+	SIM_EXPECT(verifyFlash.locked);
+}
+
+
+// A block that fails after its first unit: the unit before the failure is in memory, the failed one is not, and the flash is locked.
+void CheckProgramFailureAfterFirstUnit() {
+	FakeFlash flash;
+	flash.failProgramFrom = 1;
+	Target target = MakeTarget(flash);
+	SIM_EXPECT_EQ(target.Begin(0), DfuStatus::OK);
+
+	std::vector<uint8> block = Pattern(16, 0x10);
+	SIM_EXPECT_EQ(target.Write(0, block), DfuStatus::errPROG);
+	SIM_EXPECT(std::memcmp(flash.memory.data(), block.data(), 8) == 0);
+	SIM_EXPECT_EQ(flash.memory[8], 0xFF);
+	SIM_EXPECT(flash.locked);
+}
+
+
+// The padded last unit of Manifest(): its program, its verify and its page erase each report their own code, and the flash is locked
+// after each of them.
+void CheckManifestFailures() {
+	// The program of the padded unit fails.
+	FakeFlash programFlash;
+	Target programTarget = MakeTarget(programFlash);
+	SIM_EXPECT_EQ(programTarget.Begin(0), DfuStatus::OK);
+	SIM_EXPECT_EQ(programTarget.Write(0, Pattern(4, 0x10)), DfuStatus::OK);
+	programFlash.programFails = true;
+	SIM_EXPECT_EQ(programTarget.Manifest(), DfuStatus::errPROG);
+	SIM_EXPECT_EQ(programFlash.memory[0], 0xFF);
+	SIM_EXPECT(programFlash.locked);
+
+	// The padded unit is programmed but does not read back: errVERIFY.
+	FakeFlash verifyFlash;
+	verifyFlash.corruptWrites = true;
+	Target verifyTarget = MakeTarget(verifyFlash);
+	SIM_EXPECT_EQ(verifyTarget.Begin(0), DfuStatus::OK);
+	SIM_EXPECT_EQ(verifyTarget.Write(0, Pattern(4, 0x10)), DfuStatus::OK);
+	SIM_EXPECT_EQ(verifyTarget.Manifest(), DfuStatus::errVERIFY);
+	SIM_EXPECT(verifyFlash.locked);
+
+	// The padded unit sits in a page the device has not erased yet, and that erase fails. The 256 bytes before it erased page 0 and
+	// the 4 staged bytes are at 256, so Manifest() erases page 256 first.
+	FakeFlash eraseFlash;
+	Target eraseTarget = MakeTarget(eraseFlash);
+	SIM_EXPECT_EQ(eraseTarget.Begin(0), DfuStatus::OK);
+	SIM_EXPECT_EQ(eraseTarget.Write(0, Pattern(256, 0)), DfuStatus::OK);
+	SIM_EXPECT_EQ(eraseTarget.Write(256, Pattern(4, 0)), DfuStatus::OK);
+	eraseFlash.eraseFails = true;
+	SIM_EXPECT_EQ(eraseTarget.Manifest(), DfuStatus::errERASE);
+	SIM_EXPECT(eraseFlash.locked);
+}
+
+
 void CheckTargetPlugsIntoFunction() {
 	// The target is the function's IDfuTarget: the function reads its layout and starts in dfuIDLE.
 	FakeFlash flash;
@@ -318,6 +446,11 @@ int main() {
 	CheckReadStopsAtRegionEnd();
 	CheckPollTimeoutIsTheConfiguredOne();
 	CheckManifestWithNothingStaged();
+	CheckRegionMustBeWholePages();
+	CheckErasePastRegionIsRefused();
+	CheckReadErrorsAreReported();
+	CheckProgramFailureAfterFirstUnit();
+	CheckManifestFailures();
 	CheckTargetPlugsIntoFunction();
 	return SimTest::Finish("TestDfuTarget");
 }

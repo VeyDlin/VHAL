@@ -366,6 +366,59 @@ void ResetWhileWriteIsArmed() {
 }
 
 
+// A reset that the host sends while the medium access of a write runs. The host's next CBW, an INQUIRY, arrives inside the access. The
+// device must hold it until the access is over: the buffer the access writes is then still the host's data, so the medium gets it, and
+// no CSW of the abandoned write is left on the IN pipe. The held CBW is armed once the access returns, and the next command runs.
+void ResetDuringWriteHoldsTheNextCbw() {
+	MscTest::MscDevice<Block, MscTest::HookedDisk<Block, 128>> fixture;
+	SIM_EXPECT_EQ(fixture.Attach(), ResultStatus::ok);
+	BotHost host(fixture.sim, fixture.device);
+
+	const std::array<uint8, Block> chunk = MakePattern<Block>(21);
+	const std::array<uint8, 6> inquiryCdb{ 0x12, 0x00, 0x00, 0x00, 36, 0x00 };
+	const std::array<uint8, 6> testUnitReady{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+	bool cbwAccepted = true;
+
+	fixture.disk.onWrite = [&]() {
+		SIM_EXPECT_EQ(host.Reset(), ResultStatus::ok);
+		std::array<uint8, MscCbwLength> inquiry = BotHost::MakeCbw(91, 36, true, inquiryCdb);
+		cbwAccepted = fixture.sim.HostOut(OutAddress, inquiry).IsOk();
+	};
+
+	const std::array<uint8, 10> write = Cdb10(0x2A, 0, 1);
+	std::array<uint8, MscCbwLength> cbw = BotHost::MakeCbw(90, Block, false, write);
+	SIM_EXPECT(fixture.sim.HostOut(OutAddress, cbw).IsOk());
+	SIM_EXPECT(fixture.sim.HostOut(OutAddress, chunk).IsOk());
+	fixture.device.Process();
+
+	SIM_EXPECT(!cbwAccepted);
+	SIM_EXPECT(Same(fixture.disk.Storage().first(Block), chunk));
+	SIM_EXPECT(!fixture.sim.HasArmedTransfer(InAddress));
+
+	Outcome outcome = host.Command(92, testUnitReady, 0, false, {}, {});
+	SIM_EXPECT_EQ(outcome.csw.status, MscStatusPassed);
+	SIM_EXPECT_EQ(outcome.csw.tag, 92);
+}
+
+
+// A write whose host sends a short packet in its first chunk and then stops. The packet ends the transfer before the chunk is full, so
+// the device answers a phase error and stalls the OUT pipe. It writes nothing, and the residue is the whole length, since no byte was taken.
+void ShortOutPacketEndsTheWrite() {
+	Session<Block, Disk> session;
+	const std::array<uint8, 10> write = Cdb10(0x2A, 0, 1);
+	const std::array<uint8, 32> packet = MakePattern<32>(23);
+
+	Outcome outcome = session.host.WriteWithShortPacket(0x600, write, Block, packet);
+	SIM_EXPECT_EQ(outcome.cbw, ResultStatus::ok);
+	SIM_EXPECT_EQ(outcome.cswStatus, ResultStatus::ok);
+	SIM_EXPECT_EQ(outcome.csw.status, MscStatusPhaseError);
+	SIM_EXPECT_EQ(outcome.csw.residue, Block);
+	SIM_EXPECT(outcome.outStalled);
+	SIM_EXPECT_EQ(session.fixture.sim.GetStallCount(OutAddress), 1);
+	SIM_EXPECT(AllZeroBlocks(session.fixture.disk.Storage(), 1));
+}
+
+
 }
 
 
@@ -381,5 +434,7 @@ int main() {
 	WriteErrorEndsTheTransfer();
 	VerifyErrorFailsTheCommand();
 	ResetWhileWriteIsArmed();
+	ResetDuringWriteHoldsTheNextCbw();
+	ShortOutPacketEndsTheWrite();
 	return SimTest::Finish("TestMscMedia");
 }

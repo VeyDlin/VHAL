@@ -336,8 +336,11 @@ public:
 		}
 
 		Fat12Require<Fat12Text{"the FAT does not hold the clusters of the volume"}>(((clusters + 2) * 3 + 1) / 2 <= fatSectors * Fat12SectorBytes);
+		// Guards for a larger Fat12MaxSectors. At the cap of 512 sectors there are fewer than 512 clusters, so these two do not fire
+		// until the cap is raised.
 		Fat12Require<Fat12Text{"a FAT12 volume has at most 4084 clusters"}>(clusters <= Fat12MaxClusters);
 		Fat12Require<Fat12Text{"the volume has no clusters for files"}>(clusters >= 1);
+		// The boot sector's 16-bit sector count. It is a guard for the same reason as the check above.
 		Fat12Require<Fat12Text{"a FAT12 image holds at most 65535 sectors"}>(sectorCount <= 0xFFFF);
 
 		std::size_t fatStart = 1;

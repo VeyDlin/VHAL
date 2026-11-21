@@ -70,7 +70,7 @@ public:
 	// The host reset that answers DFU_DETACH. Inside the timer the request stays pending, so Process() still calls the delegate when it
 	// runs late. After the timer the request is dropped, as the device has already gone back to appIDLE.
 	void OnBusReset() override {
-		if (state == DfuState::appDETACH && !WillDetach() && System::GetTick() >= detachDeadline) {
+		if (state == DfuState::appDETACH && !WillDetach() && System::GetMs() >= detachDeadline) {
 			detachRequested = false;
 		}
 
@@ -87,16 +87,15 @@ public:
 			return HandleDetach(setup);
 		}
 
+		// A failed answer is returned as the request's result, so the core stalls the request instead of completing it without data.
 		if (setup.request == static_cast<uint8>(DfuRequest::GetStatus) && setup.direction == USBDirection::In) {
 			statusResponse = MakeUSBDfuStatusResponse(DfuStatus::OK, 0, state);
-			context.ControlSendData(statusResponse);
-			return ResultStatus::ok;
+			return context.ControlSendData(statusResponse);
 		}
 
 		if (setup.request == static_cast<uint8>(DfuRequest::GetState) && setup.direction == USBDirection::In) {
 			stateResponse[0] = static_cast<uint8>(state);
-			context.ControlSendData(stateResponse);
-			return ResultStatus::ok;
+			return context.ControlSendData(stateResponse);
 		}
 
 		return ResultStatus::notSupported;
@@ -112,7 +111,7 @@ public:
 		System::CriticalSection(true);
 		requested = detachRequested;
 		detachRequested = false;
-		if (state == DfuState::appDETACH && !willDetach && System::GetTick() >= detachDeadline) {
+		if (state == DfuState::appDETACH && !willDetach && System::GetMs() >= detachDeadline) {
 			state = DfuState::appIDLE;
 			expired = true;
 		}
@@ -140,7 +139,7 @@ private:
 
 		uint16 wait = (setup.value == 0 || setup.value > functional.detachTimeoutMs) ? functional.detachTimeoutMs : setup.value;
 		state = DfuState::appDETACH;
-		detachDeadline = System::GetTick() + wait;
+		detachDeadline = System::GetMs() + wait;
 		detachRequested = true;
 		return ResultStatus::ok;
 	}

@@ -134,8 +134,10 @@ public:
 private:
 	static constexpr std::size_t BootReportLength = 8;
 	static constexpr uint8 LedMask = 0x1F;
-	// The last key code of the Keyboard page the report's key array takes (logical maximum 101 in the descriptor).
-	static constexpr uint8 LastKeyCode = 0x65;
+	// The keyboard page's key usages: 0x04 (a) up to 0xDD. 0x01 to 0x03 are the error codes of the report and 0xDE and 0xDF are
+	// reserved, so the range is not the whole byte; the modifiers are the usages above it, and they go through the modifier byte.
+	static constexpr uint8 FirstKeyCode = 0x04;
+	static constexpr uint8 LastKeyCode = 0xDD;
 
 
 	// The state a change starts from, so a change that the queue refuses can be undone.
@@ -300,9 +302,9 @@ private:
 	}
 
 
-	// A key of the report's key array: not 0, not the rollover code, and within the array's range. Modifiers are above the range.
+	// A key of the report's key array: a usage of the keyboard page. The error codes below 0x04 and the modifiers above the page are refused.
 	static bool IsKeyCode(uint8 keyCode) {
-		return keyCode != 0 && keyCode != ErrorRollOver && keyCode <= LastKeyCode;
+		return keyCode >= FirstKeyCode && keyCode <= LastKeyCode;
 	}
 
 

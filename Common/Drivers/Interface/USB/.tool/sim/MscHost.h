@@ -12,7 +12,9 @@
 #include "SimUSBDeviceAdapter.h"
 #include <array>
 #include <cstddef>
+#include <functional>
 #include <span>
+#include <utility>
 
 
 // The mass storage host model of the tests: a Bulk-Only host that sends CBWs, moves the data stages and reads CSWs the way the
@@ -160,6 +162,32 @@ public:
 			outcome.cswStatus = ReadCsw(tag, outcome.csw);
 		}
 
+		return outcome;
+	}
+
+
+	// Runs a write whose host sends one short packet of the first chunk and then stops. The packet ends the transfer before the chunk is
+	// full, so the device answers a phase error and stalls the OUT pipe. The host clears that halt and reads the CSW. dataOut is the bytes
+	// the device stored in the transfer.
+	Outcome WriteWithShortPacket(uint32 tag, std::span<const uint8> block, uint32 length, std::span<const uint8> packet) {
+		Outcome outcome;
+		std::array<uint8, MscCbwLength> cbw = MakeCbw(tag, length, false, block);
+		outcome.cbw = SendRaw(cbw);
+		if (outcome.cbw != ResultStatus::ok) {
+			return outcome;
+		}
+
+		Result<uint32> stored = HostOutWithNak(packet);
+		if (stored.IsOk()) {
+			outcome.dataOut = stored.Value();
+		}
+
+		if (adapter.IsStalled(OutAddress)) {
+			outcome.outStalled = true;
+			ClearHalt(OutAddress);
+		}
+
+		outcome.cswStatus = ReadCsw(tag, outcome.csw);
 		return outcome;
 	}
 
@@ -380,7 +408,64 @@ struct MscDevice {
 			return status;
 		}
 
-		return SimHost::Control(sim, SimHost::MakeSetup(0x00, 9, 1, 0x0000, 0));
+		status = SimHost::Control(sim, SimHost::MakeSetup(0x00, 9, 1, 0x0000, 0));
+		if (status != ResultStatus::ok) {
+			return status;
+		}
+
+		// The application's loop runs Process() after the configuration. It reads the presence, and only then is the first CBW armed.
+		device.Process();
+		return ResultStatus::ok;
+	}
+};
+
+
+// A RAM disk that runs a hook from inside its calls. A test uses it to act while the function is in the middle of a medium access or of
+// the presence sample: a reset or an eject that the host sends from there. Each hook runs once and is then cleared. onRead and onWrite run
+// before the copy, so what a hook leaves in the function's buffer is what the medium receives. onPresent runs after the answer is decided,
+// as an eject that lands between the answer and the function's cache does.
+template<uint32 BlockSize, uint32 BlockCount>
+class HookedDisk : public RamBlockDevice<BlockSize, BlockCount> {
+	using Base = RamBlockDevice<BlockSize, BlockCount>;
+
+
+public:
+	using Base::Base;
+
+
+	std::function<void()> onRead;
+	std::function<void()> onWrite;
+	std::function<void()> onPresent;
+
+
+	ResultStatus Read(uint32 firstBlock, std::span<uint8> data) override {
+		Run(onRead);
+		return Base::Read(firstBlock, data);
+	}
+
+
+	ResultStatus Write(uint32 firstBlock, std::span<const uint8> data) override {
+		Run(onWrite);
+		return Base::Write(firstBlock, data);
+	}
+
+
+	ResultStatus IsPresent() override {
+		ResultStatus status = Base::IsPresent();
+		Run(onPresent);
+		return status;
+	}
+
+
+private:
+	static void Run(std::function<void()>& hook) {
+		if (!hook) {
+			return;
+		}
+
+		std::function<void()> once = std::move(hook);
+		hook = nullptr;
+		once();
 	}
 };
 

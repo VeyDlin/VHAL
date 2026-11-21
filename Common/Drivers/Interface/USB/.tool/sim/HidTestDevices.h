@@ -9,6 +9,7 @@
 #include <Drivers/Interface/USB/Device/USBDevice.h>
 #include "SimAssert.h"
 #include "SimHost.h"
+#include "SimTestHelpers.h"
 #include "SimUSBDeviceAdapter.h"
 #include <array>
 #include <cstddef>
@@ -154,9 +155,7 @@ struct HidDevice {
 
 	// Resets the bus and configures the device, as a host does after it attaches or resets the device.
 	void Enumerate() {
-		sim.InjectBusReset();
-		SimHost::Control(sim, SimHost::MakeSetup(0x00, 5, 5, 0x0000, 0));
-		SimHost::Control(sim, SimHost::MakeSetup(0x00, 9, 1, 0x0000, 0));
+		SimTest::EnumerateDevice(sim, device);
 	}
 
 
@@ -167,23 +166,6 @@ struct HidDevice {
 		SIM_EXPECT(device.GetState() == USBDeviceState::Configured);
 	}
 };
-
-
-// Expects two byte sequences to be equal. A mismatch names the first differing offset.
-inline void ExpectBytes(std::span<const uint8> actual, std::span<const uint8> expected, const char* expression, const char* file, int line) {
-	bool same = SimHost::SameBytes(actual, expected);
-	if (!same) {
-		std::size_t offset = 0;
-		while (offset < actual.size() && offset < expected.size() && actual[offset] == expected[offset]) {
-			offset++;
-		}
-
-		std::fprintf(stderr, "%s:%d: %s differs: %zu bytes against %zu, first difference at %zu\n",
-			file, line, expression, actual.size(), expected.size(), offset);
-	}
-
-	SimTest::Expect(same, expression, file, line);
-}
 
 
 // Reads every report the host can take from an interrupt IN endpoint. Each completion arms the next report, so one call takes all.
@@ -221,5 +203,4 @@ inline void ExpectReports(const std::vector<std::vector<uint8>>& actual, const s
 }
 
 
-#define HID_EXPECT_BYTES(actual, expected) HidTest::ExpectBytes((actual), (expected), #actual, __FILE__, __LINE__)
 #define HID_EXPECT_REPORTS(actual, expected) HidTest::ExpectReports((actual), (expected), #actual, __LINE__)

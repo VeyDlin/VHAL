@@ -55,6 +55,12 @@ public:
 	using FeatureSetDelegate = VSTD::Delegate<bool(std::span<const uint8> report)>;
 
 
+	// Called when the function is deconfigured (SET_CONFIGURATION 0 or Stop) or the bus resets, after the report queue is cleared. The
+	// application's state that describes what the host has seen (a mouse's pending movement) is dropped here, so it does not reach the
+	// host after the next enumeration. Called in the context of the event: the interrupt, or the critical section of Stop().
+	using ResetDelegate = VSTD::Delegate<void()>;
+
+
 private:
 	static constexpr uint8 InterfaceDescriptorType = 0x04;
 	static constexpr uint8 EndpointDescriptorType = 0x05;
@@ -124,6 +130,7 @@ private:
 	OutputDelegate outputDelegate;
 	FeatureGetDelegate featureGetDelegate;
 	FeatureSetDelegate featureSetDelegate;
+	ResetDelegate resetDelegate;
 
 
 public:
@@ -194,6 +201,20 @@ public:
 		}
 
 		featureSetDelegate = value;
+		System::CriticalSection(false);
+		return ResultStatus::ok;
+	}
+
+
+	// The reset delegate (see ResetDelegate). Set before the device starts: busy once the function is configured.
+	ResultStatus SetResetDelegate(ResetDelegate value) {
+		System::CriticalSection(true);
+		if (configured) {
+			System::CriticalSection(false);
+			return ResultStatus::busy;
+		}
+
+		resetDelegate = value;
 		System::CriticalSection(false);
 		return ResultStatus::ok;
 	}
@@ -330,6 +351,7 @@ public:
 		inFlight = false;
 		outArmed = false;
 		ResetIdle();
+		NotifyReset();
 	}
 
 
@@ -344,6 +366,7 @@ public:
 		suspended = false;
 		wakeRequested = false;
 		ResetIdle();
+		NotifyReset();
 	}
 
 
@@ -672,6 +695,13 @@ private:
 		for (std::size_t index = 0; index < slotCount; index++) {
 			slots[index].idle = 0;
 			slots[index].nextIdleTick = 0;
+		}
+	}
+
+
+	void NotifyReset() {
+		if (resetDelegate) {
+			resetDelegate();
 		}
 	}
 

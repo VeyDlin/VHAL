@@ -10,13 +10,15 @@
 
 
 // The HID class descriptors: the report descriptors of the presets, the HID descriptor, and the configurations of the HID devices. The
-// expected bytes are written out by hand from HID 1.11 (Appendix B and section 6.2.2) and the USB 2.0 configuration layout. The items use
-// the shortest encoding: a value of 0 has no data byte, so Logical Minimum 0 is 0x14 and not 0x15 0x00, and a Collection of kind Physical
-// is 0xA0. The appendix writes the zero values with one byte; both encodings are valid, and the builder keeps the shorter one.
+// expected bytes are written out by hand from HID 1.11 (Appendix B and section 6.2.2) and the USB 2.0 configuration layout. Every item
+// with a value carries at least one data byte, so Logical Minimum 0 is 0x15 0x00 and not 0x14, and a Collection of kind Physical is
+// 0xA1 0x00. HID 1.11 allows the zero-size form (bSize 0), but Windows rejects it: the first hardware run failed both HID interfaces on
+// those items. Only End Collection takes no data. CheckNoZeroSizeItems() checks that rule on every preset.
 namespace {
 
 
-// HID 1.11 Appendix B.1, boot keyboard, 59 bytes.
+// HID 1.11 Appendix B.1 with the key array of usages 0 to 255, boot keyboard, 64 bytes. Logical Maximum 255 is 0x26 0xFF 0x00 (the
+// two-byte item: 0x25 0xFF would be -1), and Usage Maximum 255 is 0x29 0xFF. Logical Minimum 0 and Usage Minimum 0 take a data byte.
 constexpr uint8 KeyboardReportBytes[] = {
 	0x05, 0x01,				// Usage Page (Generic Desktop)
 	0x09, 0x06,				// Usage (Keyboard)
@@ -24,7 +26,7 @@ constexpr uint8 KeyboardReportBytes[] = {
 	0x05, 0x07,				// Usage Page (Key Codes)
 	0x19, 0xE0,				// Usage Minimum (224)
 	0x29, 0xE7,				// Usage Maximum (231)
-	0x14,					// Logical Minimum (0)
+	0x15, 0x00,				// Logical Minimum (0)
 	0x25, 0x01,				// Logical Maximum (1)
 	0x75, 0x01,				// Report Size (1)
 	0x95, 0x08,				// Report Count (8)
@@ -43,27 +45,27 @@ constexpr uint8 KeyboardReportBytes[] = {
 	0x91, 0x01,				// Output (Constant): padding
 	0x95, 0x06,				// Report Count (6)
 	0x75, 0x08,				// Report Size (8)
-	0x14,					// Logical Minimum (0)
-	0x25, 0x65,				// Logical Maximum (101)
+	0x15, 0x00,				// Logical Minimum (0)
+	0x26, 0xFF, 0x00,		// Logical Maximum (255)
 	0x05, 0x07,				// Usage Page (Key Codes)
-	0x18,					// Usage Minimum (0)
-	0x29, 0x65,				// Usage Maximum (101)
-	0x80,					// Input (Data, Array): six key slots
+	0x19, 0x00,				// Usage Minimum (0)
+	0x29, 0xFF,				// Usage Maximum (255)
+	0x81, 0x00,				// Input (Data, Array): six key slots
 	0xC0					// End Collection
 };
 
 
-// HID 1.11 Appendix B.2 with the wheel appended: buttons, X, Y and wheel, 54 bytes. The first three bytes of a report are the boot report.
+// HID 1.11 Appendix B.2 with the wheel appended: buttons, X, Y and wheel, 56 bytes. The first three bytes of a report are the boot report.
 constexpr uint8 MouseReportBytes[] = {
 	0x05, 0x01,				// Usage Page (Generic Desktop)
 	0x09, 0x02,				// Usage (Mouse)
 	0xA1, 0x01,				// Collection (Application)
 	0x09, 0x01,				// Usage (Pointer)
-	0xA0,					// Collection (Physical)
+	0xA1, 0x00,				// Collection (Physical)
 	0x05, 0x09,				// Usage Page (Buttons)
 	0x19, 0x01,				// Usage Minimum (1)
 	0x29, 0x03,				// Usage Maximum (3)
-	0x14,					// Logical Minimum (0)
+	0x15, 0x00,				// Logical Minimum (0)
 	0x25, 0x01,				// Logical Maximum (1)
 	0x95, 0x03,				// Report Count (3)
 	0x75, 0x01,				// Report Size (1)
@@ -87,29 +89,29 @@ constexpr uint8 MouseReportBytes[] = {
 };
 
 
-// Consumer control: one 16-bit usage per report, 20 bytes.
+// Consumer control: one 16-bit usage per report, 23 bytes.
 constexpr uint8 ConsumerReportBytes[] = {
 	0x05, 0x0C,				// Usage Page (Consumer)
 	0x09, 0x01,				// Usage (Consumer Control)
 	0xA1, 0x01,				// Collection (Application)
-	0x14,					// Logical Minimum (0)
+	0x15, 0x00,				// Logical Minimum (0)
 	0x26, 0xFF, 0x03,		// Logical Maximum (1023)
-	0x18,					// Usage Minimum (0)
+	0x19, 0x00,				// Usage Minimum (0)
 	0x2A, 0xFF, 0x03,		// Usage Maximum (1023)
 	0x75, 0x10,				// Report Size (16)
 	0x95, 0x01,				// Report Count (1)
-	0x80,					// Input (Data, Array)
+	0x81, 0x00,				// Input (Data, Array)
 	0xC0					// End Collection
 };
 
 
-// Vendor raw report of 8 bytes in and 8 bytes out, on usage page 0xFF00, 26 bytes.
+// Vendor raw report of 8 bytes in and 8 bytes out, on usage page 0xFF00, 27 bytes.
 constexpr uint8 VendorReportBytes[] = {
 	0x06, 0x00, 0xFF,		// Usage Page (0xFF00)
 	0x09, 0x01,				// Usage (0x01)
 	0xA1, 0x01,				// Collection (Application)
 	0x09, 0x01,				// Usage (0x01): input
-	0x14,					// Logical Minimum (0)
+	0x15, 0x00,				// Logical Minimum (0)
 	0x26, 0xFF, 0x00,		// Logical Maximum (255)
 	0x75, 0x08,				// Report Size (8)
 	0x95, 0x08,				// Report Count (8)
@@ -149,25 +151,25 @@ constexpr uint8 IdentifiedReportBytes[] = {
 constexpr uint8 KeyboardConfigurationBytes[] = {
 	0x09, 0x02, 0x22, 0x00, 0x01, 0x01, 0x00, 0xA0, 0x32,		// configuration, bus powered, remote wakeup, 100 mA, total 34 bytes
 	0x09, 0x04, 0x00, 0x00, 0x01, 0x03, 0x01, 0x01, 0x00,		// interface 0, 1 endpoint, class 3, subclass 1, protocol 1
-	0x09, 0x21, 0x11, 0x01, 0x00, 0x01, 0x22, 0x3B, 0x00,		// HID descriptor, report descriptor 59 bytes
+	0x09, 0x21, 0x11, 0x01, 0x00, 0x01, 0x22, 0x40, 0x00,		// HID descriptor, report descriptor 64 bytes
 	0x07, 0x05, 0x81, 0x03, 0x08, 0x00, 0x01					// interrupt IN 0x81, 8 bytes, interval 1 ms
 };
 
 
-// Configuration of the boot mouse: subclass 1, protocol 2, report 54 bytes, interrupt IN 0x81 of 4 bytes (the largest report).
+// Configuration of the boot mouse: subclass 1, protocol 2, report 56 bytes, interrupt IN 0x81 of 4 bytes (the largest report).
 constexpr uint8 MouseConfigurationBytes[] = {
 	0x09, 0x02, 0x22, 0x00, 0x01, 0x01, 0x00, 0xE0, 0x32,		// configuration, self-powered and remote wakeup, 100 mA, total 34 bytes
 	0x09, 0x04, 0x00, 0x00, 0x01, 0x03, 0x01, 0x02, 0x00,		// interface 0, 1 endpoint, class 3, subclass 1, protocol 2
-	0x09, 0x21, 0x11, 0x01, 0x00, 0x01, 0x22, 0x36, 0x00,		// HID descriptor, report descriptor 54 bytes
+	0x09, 0x21, 0x11, 0x01, 0x00, 0x01, 0x22, 0x38, 0x00,		// HID descriptor, report descriptor 56 bytes
 	0x07, 0x05, 0x81, 0x03, 0x04, 0x00, 0x01					// interrupt IN 0x81, 4 bytes, interval 1 ms
 };
 
 
-// Configuration of the vendor raw device: no boot subclass, two endpoints 0x81 and 0x02 of 8 bytes, the HID descriptor of 26 bytes.
+// Configuration of the vendor raw device: no boot subclass, two endpoints 0x81 and 0x02 of 8 bytes, the HID descriptor of 27 bytes.
 constexpr uint8 VendorConfigurationBytes[] = {
 	0x09, 0x02, 0x29, 0x00, 0x01, 0x01, 0x00, 0x80, 0x32,		// configuration, 1 interface, 100 mA, total 41 bytes
 	0x09, 0x04, 0x00, 0x00, 0x02, 0x03, 0x00, 0x00, 0x00,		// interface 0, 2 endpoints, class 3, no subclass
-	0x09, 0x21, 0x11, 0x01, 0x00, 0x01, 0x22, 0x1A, 0x00,		// HID descriptor, report descriptor 26 bytes
+	0x09, 0x21, 0x11, 0x01, 0x00, 0x01, 0x22, 0x1B, 0x00,		// HID descriptor, report descriptor 27 bytes
 	0x07, 0x05, 0x81, 0x03, 0x08, 0x00, 0x01,					// interrupt IN 0x81, 8 bytes, interval 1 ms
 	0x07, 0x05, 0x02, 0x03, 0x08, 0x00, 0x01					// interrupt OUT 0x02, 8 bytes, interval 1 ms
 };
@@ -187,7 +189,7 @@ constexpr uint8 IdentifiedConfigurationBytes[] = {
 constexpr uint8 KeyboardOutConfigurationBytes[] = {
 	0x09, 0x02, 0x29, 0x00, 0x01, 0x01, 0x00, 0xA0, 0x32,		// configuration, bus powered, remote wakeup, 100 mA, total 41 bytes
 	0x09, 0x04, 0x00, 0x00, 0x02, 0x03, 0x01, 0x01, 0x00,		// interface 0, 2 endpoints, class 3, subclass 1, protocol 1
-	0x09, 0x21, 0x11, 0x01, 0x00, 0x01, 0x22, 0x3B, 0x00,		// HID descriptor, report descriptor 59 bytes
+	0x09, 0x21, 0x11, 0x01, 0x00, 0x01, 0x22, 0x40, 0x00,		// HID descriptor, report descriptor 64 bytes
 	0x07, 0x05, 0x81, 0x03, 0x08, 0x00, 0x01,					// interrupt IN 0x81, 8 bytes, interval 1 ms
 	0x07, 0x05, 0x02, 0x03, 0x01, 0x00, 0x01					// interrupt OUT 0x02, 1 byte (the LED report), interval 1 ms
 };
@@ -199,9 +201,9 @@ constexpr uint8 CustomMouseEndpointBytes[] = {
 };
 
 
-// The HID descriptor of a 59-byte report descriptor: bcdHID 0x0111, country 0, one report descriptor of 0x3B bytes.
+// The HID descriptor of a 64-byte report descriptor: bcdHID 0x0111, country 0, one report descriptor of 0x40 bytes.
 constexpr uint8 HidDescriptorBytes[] = {
-	0x09, 0x21, 0x11, 0x01, 0x00, 0x01, 0x22, 0x3B, 0x00
+	0x09, 0x21, 0x11, 0x01, 0x00, 0x01, 0x22, 0x40, 0x00
 };
 
 
@@ -221,22 +223,90 @@ using CustomMouseUsb = USBDescriptors<+[] {
 
 
 // Packet sizes of the presets: the keyboard has an 8-byte input report, the mouse 4 bytes, the vendor device 8 bytes in and out.
-static_assert(sizeof(KeyboardReportBytes) == 59, "boot keyboard report descriptor is 59 bytes");
-static_assert(sizeof(MouseReportBytes) == 54, "boot mouse report descriptor is 54 bytes");
-static_assert(sizeof(ConsumerReportBytes) == 20, "consumer control report descriptor is 20 bytes");
-static_assert(sizeof(VendorReportBytes) == 26, "vendor report descriptor is 26 bytes");
+static_assert(sizeof(KeyboardReportBytes) == 64, "boot keyboard report descriptor is 64 bytes");
+static_assert(sizeof(MouseReportBytes) == 56, "boot mouse report descriptor is 56 bytes");
+static_assert(sizeof(ConsumerReportBytes) == 23, "consumer control report descriptor is 23 bytes");
+static_assert(sizeof(VendorReportBytes) == 27, "vendor report descriptor is 27 bytes");
 static_assert(sizeof(IdentifiedReportBytes) == 38, "identified report descriptor is 38 bytes");
 static_assert(sizeof(KeyboardConfigurationBytes) == 34, "keyboard configuration is 34 bytes");
 static_assert(sizeof(VendorConfigurationBytes) == 41, "vendor configuration is 41 bytes");
 static_assert(sizeof(HidDescriptorBytes) == 9, "HID descriptor is 9 bytes");
 
 
+// Walks the items of a report descriptor (HID 1.11 section 6.2.2.2) and counts the items with bSize 0 that are neither End Collection
+// nor Push or Pop. Windows rejects a zero-size item, so the count of a builder's descriptor must be 0. walkEnds is false when the
+// items do not add up to the descriptor's length, which means the walk itself went wrong. Long items are not used by the builder.
+std::size_t CountZeroSizeItems(std::span<const uint8> descriptor, bool& walkEnds) {
+	std::size_t count = 0;
+	std::size_t offset = 0;
+	while (offset < descriptor.size()) {
+		uint8 prefix = descriptor[offset];
+		uint8 sizeCode = static_cast<uint8>(prefix & 0x03);
+		uint8 type = static_cast<uint8>((prefix >> 2) & 0x03);
+		uint8 tag = static_cast<uint8>((prefix >> 4) & 0x0F);
+		std::size_t dataBytes = sizeCode == 3 ? 4 : static_cast<std::size_t>(sizeCode);
+		if (sizeCode == 0) {
+			// End Collection is main tag 0xC. Push and Pop are global tags 0xA and 0xB.
+			bool mayBeEmpty = (type == 0 && tag == 0x0C) || (type == 1 && (tag == 0x0A || tag == 0x0B));
+			if (!mayBeEmpty) {
+				count++;
+			}
+		}
+
+		offset += 1 + dataBytes;
+	}
+
+	walkEnds = offset == descriptor.size();
+	return count;
+}
+
+
+// Every preset's descriptor has no zero-size item except End Collection. The walk is checked on the old form too, with a Logical
+// Minimum of 0 written as 0x14, so a counter that never finds anything cannot pass.
+void CheckNoZeroSizeItems() {
+	constexpr uint8 OldEncoding[] = {
+		0x05, 0x01,		// Usage Page (Generic Desktop)
+		0x09, 0x06,		// Usage (Keyboard)
+		0xA1, 0x01,		// Collection (Application)
+		0x14,			// Logical Minimum (0), zero-size: the form Windows rejects
+		0xA1, 0x00,		// Collection (Physical)
+		0x25, 0x01,		// Logical Maximum (1)
+		0xC0,			// End Collection (Physical): no data, allowed
+		0xC0			// End Collection (Application)
+	};
+
+	bool walkEnds = false;
+	SIM_EXPECT_EQ(CountZeroSizeItems(OldEncoding, walkEnds), 1);
+	SIM_EXPECT(walkEnds);
+
+	bool keyboardEnds = false;
+	SIM_EXPECT_EQ(CountZeroSizeItems(HidTest::KeyboardReport::Info.descriptor, keyboardEnds), 0);
+	SIM_EXPECT(keyboardEnds);
+
+	bool mouseEnds = false;
+	SIM_EXPECT_EQ(CountZeroSizeItems(HidTest::MouseReport::Info.descriptor, mouseEnds), 0);
+	SIM_EXPECT(mouseEnds);
+
+	bool consumerEnds = false;
+	SIM_EXPECT_EQ(CountZeroSizeItems(HidTest::ConsumerReport::Info.descriptor, consumerEnds), 0);
+	SIM_EXPECT(consumerEnds);
+
+	bool vendorEnds = false;
+	SIM_EXPECT_EQ(CountZeroSizeItems(HidTest::VendorReport::Info.descriptor, vendorEnds), 0);
+	SIM_EXPECT(vendorEnds);
+
+	bool identifiedEnds = false;
+	SIM_EXPECT_EQ(CountZeroSizeItems(HidTest::IdentifiedReport::Info.descriptor, identifiedEnds), 0);
+	SIM_EXPECT(identifiedEnds);
+}
+
+
 void CheckPresetBytes() {
-	HID_EXPECT_BYTES(HidTest::KeyboardReport::Info.descriptor, KeyboardReportBytes);
-	HID_EXPECT_BYTES(HidTest::MouseReport::Info.descriptor, MouseReportBytes);
-	HID_EXPECT_BYTES(HidTest::ConsumerReport::Info.descriptor, ConsumerReportBytes);
-	HID_EXPECT_BYTES(HidTest::VendorReport::Info.descriptor, VendorReportBytes);
-	HID_EXPECT_BYTES(HidTest::IdentifiedReport::Info.descriptor, IdentifiedReportBytes);
+	SIM_EXPECT_BYTES(HidTest::KeyboardReport::Info.descriptor, KeyboardReportBytes);
+	SIM_EXPECT_BYTES(HidTest::MouseReport::Info.descriptor, MouseReportBytes);
+	SIM_EXPECT_BYTES(HidTest::ConsumerReport::Info.descriptor, ConsumerReportBytes);
+	SIM_EXPECT_BYTES(HidTest::VendorReport::Info.descriptor, VendorReportBytes);
+	SIM_EXPECT_BYTES(HidTest::IdentifiedReport::Info.descriptor, IdentifiedReportBytes);
 }
 
 
@@ -265,17 +335,17 @@ void CheckReportLengths() {
 
 
 void CheckHidDescriptor() {
-	std::array<uint8, 9> hid = MakeUSBHidDescriptor(59);
-	HID_EXPECT_BYTES(hid, HidDescriptorBytes);
+	std::array<uint8, 9> hid = MakeUSBHidDescriptor(64);
+	SIM_EXPECT_BYTES(hid, HidDescriptorBytes);
 }
 
 
 void CheckConfigurations() {
-	HID_EXPECT_BYTES(HidTest::KeyboardUsb::Configuration, KeyboardConfigurationBytes);
-	HID_EXPECT_BYTES(HidTest::MouseUsb::Configuration, MouseConfigurationBytes);
-	HID_EXPECT_BYTES(HidTest::VendorUsb::Configuration, VendorConfigurationBytes);
-	HID_EXPECT_BYTES(HidTest::IdentifiedUsb::Configuration, IdentifiedConfigurationBytes);
-	HID_EXPECT_BYTES(HidTest::KeyboardOutUsb::Configuration, KeyboardOutConfigurationBytes);
+	SIM_EXPECT_BYTES(HidTest::KeyboardUsb::Configuration, KeyboardConfigurationBytes);
+	SIM_EXPECT_BYTES(HidTest::MouseUsb::Configuration, MouseConfigurationBytes);
+	SIM_EXPECT_BYTES(HidTest::VendorUsb::Configuration, VendorConfigurationBytes);
+	SIM_EXPECT_BYTES(HidTest::IdentifiedUsb::Configuration, IdentifiedConfigurationBytes);
+	SIM_EXPECT_BYTES(HidTest::KeyboardOutUsb::Configuration, KeyboardOutConfigurationBytes);
 }
 
 
@@ -296,7 +366,7 @@ void CheckLayouts() {
 	SIM_EXPECT_EQ(keyboard.interfaces[0], 0);
 	SIM_EXPECT_EQ(keyboard.endpoints.size(), 1);
 	SIM_EXPECT_EQ(keyboard.endpoints[0], 0x81);
-	HID_EXPECT_BYTES(keyboard.descriptors, std::span<const uint8>(KeyboardConfigurationBytes).subspan(9));
+	SIM_EXPECT_BYTES(keyboard.descriptors, std::span<const uint8>(KeyboardConfigurationBytes).subspan(9));
 
 	USBFunctionLayout vendor = HidTest::VendorUsb::Function(0);
 	SIM_EXPECT_EQ(vendor.endpoints.size(), 2);
@@ -307,7 +377,7 @@ void CheckLayouts() {
 
 // PacketSize() and IntervalMs() reach the endpoint descriptor.
 void CheckCustomPacketAndInterval() {
-	HID_EXPECT_BYTES(std::span<const uint8>(CustomMouseUsb::Configuration).last(7), CustomMouseEndpointBytes);
+	SIM_EXPECT_BYTES(std::span<const uint8>(CustomMouseUsb::Configuration).last(7), CustomMouseEndpointBytes);
 }
 
 
@@ -344,7 +414,7 @@ using NamedUsb = USBDescriptors<+[] {
 
 
 void CheckAutoAddressesAndName() {
-	HID_EXPECT_BYTES(AutoAddressUsb::Configuration, KeyboardOutConfigurationBytes);
+	SIM_EXPECT_BYTES(AutoAddressUsb::Configuration, KeyboardOutConfigurationBytes);
 	SIM_EXPECT_EQ(AutoAddressUsb::Function(0).endpoints[0], 0x81);
 	SIM_EXPECT_EQ(AutoAddressUsb::Function(0).endpoints[1], 0x02);
 
@@ -360,6 +430,7 @@ void CheckAutoAddressesAndName() {
 
 
 int main() {
+	CheckNoZeroSizeItems();
 	CheckPresetBytes();
 	CheckReportLengths();
 	CheckHidDescriptor();

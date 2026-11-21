@@ -39,6 +39,19 @@ inline constexpr uint8 ConfigurationDescriptor[] = {
 static_assert(sizeof(ConfigurationDescriptor) == 32, "configuration is 32 bytes");
 
 
+// The same configuration with remote wakeup advertised (bmAttributes bit 5). A device accepts SET_FEATURE(DEVICE_REMOTE_WAKEUP)
+// only when its configuration says it supports the feature (USB 2.0 9.4.9).
+inline constexpr uint8 RemoteWakeupConfiguration[] = {
+	0x09, 0x02, 0x20, 0x00, 0x01, 0x01, 0x00, 0xA0, 0x32,	// configuration: 32 bytes, 1 interface, value 1, bus powered, remote wakeup, 100 mA
+	0x09, 0x04, 0x00, 0x00, 0x02, 0xFF, 0x00, 0x00, 0x00,	// interface 0: vendor class, 2 endpoints
+	0x07, 0x05, 0x81, 0x02, 0x40, 0x00, 0x00,				// endpoint 0x81: bulk IN, 64 bytes
+	0x07, 0x05, 0x01, 0x02, 0x40, 0x00, 0x00				// endpoint 0x01: bulk OUT, 64 bytes
+};
+
+
+static_assert(sizeof(RemoteWakeupConfiguration) == 32, "configuration is 32 bytes");
+
+
 // Two interfaces, each with its own bulk pair (0x81/0x01 and 0x82/0x02). wTotalLength 55.
 inline constexpr uint8 CompositeConfiguration[] = {
 	0x09, 0x02, 0x37, 0x00, 0x02, 0x01, 0x00, 0x80, 0x32,	// configuration: 55 bytes, 2 interfaces, value 1
@@ -143,6 +156,16 @@ inline constexpr USBVendorDescriptor VendorRequests[] = {
 inline constexpr USBDescriptorSet SimpleSet = {
 	DeviceDescriptor,
 	ConfigurationDescriptor,
+	StringTable,
+	BosDescriptor,
+	VendorRequests
+};
+
+
+// The simple set with remote wakeup advertised in its configuration.
+inline constexpr USBDescriptorSet RemoteWakeupSet = {
+	DeviceDescriptor,
+	RemoteWakeupConfiguration,
 	StringTable,
 	BosDescriptor,
 	VendorRequests

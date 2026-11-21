@@ -249,6 +249,64 @@ void CheckModeWithoutDetachTimeoutBuilds() {
 }
 
 
+// Two regions: one interface with two alternate settings, then one functional descriptor (DFU 1.1 section 4.2). bNumInterfaces is 1,
+// because the alternates share interface 0. The functional descriptor is 0x07 (CanDnload, CanUpload, ManifestationTolerant), 100 ms
+// and 64 bytes. The region names are string 4 and string 5, after the three device strings.
+void CheckTwoRegionConfiguration() {
+	using Usb = DfuTest::TwoRegionUsb;
+	constexpr std::array<uint8, 36> expected = {
+		9, 2, 36, 0, 1, 1, 0, 0x80, 50,						// Configuration: wTotalLength 36, one interface, 100 mA
+		9, 4, 0, 0, 0, 0xFE, 1, 2, 4,						// Interface 0, alternate 0 ("Flash", string 4), class FE, subclass 1, protocol 2
+		9, 4, 0, 1, 0, 0xFE, 1, 2, 5,						// Interface 0, alternate 1 ("Config", string 5), no endpoints
+		9, 0x21, 0x07, 0x64, 0x00, 0x40, 0x00, 0x10, 0x01	// Functional: CanDnload|CanUpload|ManifestationTolerant, 100 ms, 64 bytes
+	};
+	DFU_EXPECT_BYTES(Usb::Configuration, std::span<const uint8>(expected));
+	SIM_EXPECT_EQ(Usb::Configuration[4], 1);
+	SIM_EXPECT_EQ(Usb::Function(0).interfaces.size(), 1);
+
+	// The second region's name: "Config" is six characters, bLength 14, and sits at string 5 (the "Flash" index is in the bytes above).
+	constexpr std::array<uint8, 14> configString = { 14, 3, 'C', 0, 'o', 0, 'n', 0, 'f', 0, 'i', 0, 'g', 0 };
+	DFU_EXPECT_BYTES(Usb::StringTable[5], std::span<const uint8>(configString));
+
+	USBDfuFunctional functional = ParseUSBDfuFunctional(Usb::Function(0).descriptors);
+	SIM_EXPECT(functional.found);
+	SIM_EXPECT_EQ(functional.attributes, 0x07);
+	SIM_EXPECT_EQ(functional.detachTimeoutMs, 100);
+	SIM_EXPECT_EQ(functional.transferSize, 64);
+
+	// The alternates the descriptor lists: 0 and 1, not 2.
+	USBDfuAlternates alternates = ParseUSBDfuAlternates(Usb::Function(0).descriptors, Usb::Function(0).interfaces);
+	SIM_EXPECT(alternates.Has(0));
+	SIM_EXPECT(alternates.Has(1));
+	SIM_EXPECT(!alternates.Has(2));
+}
+
+
+// Three regions: the same shape with a third alternate setting, "Data" as string 6. The configuration is 45 bytes.
+void CheckThreeRegionConfiguration() {
+	using Usb = DfuTest::ThreeRegionUsb;
+	constexpr std::array<uint8, 45> expected = {
+		9, 2, 45, 0, 1, 1, 0, 0x80, 50,						// Configuration: wTotalLength 45, one interface, 100 mA
+		9, 4, 0, 0, 0, 0xFE, 1, 2, 4,						// Interface 0, alternate 0 ("Flash", string 4)
+		9, 4, 0, 1, 0, 0xFE, 1, 2, 5,						// Interface 0, alternate 1 ("Config", string 5)
+		9, 4, 0, 2, 0, 0xFE, 1, 2, 6,						// Interface 0, alternate 2 ("Data", string 6)
+		9, 0x21, 0x07, 0x64, 0x00, 0x40, 0x00, 0x10, 0x01	// Functional, once, after the last alternate
+	};
+	DFU_EXPECT_BYTES(Usb::Configuration, std::span<const uint8>(expected));
+	SIM_EXPECT_EQ(Usb::Configuration[4], 1);
+
+	// "Data" is four characters: bLength 10, type 3, UTF-16LE.
+	constexpr std::array<uint8, 10> dataString = { 10, 3, 'D', 0, 'a', 0, 't', 0, 'a', 0 };
+	DFU_EXPECT_BYTES(Usb::StringTable[6], std::span<const uint8>(dataString));
+
+	USBDfuAlternates alternates = ParseUSBDfuAlternates(Usb::Function(0).descriptors, Usb::Function(0).interfaces);
+	SIM_EXPECT(alternates.Has(0));
+	SIM_EXPECT(alternates.Has(1));
+	SIM_EXPECT(alternates.Has(2));
+	SIM_EXPECT(!alternates.Has(3));
+}
+
+
 }
 
 
@@ -260,5 +318,7 @@ int main() {
 	CheckStatusResponse();
 	CheckWinUsbDescriptors();
 	CheckModeWithoutDetachTimeoutBuilds();
+	CheckTwoRegionConfiguration();
+	CheckThreeRegionConfiguration();
 	return SimTest::Finish("TestDfuDescriptors");
 }

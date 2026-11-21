@@ -12,6 +12,8 @@ failures=0
 for snippet in "$dir"/*.cpp; do
     name="$(basename "$snippet")"
     IFS= read -r firstLine < "$snippet"
+    # A checkout with core.autocrlf gives the snippets CRLF line ends; the CR is not part of the expected text.
+    firstLine="${firstLine%$'\r'}"
     if [[ "$firstLine" != "// expect: "* ]]; then
         echo "NO EXPECT HEADER: $name (the first line must be \"// expect: <text>\")"
         failures=$((failures + 1))

@@ -78,6 +78,35 @@ enum class USBDeviceState : uint8 {
 };
 
 
+// The name of a device state for a status line, as the USB 2.0 chapter 9 names it. A value outside the enum gives "Unknown", so a
+// state added later shows as Unknown until its name is written here.
+constexpr const char* USBDeviceStateName(USBDeviceState state) {
+	switch (state) {
+		case USBDeviceState::Detached: {
+			return "Detached";
+		}
+
+		case USBDeviceState::Default: {
+			return "Default";
+		}
+
+		case USBDeviceState::Address: {
+			return "Address";
+		}
+
+		case USBDeviceState::Configured: {
+			return "Configured";
+		}
+
+		case USBDeviceState::Suspended: {
+			return "Suspended";
+		}
+	}
+
+	return "Unknown";
+}
+
+
 // bDeviceClass and bInterfaceClass values used by the stack.
 enum class USBClassCode : uint8 {
 	// Device class only: the classes are given per interface.

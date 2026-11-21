@@ -1,5 +1,6 @@
 #pragma once
 #include <System/System.h>
+#include <cstddef>
 #include <span>
 
 
@@ -25,6 +26,11 @@ struct USBVendorDescriptor {
 };
 
 
+// Run-time strings one device can reserve, over all its functions (see USBDevice::SetRuntimeString()). The builder refuses a chain
+// that reserves more, and the device keeps one slot for each.
+constexpr std::size_t USBMaxRuntimeStrings = 4;
+
+
 struct USBDescriptorSet {
 	// Device descriptor, 18 bytes. bMaxPacketSize0 (byte 7) must be 64.
 	std::span<const uint8> device;
@@ -40,4 +46,7 @@ struct USBDescriptorSet {
 	std::span<const USBVendorDescriptor> vendorRequests;
 	// True when iSerialNumber names a string the application supplies at run time through USBDevice::SetSerialNumber(); the strings table then holds only a placeholder at that index.
 	bool serialNumberAtRuntime = false;
+	// The string indexes the set reserves for run-time strings, in the order the class builders asked for them. Each names a
+	// placeholder in the strings table; USBDevice::SetRuntimeString() supplies its descriptor before Start(). Empty when none is reserved.
+	std::span<const uint8> runtimeStringIndexes = {};
 };

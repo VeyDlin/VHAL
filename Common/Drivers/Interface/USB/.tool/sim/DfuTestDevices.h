@@ -159,6 +159,54 @@ using RuntimeWillDetachUsb = USBDescriptors<+[] {
 }>;
 
 
+// Mode device with two memory regions: alternate 0 is "Flash" and alternate 1 is "Config". Download and upload, manifestation
+// tolerant, a 100 ms detach timeout and a 64-byte transfer.
+using TwoRegionUsb = USBDescriptors<+[] {
+	return USBDeviceBuilder()
+		.VendorId(0x1209)
+		.ProductId(0x0002)
+		.DeviceRelease(0x0100)
+		.Manufacturer("Sim")
+		.Product("DFU regions")
+		.SerialNumber("1")
+		.Configuration(USBConfigurationBuilder()
+			.MaxPowerMilliamps(100)
+			.Function(USBDfuBuilder()
+				.Mode()
+				.CanDnload()
+				.CanUpload()
+				.ManifestationTolerant()
+				.DetachTimeoutMs(100)
+				.TransferSize(64)
+				.Region("Flash")
+				.Region("Config")));
+}>;
+
+
+// Mode device with three memory regions: "Flash", "Config" and "Data" as alternates 0, 1 and 2.
+using ThreeRegionUsb = USBDescriptors<+[] {
+	return USBDeviceBuilder()
+		.VendorId(0x1209)
+		.ProductId(0x0002)
+		.DeviceRelease(0x0100)
+		.Manufacturer("Sim")
+		.Product("DFU three regions")
+		.SerialNumber("1")
+		.Configuration(USBConfigurationBuilder()
+			.MaxPowerMilliamps(100)
+			.Function(USBDfuBuilder()
+				.Mode()
+				.CanDnload()
+				.CanUpload()
+				.ManifestationTolerant()
+				.DetachTimeoutMs(100)
+				.TransferSize(64)
+				.Region("Flash")
+				.Region("Config")
+				.Region("Data")));
+}>;
+
+
 // Scripted target. Each result applies to every call of its operation. Writes and the image are recorded so a test can check
 // what reached the target and in which order.
 class FakeDfuTarget : public IDfuTarget {

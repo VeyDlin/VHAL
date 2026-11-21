@@ -7,8 +7,12 @@
 
 
 // Report descriptor of a HID interface, built at compile time with the same technique as the device descriptors. The chain is
-// written in a captureless lambda and the items are encoded in the shortest form HID 1.11 section 6.2.2.2 allows: a value of 0
-// takes no data byte, other values take 1, 2 or 4 bytes, and the logical and physical ranges are signed.
+// written in a captureless lambda and the items are encoded in the shortest form HID 1.11 section 6.2.2.2 allows, with one
+// exception: every item with a value carries at least one data byte, so a value of 0 is one byte of 0. HID 1.11 allows the
+// zero-size form (bSize 0), but Windows' HID parser rejects it: on the first hardware run both HID interfaces failed to start
+// (keyboard 0xC000001D, mouse 0xC00000B9 STATUS_COULD_NOT_INTERPRET) on the items that had no data byte. Only End Collection has
+// no data. The logical and physical
+// ranges are signed.
 //
 //   using KeyboardReport = USBHidReportDescriptor<+[] { return USBHidReportBuilder::BootKeyboard(); }>;
 //
@@ -179,7 +183,10 @@ private:
 
 
 public:
-	// HID 1.11 Appendix B.1: 8 bytes in (modifiers, reserved, six keys), 1 byte out (five LEDs and padding). No report ID.
+	// HID 1.11 Appendix B.1 with the key array widened to every usage 0 to 255, as most keyboards and TinyUSB send it: 8 bytes in
+	// (modifiers, reserved, six keys), 1 byte out (five LEDs and padding). No report ID. A boot protocol host reads the fixed 8-byte
+	// report and ignores this descriptor, so the widening does not change what it receives. Logical Maximum 255 takes the two-byte
+	// form, because a one-byte 0xFF would be -1.
 	static constexpr USBHidReportBuilder BootKeyboard() {
 		USBHidReportBuilder builder;
 		builder.UsagePage(0x01).Usage(0x06).Collection(USBHidCollection::Application)
@@ -188,7 +195,7 @@ public:
 			.ReportCount(1).ReportSize(8).Input(USBHidFlags::Constant)
 			.ReportCount(5).ReportSize(1).UsagePage(0x08).UsageMinimum(1).UsageMaximum(5).Output(USBHidFlags::Data | USBHidFlags::Variable)
 			.ReportCount(1).ReportSize(3).Output(USBHidFlags::Constant)
-			.ReportCount(6).ReportSize(8).LogicalMinimum(0).LogicalMaximum(101).UsagePage(0x07).UsageMinimum(0).UsageMaximum(101)
+			.ReportCount(6).ReportSize(8).LogicalMinimum(0).LogicalMaximum(255).UsagePage(0x07).UsageMinimum(0).UsageMaximum(255)
 			.Input(USBHidFlags::Array)
 			.EndCollection();
 		return builder;
@@ -274,7 +281,8 @@ public:
 	constexpr USBHidReportBuilder& EndCollection() {
 		Require<USBText{"EndCollection without a Collection"}>(collectionDepth > 0);
 		collectionDepth--;
-		PutUnsigned(MainType, EndCollectionTag, 0);
+		// End Collection is the one item with no data byte: it has no value, so the zero-size form is the only one it has.
+		PutItem(MainType, EndCollectionTag, 0, 0);
 		return *this;
 	}
 
@@ -390,12 +398,11 @@ private:
 	}
 
 
-	// Writes an unsigned item in the shortest form: no data byte for 0, otherwise 1, 2 or 4 bytes.
+	// Writes an unsigned item in the shortest form of 1, 2 or 4 bytes. A value of 0 still takes one byte: Windows rejects a zero-size
+	// item (see the file header).
 	constexpr void PutUnsigned(uint8 type, uint8 tag, uint32 value) {
 		std::size_t bytes = 4;
-		if (value == 0) {
-			bytes = 0;
-		} else if (value <= 0xFF) {
+		if (value <= 0xFF) {
 			bytes = 1;
 		} else if (value <= 0xFFFF) {
 			bytes = 2;
@@ -405,12 +412,11 @@ private:
 	}
 
 
-	// Writes a signed item in the shortest form that holds the value in two's complement: no data byte for 0, otherwise 1, 2 or 4.
+	// Writes a signed item in the shortest form of 1, 2 or 4 bytes that holds the value in two's complement. A value of 0 takes one
+	// byte, as in PutUnsigned().
 	constexpr void PutSigned(uint8 type, uint8 tag, int32 value) {
 		std::size_t bytes = 4;
-		if (value == 0) {
-			bytes = 0;
-		} else if (value >= -128 && value <= 127) {
+		if (value >= -128 && value <= 127) {
 			bytes = 1;
 		} else if (value >= -32768 && value <= 32767) {
 			bytes = 2;

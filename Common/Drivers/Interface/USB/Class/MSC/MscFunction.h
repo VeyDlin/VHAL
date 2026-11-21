@@ -36,9 +36,11 @@ struct MscIdentity {
 // the function stalls the pipe that ends a transfer the host and the device disagree about, and sends the CSW after the host has
 // cleared the halt. The residue of the CSW is the host's length minus the bytes of the data stage that were moved.
 //
-// The presence and the write protection of the medium are read in Process(), because IBlockDevice calls may block. The interrupt
-// uses the values read last, and the constructor reads them once. An eject calls the eject delegate and reports the medium as not
-// present at once. The delegate is expected to make IBlockDevice::IsPresent() return notExist, so the next Process() agrees.
+// The presence and the write protection of the medium are read in Process() while the function is idle, because IBlockDevice calls may
+// block. The interrupt uses the values read last, and the constructor reads them once. A configuration arms no CBW until Process() has
+// read the presence after it, so a TEST UNIT READY is never decided from the presence of an earlier configuration. An eject calls the
+// eject delegate and reports the medium as not present at once. The delegate is expected to make IBlockDevice::IsPresent() return
+// notExist, so the next Process() agrees.
 //
 // Context: the function keeps no pointer to the device. Process() takes critical sections around the state it shares with the
 // interrupt, and never around the medium access.
@@ -153,9 +155,16 @@ private:
 	bool outHalted = false;
 	bool cswPending = false;
 	bool mediumPending = false;
+	// Set from the plan of a medium access to its commit. No CBW is armed meanwhile, so the next command cannot write the buffer
+	// the access is using.
+	bool mediumBusy = false;
 	bool presentCache = false;
 	bool readOnlyCache = false;
+	// False from a configuration until Process() has read the presence after it. No CBW is armed meanwhile.
+	bool presenceFresh = false;
 	bool preventRemoval = false;
+	// Counts the ejects, so a presence sample that was taken across an eject is dropped.
+	uint32 ejectCount = 0;
 	// Changes at each reset, so a Process() that began before the reset drops its medium work.
 	uint32 generation = 0;
 	MscSense sense;
@@ -211,18 +220,21 @@ public:
 	}
 
 
-	// Reads the medium's presence and write protection, then does the medium work the current command still needs. One block chunk per
-	// call: a read or write moves at most BufferSize bytes, and the next chunk waits for the next call.
+	// Reads the medium's presence and write protection while the function is idle, then does the medium work the current command still
+	// needs. One block chunk per call: a read or write moves at most BufferSize bytes, and the next chunk waits for the next call.
 	void Process(USBDeviceContext& context) override {
 		RefreshMedium();
 
+		// Arms the CBW that a configuration held back until the presence was read. It does nothing when a CBW is armed already.
 		System::CriticalSection(true);
+		ArmCbw(context);
 		if (!configured || !mediumPending) {
 			System::CriticalSection(false);
 			return;
 		}
 
 		mediumPending = false;
+		mediumBusy = true;
 		uint32 session = generation;
 		Medium work = command.medium;
 		uint32 firstIndex = 0;
@@ -233,10 +245,13 @@ public:
 		ResultStatus status = MediumAccess(work, firstIndex, byteCount);
 
 		System::CriticalSection(true);
+		mediumBusy = false;
 		if (session == generation) {
 			CommitMedium(context, work, status);
 		}
 
+		// A CBW that a reset held back during the access is armed now. It does nothing when the commit has started a command.
+		ArmCbw(context);
 		System::CriticalSection(false);
 	}
 
@@ -259,13 +274,9 @@ public:
 			return status;
 		}
 
+		// The CBW is armed by Process(), once the presence has been read for this configuration.
 		configured = true;
-		status = ArmCbw(context);
-		if (status != ResultStatus::ok) {
-			configured = false;
-		}
-
-		return status;
+		return ResultStatus::ok;
 	}
 
 
@@ -282,15 +293,16 @@ public:
 	}
 
 
-	// The class requests: GET_MAX_LUN answers 0, and the Bulk-Only Mass Storage Reset returns the function to its idle stage.
+	// The class requests: GET_MAX_LUN answers 0, and the Bulk-Only Mass Storage Reset returns the function to its idle stage. Each one
+	// must name the function's interface in wIndex, with wValue 0 and the wLength of its data stage (1 for GET_MAX_LUN, 0 for the reset).
 	// Anything else on the interface is not supported.
 	ResultStatus OnControlRequest(const USBSetupPacket& setup, USBDeviceContext& context) override {
-		if (setup.recipient != USBRecipient::Interface || setup.type != USBRequestType::Class || setup.value != 0) {
+		if (setup.recipient != USBRecipient::Interface || setup.type != USBRequestType::Class || setup.value != 0 || !IsOwnInterface(setup.index)) {
 			return ResultStatus::notSupported;
 		}
 
 		if (setup.request == MscRequestGetMaxLun) {
-			if (setup.direction != USBDirection::In) {
+			if (setup.direction != USBDirection::In || setup.length != 1) {
 				return ResultStatus::notSupported;
 			}
 
@@ -459,6 +471,7 @@ private:
 		outArmed = false;
 		outHalted = false;
 		preventRemoval = false;
+		presenceFresh = false;
 	}
 
 
@@ -478,9 +491,11 @@ private:
 	}
 
 
-	// Arms the OUT endpoint for a CBW when the device is idle and the pipe is open. Returns ok when nothing needed doing.
+	// Arms the OUT endpoint for a CBW when the device is idle and the pipe is open. Returns ok when nothing needed doing. Nothing is
+	// armed during a medium access: Process() arms the CBW once the access is over. Nothing is armed before the presence of the
+	// configuration has been read, either: Process() arms it then.
 	ResultStatus ArmCbw(USBDeviceContext& context) {
-		if (!configured || stage != Stage::Idle || outArmed || outHalted) {
+		if (!configured || !presenceFresh || stage != Stage::Idle || mediumBusy || outArmed || outHalted) {
 			return ResultStatus::ok;
 		}
 
@@ -611,7 +626,7 @@ private:
 		if (meaningful) {
 			std::array<uint8, MscCommandLength> block{};
 			std::copy_n(cbw.begin() + MscCbwCommandOffset, commandLength, block.begin());
-			Decode(block);
+			Decode(block, commandLength);
 		} else {
 			Refuse(MscSenseInvalidField);
 		}
@@ -788,13 +803,20 @@ private:
 
 
 	// Decides one command from the CBW's CDB. The answer's bytes go into the buffer, and the medium work is marked for Process().
-	void Decode(const std::array<uint8, MscCommandLength>& block) {
+	void Decode(const std::array<uint8, MscCommandLength>& block, uint8 commandLength) {
 		uint8 operation = block[0];
 		std::span<const uint8> cdb(block.data(), block.size());
 
 		// The sense data of the last error is kept until the next command, except that REQUEST SENSE reads it without clearing it.
 		if (operation != ScsiRequestSense) {
 			sense = MscSenseNone;
+		}
+
+		// The CBW's command length is shorter than the opcode needs, so the bytes the command reads are padding. The command is refused
+		// rather than answered from zeros.
+		if (commandLength < RequiredCdbLength(operation)) {
+			Refuse(MscSenseInvalidField);
+			return;
 		}
 
 		if (operation == ScsiTestUnitReady) {
@@ -1003,6 +1025,7 @@ private:
 			}
 
 			presentCache = false;
+			ejectCount++;
 			if (ejectDelegate) {
 				ejectDelegate();
 			}
@@ -1206,14 +1229,54 @@ private:
 	}
 
 
-	// Reads the medium's presence and write protection. Process() calls it before it looks at the medium work.
+	// Reads the medium's presence and write protection while the function is idle. Only a CBW that arrives in the idle stage reads the
+	// cache, and a data stage does not need the medium's state again, so the calls are skipped during a command. IsPresent() may block,
+	// so the calls run outside every section. An eject during them makes the sample stale, and the sample is dropped.
 	void RefreshMedium() {
+		System::CriticalSection(true);
+		bool idle = stage == Stage::Idle;
+		uint32 ejects = ejectCount;
+		uint32 session = generation;
+		System::CriticalSection(false);
+		if (!idle) {
+			return;
+		}
+
 		bool present = blockDevice.IsPresent() == ResultStatus::ok;
 		bool readOnly = blockDevice.IsReadOnly() == ResultStatus::readOnly;
 		System::CriticalSection(true);
-		presentCache = present;
-		readOnlyCache = readOnly;
+		// A sample that an eject or a configuration overtook is dropped. The next Process() reads the medium again.
+		if (ejects == ejectCount && session == generation) {
+			presentCache = present;
+			readOnlyCache = readOnly;
+			presenceFresh = true;
+		}
+
 		System::CriticalSection(false);
+	}
+
+
+	// The class requests name the function's interface in wIndex, a single byte.
+	bool IsOwnInterface(uint16 index) const {
+		return index <= 0xFF && OwnsInterface(static_cast<uint8>(index));
+	}
+
+
+	// The command block length an opcode needs: 6 for the group 0 commands and 10 for the group 1 commands (SPC-4 section 4.3). Zero for
+	// an opcode the function does not answer, which then fails as an invalid operation code.
+	static uint8 RequiredCdbLength(uint8 operation) {
+		static constexpr std::array<uint8, 6> SixByte{ ScsiTestUnitReady, ScsiRequestSense, ScsiInquiry, ScsiModeSense6, ScsiStartStopUnit, ScsiPreventAllowMediumRemoval };
+		static constexpr std::array<uint8, 7> TenByte{ ScsiReadFormatCapacities, ScsiReadCapacity10, ScsiRead10, ScsiWrite10, ScsiVerify10, ScsiSynchronizeCache10, ScsiModeSense10 };
+
+		if (std::find(SixByte.begin(), SixByte.end(), operation) != SixByte.end()) {
+			return 6;
+		}
+
+		if (std::find(TenByte.begin(), TenByte.end(), operation) != TenByte.end()) {
+			return 10;
+		}
+
+		return 0;
 	}
 
 

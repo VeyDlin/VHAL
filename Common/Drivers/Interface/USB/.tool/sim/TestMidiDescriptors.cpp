@@ -13,7 +13,7 @@
 // layouts (the Audio Control header and IAD of the Audio class, the MS header, jacks and MS bulk data endpoints of MIDI 1.0 chapter
 // 6, and the 9-byte audio-form endpoint). The Linux definitions of the same structures (include/uapi/linux/usb/midi.h) agree with them:
 // the MS header is 7 bytes, an IN jack 6, an OUT jack 7 + 2 * pins with iJack last, an MS endpoint 4 + n.
-#define MIDI_EXPECT_BYTES(actual, expected) HidTest::ExpectBytes((actual), (expected), #actual, __FILE__, __LINE__)
+#define MIDI_EXPECT_BYTES(actual, expected) SIM_EXPECT_BYTES((actual), (expected))
 
 
 namespace {

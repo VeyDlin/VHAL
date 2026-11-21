@@ -58,13 +58,15 @@ public:
 
 // What the fluent builder produces for one function (USBDescriptors::Function()). The spans refer to static storage of the
 // descriptor set, so they stay valid for the life of the device.
-//   interfaces   the function's interface numbers
-//   endpoints    the endpoint addresses in the order the class requested them (the order its constructor expects)
-//   descriptors  the function's slice of the configuration descriptor, its interface association first when it has one
+//   interfaces        the function's interface numbers
+//   endpoints         the endpoint addresses in the order the class requested them (the order its constructor expects)
+//   descriptors       the function's slice of the configuration descriptor, its interface association first when it has one
+//   runtimeStrings    the string indexes of the function's run-time strings, in the order the class reserved them. Empty when it has none
 struct USBFunctionLayout {
 	std::span<const uint8> interfaces;
 	std::span<const uint8> endpoints;
 	std::span<const uint8> descriptors;
+	std::span<const uint8> runtimeStrings = {};
 };
 
 

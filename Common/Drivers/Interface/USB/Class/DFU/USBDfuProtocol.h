@@ -149,6 +149,50 @@ constexpr USBDfuFunctional ParseUSBDfuFunctional(std::span<const uint8> descript
 }
 
 
+// The alternate settings one interface has, as a set of 256 bits: bit n is set for alternate setting n. A DFU function
+// accepts SET_INTERFACE only for the settings it holds.
+struct USBDfuAlternates {
+	std::array<uint32, 8> bits{};
+
+
+	constexpr void Add(uint8 alternate) {
+		bits[alternate / 32] |= static_cast<uint32>(1) << (alternate % 32);
+	}
+
+
+	constexpr bool Has(uint8 alternate) const {
+		return ((bits[alternate / 32] >> (alternate % 32)) & 1) != 0;
+	}
+};
+
+
+// Finds the alternate settings of the first interface in interfaces within a function's descriptor slice: every interface
+// descriptor with that number adds its bAlternateSetting. The walk follows bLength, as ParseUSBDfuFunctional() does. An empty
+// span of interfaces finds none.
+constexpr USBDfuAlternates ParseUSBDfuAlternates(std::span<const uint8> descriptors, std::span<const uint8> interfaces) {
+	USBDfuAlternates alternates;
+	if (interfaces.empty()) {
+		return alternates;
+	}
+
+	std::size_t offset = 0;
+	while (offset + 2 <= descriptors.size()) {
+		std::size_t length = descriptors[offset];
+		if (length < 2 || offset + length > descriptors.size()) {
+			break;
+		}
+
+		if (descriptors[offset + 1] == static_cast<uint8>(USBDescriptorType::Interface) && length >= 4 && descriptors[offset + 2] == interfaces[0]) {
+			alternates.Add(descriptors[offset + 3]);
+		}
+
+		offset += length;
+	}
+
+	return alternates;
+}
+
+
 // The six bytes of DFU_GETSTATUS: bStatus, bwPollTimeout (3 bytes, little-endian, clamped to 0xFFFFFF), bState and iString 0.
 constexpr std::array<uint8, 6> MakeUSBDfuStatusResponse(DfuStatus status, uint32 pollTimeoutMs, DfuState state) {
 	std::array<uint8, 6> bytes{};

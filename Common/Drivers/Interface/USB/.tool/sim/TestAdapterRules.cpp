@@ -174,9 +174,17 @@ void TestOpenRules() {
 	SIM_EXPECT_EQ(sim.OpenEndpoint(Bulk(0x81, 10)), ResultStatus::invalidParameter);
 	SIM_EXPECT_EQ(sim.OpenEndpoint(Bulk(0x81, 0)), ResultStatus::invalidParameter);
 
-	USBDeviceAdapter::EndpointConfig isochronous = Bulk(0x81, 64);
+	// Isochronous: up to 1023 bytes, and no doubleBuffer flag, because the port always gives an isochronous endpoint its two buffers.
+	USBDeviceAdapter::EndpointConfig isochronous = Bulk(0x83, 64);
 	isochronous.type = USBEndpointType::Isochronous;
+	isochronous.maxPacketSize = 1024;
 	SIM_EXPECT_EQ(sim.OpenEndpoint(isochronous), ResultStatus::invalidParameter);
+	isochronous.maxPacketSize = 64;
+	isochronous.doubleBuffer = true;
+	SIM_EXPECT_EQ(sim.OpenEndpoint(isochronous), ResultStatus::invalidParameter);
+	isochronous.doubleBuffer = false;
+	SIM_EXPECT_EQ(sim.OpenEndpoint(isochronous), ResultStatus::ok);
+	SIM_EXPECT(sim.IsDoubleBuffered(0x83));
 
 	USBDeviceAdapter::EndpointConfig interrupt = Bulk(0x82, 0);
 	interrupt.type = USBEndpointType::Interrupt;
@@ -256,21 +264,92 @@ void TestPacketMemory() {
 	SIM_EXPECT_EQ(sim.Connect(), ResultStatus::ok);
 	sim.InjectBusReset();
 
-	// Endpoint 0 uses 128 bytes of the 1024. Seven double-buffered 64-byte IN endpoints fill the rest exactly.
-	for (uint8 number = 1; number <= 7; number++) {
+	// The buffer table (64 bytes) and endpoint 0 (two 64-byte buffers) take 192 of the 1024, which leaves 832 for the endpoints. Six
+	// double-buffered 64-byte IN endpoints take 768 of them. The seventh needs 128 more and only 64 are left, so it is outOfMemory. The port
+	// refuses it the same way: its second buffer finds no 64-byte block above the sixth endpoint's (FindPmaBlock()).
+	for (uint8 number = 1; number <= 6; number++) {
 		USBDeviceAdapter::EndpointConfig config = Bulk(USBEndpoint::MakeIn(number), 64);
 		config.doubleBuffer = true;
 		SIM_EXPECT_EQ(sim.OpenEndpoint(config), ResultStatus::ok);
 	}
 
+	USBDeviceAdapter::EndpointConfig seventh = Bulk(0x87, 64);
+	seventh.doubleBuffer = true;
+	SIM_EXPECT_EQ(sim.OpenEndpoint(seventh), ResultStatus::outOfMemory);
+	SIM_EXPECT(sim.FindEndpoint(0x87) == nullptr);
+
 	// The OUT on number 1 shares its register with the double-buffered IN, so the shared-number rule refuses it before packet
-	// memory is looked at. With every number in use and 64-byte packets, the simulator cannot reach outOfMemory at all.
+	// memory is looked at.
 	SIM_EXPECT_EQ(sim.OpenEndpoint(Bulk(0x01, 64)), ResultStatus::invalidParameter);
 
+	// Closing number 1 gives back 128 bytes, and the single-buffered OUT fits beside the other five.
 	SIM_EXPECT_EQ(sim.CloseEndpoint(0x81), ResultStatus::ok);
 	SIM_EXPECT_EQ(sim.OpenEndpoint(Bulk(0x01, 64)), ResultStatus::ok);
 	SIM_EXPECT_EQ(sim.CloseEndpoint(0x81), ResultStatus::notExist);
 	SIM_EXPECT_EQ(sim.CloseEndpoint(0x00), ResultStatus::invalidParameter);
+}
+
+
+// The isochronous packet memory beside the buffer table and endpoint 0. An isochronous endpoint takes two blocks of its packet size, rounded to
+// 32 bytes above 62, so 416 bytes take 2 * 416 = 832, which is the whole budget: the port places them at 192 and 608. A 417-byte packet needs
+// two blocks of 448, and the port refuses it with outOfMemory (TestIsoLargestPacketBesideEndpointZero() in TestFsdevPort.cpp). The adapter
+// contract is the same on both.
+void TestIsochronousPacketMemoryLimit() {
+	SimUSBDeviceAdapter sim;
+	USBDeviceAdapter::Parameters parameters;
+	parameters.endpointCount = SimUSBDeviceAdapter::HardwareEndpointCount;
+	SIM_EXPECT_EQ(sim.SetParameters(parameters), ResultStatus::ok);
+	SIM_EXPECT_EQ(sim.Connect(), ResultStatus::ok);
+	sim.InjectBusReset();
+
+	USBDeviceAdapter::EndpointConfig largest;
+	largest.address = 0x81;
+	largest.type = USBEndpointType::Isochronous;
+	largest.maxPacketSize = 416;
+	SIM_EXPECT_EQ(sim.OpenEndpoint(largest), ResultStatus::ok);
+	SIM_EXPECT(sim.FindEndpoint(0x81) != nullptr);
+
+	USBDeviceAdapter::EndpointConfig tooLarge = largest;
+	tooLarge.address = 0x82;
+	tooLarge.maxPacketSize = 417;
+	SIM_EXPECT_EQ(sim.OpenEndpoint(tooLarge), ResultStatus::outOfMemory);
+	SIM_EXPECT(sim.FindEndpoint(0x82) == nullptr);
+	SIM_EXPECT(sim.FindEndpoint(0x81) != nullptr);
+}
+
+
+// The port places every block at a 4-byte boundary, so a block of 62 bytes takes 64 with its gap. Six isochronous IN endpoints of 62 bytes take two
+// blocks each: the first at 192, 256, 320, 384, 448, 512, 576, 640, 704, 768, 832 and 896, and the last one ends at 958. A 44-byte endpoint then
+// needs two blocks of 44: the first fits at 960, but the second would end at 1048, past the 1024 bytes. The port refuses it with outOfMemory, and
+// so does the simulator. The sum of the sizes is 6 * 124 + 88 = 832, so a budget that only adds sizes would wrongly accept it. The same endpoint
+// fits when only five of the 62-byte ones are open, so the refusal is the placement and not the size.
+void TestIsochronousBlockAlignmentLimit() {
+	SimUSBDeviceAdapter sim;
+	USBDeviceAdapter::Parameters parameters;
+	parameters.endpointCount = SimUSBDeviceAdapter::HardwareEndpointCount;
+	SIM_EXPECT_EQ(sim.SetParameters(parameters), ResultStatus::ok);
+	SIM_EXPECT_EQ(sim.Connect(), ResultStatus::ok);
+	sim.InjectBusReset();
+
+	for (uint8 number = 1; number <= 6; number++) {
+		USBDeviceAdapter::EndpointConfig config;
+		config.address = USBEndpoint::MakeIn(number);
+		config.type = USBEndpointType::Isochronous;
+		config.maxPacketSize = 62;
+		SIM_EXPECT_EQ(sim.OpenEndpoint(config), ResultStatus::ok);
+	}
+
+	USBDeviceAdapter::EndpointConfig fortyFour;
+	fortyFour.address = 0x87;
+	fortyFour.type = USBEndpointType::Isochronous;
+	fortyFour.maxPacketSize = 44;
+	SIM_EXPECT_EQ(sim.OpenEndpoint(fortyFour), ResultStatus::outOfMemory);
+	SIM_EXPECT(sim.FindEndpoint(0x87) == nullptr);
+
+	// Closing one of the 62-byte endpoints frees its two blocks, and the 44-byte endpoint then fits in the first gap that holds both.
+	SIM_EXPECT_EQ(sim.CloseEndpoint(0x86), ResultStatus::ok);
+	SIM_EXPECT_EQ(sim.OpenEndpoint(fortyFour), ResultStatus::ok);
+	SIM_EXPECT(sim.FindEndpoint(0x87) != nullptr);
 }
 
 
@@ -436,6 +515,32 @@ void TestShortOutPacketCompletes() {
 	SIM_EXPECT_EQ(stored.Value(), 10);
 	SIM_EXPECT_EQ(log.completionCounts.Back(), 10);
 	SIM_EXPECT(!sim.HasArmedTransfer(0x01));
+}
+
+
+// An isochronous endpoint has no halt. Stall() is invalidParameter and changes nothing, and ClearStall() is ok and changes nothing. A direction
+// that is not open is notExist for both, as for the other types.
+void TestIsochronousHaltRules() {
+	SimUSBDeviceAdapter sim;
+	EventLog log;
+	Attach(sim, log);
+	USBDeviceAdapter::Parameters parameters;
+	SIM_EXPECT_EQ(sim.SetParameters(parameters), ResultStatus::ok);
+	SIM_EXPECT_EQ(sim.Connect(), ResultStatus::ok);
+	sim.InjectBusReset();
+
+	USBDeviceAdapter::EndpointConfig isochronous = Bulk(0x83, 64);
+	isochronous.type = USBEndpointType::Isochronous;
+	SIM_EXPECT_EQ(sim.OpenEndpoint(isochronous), ResultStatus::ok);
+
+	SIM_EXPECT_EQ(sim.Stall(0x83), ResultStatus::invalidParameter);
+	SIM_EXPECT(!sim.IsStalled(0x83));
+	SIM_EXPECT_EQ(sim.GetStallCount(0x83), 0);
+	SIM_EXPECT_EQ(sim.ClearStall(0x83), ResultStatus::ok);
+	SIM_EXPECT(!sim.IsStalled(0x83));
+	SIM_EXPECT_EQ(sim.GetStallCount(0x83), 0);
+	SIM_EXPECT_EQ(sim.Stall(0x03), ResultStatus::notExist);
+	SIM_EXPECT_EQ(sim.ClearStall(0x03), ResultStatus::notExist);
 }
 
 
@@ -635,12 +740,15 @@ int main() {
 	TestOpenRules();
 	TestSharedNumberRules();
 	TestPacketMemory();
+	TestIsochronousPacketMemoryLimit();
+	TestIsochronousBlockAlignmentLimit();
 	TestTransferRules();
 	TestZeroLengthPacketRule();
 	TestOverrunDropsWholePacket();
 	TestBufferFullAndZeroLengthPacket();
 	TestShortOutPacketCompletes();
 	TestStallRules();
+	TestIsochronousHaltRules();
 	TestSetupRules();
 	TestCloseAbandonsTransfers();
 	TestSuspendResumeAndFrames();

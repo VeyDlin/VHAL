@@ -9,8 +9,9 @@
 
 // The two endpoint forms of the configuration: the standard 7-byte descriptor (USB 2.0 section 9.6.6) and the audio-class 9-byte
 // descriptor (bRefresh and bSynchAddress added, USB Audio 1.0 section 4.8.1.1). The expected bytes are written out by hand. The
-// 7-byte form keeps every rule it had; the 9-byte form is accepted in a configuration only for bulk endpoints with both added fields
-// zero, and a 7-byte and a 9-byte endpoint can share one configuration. The refused forms are BuilderErrors snippets.
+// 7-byte form keeps every rule it had. The 9-byte form is accepted for bulk and isochronous endpoints: a bulk one only with both added
+// fields zero, an isochronous one with any bRefresh and bSynchAddress. A 7-byte and a 9-byte endpoint can share one configuration. The
+// refused forms are BuilderErrors snippets.
 
 
 namespace {
@@ -83,10 +84,65 @@ void TestBothFormsInOneConfiguration() {
 }
 
 
+// Isochronous endpoints in the standard form: bmAttributes carries 01 for the type, the sync type in bits 3..2 and the usage in bits 5..4.
+// A data endpoint with asynchronous sync is 0x05. A feedback endpoint (usage 1) with no sync is 0x11. The packet size is 1023 at most,
+// and the interval is 1.
+void TestIsochronousEndpointBytes() {
+	constexpr std::array<uint8, 7> dataIn = MakeUSBEndpointDescriptor(0x81, USBEndpointType::Isochronous, 192, 1, USBIsoSync::Asynchronous);
+	constexpr uint8 expectedDataIn[] = {
+		0x07, 0x05, 0x81, 0x05, 0xC0, 0x00, 0x01
+	};
+
+	SIM_EXPECT(SimHost::SameBytes(std::span<const uint8>(dataIn), std::span<const uint8>(expectedDataIn)));
+
+	constexpr std::array<uint8, 7> feedbackIn = MakeUSBEndpointDescriptor(0x82, USBEndpointType::Isochronous, 3, 1, USBIsoSync::None, USBIsoUsage::Feedback);
+	constexpr uint8 expectedFeedbackIn[] = {
+		0x07, 0x05, 0x82, 0x11, 0x03, 0x00, 0x01
+	};
+
+	SIM_EXPECT(SimHost::SameBytes(std::span<const uint8>(feedbackIn), std::span<const uint8>(expectedFeedbackIn)));
+
+	constexpr std::array<uint8, 7> largestOut = MakeUSBEndpointDescriptor(0x01, USBEndpointType::Isochronous, 1023, 1);
+	constexpr uint8 expectedLargestOut[] = {
+		0x07, 0x05, 0x01, 0x01, 0xFF, 0x03, 0x01
+	};
+
+	SIM_EXPECT(SimHost::SameBytes(std::span<const uint8>(largestOut), std::span<const uint8>(expectedLargestOut)));
+}
+
+
+// The audio form of an isochronous endpoint: bRefresh 0, and bSynchAddress names the feedback endpoint 0x82 (an IN address).
+void TestIsochronousAudioEndpointBytes() {
+	constexpr std::array<uint8, 9> audioIn = MakeUSBAudioEndpointDescriptor(0x81, USBEndpointType::Isochronous, 192, 1, USBIsoSync::Asynchronous, USBIsoUsage::Data, 0, 0x82);
+	constexpr uint8 expectedAudioIn[] = {
+		0x09, 0x05, 0x81, 0x05, 0xC0, 0x00, 0x01, 0x00, 0x82
+	};
+
+	SIM_EXPECT(SimHost::SameBytes(std::span<const uint8>(audioIn), std::span<const uint8>(expectedAudioIn)));
+}
+
+
+// A configuration with one isochronous IN endpoint in the audio form, without a feedback endpoint. wTotalLength 27 (0x1B).
+void TestIsochronousAudioEndpointInConfiguration() {
+	constexpr std::array<uint8, 9> endpoint = MakeUSBAudioEndpointDescriptor(0x81, USBEndpointType::Isochronous, 200, 1);
+	constexpr std::array<uint8, 27> configuration = MakeUSBConfigurationDescriptor(1, 0, false, false, 50, VendorInterface, endpoint);
+	constexpr uint8 expected[] = {
+		0x09, 0x02, 0x1B, 0x00, 0x01, 0x01, 0x00, 0x80, 0x32,	// Configuration: one interface, 100 mA
+		0x09, 0x04, 0x00, 0x00, 0x01, 0xFF, 0x00, 0x00, 0x00,	// Interface 0: one endpoint, vendor class
+		0x09, 0x05, 0x81, 0x01, 0xC8, 0x00, 0x01, 0x00, 0x00	// Isochronous IN 0x81, 200 bytes, 9-byte form, no feedback
+	};
+
+	SIM_EXPECT(SimHost::SameBytes(std::span<const uint8>(configuration), std::span<const uint8>(expected)));
+}
+
+
 int main() {
 	TestStandardEndpointBytes();
 	TestAudioEndpointBytes();
 	TestAudioEndpointInConfiguration();
 	TestBothFormsInOneConfiguration();
+	TestIsochronousEndpointBytes();
+	TestIsochronousAudioEndpointBytes();
+	TestIsochronousAudioEndpointInConfiguration();
 	return SimTest::Finish("TestAudioEndpointDescriptors");
 }

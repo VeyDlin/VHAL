@@ -21,7 +21,12 @@
 //   - exactly one of Runtime() and Mode(), and a DFU mode interface can download or upload (CanDnload() or CanUpload());
 //   - TransferSize() is required and is 1 to 4096 bytes;
 //   - a run-time interface without WillDetach() needs a detach timeout of at least 1 ms, because the host's reset must come within
-//     it. wDetachTimeOut belongs to DFU_DETACH, so a mode interface does not need it.
+//     it. wDetachTimeOut belongs to DFU_DETACH, so a mode interface does not need it;
+//   - Region() is for a mode interface only, one to four of them, and is not given together with Name().
+//
+// Memory regions: each Region() is an alternate setting of the mode interface (DFU 1.1 section 4.2.3). The first region is
+// alternate 0, the next one alternate 1, and so on, each with the region's name as its interface string. The host selects a
+// region with SET_INTERFACE (dfu-util -a N); DfuFunction starts the transfer on that alternate.
 //
 // WinUsb() binds WinUSB to the interface through the MS OS 2.0 descriptors (MsOs20VendorCode() on the device). dfu-util on
 // Windows needs it: the host cannot open the interface without a driver that is not the one that ships with Windows.
@@ -37,6 +42,8 @@ private:
 	bool willDetach = false;
 	uint16 detachTimeoutMs = 0;
 	std::string_view name;
+	std::array<std::string_view, USBMaxFunctionStrings> regions{};
+	std::size_t regionCount = 0;
 	bool winUsb = false;
 	std::string_view guid;
 
@@ -107,9 +114,21 @@ public:
 	}
 
 
-	// The interface string. In DFU mode it names the memory region the interface writes.
+	// The interface string of an interface with one memory region. A mode interface with several regions names each one with Region().
 	constexpr USBDfuBuilder& Name(std::string_view text) {
 		name = text;
+		return *this;
+	}
+
+
+	// One memory region of the DFU mode interface, named by its interface string (for example "Flash" or "EEPROM"). Each region is
+	// an alternate setting: the first is alternate 0, the next alternate 1, in the order the calls are made. A region is how the
+	// host tells the memory apart: dfu-util -a N selects the region N, and the target's Begin() receives N. At most four regions,
+	// the string limit of one function.
+	constexpr USBDfuBuilder& Region(std::string_view text) {
+		Require<USBText{"a DFU mode interface has at most 4 regions"}>(regionCount < USBMaxFunctionStrings);
+		regions[regionCount] = text;
+		regionCount++;
 		return *this;
 	}
 
@@ -134,6 +153,8 @@ public:
 		Require<USBText{"TransferSize() is required"}>(transferSizeSet);
 		Require<USBText{"a DFU mode interface downloads or uploads: call CanDnload() or CanUpload()"}>(!mode || canDnload || canUpload);
 		Require<USBText{"a device without WillDetach() needs DetachTimeoutMs() of at least 1"}>(mode || willDetach || detachTimeoutMs >= 1);
+		Require<USBText{"Region() is for a DFU mode interface"}>(regionCount == 0 || mode);
+		Require<USBText{"Name() and Region() are not both given"}>(regionCount == 0 || name.empty());
 		return 1;
 	}
 
@@ -150,13 +171,21 @@ public:
 	}
 
 
+	// One string per region, or the interface name when there are no regions.
 	constexpr std::size_t StringCount() const {
+		if (regionCount > 0) {
+			return regionCount;
+		}
+
 		return name.empty() ? 0 : 1;
 	}
 
 
 	constexpr std::string_view String(std::size_t index) const {
-		static_cast<void>(index);
+		if (regionCount > 0) {
+			return regions[index];
+		}
+
 		return name;
 	}
 
@@ -186,8 +215,20 @@ public:
 	}
 
 
+	// One interface descriptor per region, alternate setting 0 first, then the functional descriptor once after all of them: DFU 1.1
+	// section 4.2 lists a single interface descriptor, including the descriptors of its alternate settings, followed by a single
+	// functional descriptor.
 	constexpr void Emit(USBFunctionEmitter& emitter) const {
-		emitter.Interface(0, static_cast<uint8>(USBClassCode::ApplicationSpecific), DfuInterfaceSubClass, FunctionProtocol(), name.empty() ? USBNoString : 0);
+		uint8 interfaceClass = static_cast<uint8>(USBClassCode::ApplicationSpecific);
+		if (regionCount == 0) {
+			emitter.Interface(0, interfaceClass, DfuInterfaceSubClass, FunctionProtocol(), name.empty() ? USBNoString : 0);
+		} else {
+			emitter.Interface(0, interfaceClass, DfuInterfaceSubClass, FunctionProtocol(), 0);
+			for (std::size_t index = 1; index < regionCount; index++) {
+				emitter.Alternate(0, static_cast<uint8>(index), interfaceClass, DfuInterfaceSubClass, FunctionProtocol(), index);
+			}
+		}
+
 		std::array<uint8, 9> functional = MakeUSBDfuFunctionalDescriptor(Attributes(), detachTimeoutMs, transferSize);
 		emitter.Raw(functional);
 	}

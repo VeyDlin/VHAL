@@ -34,9 +34,15 @@ struct DeviceFixture {
 
 
 	DeviceFixture()
+		: DeviceFixture(SimDescriptors::SimpleSet) {
+	}
+
+
+	// A set with the same function layout (one interface, bulk 0x81 and 0x01), for example SimDescriptors::RemoteWakeupSet.
+	explicit DeviceFixture(const USBDescriptorSet& descriptors)
 		: function(SimFixtureData::Interfaces, SimFixtureData::Endpoints, 0x81, 0x01),
 		  functions{ &function },
-		  device(sim, SimDescriptors::SimpleSet, functions) {
+		  device(sim, descriptors, functions) {
 	}
 
 

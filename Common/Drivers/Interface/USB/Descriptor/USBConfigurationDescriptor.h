@@ -35,13 +35,34 @@ constexpr std::array<uint8, 9> MakeUSBInterfaceDescriptor(
 }
 
 
-// Full-speed limits: bulk packets 8, 16, 32 or 64 bytes with bInterval 0, interrupt packets 1 to 64 bytes. The stack has
-// bulk and interrupt endpoints only: isochronous transfers are a non-goal, so their descriptors are rejected.
+// Synchronisation type of an isochronous endpoint: bmAttributes bits 3..2 (USB 2.0 section 9.6.6). Bulk and interrupt endpoints
+// have none, so they keep None.
+enum class USBIsoSync : uint8 {
+	None = 0,
+	Asynchronous = 1,
+	Adaptive = 2,
+	Synchronous = 3
+};
+
+
+// Usage of an isochronous endpoint: bmAttributes bits 5..4. A feedback endpoint carries the rate the data endpoint is paced by.
+enum class USBIsoUsage : uint8 {
+	Data = 0,
+	Feedback = 1,
+	ImplicitFeedbackData = 2
+};
+
+
+// Full-speed limits: bulk packets 8, 16, 32 or 64 bytes with bInterval 0, interrupt packets 1 to 64 bytes, isochronous packets
+// 1 to 1023 bytes with bInterval 1 (one frame, USB 2.0 section 5.6.4). Isochronous endpoints carry the sync type and the usage
+// in bmAttributes; the other types have neither.
 constexpr std::array<uint8, 7> MakeUSBEndpointDescriptor(
 	uint8 address,
 	USBEndpointType type,
 	uint16 maxPacketSize,
-	uint8 interval)
+	uint8 interval,
+	USBIsoSync sync = USBIsoSync::None,
+	USBIsoUsage usage = USBIsoUsage::Data)
 {
 	USBDescriptorRequire(USBEndpoint::Number(address) != 0, "endpoint 0 belongs to the control pipe, not to a configuration");
 	// Bits 6..4 of bEndpointAddress are reserved and must be zero (USB 2.0 section 9.6.6). USBEndpoint::Number() ignores them,
@@ -56,11 +77,17 @@ constexpr std::array<uint8, 7> MakeUSBEndpointDescriptor(
 	if (type == USBEndpointType::Bulk) {
 		USBDescriptorRequire(maxPacketSize == 8 || maxPacketSize == 16 || maxPacketSize == 32 || maxPacketSize == 64, "full-speed bulk packets are 8, 16, 32 or 64 bytes");
 		USBDescriptorRequire(interval == 0, "bInterval of a full-speed bulk endpoint is 0");
+		USBDescriptorRequire(sync == USBIsoSync::None && usage == USBIsoUsage::Data, "sync type and usage are isochronous only");
 		bytes[3] = 0x02;
+	} else if (type == USBEndpointType::Isochronous) {
+		USBDescriptorRequire(maxPacketSize >= 1 && maxPacketSize <= 1023, "full-speed isochronous packets are 1 to 1023 bytes");
+		USBDescriptorRequire(interval == 1, "bInterval of a full-speed isochronous endpoint is 1");
+		bytes[3] = static_cast<uint8>(0x01 | (static_cast<uint8>(sync) << 2) | (static_cast<uint8>(usage) << 4));
 	} else {
-		USBDescriptorRequire(type == USBEndpointType::Interrupt, "the stack has bulk and interrupt endpoints only");
+		USBDescriptorRequire(type == USBEndpointType::Interrupt, "the stack has bulk, interrupt and isochronous endpoints only");
 		USBDescriptorRequire(maxPacketSize >= 1 && maxPacketSize <= 64, "full-speed interrupt packets are 1 to 64 bytes");
 		USBDescriptorRequire(interval >= 1, "an interrupt endpoint needs bInterval 1 to 255");
+		USBDescriptorRequire(sync == USBIsoSync::None && usage == USBIsoUsage::Data, "sync type and usage are isochronous only");
 		bytes[3] = 0x03;
 	}
 
@@ -71,23 +98,31 @@ constexpr std::array<uint8, 7> MakeUSBEndpointDescriptor(
 
 
 // The audio-class form of the endpoint descriptor (USB Audio 1.0 section 4.8.1.1, also used by USB-MIDI 1.0 for its bulk
-// endpoints): the standard seven bytes followed by bRefresh and bSynchAddress, 9 bytes in all. Both are zero for a bulk
-// endpoint, which has no refresh rate or synchronisation endpoint. The audio class defines this form for bulk and isochronous
-// endpoints only, so an interrupt endpoint is refused here; the address and packet rules are the standard form's.
+// endpoints): the standard seven bytes followed by bRefresh and bSynchAddress, 9 bytes in all. The audio class defines this form
+// for bulk and isochronous endpoints only, so an interrupt endpoint is refused here. Both fields are zero for a bulk endpoint, which
+// has no refresh rate or synchronisation endpoint. An isochronous endpoint may name its feedback endpoint in bSynchAddress (an IN
+// address) and its refresh rate in bRefresh; the defaults give an endpoint without feedback.
 constexpr std::array<uint8, 9> MakeUSBAudioEndpointDescriptor(
 	uint8 address,
 	USBEndpointType type,
 	uint16 maxPacketSize,
-	uint8 interval)
+	uint8 interval,
+	USBIsoSync sync = USBIsoSync::None,
+	USBIsoUsage usage = USBIsoUsage::Data,
+	uint8 refresh = 0,
+	uint8 synchAddress = 0)
 {
-	USBDescriptorRequire(type == USBEndpointType::Bulk, "the 9-byte endpoint form is bulk");
-	std::array<uint8, 7> standard = MakeUSBEndpointDescriptor(address, type, maxPacketSize, interval);
+	USBDescriptorRequire(type == USBEndpointType::Bulk || type == USBEndpointType::Isochronous, "the 9-byte endpoint form is bulk or isochronous");
+	USBDescriptorRequire(type == USBEndpointType::Isochronous || (refresh == 0 && synchAddress == 0), "bRefresh and bSynchAddress are 0 for bulk endpoints");
+	std::array<uint8, 7> standard = MakeUSBEndpointDescriptor(address, type, maxPacketSize, interval, sync, usage);
 	std::array<uint8, 9> bytes{};
 	for (std::size_t index = 0; index < standard.size(); index++) {
 		bytes[index] = standard[index];
 	}
 
 	bytes[0] = 9;
+	bytes[7] = refresh;
+	bytes[8] = synchAddress;
 	return bytes;
 }
 
@@ -196,12 +231,26 @@ constexpr uint8 USBFinalizeConfiguration(std::array<uint8, Size>& bytes) {
 			USBDescriptorRequire(length == 7 || length == 9, "an endpoint descriptor is 7 bytes, or 9 bytes in the audio form");
 			// Bits 6..4 of bEndpointAddress are reserved, as MakeUSBEndpointDescriptor() checks. A plain array gets the same rule here.
 			USBDescriptorRequire((bytes[offset + 2] & 0x70) == 0, "endpoint address bits 6..4 are reserved");
+			uint8 transferType = bytes[offset + 3] & 0x03;
+			if (transferType == 0x01) {
+				// The isochronous rules of MakeUSBEndpointDescriptor(), for a plain array as well: one frame, and 1 to 1023 bytes.
+				uint16 packetSize = static_cast<uint16>(bytes[offset + 4] | (bytes[offset + 5] << 8));
+				USBDescriptorRequire(bytes[offset + 6] == 1, "bInterval of a full-speed isochronous endpoint is 1");
+				USBDescriptorRequire(packetSize >= 1 && packetSize <= 1023, "full-speed isochronous packets are 1 to 1023 bytes");
+			}
+
 			if (length == 9) {
-				// The audio form adds bRefresh and bSynchAddress, which only isochronous endpoints use. Isochronous transfers are
-				// not supported, and the audio class defines no 9-byte interrupt endpoint, so the form is bulk with both fields zero.
-				uint8 transferType = bytes[offset + 3] & 0x03;
-				USBDescriptorRequire(transferType == 0x02, "the 9-byte endpoint form is bulk");
-				USBDescriptorRequire(bytes[offset + 7] == 0 && bytes[offset + 8] == 0, "bRefresh and bSynchAddress are 0 for bulk endpoints");
+				// The audio form adds bRefresh and bSynchAddress. The audio class defines it for bulk and isochronous endpoints only, so
+				// an interrupt endpoint is refused. A bulk endpoint has both fields zero. An isochronous endpoint names its feedback endpoint
+				// in bSynchAddress: 0, or an IN address (bit 7 set, number 1 to 15, bits 6..4 clear).
+				USBDescriptorRequire(transferType == 0x01 || transferType == 0x02, "the 9-byte endpoint form is bulk or isochronous");
+				if (transferType == 0x02) {
+					USBDescriptorRequire(bytes[offset + 7] == 0 && bytes[offset + 8] == 0, "bRefresh and bSynchAddress are 0 for bulk endpoints");
+				} else {
+					uint8 synchAddress = bytes[offset + 8];
+					bool feedbackAddress = (synchAddress & 0x80) != 0 && (synchAddress & 0x70) == 0 && (synchAddress & 0x0F) != 0;
+					USBDescriptorRequire(synchAddress == 0 || feedbackAddress, "bSynchAddress is 0 or an IN endpoint address");
+				}
 			}
 
 			uint8 address = bytes[offset + 2];

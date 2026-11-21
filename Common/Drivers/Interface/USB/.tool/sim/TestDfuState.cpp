@@ -40,6 +40,59 @@ void OnDetach(bool willDetach) {
 }
 
 
+// A device context for the calls the function makes without a bus: the control answers can be made to fail, as a core whose send
+// fails does. The other calls are not used by DFU and answer notSupported.
+class FailingSendContext : public USBDeviceContext {
+public:
+	bool sendFails = false;
+
+
+	ResultStatus OpenEndpoint(const USBDeviceAdapter::EndpointConfig&) override {
+		return ResultStatus::notSupported;
+	}
+
+
+	ResultStatus CloseEndpoint(uint8) override {
+		return ResultStatus::notSupported;
+	}
+
+
+	ResultStatus StartInTransfer(uint8, std::span<const uint8>, bool) override {
+		return ResultStatus::notSupported;
+	}
+
+
+	ResultStatus StartOutTransfer(uint8, std::span<uint8>) override {
+		return ResultStatus::notSupported;
+	}
+
+
+	ResultStatus Stall(uint8) override {
+		return ResultStatus::notSupported;
+	}
+
+
+	ResultStatus ClearStall(uint8) override {
+		return ResultStatus::notSupported;
+	}
+
+
+	ResultStatus RemoteWakeup() override {
+		return ResultStatus::notSupported;
+	}
+
+
+	ResultStatus ControlSendData(std::span<const uint8>) override {
+		return sendFails ? ResultStatus::notSupported : ResultStatus::ok;
+	}
+
+
+	ResultStatus ControlReceiveData(std::span<uint8>) override {
+		return ResultStatus::notSupported;
+	}
+};
+
+
 // count bytes of a sequence that starts at start: start, start + 1, ...
 std::vector<uint8> Pattern(std::size_t count, uint8 start) {
 	std::vector<uint8> bytes(count);
@@ -556,6 +609,168 @@ void CheckDownloadDuringWriteStalls() {
 }
 
 
+// A zero-length download in dfuDNLOAD-SYNC is neither the end of the download nor a block: it stalls, and the block that is pending is
+// not written and does not start a manifestation.
+void CheckZeroLengthDownloadInSyncStalls() {
+	ModeDevice<ModeUsb> fixture;
+	fixture.Configure();
+	Download(fixture.sim, Pattern(64, 0));
+	SIM_EXPECT_EQ(SendNoData(fixture.sim, RequestDnload, 0), ResultStatus::accessError);
+	StatusAnswer status = ReadStatus(fixture.sim);
+	SIM_EXPECT_EQ(status.state, DfuState::dfuERROR);
+	SIM_EXPECT_EQ(status.status, DfuStatus::errSTALLEDPKT);
+	SIM_EXPECT(fixture.target.writes.empty());
+	SIM_EXPECT_EQ(fixture.target.manifestCount, 0);
+}
+
+
+// A DFU_UPLOAD asks for more than wTransferSize. The device answers wTransferSize bytes, which is shorter than the request: that is the
+// end of the upload (appendix A.2.2), so the device is in dfuIDLE.
+void CheckUploadLongerRequestEndsOnShortFrame() {
+	ModeDevice<ModeUsb> fixture;
+	fixture.Configure();
+	fixture.target.image = Pattern(150, 0x00);
+
+	ResultStatus result = ResultStatus::ok;
+	std::vector<uint8> first = Upload(fixture.sim, 100, result);
+	SIM_EXPECT_EQ(result, ResultStatus::ok);
+	SIM_EXPECT_EQ(first.size(), 64);
+	SIM_EXPECT(first == Pattern(64, 0x00));
+	SIM_EXPECT_EQ(ReadState(fixture.sim), DfuState::dfuIDLE);
+}
+
+
+// Starts a manifestation: a block is written, the zero-length download is taken, and the first GETSTATUS starts Manifest() (dfuMANIFEST).
+void StartManifest(ModeDevice<ModeUsb>& fixture) {
+	DownloadAndWrite(fixture, Pattern(64, 0));
+	SIM_EXPECT_EQ(SendNoData(fixture.sim, RequestDnload, 0), ResultStatus::ok);
+	SIM_EXPECT_EQ(ReadStatus(fixture.sim).state, DfuState::dfuMANIFEST);
+}
+
+
+// While Manifest() runs, DFU_GETSTATUS answers the busy state with the poll timeout, not a stall. After the manifestation the tolerant
+// device answers dfuIDLE.
+void CheckManifestBusyAnswersStatusOnly() {
+	ModeDevice<ModeUsb> fixture;
+	fixture.Configure();
+	StartManifest(fixture);
+
+	StatusAnswer busy;
+	fixture.target.duringManifest = [&fixture, &busy]() {
+		busy = ReadStatus(fixture.sim);
+	};
+	fixture.device.Process();
+	fixture.target.duringManifest = nullptr;
+
+	SIM_EXPECT(busy.valid);
+	SIM_EXPECT_EQ(busy.state, DfuState::dfuMANIFEST);
+	SIM_EXPECT_EQ(busy.status, DfuStatus::OK);
+	SIM_EXPECT_EQ(busy.pollTimeoutMs, 40);
+	SIM_EXPECT_EQ(fixture.target.manifestCount, 1);
+	SIM_EXPECT_EQ(ReadStatus(fixture.sim).state, DfuState::dfuIDLE);
+}
+
+
+// DFU_DNLOAD, DFU_UPLOAD and DFU_GETSTATE sent while Manifest() runs each stall, and the device goes to dfuERROR. The manifestation
+// result is then dropped, so the state stays dfuERROR with errSTALLEDPKT. Each request gets its own device: after the first stall the
+// device is in dfuERROR, where GETSTATE is answered.
+void CheckManifestBusyStallsOtherRequests() {
+	ModeDevice<ModeUsb> download;
+	download.Configure();
+	StartManifest(download);
+	ResultStatus downloadResult = ResultStatus::ok;
+	std::vector<uint8> block = Pattern(64, 0x40);
+	download.target.duringManifest = [&download, &block, &downloadResult]() {
+		downloadResult = SendOut(download.sim, RequestDnload, 0, block);
+	};
+	download.device.Process();
+	download.target.duringManifest = nullptr;
+	SIM_EXPECT_EQ(downloadResult, ResultStatus::accessError);
+	StatusAnswer downloadStatus = ReadStatus(download.sim);
+	SIM_EXPECT_EQ(downloadStatus.state, DfuState::dfuERROR);
+	SIM_EXPECT_EQ(downloadStatus.status, DfuStatus::errSTALLEDPKT);
+
+	ModeDevice<ModeUsb> upload;
+	upload.Configure();
+	upload.target.image = Pattern(150, 0x00);
+	StartManifest(upload);
+	ResultStatus uploadResult = ResultStatus::ok;
+	upload.target.duringManifest = [&upload, &uploadResult]() {
+		uploadResult = GetIn(upload.sim, RequestUpload, 0, 64).status;
+	};
+	upload.device.Process();
+	upload.target.duringManifest = nullptr;
+	SIM_EXPECT_EQ(uploadResult, ResultStatus::accessError);
+	StatusAnswer uploadStatus = ReadStatus(upload.sim);
+	SIM_EXPECT_EQ(uploadStatus.state, DfuState::dfuERROR);
+	SIM_EXPECT_EQ(uploadStatus.status, DfuStatus::errSTALLEDPKT);
+
+	ModeDevice<ModeUsb> state;
+	state.Configure();
+	StartManifest(state);
+	ResultStatus stateResult = ResultStatus::ok;
+	state.target.duringManifest = [&state, &stateResult]() {
+		stateResult = GetIn(state.sim, RequestGetState, 0, 1).status;
+	};
+	state.device.Process();
+	state.target.duringManifest = nullptr;
+	SIM_EXPECT_EQ(stateResult, ResultStatus::accessError);
+	StatusAnswer stateStatus = ReadStatus(state.sim);
+	SIM_EXPECT_EQ(stateStatus.state, DfuState::dfuERROR);
+	SIM_EXPECT_EQ(stateStatus.status, DfuStatus::errSTALLEDPKT);
+}
+
+
+// The core can refuse to send a control answer. The function then reports the failure as errUNKNOWN and the request stalls, instead of
+// completing it without its data.
+void CheckFailedSendStalls() {
+	FakeDfuTarget target;
+	target.image = Pattern(150, 0x00);
+	DfuFunction<64> function(DfuTest::ModeUsb::Function(0), target);
+	FailingSendContext context;
+	context.sendFails = true;
+	SIM_EXPECT_EQ(function.OnConfigured(context), ResultStatus::ok);
+
+	ResultStatus status = function.OnControlRequest(USBSetupPacket::Parse(SimHost::MakeSetup(0xA1, RequestGetStatus, 0, 0, 6)), context);
+	SIM_EXPECT_EQ(status, ResultStatus::notSupported);
+	SIM_EXPECT(function.GetState() == DfuState::dfuERROR);
+	SIM_EXPECT(function.GetStatus() == DfuStatus::errUNKNOWN);
+
+	DfuFunction<64> state(DfuTest::ModeUsb::Function(0), target);
+	SIM_EXPECT_EQ(state.OnConfigured(context), ResultStatus::ok);
+	status = state.OnControlRequest(USBSetupPacket::Parse(SimHost::MakeSetup(0xA1, RequestGetState, 0, 0, 1)), context);
+	SIM_EXPECT_EQ(status, ResultStatus::notSupported);
+	SIM_EXPECT(state.GetState() == DfuState::dfuERROR);
+	SIM_EXPECT(state.GetStatus() == DfuStatus::errUNKNOWN);
+
+	DfuFunction<64> upload(DfuTest::ModeUsb::Function(0), target);
+	SIM_EXPECT_EQ(upload.OnConfigured(context), ResultStatus::ok);
+	status = upload.OnControlRequest(USBSetupPacket::Parse(SimHost::MakeSetup(0xA1, RequestUpload, 0, 0, 64)), context);
+	SIM_EXPECT_EQ(status, ResultStatus::notSupported);
+	SIM_EXPECT(upload.GetState() == DfuState::dfuERROR);
+	SIM_EXPECT(upload.GetStatus() == DfuStatus::errUNKNOWN);
+}
+
+
+// The layout of a DFU function holds exactly one interface: the function reads that one to start its alternate. A layout without one
+// (or with two) is refused at configuration, so no request reads past the span.
+void CheckLayoutNeedsOneInterface() {
+	FakeDfuTarget target;
+	FailingSendContext context;
+	static const std::array<uint8, 2> twoInterfaces{ 0, 1 };
+
+	USBFunctionLayout none = DfuTest::ModeUsb::Function(0);
+	none.interfaces = std::span<const uint8>();
+	DfuFunction<64> noInterface(none, target);
+	SIM_EXPECT_EQ(noInterface.OnConfigured(context), ResultStatus::invalidParameter);
+
+	USBFunctionLayout two = DfuTest::ModeUsb::Function(0);
+	two.interfaces = std::span<const uint8>(twoInterfaces);
+	DfuFunction<64> twoInterface(two, target);
+	SIM_EXPECT_EQ(twoInterface.OnConfigured(context), ResultStatus::invalidParameter);
+}
+
+
 void CheckHostResetRestartsAfterManifestWithoutTolerance() {
 	ModeDevice<WaitResetUsb> fixture;
 	fixture.Configure();
@@ -615,6 +830,12 @@ int main() {
 	CheckReconfigureDuringWriteDiscardsIt();
 	CheckBusResetDuringManifestDiscardsIt();
 	CheckDownloadDuringWriteStalls();
+	CheckZeroLengthDownloadInSyncStalls();
+	CheckUploadLongerRequestEndsOnShortFrame();
+	CheckManifestBusyAnswersStatusOnly();
+	CheckManifestBusyStallsOtherRequests();
+	CheckFailedSendStalls();
+	CheckLayoutNeedsOneInterface();
 	CheckHostResetRestartsAfterManifestWithoutTolerance();
 	return SimTest::Finish("TestDfuState");
 }

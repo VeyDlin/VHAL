@@ -28,7 +28,7 @@ constexpr std::array<uint8, 1300> MakePattern(uint32 seed) {
 }
 
 
-// Two files of 100 KiB each. The second one's chain crosses a FAT sector boundary (entry 341 starts the second FAT sector).
+// Two files of 100 KiB each. The second one's chain crosses a FAT sector boundary (entry 341 straddles the boundary between the first and second FAT sectors, in bytes 511 and 512).
 constexpr std::array<uint8, 100 * 1024> MakeBlock(uint32 seed) {
 	std::array<uint8, 100 * 1024> bytes{};
 	for (std::size_t index = 0; index < bytes.size(); index++) {

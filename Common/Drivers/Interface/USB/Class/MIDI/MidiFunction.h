@@ -60,7 +60,8 @@ struct USBMidiPacket {
 //
 // Send side. SendEvent() and the helpers queue packets from the thread, and Process() starts the IN transfer. Each IN transfer
 // carries up to 16 whole packets, and the next transfer starts from the IN completion, so one transfer leaves the queue at
-// each completion and the rest follows without Process(). A queue that is full returns busy. Packets of a transfer that a halt
+// each completion and the rest follows without Process(). A full 16-packet transfer ends with a zero-length packet only when no
+// event waits behind it (see BuildInTransfer()). A queue that is full returns busy. Packets of a transfer that a halt
 // or a failed start abandons go back to the queue, so the host reads them after the halt clears. A bus reset or a configuration
 // clears the queue.
 //
@@ -115,6 +116,11 @@ private:
 	bool txClaimed = false;
 	bool outArmed = false;
 	bool outHalted = false;
+	// Count the OUT starts and the IN transfer changes (starts and completions), bumped before the adapter call. A start that returns
+	// an error clears its flag, or gives back its marks, only when nothing ran inside its call that changed the same state: a
+	// completion inside the call has already re-armed or committed it.
+	uint32 outStarts = 0;
+	uint32 inTransfers = 0;
 	// Counts each configuration and bus reset. TryStartIn() compares it before it starts a transfer, so packets taken from the
 	// queue before a reset never go out after it.
 	uint32 sessionGeneration = 0;
@@ -225,12 +231,13 @@ public:
 
 
 	// Queues a SysEx message as CIN 0x4 packets of three bytes and one closing packet (0x5, 0x6 or 0x7) with the last one to three
-	// bytes. A message of N bytes takes ceil(N / 3) packets. The bytes after the first must be 7-bit, and a final 0xF7 is the only
-	// one with bit 7 set, because a status byte inside a SysEx message ends it on the host. The message is queued whole or not at
-	// all: busy when the queue has no room for all of its packets now, invalidParameter for an empty message, a status byte inside
-	// it, or one longer than the queue, notReady while not configured.
+	// bytes. A message of N bytes takes ceil(N / 3) packets. A message is framed by 0xF0 and 0xF7, so it has at least two bytes.
+	// The bytes after the first must be 7-bit, and a final 0xF7 is the only one with bit 7 set, because a status byte inside a
+	// SysEx message ends it on the host. The message is queued whole or not at all: busy when the queue has no room for all of its
+	// packets now, invalidParameter for a message not framed by 0xF0 and 0xF7, a status byte inside it, or one longer than the
+	// queue, notReady while not configured.
 	ResultStatus SendSysEx(uint8 cable, std::span<const uint8> bytes) {
-		if (cable >= Cables || bytes.empty()) {
+		if (cable >= Cables || bytes.size() < 2 || bytes.front() != 0xF0 || bytes.back() != 0xF7) {
 			return ResultStatus::invalidParameter;
 		}
 
@@ -428,6 +435,7 @@ public:
 			}
 
 			inFlight = false;
+			inTransfers++;
 			txRing.CommitReads();
 			TryStartIn(context);
 			return;
@@ -590,7 +598,12 @@ private:
 		}
 
 		outArmed = true;
-		if (context.StartOutTransfer(outAddress, outBuffer) != ResultStatus::ok) {
+		uint32 startsBefore = outStarts;
+		outStarts++;
+		ResultStatus status = context.StartOutTransfer(outAddress, outBuffer);
+		// A start inside the call bumped the count, so the flag now belongs to that start and this failure must not clear it.
+		bool nestedStart = outStarts != startsBefore + 1;
+		if (status != ResultStatus::ok && !nestedStart) {
 			outArmed = false;
 		}
 	}
@@ -622,22 +635,30 @@ private:
 			return;
 		}
 
-		uint16 count = BuildInTransfer();
+		bool zeroLength = false;
+		uint16 count = BuildInTransfer(zeroLength);
 
 		System::CriticalSection(true);
 		txClaimed = false;
+		// A bus reset or a new configuration between the build and this section clears the queue, so the packets BuildInTransfer()
+		// copied belong to the old session. The generation catches that even when the function is configured again, where the
+		// configured and halt checks would pass. Without it, the stale packets would go out in the new session.
 		bool sameSession = sessionGeneration == generation;
 		bool send = count > 0 && configured && sameSession && !inHalted;
+		uint32 changesBefore = inTransfers;
 		ResultStatus status = ResultStatus::notReady;
 		if (send) {
-			status = context.StartInTransfer(inAddress, std::span<const uint8>(inBuffer).first(count), false);
+			inTransfers++;
+			status = context.StartInTransfer(inAddress, std::span<const uint8>(inBuffer).first(count), zeroLength);
 		}
 
 		// A transfer that did not start gives its packets back in the same section that releases the claim, so no interrupt sees
 		// the claim released while the marks are still set. A reset cleared the queue and its marks, so only a same-session
-		// abandon has marks to give back.
+		// abandon has marks to give back. A completion or a start inside the call (not possible under the adapter contract, which
+		// never completes IN inside the call) has already committed or taken the marks, so this failure leaves them alone.
 		bool started = send && status == ResultStatus::ok;
-		if (!started) {
+		bool nestedStart = send && inTransfers != changesBefore + 1;
+		if (!started && !nestedStart) {
 			inFlight = false;
 			if (count > 0 && sameSession) {
 				txRing.RollbackReads();
@@ -649,8 +670,14 @@ private:
 
 
 	// Marks up to 16 queued packets for the next transfer and copies them into the IN buffer. Returns the byte count, 0 when
-	// the queue is empty. Nothing is marked while a transfer is in flight, so the peek starts at the head.
-	uint16 BuildInTransfer() {
+	// the queue is empty. Nothing is marked while a transfer is in flight, so the peek starts at the head. A transfer of 16
+	// packets is a full packet of 64 bytes: it ends with a zero-length packet when no event is queued behind it, because the
+	// host's read would otherwise wait for the next one. A transfer with events behind it needs none, the next one starts at its
+	// completion. A shorter transfer ends with a short packet already. While the claim is held SendEvent() can only add events
+	// (a bus reset removes them, and the session check in TryStartIn() drops the transfer then), so an event that arrives after
+	// this check only makes the zero-length packet unneeded: the event goes out in the next transfer.
+	uint16 BuildInTransfer(bool& zeroLength) {
+		zeroLength = false;
 		uint16 available = txRing.Size();
 		uint16 wanted = available < PacketsPerTransfer ? available : PacketsPerTransfer;
 		if (wanted == 0) {
@@ -672,6 +699,7 @@ private:
 			}
 		}
 
+		zeroLength = got == PacketsPerTransfer && txRing.Size() == got;
 		return static_cast<uint16>(got * 4);
 	}
 };

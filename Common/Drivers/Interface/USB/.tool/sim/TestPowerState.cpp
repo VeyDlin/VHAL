@@ -28,7 +28,7 @@ void ConfigureTo(DeviceFixture& fixture) {
 
 
 void TestRemoteWakeupEnabled() {
-	DeviceFixture fixture;
+	DeviceFixture fixture(SimDescriptors::RemoteWakeupSet);
 	SIM_EXPECT_EQ(fixture.Start(), ResultStatus::ok);
 	fixture.sim.InjectBusReset();
 	ConfigureTo(fixture);
@@ -64,7 +64,7 @@ void TestRemoteWakeupEnabled() {
 
 
 void TestRemoteWakeupNotEnabled() {
-	DeviceFixture fixture;
+	DeviceFixture fixture(SimDescriptors::RemoteWakeupSet);
 	SIM_EXPECT_EQ(fixture.Start(), ResultStatus::ok);
 	fixture.sim.InjectBusReset();
 	ConfigureTo(fixture);
@@ -84,7 +84,7 @@ void TestRemoteWakeupNotEnabled() {
 
 
 void TestEnableThenDisable() {
-	DeviceFixture fixture;
+	DeviceFixture fixture(SimDescriptors::RemoteWakeupSet);
 	SIM_EXPECT_EQ(fixture.Start(), ResultStatus::ok);
 	fixture.sim.InjectBusReset();
 	ConfigureTo(fixture);
@@ -107,7 +107,7 @@ void TestEnableThenDisable() {
 // A bus reset turns the remote wakeup flag off. The host has to enable it again after the reset, and the device answers the
 // status with the flag clear until then.
 void TestBusResetClearsRemoteWakeup() {
-	DeviceFixture fixture;
+	DeviceFixture fixture(SimDescriptors::RemoteWakeupSet);
 	SIM_EXPECT_EQ(fixture.Start(), ResultStatus::ok);
 	fixture.sim.InjectBusReset();
 	SIM_EXPECT_EQ(SimHost::Control(fixture.sim, SimHost::MakeSetup(0x00, 3, 1, 0x0000, 0)), ResultStatus::ok);
@@ -125,6 +125,25 @@ void TestBusResetClearsRemoteWakeup() {
 	SIM_EXPECT_EQ(fixture.device.RemoteWakeup(), ResultStatus::notSupported);
 	SIM_EXPECT_EQ(fixture.device.GetState(), USBDeviceState::Suspended);
 	SIM_EXPECT_EQ(fixture.function.resumeCount, 0);
+}
+
+
+// A configuration that does not advertise remote wakeup refuses the feature: SET_FEATURE(DEVICE_REMOTE_WAKEUP) is a request
+// error (USB 2.0 9.4.9), the flag stays clear, and GET_STATUS keeps bit 1 clear.
+void TestRemoteWakeupNotAdvertised() {
+	DeviceFixture fixture;
+	SIM_EXPECT_EQ(fixture.Start(), ResultStatus::ok);
+	fixture.sim.InjectBusReset();
+	ConfigureTo(fixture);
+
+	std::array<uint8, 4> in = {};
+	uint32 received = 0;
+	SIM_EXPECT_EQ(SimHost::Control(fixture.sim, SimHost::MakeSetup(0x00, 3, 1, 0x0000, 0), std::span<const uint8>(), in, received), ResultStatus::accessError);
+	SIM_EXPECT(!fixture.device.IsRemoteWakeupEnabled());
+	ExpectIn(fixture.sim, SimHost::MakeSetup(0x80, 0, 0x0000, 0x0000, 2), std::array<uint8, 2>{ 0x00, 0x00 });
+
+	fixture.sim.InjectSuspend();
+	SIM_EXPECT_EQ(fixture.device.RemoteWakeup(), ResultStatus::notSupported);
 }
 
 
@@ -156,6 +175,7 @@ int main() {
 	TestRemoteWakeupNotEnabled();
 	TestEnableThenDisable();
 	TestBusResetClearsRemoteWakeup();
+	TestRemoteWakeupNotAdvertised();
 	TestSuspendFromAddressAndDefault();
 	return SimTest::Finish("TestPowerState");
 }

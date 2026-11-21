@@ -20,8 +20,11 @@
 //  - Wait states: set FLASH->ACR.LATENCY for the SYSCLK the BSP configures (RM0440 flash wait-state table). The
 //    adapter does not touch LATENCY.
 //  - IRQ: none. Erase and program are polled, so the FLASH vector is not used and the adapter has no IrqHandler().
-//  - Code location: while a bank is erased or programmed, the CPU cannot fetch from it. Code that calls PageErase(),
-//    MassErase() or WriteData() must run from RAM, or from the other bank on dual-bank parts.
+//  - Code location: while a bank is erased or programmed, a read of that bank waits until the operation ends. On the
+//    single-bank G431 that is every read, so code that calls PageErase(), MassErase() or WriteData() may run from flash:
+//    the CPU stalls for up to one operation, and the interrupts wait with it. Nothing is corrupted. Each operation is
+//    bounded by the timeouts in this file. Run the caller from RAM only when the interrupt latency during the operation
+//    matters. On dual-bank parts, read-while-write runs the code from the other bank instead.
 //  - Option bytes: a written value takes effect at the next option reload. LaunchOptionBytes() forces the reload,
 //    which resets the MCU.
 //  - Caches: each erase and program disables the instruction and data cache, resets them afterwards and restores

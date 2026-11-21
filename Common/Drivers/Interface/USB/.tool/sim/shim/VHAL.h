@@ -29,6 +29,15 @@ inline void System::CriticalSection(bool isEnable) {
 }
 
 
+// Set by a test around a call that runs as an interrupt would, so System::IsInterrupt() answers as the port does.
+inline bool simInterruptContext = false;
+
+
+inline bool System::IsInterrupt() {
+	return simInterruptContext;
+}
+
+
 // The number of critical sections open now. Zero means none is left open.
 inline int SimCriticalDepth() {
 	return simCriticalDepth;
