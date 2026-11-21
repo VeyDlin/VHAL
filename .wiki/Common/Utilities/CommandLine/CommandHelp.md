@@ -10,10 +10,10 @@ For the output, the rules and the limits, see README.md, Help.
 
 | Part | Use |
 |---|---|
-| `struct Help` | The module. Hooks `OnCharacter`, `OnEvent` and `OnLineEnd` (returns true for a help request). Has no `Provides` or `Needs` |
+| `struct Help` | The module. Hooks `OnCharacter`, `OnEvent` and `OnLineEnd` (returns true for a help request). Has no `Provides` or `Needs`. `KeepsLineCopy` is true, so the order check finds it |
 | `CommandHelpWord(text, position)` | The next word of a text, or an empty view |
 | `CommandHelpPad(out, n)` | `n` spaces |
-| `CommandHelpDescribe(out, declaration)` | An argument's kind, range or values, and default |
+| `CommandHelpDescribe(out, declaration)` | An argument's kind, range or values, and default. A float writes its range and default with two decimals. A secret writes `secret text of at most N characters, shown as *`, with no default |
 | `CommandHelpUsage(out, declaration)` | `<name>` or `[name]` |
 | `CommandHelpCommandPage` | The item visitor: writes one command, from its typed `CommandItem` |
 | `CommandHelpCommandVisit` | The level visitor for a command, through `VisitCommand` |
@@ -28,7 +28,8 @@ The visitors are the set's typed view: `VisitLevel` gives the typed level at a g
 
 - `OnCharacter` copies the characters as the console reads them. A tab is a space. Backspace and DEL remove the last one. Other bytes outside `0x20`–`0x7E` are not copied, as the console ignores them. It returns false, so the console still reads the character.
 - `OnEvent` clears the copy for `Interrupt`, `TerminalOpened` and `TerminalClosed`, and marks it lost for `InputOverflow`. It returns false.
-- `OnLineEnd` answers the copy when it is not lost, then clears it. It returns true when it answered. Its `static_assert` requires a set with commands or groups.
+- `OnLineEnd` answers the line when it is not lost, then clears the copy. The line is the `LineEditing` buffer when that is listed (`WithModule<CommandLineBufferFeature>`), with no length limit. Otherwise it is the copy, and a copy that overflowed (`tooLong`) is not answered. It returns true when it answered. Its `static_assert` requires a set with commands or groups.
+- `tooLong` marks a copy that overflowed, which is kept apart from `lost` (`InputOverflow`), so a long line with `LineEditing` is still answered.
 
 ---
 
@@ -53,4 +54,4 @@ Then it prints the command at its level with `VisitCommand`, or the level with `
 - `LineSize` is 64. A longer line is not answered.
 - The copy and its state are the object's: 64 bytes and a length, in the console object when `Help` is listed.
 - The module is not thread safe. It is used from `Process` only, as all the module hooks are.
-- A module listed before `Help` that takes a character or an event hides it, so the copy can differ from the console's line.
+- A module listed before `Help` that takes a character, a key or an event hides it, so the copy can differ from the console's line. That is a compile error, except for the modules on the line buffer (`LineEditing`, `History`), which Help does not need the copy for.

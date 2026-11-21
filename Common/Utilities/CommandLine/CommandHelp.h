@@ -1,6 +1,7 @@
 #pragma once
 #include "CommandArgument.h"
 #include "CommandLevel.h"
+#include "CommandModules.h"
 #include "CommandNameTree.h"
 #include "CommandPack.h"
 #include "CommandTypes.h"
@@ -26,11 +27,12 @@
 //   a command:  its help text, a usage line with the path and <required> or [optional] arguments, then one line per argument with its
 //               kind, its range or values, and its default
 //
-// Help keeps its own copy of the line, up to LineSize characters, because the console keeps none. A line that is longer is not a
-// help request. Help takes the line it answers: the console raises no events for it, and no command runs.
+// Help reads the line from LineEditing when it is listed, so the line is whole, with its edits. Without LineEditing, Help keeps its own
+// copy of the line, up to LineSize characters, because the console keeps none. A line that is longer than that copy is not a help
+// request in that case. Help takes the line it answers: the console raises no events for it, and no command runs.
 //
-// Help must be listed before any module that takes characters or events. A module listed earlier that takes a character hides it
-// from Help, so Help's copy of the line would differ from the console's.
+// Help must be listed before any module that takes characters, keys or events, except LineEditing and History (see CommandModules.h).
+// A module listed earlier that takes a character hides it from Help, so Help's copy of the line would differ from the console's.
 //
 // A set with no commands and no groups cannot have help, and a listed Help is a compile error for it.
 //
@@ -100,6 +102,16 @@ void CommandHelpDescribe(Print& out, const Declaration& declaration) {
 				}
 			}
 		}
+	} else if constexpr (Declaration::Kind == CommandArgumentKind::Float) {
+		out.Write("number ");
+		out.Write(declaration.minimum, 2);
+		out.Write("..");
+		out.Write(declaration.maximum, 2);
+
+		if (declaration.hasDefault) {
+			out.Write(", default ");
+			out.Write(declaration.defaultValue, 2);
+		}
 	} else if constexpr (Declaration::Kind == CommandArgumentKind::Text) {
 		out.Write("text of at most ");
 		out.Write(Declaration::MaxLength);
@@ -110,6 +122,10 @@ void CommandHelpDescribe(Print& out, const Declaration& declaration) {
 			out.Write(declaration.defaultValue.View());
 			out.Write("\"");
 		}
+	} else if constexpr (Declaration::Kind == CommandArgumentKind::Secret) {
+		out.Write("secret text of at most ");
+		out.Write(Declaration::MaxLength);
+		out.Write(" characters, shown as *");
 	} else {
 		out.Write("value");
 	}
@@ -249,11 +265,16 @@ struct CommandHelpLookup {
 
 
 struct Help {
+public:
+	static constexpr bool KeepsLineCopy = true;
+
+
 private:
 	static constexpr std::size_t LineSize = 64;
 
 	std::array<char, LineSize> line{};
 	std::size_t length = 0;
+	bool tooLong = false;
 	bool lost = false;
 
 
@@ -287,7 +308,7 @@ public:
 			line[length] = character;
 			length++;
 		} else {
-			lost = true;
+			tooLong = true;
 		}
 
 		return false;
@@ -322,10 +343,15 @@ public:
 		using Commands = typename Console::Commands;
 		static_assert(Commands::EntryCount > 0, "Help needs a command or a group in the set");
 
+		std::string_view text(line.data(), length);
+		bool kept = console.template WithModule<CommandLineBufferFeature>([&]<typename Editor>(Editor& editor) {
+			text = editor.Text();
+		});
+
 		bool answered = false;
 
-		if (!lost) {
-			answered = Answer<Commands>(console.Output());
+		if (!lost && (kept || !tooLong)) {
+			answered = Answer<Commands>(console.Output(), text);
 		}
 
 		Clear();
@@ -336,15 +362,14 @@ public:
 private:
 	void Clear() {
 		length = 0;
+		tooLong = false;
 		lost = false;
 	}
 
 
 	// Reads the words of the line. A help request is help followed by a path, or a path followed by -h.
 	template<typename Commands>
-	bool Answer(Print& out) {
-		std::string_view text(line.data(), length);
-
+	bool Answer(Print& out, std::string_view text) {
 		std::size_t scan = 0;
 		std::string_view first = CommandHelpWord(text, scan);
 

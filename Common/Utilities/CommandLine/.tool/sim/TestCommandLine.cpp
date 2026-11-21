@@ -742,6 +742,23 @@ void TestRefusedInterrupt() {
 	CommandExpect(traced.app.interrupts == 1);
 	CommandExpect(traced.app.keyCode == -1);
 	CommandExpectText(traced.app.log, Ev("InputOverflow") + Ev("Interrupt"));
+
+	// Two refused presses at the same place each cancel the line, so two Interrupts follow the bytes before them, one after the other in
+	// one Process. The line that follows is read as usual.
+	Session<PlainCommands> pair;
+	std::string pairLine = "key 1" + std::string(27, ' ');
+	for (char character : pairLine) {
+		pair.console.Feed(static_cast<uint8>(character));
+	}
+
+	pair.console.Feed(0x03);
+	pair.console.Feed(0x03);
+	pair.console.Process();
+	CommandExpectText(pair.Take(), "input lost\r\nkey 1" + std::string(27, ' ') + "^C\r\n> ^C\r\n> ");
+	CommandExpect(pair.app.keyCode == -1);
+
+	CommandExpectText(Run(pair, "key 2"), "key 2\r\n> ");
+	CommandExpect(pair.app.keyCode == 2);
 }
 
 

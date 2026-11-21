@@ -2,6 +2,7 @@
 #include "CommandSimSets.h"
 #include <Utilities/CommandLine/CommandSet.h>
 #include <cstddef>
+#include <string>
 
 
 // The name trees of the command sets, checked against the names the sets declare. Expected entry numbers follow the declaration
@@ -109,6 +110,26 @@ int main() {
 
 	// The default-only set has no name, and walking its (empty) tree is never needed.
 	CommandExpect(SimOnlyDefault::EntryCount == 0);
+
+	// The children of the root are listed in declaration order: the first characters of key, move, mode, fail, a_b-9 and motor. move,
+	// mode and motor share the m, so the m is listed once, where its first name is declared.
+	std::string firstCharacters;
+
+	for (uint16 child = SimCommands::TreeFirstChild(SimCommands::Root); child != CommandNoNode; child = SimCommands::TreeSibling(child)) {
+		firstCharacters += SimCommands::TreeCharacter(child);
+	}
+
+	CommandExpect(firstCharacters == "kmfa");
+
+	// The children of the m node are move, mode and motor, in the order they were declared.
+	uint16 mo = WalkName<SimCommands>("mo");
+	std::string afterMo;
+
+	for (uint16 child = SimCommands::TreeFirstChild(mo); child != CommandNoNode; child = SimCommands::TreeSibling(child)) {
+		afterMo += SimCommands::TreeCharacter(child);
+	}
+
+	CommandExpect(afterMo == "vdt");
 
 	return CommandSim::Finish("TestCommandTree");
 }

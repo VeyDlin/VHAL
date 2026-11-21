@@ -12,7 +12,11 @@
 | `Argument<bool>` | `Boolean` | Name, default |
 | `Argument<E>` for an enum `E` | `Enumeration` | Name. `Values({...})` gives an `EnumArgument<E, N>` of exact size |
 | `Argument<String<N>>` | `Text` | Name, default text |
+| `Argument<Secret<N>>` (HiddenInput) | `Secret` | Name. No default. Echoed as `*` |
+| `Argument<float>`, `Argument<double>` (FloatArguments) | `Float` | Name, range, default |
 | `Argument<T>` for any other `T` | `Custom` | Name, default |
+
+A floating-point `T` with no FloatArguments header is refused by the primary template, with `a float argument needs CommandFloatArguments.h, and the FloatArguments module listed in the console`. See CommandFloatArguments.md.
 
 `Range(low, high)` takes integers of any type and checks that each bound fits the argument's type. `Default` takes an integer, a `bool`, an enum value, or text. Each declaration's `Verify()` runs when the command is declared, so `Range` and `Default` may come in either order.
 

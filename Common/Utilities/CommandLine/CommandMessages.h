@@ -8,21 +8,35 @@
 // The standard default handler: the text the console prints for an event when the set has no Default() of its own. The console prints
 // the prompt after each line, so EmptyLine, Word, EndOfLine, TerminalClosed and Command print nothing here. Only CommandLine.h calls
 // this, and only when the set has no Default(), so CommandStatusNames is linked only then.
+//
+// The functions take the set, so a float range is written only by a set that has float arguments. A set without them links no float
+// text from here.
 
 
+template<typename Set>
 inline void CommandWriteRange(Print& out, const CommandEvent& event) {
-	out.Write(event.minimum);
+	if constexpr (Set::HasFloat) {
+		if (event.argumentKind == CommandArgumentKind::Float) {
+			out.Write(event.range.floats.minimum, 2);
+			out.Write("..");
+			out.Write(event.range.floats.maximum, 2);
+			return;
+		}
+	}
+
+	out.Write(event.range.integers.minimum);
 	out.Write("..");
 
-	if (event.maximumUnsigned) {
-		out.Write(event.unsignedMaximum);
+	if (event.range.integers.maximumUnsigned) {
+		out.Write(event.range.integers.unsignedMaximum);
 	} else {
-		out.Write(event.maximum);
+		out.Write(event.range.integers.maximum);
 	}
 }
 
 
 // The reason an argument is refused, after the argument's name.
+template<typename Set>
 inline void CommandWriteProblem(Print& out, const CommandEvent& event) {
 	switch (event.fault) {
 		case CommandFault::Missing:
@@ -38,12 +52,12 @@ inline void CommandWriteProblem(Print& out, const CommandEvent& event) {
 		case CommandFault::OutOfRange:
 			out.Write(event.argument);
 			out.Write(" must be ");
-			CommandWriteRange(out, event);
+			CommandWriteRange<Set>(out, event);
 			return;
 		case CommandFault::TooLong:
 			out.Write(event.argument);
 			out.Write(" must be at most ");
-			out.Write(event.maximum);
+			out.Write(event.range.integers.maximum);
 			out.Write(" characters");
 			return;
 		default:
@@ -54,6 +68,7 @@ inline void CommandWriteProblem(Print& out, const CommandEvent& event) {
 
 	switch (event.argumentKind) {
 		case CommandArgumentKind::Integer:
+		case CommandArgumentKind::Float:
 			out.Write(" must be a number");
 			return;
 		case CommandArgumentKind::Boolean:
@@ -69,6 +84,16 @@ inline void CommandWriteProblem(Print& out, const CommandEvent& event) {
 }
 
 
+// Whether an event is an error that the standard text reports as one: the texts an Ansi console colours.
+inline bool CommandIsErrorEvent(const CommandEvent& event) {
+	return event.kind == CommandEventKind::CommandFailed
+		|| event.kind == CommandEventKind::UnknownCommand
+		|| event.kind == CommandEventKind::ArgumentError
+		|| event.kind == CommandEventKind::InputOverflow;
+}
+
+
+template<typename Set>
 inline void CommandWriteEvent(Print& out, const CommandEvent& event) {
 	switch (event.kind) {
 		case CommandEventKind::CommandFailed:
@@ -86,7 +111,7 @@ inline void CommandWriteEvent(Print& out, const CommandEvent& event) {
 		case CommandEventKind::ArgumentError:
 			out.Write(event.command);
 			out.Write(": ");
-			CommandWriteProblem(out, event);
+			CommandWriteProblem<Set>(out, event);
 			out.Line();
 			return;
 		case CommandEventKind::InputOverflow:

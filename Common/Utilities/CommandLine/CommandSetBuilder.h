@@ -64,13 +64,26 @@ struct InterruptItem {
 template<typename Handler>
 struct CommandHandlerOf {
 	static constexpr bool Valid = false;
+	static constexpr bool Long = false;
 };
 
 
 template<typename Context, typename... Parameters>
 struct CommandHandlerOf<ResultStatus (*)(CommandCall<Context>, Parameters...)> {
 	static constexpr bool Valid = true;
+	static constexpr bool Long = false;
 	using Ctx = Context;
+	using Values = std::tuple<std::remove_cvref_t<Parameters>...>;
+};
+
+
+// A long command's handler: it returns a CommandStep, and its first parameter carries the handler's state (LongCommands).
+template<typename Context, typename Saved, typename... Parameters>
+struct CommandHandlerOf<CommandStep (*)(CommandLongCall<Context, Saved>, Parameters...)> {
+	static constexpr bool Valid = true;
+	static constexpr bool Long = true;
+	using Ctx = Context;
+	using State = Saved;
 	using Values = std::tuple<std::remove_cvref_t<Parameters>...>;
 };
 

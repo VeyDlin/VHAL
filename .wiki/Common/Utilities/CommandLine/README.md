@@ -2,7 +2,7 @@
 
 `Common/Utilities/CommandLine/`: a text console for any byte stream (UART, USB CDC-ACM, or anything with a `Print`). Commands are declared once, with typed arguments, and the compiler checks the declaration. The console parses input as it arrives, so no line is kept. No heap is used, and no exception, RTTI or `std::function`.
 
-Status: the declaration side, the console and the `Help` module are done. The other modules (`LineEditing`, `History`, `Completion`, `LongCommands`, `HiddenInput`, `Ansi`, `FloatArguments`) are not written. Their hooks are in place (see Modules).
+Status: the declaration side, the console, and all modules are done: `Help`, the editing modules (`LineEditing`, `History`, `Completion`), `LongCommands`, `HiddenInput`, `Ansi` and `FloatArguments`. The modules are measured on the Cortex-M4 (Memory), but not on the G431 board, and their tests are host tests only.
 
 ---
 
@@ -183,6 +183,7 @@ Each of these is a compile error with the message in the second column.
 | Required argument after an optional one | `a required argument comes after an optional one` |
 | Range bound outside the type | `a range bound is outside the type of the argument` |
 | Range with minimum above maximum | `a range has its minimum above its maximum` |
+| Float range bound infinite or nan | `a float range bound is not finite` |
 | Default outside the range | `the default is outside the range of the argument` |
 | Default outside the type | `the default is outside the type of the argument` |
 | Default not one of the enum values | `the default is not one of the enum values` |
@@ -199,6 +200,7 @@ Each of these is a compile error with the message in the second column.
 | Context of a handler not the application type or a base | `the context of a handler is not the application type or one of its bases` |
 | A listed module needs a feature no listed module provides | `a module needs a feature that no listed module provides` |
 | `Help` listed with a set that has no commands or groups | `Help needs a command or a group in the set` |
+| A module that takes characters, keys or events listed before `Help` (`LineEditing` and `History` exempt) | `Help must be listed before a module that takes characters, keys or events` |
 
 The rules are checked by `Common/Utilities/CommandLine/.tool/sim/BuilderErrors/check.sh`, one snippet per rule.
 
@@ -209,6 +211,7 @@ The rules are checked by `Common/Utilities/CommandLine/.tool/sim/BuilderErrors/c
 ```cpp
 CommandLine<AppCommands, App> console(app, out);            // out is a Print, app the application
 CommandLine<AppCommands, App, InputRing<64>, Help> console(app, out);  // a ring of 64 bytes, and a listed module
+CommandLine<AppCommands, App, Help, LineEditing<64>, History<4, 128>, Completion> console(app, out);  // the editing modules
 ```
 
 | Call | Context it may run in | What it does |
@@ -218,17 +221,17 @@ CommandLine<AppCommands, App, InputRing<64>, Help> console(app, out);  // a ring
 | `SetTerminalOpen(open)` | any context | Stores the state. The `TerminalOpened` or `TerminalClosed` event comes from the next `Process` |
 | `Output()`, `Application()` | `Process` (from a module hook) | The console's `Print` and application, for modules |
 
-- `Feed` is single-producer. Only one context may call it at a time, and `Process` is the only consumer. The ring is 32 bytes, or the size of a listed `InputRing<N>`.
+- `Feed` is single-producer. Only one context may call it at a time, and `Process` is the only consumer. The ring is 32 bytes, or the size of a listed `InputRing<N>`, which must be a power of two.
 - Bytes that do not fit the ring are counted and reported as `InputOverflow` at the next `Process`.
 - Ctrl+C (`0x03`) is handled in `Feed`. An `OnInterrupt` handler runs at once, with no output. The byte is then queued like any other, so `Process` cancels the line where the byte was. A Ctrl+C that is lost because the ring is full still cancels the line, at its place: the bytes accepted before it are handled first, as usual.
 - Memory: see Memory below.
 
 ### Input
 
-- Printable characters are echoed as they arrive. Tab is a space.
+- Printable characters are echoed as they arrive. Tab is a space, unless `Completion` takes it.
 - Backspace (`0x08`) and DEL (`0x7F`) erase: the echo is `BS SPACE BS`, and only when something was erased.
 - Line ends: CR, LF, CR LF and LF CR each end one line, and two CRs or two LFs in a row end two lines. Enter echoes `\r\n`.
-- Escape sequences are decoded and dropped: arrow keys, Home, End and Delete inject nothing. A control byte inside a sequence breaks it and is read as input. The keys go to a module's `OnKey` hook first.
+- Escape sequences are decoded. Without a module that takes a key, arrow keys, Home, End and Delete inject nothing. A control byte inside a sequence breaks it and is read as input. The keys go to a module's `OnKey` hook first.
 - Other control bytes and bytes above `0x7E` are ignored.
 
 ### Parsing, without a line buffer
@@ -254,14 +257,14 @@ Every event goes to a module that takes it (`OnEvent`), then to the set's `Defau
 | `UnknownCommand` | a name matches no command, or a group name is given alone | `unknown command 'xyz', try help` |
 | `ArgumentError` | a missing argument, an extra one, a value that is not a number, out of range, a string too long or not closed | `key: code must be 0..255`, `key: code is missing`, `key: too many arguments`, `key: code must be a number`, `key: code must be on, off, true, false, 1 or 0`, `key: mode must be a listed value`, `key: label must be at most 8 characters`, `key: missing closing quote` |
 | `EmptyLine` | Enter on an empty line or a line of spaces | (prompt only) |
-| `Word` | the default-only build: a word is final, when the next word starts or at Enter | (nothing) |
+| `Word` | the default-only build: a word is final, when the next word starts or at Enter; with `LineEditing`, the words of the edited line are raised at Enter | (nothing) |
 | `EndOfLine` | the default-only build: at Enter, after the words | (nothing) |
 | `Interrupt` | Ctrl+C | `^C`, then the prompt |
 | `TerminalOpened` | `SetTerminalOpen(true)` | `VHAL command line`, then the prompt |
 | `TerminalClosed` | `SetTerminalOpen(false)`: the line is dropped | (nothing) |
 | `InputOverflow` | bytes were lost to a full ring | `input lost` |
 
-A `CommandEvent` has `kind`, `text` (the word of `UnknownCommand` and `Word`), `status` (of a failed command), `command` (the command an error is about), `argument` (the argument's declared name), `argumentKind`, `fault` (why it was refused), and `minimum` and `maximum` (its range; `unsignedMaximum`, with `maximumUnsigned` set, holds a 64-bit unsigned maximum above the int64 range), and `truncated` on a `Word` event whose word is longer than the word buffer. A string that is not about an argument leaves the argument fields empty. The command is named by its own name, not by the group path: `gain: value must be ...`, not `motor pid gain: ...`.
+A `CommandEvent` has `kind`, `text` (the word of `UnknownCommand` and `Word`), `status` (of a failed command), `command` (the command an error is about), `argument` (the argument's declared name), `argumentKind`, `fault` (why it was refused), its range in `range` (`range.integers`, with `minimum` and `maximum`, and `unsignedMaximum` with `maximumUnsigned` set for a 64-bit unsigned maximum above the int64 range; `range.floats` for a float argument, with `minimum` and `maximum` as doubles, which shares storage with `range.integers`, so the event does not grow for a set without floats), and `truncated` on a `Word` event whose word is longer than the word buffer. A string that is not about an argument leaves the argument fields empty. The command is named by its own name, not by the group path: `gain: value must be ...`, not `motor pid gain: ...`.
 
 With a `Default()`, the set's handler decides what each event prints or does, and the standard texts are not used.
 
@@ -272,13 +275,17 @@ A set with no commands (`CommandSetBuilder().Default(&OnEvent)`, or none at all)
 - `Word` when a word is final: when the next word starts, or at Enter for the last one. The text is the word, cut to its first 16 characters, and `truncated` is set when the word was longer.
 - `EndOfLine` at Enter, after the words, or `EmptyLine` for a line with no word.
 
-Backspace removes characters from the last word. While only spaces follow a word, it erases the spaces and then the word. Once a later word has started, the earlier word is final, and the space that keeps the two apart stays. So after `a b`, two Backspaces leave `a `, and a third does nothing: `a` cannot be erased from that position. This is the rule as built; the owner has not yet decided whether it should change.
+Backspace removes characters from the last word. While only spaces follow a word, it erases the spaces and then the word. Once a later word has started, the earlier word is final, and the space that keeps the two apart stays. So after `a b`, two Backspaces leave `a `, and a third does nothing: `a` cannot be erased from that position. This is the rule without `LineEditing`: a user who needs to edit a whole line lists `LineEditing`.
+
+With `LineEditing`, no `Word` event is raised while the line is typed. At Enter the console raises the `Word` events of the edited line, from the buffer, then `EndOfLine`. Backspace goes back over the words too, since the buffer decides. So `ab cd`, Home, `x`, Enter gives `xab` and `cd`, and four Backspaces from `ab cd` leave `a`, which is the one `Word` raised at Enter. See CommandLineEditing.md.
 
 ### Interrupt
 
 With `OnInterrupt`, Ctrl+C runs the handler in `Feed`, at once, from whatever context `Feed` runs in. The handler gets `App&` only, and must be short and safe in an interrupt. It is a convenience, not a safety function: an emergency stop that matters must not depend on the console.
 
 Either way, `Process` cancels the line where the byte was, and an `Interrupt` event goes out. A cancelled line is not answered: a `help` typed before the Ctrl+C prints nothing.
+
+A Ctrl+C that the full ring refuses is still taken at its place, as an accepted one is. Each refused press raises its own `Interrupt` when `Process` reaches the bytes accepted before it. Two refused presses at the same place give two `Interrupt`s. At most two refused presses wait at once; a third, while two wait, is dropped (see CommandLine.md).
 
 ---
 
@@ -300,7 +307,7 @@ struct Echo {
 	template<typename Console>
 	bool OnEvent(Console& console, const CommandEvent& event);  // before the default handler; true consumes the event
 	template<typename Console>
-	void OnPrompt(Console& console);                         // before the prompt
+	bool OnPrompt(Console& console);                         // before the prompt; true means the module wrote it
 };
 ```
 
@@ -309,6 +316,31 @@ Each hook is optional. A `void OnLineEnd` is also accepted. The console passes i
 A module whose `Needs` no listed module provides is a compile error, `a module needs a feature that no listed module provides`.
 
 `CommandModules.h` has the dispatch. `CommandLine.h` shows where each hook runs.
+
+### Editing modules
+
+| Module | What it adds | Cost | Needs | Page |
+|---|---|---|---|---|
+| `LineEditing<N>` | Cursor keys, Home, End, Delete, Ctrl+A, E, K, W; insert in the middle | an N-byte line buffer | | [CommandLineEditing](CommandLineEditing.md) |
+| `History<Lines, Bytes>` | Up and Down recall lines, into the `LineEditing` buffer | a ring of Bytes | `LineEditing` | [CommandHistory](CommandHistory.md) |
+| `Completion` | Tab completes a command, group or enum value from the name tree | code only | | [CommandCompletion](CommandCompletion.md) |
+
+### Other modules
+
+| Module | What it adds | Cost | Needs | Page |
+|---|---|---|---|---|
+| `LongCommands` | A handler returns `CommandContinue` and runs again on each `Process` pass; Ctrl+C cancels it | a step-state slot, the largest state of the set | | [CommandLongCommands](CommandLongCommands.md) |
+| `HiddenInput` | `Secret<N>` arguments, echoed as `*` | one byte, and the echo | | [CommandHiddenInput](CommandHiddenInput.md) |
+| `Ansi` | Coloured errors and prompt; Ctrl+L clears the screen | code only | | [CommandAnsi](CommandAnsi.md) |
+| `FloatArguments` | `float` and `double` arguments, read by `FloatParser`, with `Range` and `Default` | the float parser (several kilobytes of flash) | | [CommandFloatArguments](CommandFloatArguments.md) |
+
+`LongCommands`, `HiddenInput` and `FloatArguments` are features, not hooks: the console does the work, so the set's need for one is checked. A set with a long command, a `Secret` or a `float` needs its module listed, and a compile error says so. `Ansi` is a hook module, listed after `Help`.
+
+The line buffer is `CommandLineBufferFeature`, provided by `LineEditing`. `Help` reads the line from it when it is listed, so an edited line is answered whole.
+
+`Help` must be listed before every module that takes a character, a key or an event, except `LineEditing` and `History`, which work on the buffer. A `Completion` listed before `Help` is a compile error: `Help must be listed before a module that takes characters, keys or events (LineEditing and History are exempt)`.
+
+The console methods that modules use are `Output()`, `Application()`, `Type(char)` (through the modules), `Append(char)` (the parser and the echo, no modules), `EraseLast()`, `Replay(text, size)`, `RedrawPrompt()`, `Changes()`, `Parsed()` (read only) and `WithModule<Feature>(visitor)`. See CommandLine.md.
 
 ---
 
@@ -333,10 +365,10 @@ Rules:
 - A request takes the line: no events are raised and no command runs. A `key -h` with a missing argument still prints the help.
 - A trailing `-h` is always a request, even where it would be a valid string argument.
 
-Help keeps its own copy of the line, up to 64 characters (`LineSize`), because the console keeps none. Backspace removes from the copy as it does from the console. A line longer than that is not a request, and it runs as a normal line. Lost input (`InputOverflow`), Ctrl+C and a terminal change drop the copy.
+Without `LineEditing`, Help keeps its own copy of the line, up to 64 characters (`LineSize`), because the console keeps none. Backspace removes from the copy as it does from the console. A line longer than that is not a request, and it runs as a normal line. Lost input (`InputOverflow`), Ctrl+C and a terminal change drop the copy. With `LineEditing` listed, Help reads the line from its buffer, and the copy is not used.
 
 Limits:
-- Help must be listed before any module that takes characters or events. A module listed earlier that takes one hides it from Help, so the copy would differ from the console's.
+- Help must be listed before any module that takes characters, keys or events, except `LineEditing` and `History`. This is a compile error otherwise (see Modules).
 - A set with no commands and no groups has nothing to describe: a listed `Help` is a compile error.
 
 ---
@@ -353,26 +385,38 @@ arm-none-eabi-g++ -std=c++20 -Os -fno-exceptions -fno-rtti -mcpu=cortex-m4 -mthu
 
 The samples are a default-only console; seven commands with integer, bool, enum and string arguments, and a default handler; and the same with `Help`. All of them feed one fixed input, which has a help request. Only the one with `Help` answers it. Each sample has a stub `Print` that counts bytes and writes no hardware, and the stub's integer writing is in all of them. An empty `main` is the baseline.
 
-| Build | text | data | bss | console object (bss) |
-|---|---|---|---|---|
-| Empty `main` (baseline) | 432 | 8 | 32 | |
-| Default only | 1888 | 104 | 512 | 156 |
-| Seven commands, with `Default()` | 10952 | 104 | 808 | 400 |
-| Seven commands, with `Default()` and `Help` | 15352 | 104 | 884 | 472 |
+The rows come from one size sample, built once per row with the same flags, so they compare with each other.
 
-`text` includes `.rodata`. `size` gives these figures with `arm-none-eabi-size`.
+| Build | text | data | bss |
+|---|---|---|---|
+| Empty `main` (baseline) | 432 | 8 | 32 |
+| Default only | 2108 | 104 | 584 |
+| Seven commands, with `Default()` | 11368 | 104 | 836 |
+| Seven commands, with `Default()` and `Help` | 16912 | 104 | 912 |
+| Row above, with `LineEditing<64>`, `History<4, 128>` and `Completion` | 19720 | 104 | 1136 |
+| Row above, with `LongCommands`, `HiddenInput`, `Ansi` and `FloatArguments` listed (the set is unchanged) | 20500 | 104 | 1160 |
+| Row above, the set also has a long command, a `Secret` and a `float` argument | 29420 | 104 | 1304 |
 
-- Help costs +4400 bytes of text, and +76 bytes of bss, of which 72 are in the console object (its 64-byte line copy and its length).
-- The seven-command set costs +9064 bytes of text over the default-only build. That is the parser's readers and the tables of the seven commands.
-- Outside the console object, the samples' bss is 356 bytes (default only), 408 (seven commands) and 412 (with Help), against 32 for the empty baseline. The first reading attributed the difference to newlib state (`__sf` and `_impure_data`), which the baseline does not link. The cause is not identified, and it is not command line memory.
-- The stub `Print` is included in every sample, so the figures compare the console with each other, not with a board's total.
+The figures are measured with arm-none-eabi-g++ 15.2.1 and the flags above.
+
+`text` includes `.rodata`. `size` gives these figures with `arm-none-eabi-size`. The flags are those above, with `-I` for the stub and the shim.
+
+- The core, with no module listed, links no code of an unlisted feature: `nm` finds no long command, secret, float, `Ansi`, History, LineEditing or Completion symbol. The rest is core code: the refused Ctrl+C handling of the input ring, the console's input path (`Process`, `Accept`, `EndLine`, `Interrupted`) and the inlined `Feed`, which has no symbol of its own. In the rows with arguments, the argument error path is split into separate functions: `RunCommand` and `FillArgument` have their own symbols.
+- `Help` costs +5544 bytes of text and +76 bytes of bss, over the seven-command build.
+- The editing modules cost +2808 bytes of text and +224 of bss. `LineEditing` and `History` are most of it: +1748 bytes of text and +216 of bss. `Completion` costs +1060 bytes of text and +8 of bss, measured with the row above built without it (that build is not in the table).
+- Listing the other four modules, without using them, costs +780 bytes of text and +24 of bss.
+- A set that uses a long command, a `Secret` and a `float` costs +8920 bytes of text and +144 of bss. The float number code (`FloatParser`, `CommandFloatSlot`, `NumberDetail` and the `__float` conversions, 25 symbols in `nm`) is 4044 bytes of that text.
+- A module that is not listed links nothing. `nm` on the rows without `LongCommands`, `HiddenInput`, `Ansi` and `FloatArguments` finds no module symbol and no float symbol.
+- The stub `Print` is in every row, so the figures compare the console with each other, not with a board's total.
 
 Run-time memory, the parts of the console object:
-- the input ring, 32 bytes, or the size of a listed `InputRing<N>`;
+- the input ring, 32 bytes, or the size of a listed `InputRing<N>`, with the two places of refused Ctrl+C presses and their counters (the bss figures above include them);
 - the parser's state: a row per group level (the word buffer, 16 bytes, and the name row, at the longest name's length), a row per argument of the largest command (its slot and count), and one value area of the largest command's values;
-- the module objects, such as `Help`'s 64-byte line copy.
+- the module objects, such as `Help`'s 64-byte line copy, and the editing modules: `LineEditing<64>` is 88 bytes and `History<4, 128>` is 160 bytes, measured on the host (the sizes of the object, not of the G431 build);
+- `LongCommands`: the step-state slot, the largest state of the set and its alignment, and the run's name and flag. Without a long command the slot is one byte, and the run's name (16 bytes on the host) is kept once `LongCommands` is listed;
+- `HiddenInput`, `Ansi` and `FloatArguments` have no state. Each takes one byte in the module pack. The parser's secret flag is one byte in every console, listed `HiddenInput` or not.
 
-There is no line buffer in the core. Flash holds the compile-time tables of the set (the name trees, the entries and the argument metadata), which are exact-size arrays, and the handler code.
+There is no line buffer in the core. `LineEditing` adds one, of its size. Flash holds the compile-time tables of the set (the name trees, the entries and the argument metadata), which are exact-size arrays, and the handler code.
 
 ---
 
@@ -382,9 +426,16 @@ The sim tests are in `Common/Utilities/CommandLine/.tool/sim`, run by `run.sh` w
 
 - `TestCommandTree.cpp`, `TestCommandArguments.cpp`, `TestCommandCalls.cpp`: the declarations, the tables, the readers and the handler calls;
 - `TestCommandLine.cpp`: the console, every event and range, the line ends, the quotes, Ctrl+C, the terminal and Backspace at every position of each line;
-- `TestCommandRing.cpp`, `TestCommandModules.cpp`: the ring, and the module hooks with dummy modules;
+- `TestCommandRing.cpp`, `TestCommandModules.cpp`: the ring, including refused Ctrl+C presses, their places, the Pop that waits for a due Interrupt, and four threaded runs of 300,000 presses, on rings of 4 and 2 bytes, each from position 0 and from 2^32 - 3, checked against the Interrupts and the bytes, and the module hooks with dummy modules;
 - `TestCommandHelp.cpp`: the Help requests, the output of each level and command, and the lines Help must leave alone;
-- `BuilderErrors/check.sh`: each compile-time rule, as a snippet that must fail with its message.
+- `TestCommandLineEditing.cpp`: every editing key at the start, middle and end of a line, the buffer limit, Tab as a space, Ctrl+C and the line end clearing the buffer, and Help reading the edited line;
+- `TestCommandHistory.cpp`: Up and Down across the entry and byte limits, the draft, empty and repeated lines, and a wrap of the ring;
+- `TestCommandCompletion.cpp`: unique, shared and no prefixes, groups and enum values, the second Tab, and Completion with and without `LineEditing`;
+- `TestCommandLongCommands.cpp`: a long command's first step at Enter, one step per pass, input that waits, Ctrl+C with and without bytes before it, a failed step, input past the ring, and a closed terminal;
+- `TestCommandHiddenInput.cpp`: the echo of a secret as `*`, Backspace, a quoted secret (every character of it hidden), a secret past its capacity, History and secret lines, the tail redraw, and Help;
+- `TestCommandAnsi.cpp`: the green prompt, red standard errors, Ctrl+L, a console without Ansi, and a set with its own `Default()`;
+- `TestCommandFloatArguments.cpp`: float and double reading, the default, signs and exponents, the range at Enter, infinity and nan in both types, a double with no range, a number that is not one, a missing value, and Help;
+- `BuilderErrors/check.sh`: many of the compile-time rules, as snippets that must fail with their message, including `History` without `LineEditing`, `Completion` before `Help`, `Ansi` before `Help`, a long command, a float and a secret without their modules, a float range and default, a ring size of zero, one that is not a power of two, and one above 2^30, and a long state that is not trivially destructible.
 
 ---
 
@@ -394,6 +445,13 @@ The sim tests are in `Common/Utilities/CommandLine/.tool/sim`, run by `run.sh` w
 |---|---|
 | [CommandLine](CommandLine.md) | `CommandLine.h`: the console, `Feed`, `Process`, the events and the echo |
 | [CommandHelp](CommandHelp.md) | `CommandHelp.h`: the Help module |
+| [CommandLineEditing](CommandLineEditing.md) | `CommandLineEditing.h`: the `LineEditing<N>` module, its buffer, keys and screen |
+| [CommandHistory](CommandHistory.md) | `CommandHistory.h`: the `History<Lines, Bytes>` module |
+| [CommandCompletion](CommandCompletion.md) | `CommandCompletion.h`: the `Completion` module |
+| [CommandLongCommands](CommandLongCommands.md) | `CommandLongCommands.h`: the `LongCommands` feature, the step handler and its rules |
+| [CommandHiddenInput](CommandHiddenInput.md) | `CommandHiddenInput.h`: the `HiddenInput` feature and `Secret<N>` |
+| [CommandAnsi](CommandAnsi.md) | `CommandAnsi.h`: the `Ansi` module, its colours and Ctrl+L |
+| [CommandFloatArguments](CommandFloatArguments.md) | `CommandFloatArguments.h`: the `FloatArguments` feature, `float` and `double` arguments |
 | [CommandSet](CommandSet.md) | `CommandSet.h`: the set, its tables and the operations the console uses |
 | [CommandSetBuilder](CommandSetBuilder.md) | `CommandSetBuilder.h`: the chain and its checks |
 | [CommandArgument](CommandArgument.md) | `CommandArgument.h`: argument declarations and their readers |

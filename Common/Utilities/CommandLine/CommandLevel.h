@@ -218,6 +218,11 @@ struct CommandLimits {
 	std::size_t slotAlign = 1;
 	std::size_t groupDepth = 0;
 	std::size_t nameLength = 0;
+	std::size_t stepBytes = 0;
+	std::size_t stepAlign = 1;
+	bool hasLong = false;
+	bool hasFloat = false;
+	bool hasSecret = false;
 };
 
 
@@ -230,6 +235,11 @@ constexpr CommandLimits CommandMerge(const CommandLimits& first, const CommandLi
 	result.slotAlign = std::max(first.slotAlign, second.slotAlign);
 	result.groupDepth = std::max(first.groupDepth, second.groupDepth);
 	result.nameLength = std::max(first.nameLength, second.nameLength);
+	result.stepBytes = std::max(first.stepBytes, second.stepBytes);
+	result.stepAlign = std::max(first.stepAlign, second.stepAlign);
+	result.hasLong = first.hasLong || second.hasLong;
+	result.hasFloat = first.hasFloat || second.hasFloat;
+	result.hasSecret = first.hasSecret || second.hasSecret;
 	return result;
 }
 
@@ -248,6 +258,8 @@ constexpr CommandLimits CommandOwnLimits(const Level& level) {
 		limits.valueAlign = std::max<std::size_t>(limits.valueAlign, info.valueAlign);
 		limits.slotBytes = std::max<std::size_t>(limits.slotBytes, info.slotBytes);
 		limits.slotAlign = std::max<std::size_t>(limits.slotAlign, info.slotAlign);
+		limits.hasFloat = limits.hasFloat || info.kind == CommandArgumentKind::Float;
+		limits.hasSecret = limits.hasSecret || info.kind == CommandArgumentKind::Secret;
 	}
 
 	for (const CommandEntryInfo& entry : level.entries) {
@@ -279,9 +291,34 @@ struct CommandChildLimits<GroupItem<Set>> {
 };
 
 
+// The limits a command's handler adds: a long command's state, which the console keeps while the command runs. Other items add nothing.
+template<typename Item>
+constexpr CommandLimits CommandItemLimits(const Item&) {
+	return CommandLimits{};
+}
+
+
+template<typename Handler, typename... Arguments>
+constexpr CommandLimits CommandItemLimits(const CommandItem<Handler, Arguments...>&) {
+	CommandLimits limits;
+
+	if constexpr (CommandHandlerOf<Handler>::Long) {
+		using State = typename CommandHandlerOf<Handler>::State;
+		limits.hasLong = true;
+		limits.stepBytes = sizeof(State);
+		limits.stepAlign = alignof(State);
+	}
+
+	return limits;
+}
+
+
 template<typename Level, typename... Items>
-constexpr CommandLimits CommandLimitsOf(const Level& level, const CommandSetBuilder<Items...>&) {
+constexpr CommandLimits CommandLimitsOf(const Level& level, const CommandSetBuilder<Items...>& builder) {
 	CommandLimits limits = CommandOwnLimits(level);
 	((limits = CommandMerge(limits, CommandChildLimits<Items>::Value)), ...);
+	CommandPackForEach(builder.items, [&](const auto& item) {
+		limits = CommandMerge(limits, CommandItemLimits(item));
+	});
 	return limits;
 }

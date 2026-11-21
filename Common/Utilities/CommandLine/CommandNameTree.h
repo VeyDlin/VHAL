@@ -8,8 +8,8 @@
 
 
 // The prefix trees of names: the command and group names of a level, and the value names of an enum argument. Each character moves
-// one node index, and no text is kept. A node's children form a linked list through sibling. A node that ends a name holds the
-// entry the name leads to in payload.
+// one node index, and no text is kept. A node's children form a linked list through sibling, in the order they were declared. A node
+// that ends a name holds the entry the name leads to in payload.
 
 
 // The index that means no node, no child and no payload.
@@ -105,8 +105,18 @@ private:
 		}
 
 		uint16 node = AddNode(character);
-		nodes[node].sibling = nodes[parent].firstChild;
-		nodes[parent].firstChild = node;
+		uint16 last = nodes[parent].firstChild;
+
+		if (last == CommandNoNode) {
+			nodes[parent].firstChild = node;
+			return node;
+		}
+
+		while (nodes[last].sibling != CommandNoNode) {
+			last = nodes[last].sibling;
+		}
+
+		nodes[last].sibling = node;
 		return node;
 	}
 };

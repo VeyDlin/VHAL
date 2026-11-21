@@ -33,6 +33,10 @@ Scalars: `level`, `tail` (characters refused after a stop), `spaces`, `command`,
 | `Reset()` | Forgets the line. The next character starts a new one |
 | `Push(char)` | One character. Word mode when the set has no commands, else command mode |
 | `Backspace()` | Removes the last character. False when nothing was there |
+| `HidesNext(char)` | Whether the character, read now, goes to a `Secret` argument. Inside a secret's quotes every character does, the space too. A space that ends the argument, or one in the gap, does not (HiddenInput) |
+| `HoldsSecret()` | Whether a secret has had a character typed on this line. Backspace does not clear it; `Reset` does |
+| `AllowHelp()` | Set by the console when `Help` is listed. A line that starts with `help` is then not hidden after an unknown name (HiddenInput) |
+| `FillFloatRange<L>(event, position)` | Fills the float range of a refused float argument into the event, from its declaration (FloatArguments). Does nothing for a set without float arguments |
 | `Evaluate(event)` | Command mode, at Enter. Returns a `CommandEnd` and fills `event` for an error |
 | `WithLevel(f)` | Calls `f` with the typed set at the current group path |
 | `Command()`, `Values()` | The command of a `Run` line, and its value area |
@@ -43,6 +47,10 @@ Scalars: `level`, `tail` (characters refused after a stop), `spaces`, `command`,
 `Empty`: a line with no words (`EmptyLine`). `Unknown`: an unknown word (`UnknownCommand`). `Fault`: an argument error (`ArgumentError`). `Run`: call the command with `Values()`.
 
 ---
+
+## Edit point
+
+`EditPoint()` tells Completion what the end of the line is in: `CommandSpot::Name` (a name at the level, with its tree root and the node of the typed part), `CommandSpot::Value` (an enum value: the tree root, and either the node of a gap, or the reader of the argument and its command and position, from which Completion reads the node through `CommandSet::EnumNode`), or `None`. A name is None when the typed part matches no name, and a gap after a command or an argument is None unless the next argument is an enum. A stopped line is None.
 
 ## Command mode
 
@@ -70,7 +78,7 @@ Scalars: `level`, `tail` (characters refused after a stop), `spaces`, `command`,
 
 ## Word mode
 
-For a set with no commands, a character that is not a space ends the current word when it comes after one (`WordEnds`). The word is then final, and its `Word` event is raised before the character is read (in `CommandLine`). The word keeps its first 16 characters.
+For a set with no commands, a character that is not a space ends the current word when it comes after one (`WordEnds`). The word is then final, and its `Word` event is raised before the character is read (in `CommandLine`). The word keeps its first 16 characters. With `LineEditing` the console does not raise while typing: at Enter it resets the parser and pushes the buffer again, and raises each `Word` as `WordEnds` says (`ReplayWords`). `Backspace()` is still called for each erase, but its result is ignored there: the buffer decides whether an erase is made.
 
 `BackspaceWord` erases the spaces after the word first, then the word. Once a later word has started, the earlier one is committed: one space before the current word stays, so the line never shows two words glued together. Under this rule, after `a b` two Backspaces leave `a `, and a third does nothing.
 

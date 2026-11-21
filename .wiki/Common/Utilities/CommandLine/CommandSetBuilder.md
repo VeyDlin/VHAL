@@ -20,8 +20,11 @@
 | Handler | Shape |
 |---|---|
 | Command | `ResultStatus f(CommandCall<Ctx>, value types...)` |
+| Long command (LongCommands) | `CommandStep f(CommandLongCall<Ctx, State>, value types...)` |
 | Default | `void f(CommandCall<Ctx>, const CommandEvent&)` |
 | Interrupt | `void f(Ctx&)` |
+
+`CommandHandlerOf<Handler>::Long` tells the two command shapes apart, and `::State` is the long form's state type. A long command is a `CommandItem` like any other, and its state is in the console's step slot, sized by the set's limits.
 
 `CommandHandlerOf<Handler>` reads the shape of a command handler: its context `Ctx`, and its parameter types as a `std::tuple` type list. The tuple is only a type list, never a value, so it is safe in a constant expression.
 

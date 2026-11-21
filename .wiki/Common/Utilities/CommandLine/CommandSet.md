@@ -41,13 +41,19 @@ The tables are `static constexpr` and sized exactly. A set with only a `Default(
 |---|---|
 | `TreeStep(node, c)` | The node that `c` leads to from `node`, or `CommandNoNode`. Walks names one character at a time |
 | `TreePayload(node)` | The entry of a complete name (its index in `EntryInfo`), or the value index of a complete enum value. `CommandNoNode` for a prefix |
+| `TreeFirstChild(node)`, `TreeSibling(node)`, `TreeCharacter(node)` | The children of a node, and the character it holds. Children are in declaration order: the sibling list is built by appending, so the first declared name is the first child |
 | `EntryInfo(entry)` | Name, help, `isGroup` and `index` of an entry |
 | `CommandName(command)` | The name of a command |
 | `ArgumentCountOf(command)` | Number of arguments of a command |
 | `ArgumentInfoOf(command, position)` | Metadata of one argument: name, kind, range, `hasDefault`, value offset, enum root, slot size |
 | `CreateSlot(command, position, storage)` | Placement-creates the reader of an argument in `storage` and returns it. `nullptr` for a position past the end |
+| `EnumNode(command, position, slot, node)` | The node an enum reader stands at, for Completion. The reader is read as the type its declaration gives, so the slot base needs no virtual member for it. Returns `false` when the text is refused. Only Completion calls it |
 | `StoreDefault(command, position, values)` | Writes the default of an optional argument into the value area. Does nothing for a required one |
 | `Invoke(command, app, out, values)` | Calls the command's handler with the values read from the value area, and returns its `ResultStatus`. `notFound` for an unknown index |
+| `Step(command, app, out, values, state, mode)` | Runs one step of a command: `Start` makes a long command's state in `state` and runs its first step, `Continue` runs the next, `Cancel` makes the one cancel call. An ordinary command returns its status as a final step (LongCommands) |
+| `VisitArgument(command, position, visitor)` | Calls the visitor with the typed declaration of an argument. A float range is read from it |
+| `HasLong`, `HasFloat`, `HasSecret` | Whether the set has a long command, a float argument, or a secret argument. Each needs its module listed |
+| `MaxStepBytes`, `MaxStepAlign` | The largest long command's state, and its alignment, over the set and its groups |
 | `CallDefault(app, out, event)` | Calls the default handler. Does nothing when there is none |
 | `CallInterrupt(app)` | Calls the interrupt handler. Does nothing when there is none |
 | `CheckContext<App>()` | Compile-time check that `App&` converts to every handler's context |

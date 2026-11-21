@@ -67,6 +67,27 @@ enum class CommandEnd : uint8 {
 };
 
 
+// What the end of the line completes, for Completion. None is nothing. Name is a command or group name at the level, and Value is an enum
+// value. For both, root is the tree the token reads and node is the node the token typed so far stands at (the root when nothing is typed).
+// A Value typed in an argument's text has no node of its own here: slot is that argument's reader, and command and argument name it, so
+// Completion reads the node through CommandSet::EnumNode. slot is null when node is already the answer.
+enum class CommandSpot : uint8 {
+	None,
+	Name,
+	Value
+};
+
+
+struct CommandEditPoint {
+	CommandSpot spot = CommandSpot::None;
+	uint16 root = 0;
+	uint16 node = 0;
+	const CommandSlot* slot = nullptr;
+	std::size_t command = 0;
+	std::size_t argument = 0;
+};
+
+
 // Calls a visitor with the typed set at a group path, for a set's VisitLevel. The visitor is a lambda with a template parameter.
 template<typename Function>
 class CommandLevelVisitor {
@@ -119,9 +140,18 @@ private:
 	std::size_t wordLength = 0;
 	std::size_t wordGap = 0;
 	bool committed = false;
+	bool secretTyped = false;
+	bool helpListed = false;
 
 
 public:
+	// Tells the parser that the Help module is listed. A line that starts with help is then a help request, and it is not hidden after an
+	// unknown name, because its words are not secrets.
+	void AllowHelp() {
+		helpListed = true;
+	}
+
+
 	// Forgets the line: the next character starts a new one.
 	void Reset() {
 		groups.fill(0);
@@ -142,6 +172,7 @@ public:
 		wordLength = 0;
 		wordGap = 0;
 		committed = false;
+		secretTyped = false;
 	}
 
 
@@ -157,7 +188,7 @@ public:
 	}
 
 
-	// Removes the last character. Returns false when nothing was there to remove.
+	// Removes the last character. Returns false when there is nothing to remove.
 	bool Backspace() {
 		if constexpr (Set::EntryCount == 0) {
 			return BackspaceWord();
@@ -185,6 +216,18 @@ public:
 	}
 
 
+	// The token the end of the line is in, for Completion. Nothing is completed in a refused or stopped line.
+	CommandEditPoint EditPoint() const {
+		CommandEditPoint point;
+
+		WithLevel([&]<typename L>() {
+			point = EditPointIn<L>();
+		});
+
+		return point;
+	}
+
+
 	// The command the line names, once it names one. The values of its arguments are in Values().
 	std::size_t Command() const {
 		return command;
@@ -200,6 +243,29 @@ public:
 	// event is raised before the character is read.
 	bool WordEnds(char character) const {
 		return character != ' ' && wordLength > 0 && spaces > 0;
+	}
+
+
+	// Whether the character, read now, goes to a Secret argument. A space never does: it is echoed as it is.
+	bool HidesNext(char character) const {
+		if constexpr (Set::EntryCount == 0) {
+			static_cast<void>(character);
+			return false;
+		} else {
+			bool hidden = false;
+
+			WithLevel([&]<typename L>() {
+				hidden = HiddenIn<L>(character);
+			});
+
+			return hidden;
+		}
+	}
+
+
+	// Whether a Secret argument has had a character typed on this line. Erasing it does not clear this: the line is then not kept.
+	bool HoldsSecret() const {
+		return secretTyped;
 	}
 
 
@@ -243,9 +309,81 @@ private:
 	}
 
 
+	template<typename L>
 	void PushSlot(std::size_t position, char character) {
+		if (L::ArgumentInfoOf(command, position).kind == CommandArgumentKind::Secret) {
+			secretTyped = true;
+		}
+
 		slots[position]->Push(character);
 		argTyped[position]++;
+	}
+
+
+	// After a name that matches no command, the rest of the line is hidden, because the parser cannot tell which argument it would be. The
+	// line is still a help request when Help is listed and the name is help, so nothing is hidden there.
+	bool HidesAfterUnknown() const {
+		if constexpr (Set::HasSecret) {
+			return !(helpListed && level == 0 && WordAt(0, nameTyped[0]) == "help");
+		} else {
+			return false;
+		}
+	}
+
+
+	// The character goes to a Secret argument: the argument being read, or the one a character starts. Inside the quotes of a secret every
+	// character is hidden, the space too. A space that ends the argument, or a space in the gap, is echoed as it is.
+	template<typename L>
+	bool HiddenIn(char character) const {
+		if (stop == CommandStop::Unknown) {
+			return HidesAfterUnknown();
+		}
+
+		if (stop == CommandStop::Extra) {
+			return character != ' ' && HidesAfterExtra<L>();
+		}
+
+		if (stop != CommandStop::None) {
+			return false;
+		}
+
+		if (phase == CommandPhase::Argument) {
+			if (L::ArgumentInfoOf(command, argument).kind != CommandArgumentKind::Secret) {
+				return false;
+			}
+
+			return character != ' ' || slots[argument]->Quoting();
+		}
+
+		if (character == ' ') {
+			return false;
+		}
+
+		if (phase == CommandPhase::Gap && (after == CommandAfter::Command || after == CommandAfter::Argument)) {
+			if (argument >= L::ArgumentCountOf(command)) {
+				return HidesAfterExtra<L>();
+			}
+
+			return L::ArgumentInfoOf(command, argument).kind == CommandArgumentKind::Secret;
+		}
+
+		return false;
+	}
+
+
+	// After the last argument of a command that has a Secret, the text past it is hidden too. It may be the rest of a password typed with a
+	// space in it, and the parser cannot tell it from a mistake. A command with no Secret shows it as typed.
+	template<typename L>
+	bool HidesAfterExtra() const {
+		if constexpr (Set::HasSecret) {
+			for (std::size_t index = 0; index < L::ArgumentCountOf(command); index++) {
+				if (L::ArgumentInfoOf(command, index).kind == CommandArgumentKind::Secret) {
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 
@@ -296,10 +434,73 @@ private:
 	}
 
 
+	// The token the end of the line is in, read at the level L. A name is read at the level's tree. A gap after a command or an argument
+	// reads the next argument, when it is an enum, at the enum's tree.
+	template<typename L>
+	CommandEditPoint EditPointIn() const {
+		CommandEditPoint point;
+
+		if (stop != CommandStop::None) {
+			return point;
+		}
+
+		if (phase == CommandPhase::Name) {
+			if (nameTyped[level] > nameMatched[level]) {
+				return point;
+			}
+
+			point.spot = CommandSpot::Name;
+			point.root = L::Root;
+			point.node = nameMatched[level] == 0 ? L::Root : nameNodes[level][nameMatched[level] - 1];
+			return point;
+		}
+
+		if (phase == CommandPhase::Argument) {
+			const CommandArgumentInfo& typing = L::ArgumentInfoOf(command, argument);
+			if (typing.kind != CommandArgumentKind::Enumeration) {
+				return point;
+			}
+
+			point.spot = CommandSpot::Value;
+			point.root = typing.root;
+			point.slot = slots[argument];
+			point.command = command;
+			point.argument = argument;
+			return point;
+		}
+
+		if (after == CommandAfter::Start || after == CommandAfter::Group) {
+			point.spot = CommandSpot::Name;
+			point.root = L::Root;
+			point.node = L::Root;
+			return point;
+		}
+
+		if (argument >= L::ArgumentCountOf(command)) {
+			return point;
+		}
+
+		const CommandArgumentInfo& info = L::ArgumentInfoOf(command, argument);
+		if (info.kind != CommandArgumentKind::Enumeration) {
+			return point;
+		}
+
+		point.spot = CommandSpot::Value;
+		point.root = info.root;
+		point.node = info.root;
+		return point;
+	}
+
+
 	// Command mode, one character.
 	template<typename L>
 	void PushCommandIn(char character) {
 		if (stop != CommandStop::None) {
+			// What is hidden after an unknown name or past the last argument is a secret for the echo and for History, as HiddenIn decides.
+			if (HiddenIn<L>(character)) {
+				secretTyped = true;
+			}
+
 			tail++;
 			return;
 		}
@@ -314,7 +515,7 @@ private:
 				PushNameCharacter<L>(character);
 				return;
 			case CommandPhase::Argument:
-				PushSlot(argument, character);
+				PushSlot<L>(argument, character);
 				return;
 			case CommandPhase::Gap:
 				if (after == CommandAfter::Start || after == CommandAfter::Group) {
@@ -336,7 +537,7 @@ private:
 				return;
 			case CommandPhase::Argument:
 				if (slots[argument]->Quoting()) {
-					PushSlot(argument, ' ');
+					PushSlot<L>(argument, ' ');
 				} else {
 					argument++;
 					phase = CommandPhase::Gap;
@@ -418,6 +619,11 @@ private:
 	void StartArgument(char character) {
 		if (argument >= L::ArgumentCountOf(command)) {
 			Stop(CommandStop::Extra);
+
+			if (HidesAfterExtra<L>()) {
+				secretTyped = true;
+			}
+
 			return;
 		}
 
@@ -426,7 +632,7 @@ private:
 		argTyped[argument] = 0;
 		slots[argument] = L::CreateSlot(command, argument, slotStorage[argument]);
 		phase = CommandPhase::Argument;
-		PushSlot(argument, character);
+		PushSlot<L>(argument, character);
 	}
 
 
@@ -581,15 +787,36 @@ private:
 	}
 
 
+	// A float argument's range is not in its info, so the event reads it from the declaration. Only a set with float arguments does this.
+	// It writes the float range, which shares storage with the integer range, so FillArgument does not write the integer one for a float.
+	template<typename L>
+	void FillFloatRange(CommandEvent& event, std::size_t position) const {
+		if constexpr (Set::HasFloat) {
+			L::VisitArgument(command, position, [&]<typename Declaration>(const Declaration& declaration) {
+				if constexpr (Declaration::Kind == CommandArgumentKind::Float) {
+					event.range.floats.minimum = static_cast<double>(declaration.minimum);
+					event.range.floats.maximum = static_cast<double>(declaration.maximum);
+				}
+			});
+		} else {
+			static_cast<void>(event);
+			static_cast<void>(position);
+		}
+	}
+
+
 	static void FillArgument(CommandEvent& event, const CommandArgumentInfo& info, CommandFault fault) {
 		event.kind = CommandEventKind::ArgumentError;
 		event.fault = fault;
 		event.argument = info.name;
 		event.argumentKind = info.kind;
-		event.minimum = info.minimum;
-		event.maximum = info.maximum;
-		event.maximumUnsigned = info.maximumUnsigned;
-		event.unsignedMaximum = info.unsignedMaximum;
+
+		if (info.kind != CommandArgumentKind::Float) {
+			event.range.integers.minimum = info.minimum;
+			event.range.integers.maximum = info.maximum;
+			event.range.integers.maximumUnsigned = info.maximumUnsigned;
+			event.range.integers.unsignedMaximum = info.unsignedMaximum;
+		}
 	}
 
 
@@ -607,12 +834,14 @@ private:
 				CommandFault fault = slots[position]->Finish(values + info.valueOffset);
 				if (fault != CommandFault::None) {
 					FillArgument(event, info, fault);
+					FillFloatRange<L>(event, position);
 					return CommandEnd::Fault;
 				}
 			} else if (info.hasDefault) {
 				L::StoreDefault(command, position, values);
 			} else {
 				FillArgument(event, info, CommandFault::Missing);
+				FillFloatRange<L>(event, position);
 				return CommandEnd::Fault;
 			}
 		}

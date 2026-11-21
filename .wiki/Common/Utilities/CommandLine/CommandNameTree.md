@@ -15,7 +15,7 @@ struct CommandTreeNode {
 };
 ```
 
-A node's children are a linked list through `sibling`. The builder adds a new child at the front of the list.
+A node's children are a linked list through `sibling`, in declaration order. The builder adds a new child at the end of the list, after the siblings declared before it, so the first child is the first name declared.
 
 ---
 

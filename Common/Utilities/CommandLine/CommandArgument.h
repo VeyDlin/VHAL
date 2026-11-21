@@ -146,7 +146,7 @@ constexpr CommandArgumentInfo CommandDescribe(const Declaration& declaration) {
 		}
 	}
 
-	if constexpr (Declaration::Kind == CommandArgumentKind::Text) {
+	if constexpr (Declaration::Kind == CommandArgumentKind::Text || Declaration::Kind == CommandArgumentKind::Secret) {
 		info.maximum = static_cast<int64>(Declaration::MaxLength);
 	}
 
@@ -195,9 +195,12 @@ public:
 };
 
 
-// A declared argument of type T. The primary template is a custom argument type, which reads through its CommandParser.
+// A declared argument of type T. The primary template is a custom argument type, which reads through its CommandParser. A float
+// argument has its own declaration in CommandFloatArguments.h, so a float here means that module is not included.
 template<typename T>
 class Argument {
+	static_assert(!std::is_floating_point_v<T>, "a float argument needs CommandFloatArguments.h, and the FloatArguments module listed in the console");
+
 public:
 	static constexpr CommandArgumentKind Kind = CommandArgumentKind::Custom;
 	using Value = T;
@@ -498,7 +501,8 @@ private:
 
 // The reader of a string argument. It stores the characters as typed, quotes included, and refuses those past its capacity. A text
 // that starts with a double quote is quoted: inside it, \" and \\ are escapes, a space is part of the text, and the closing quote
-// ends it. Finish gives the text without the quotes and with the escapes resolved. Any other text is the value as typed.
+// ends it. Finish gives the text without the quotes and with the escapes resolved. Any other text is the value as typed. The parser hides
+// the characters of a Secret argument, from the argument's kind.
 template<std::size_t Capacity>
 class CommandTextSlot final : public CommandSlot {
 private:
@@ -507,7 +511,8 @@ private:
 
 
 public:
-	explicit CommandTextSlot(const Argument<String<Capacity>>&) {
+	template<typename Declaration>
+	explicit CommandTextSlot(const Declaration&) {
 	}
 
 
@@ -683,6 +688,18 @@ public:
 		E value = declaration.values[payload].value;
 		std::memcpy(destination, &value, sizeof(E));
 		return CommandFault::None;
+	}
+
+
+	// The node of the tree that the text read so far stands at. Returns false when the text read so far is refused. Completion reads it
+	// through CommandSet::EnumNode, which knows the slot's type, so the slot base has no virtual member for it.
+	bool TreeNode(uint16& found) const {
+		if (refused > 0) {
+			return false;
+		}
+
+		found = node;
+		return true;
 	}
 };
 

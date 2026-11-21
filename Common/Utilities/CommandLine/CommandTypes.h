@@ -12,13 +12,16 @@
 class Print;
 
 
-// The kinds of argument. A custom argument type reports Custom.
+// The kinds of argument. A custom argument type reports Custom. Float is a float or double argument (FloatArguments.h), and Secret is a
+// string that is echoed as '*' (HiddenInput.h).
 enum class CommandArgumentKind : uint8 {
 	Integer,
 	Boolean,
 	Enumeration,
 	Text,
-	Custom
+	Custom,
+	Float,
+	Secret
 };
 
 
@@ -50,11 +53,29 @@ enum class CommandEventKind : uint8 {
 };
 
 
+// The range of an integer, text or secret argument. A 64-bit unsigned maximum above the int64 range is in unsignedMaximum, with
+// maximumUnsigned set; maximum then holds the clamp. For a text argument maximum is the capacity.
+struct CommandIntegerRange {
+	int64 minimum = 0;
+	int64 maximum = 0;
+	bool maximumUnsigned = false;
+	uint64 unsignedMaximum = 0;
+};
+
+
+// The range of a float argument.
+struct CommandFloatRange {
+	double minimum = 0;
+	double maximum = 0;
+};
+
+
 // What the default handler gets. text is the word the event is about (UnknownCommand, Word), and status is the result of a command
 // that failed. command is the command the event is about, argument the argument of an ArgumentError, with its kind, fault and
-// range. A string that is not about an argument leaves these empty. A 64-bit unsigned maximum above the int64 range is in
-// unsignedMaximum, with maximumUnsigned set; maximum then holds the clamp. truncated is set on a Word event whose word is longer
-// than the word buffer, and text then holds the first characters of the word.
+// range. A string that is not about an argument leaves these empty. The range is range.integers for an integer, text or secret
+// argument, and range.floats for a float argument, as argumentKind tells. The two share their storage, so an event costs the same
+// whether or not the set has a float argument. truncated is set on a Word event whose word is longer than the word buffer, and text
+// then holds the first characters of the word.
 struct CommandEvent {
 	CommandEventKind kind = CommandEventKind::Command;
 	std::string_view text;
@@ -63,10 +84,12 @@ struct CommandEvent {
 	std::string_view argument;
 	CommandArgumentKind argumentKind = CommandArgumentKind::Custom;
 	CommandFault fault = CommandFault::None;
-	int64 minimum = 0;
-	int64 maximum = 0;
-	bool maximumUnsigned = false;
-	uint64 unsignedMaximum = 0;
+
+	union {
+		CommandIntegerRange integers{};
+		CommandFloatRange floats;
+	} range;
+
 	bool truncated = false;
 };
 
@@ -77,6 +100,51 @@ template<typename Context>
 struct CommandCall {
 	Print& out;
 	Context& app;
+};
+
+
+// The first parameter of a long command's handler (LongCommands). state is the handler's own state, which the console makes before
+// the first call and keeps until the command ends. cancelled is true on the one call that Ctrl+C makes, and the step it returns is
+// then ignored.
+template<typename Context, typename State>
+struct CommandLongCall {
+	Print& out;
+	Context& app;
+	State& state;
+	bool cancelled;
+};
+
+
+// The tag of CommandContinue. A long handler returns CommandContinue to run again on the next Process pass.
+struct CommandContinueTag {
+};
+
+
+inline constexpr CommandContinueTag CommandContinue{};
+
+
+// What a long command's handler returns: CommandContinue, or a final ResultStatus. A ResultStatus converts to a final step, so the
+// handler of an ordinary command can return one too.
+struct CommandStep {
+	ResultStatus status = ResultStatus::ok;
+	bool continues = false;
+
+
+	constexpr CommandStep(ResultStatus result) : status(result), continues(false) {
+	}
+
+
+	constexpr CommandStep(CommandContinueTag) : status(ResultStatus::ok), continues(true) {
+	}
+};
+
+
+// The call the console makes on a command: Start makes the state and runs the first step, Continue runs the next step, and Cancel is
+// the one call of Ctrl+C.
+enum class CommandStepMode : uint8 {
+	Start,
+	Continue,
+	Cancel
 };
 
 
