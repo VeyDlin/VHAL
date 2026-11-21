@@ -28,17 +28,13 @@ static USBDevice usbDevice(BSP::usbAdapter, BenchUsb::Set, functions);
 
 // The MCU's 96-bit unique ID. Its hex text is the serial number the host shows, so several boards of this firmware are told apart on
 // one PC, and one board keeps the same serial number after a reboot. The descriptor is kept in static storage, as the device requires.
-constexpr std::size_t UniqueIdSize = 12;
-static std::array<uint8, 2 + 4 * UniqueIdSize> serialDescriptor{};
+static std::array<uint8, 2 + 4 * BSP::UniqueIdSize> serialDescriptor{};
 
 
 // Reads the unique ID and gives the device its serial number string. Called once, before the first Start(); the device keeps the span.
 static ResultStatus SetUniqueSerialNumber() {
-	std::array<uint8, UniqueIdSize> uniqueId{};
-	const volatile uint8* source = reinterpret_cast<const volatile uint8*>(UID_BASE);
-	for (std::size_t index = 0; index < UniqueIdSize; index++) {
-		uniqueId[index] = source[index];
-	}
+	std::array<uint8, BSP::UniqueIdSize> uniqueId{};
+	BSP::ReadUniqueId(uniqueId);
 
 	ResultStatus status = MakeUSBSerialNumberDescriptor(uniqueId, serialDescriptor);
 	if (status != ResultStatus::ok) {
@@ -93,33 +89,7 @@ static void PrintStatus() {
 	benchCounters.busResets = counters.busResets;
 	benchCounters.usbErrors = counters.usbErrors;
 
-	const char* stateName = "Unknown";
-	switch (usbDevice.GetState()) {
-		case USBDeviceState::Detached: {
-			stateName = "Detached";
-			break;
-		}
-
-		case USBDeviceState::Default: {
-			stateName = "Default";
-			break;
-		}
-
-		case USBDeviceState::Address: {
-			stateName = "Address";
-			break;
-		}
-
-		case USBDeviceState::Configured: {
-			stateName = "Configured";
-			break;
-		}
-
-		case USBDeviceState::Suspended: {
-			stateName = "Suspended";
-			break;
-		}
-	}
+	const char* stateName = USBDeviceStateName(usbDevice.GetState());
 
 	const char* modeName = "Unknown";
 	switch (benchFunction.GetMode()) {

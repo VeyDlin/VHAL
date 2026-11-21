@@ -97,6 +97,10 @@ SECTIONS
 		_edata = .;
 	} >RAM AT> FLASH
 
+	/* The DFU demo keeps its flash region from VhalDfuRegionStart to the end of flash, and the image must end below it. CMake
+	 * defines the symbol for that demo only; the other demos get the end of flash, so their check always passes. */
+	PROVIDE(VhalDfuRegionStart = ORIGIN(FLASH) + LENGTH(FLASH));
+
 	. = ALIGN(4);
 	.bss :
 	{
@@ -129,3 +133,7 @@ SECTIONS
 
 	.ARM.attributes 0 : { *(.ARM.attributes) }
 }
+
+/* The image is the code and constants, then the initial values of .data, which are loaded from flash after the code. Its end must be
+ * below the DFU demo's region (see VhalDfuRegionStart above). ASSERT is a top-level command, so it stays outside SECTIONS. */
+ASSERT(_sidata + SIZEOF(.data) <= VhalDfuRegionStart, "the program image reaches the DFU demo flash region: shrink the image or lower VHAL_DFU_REGION_START");

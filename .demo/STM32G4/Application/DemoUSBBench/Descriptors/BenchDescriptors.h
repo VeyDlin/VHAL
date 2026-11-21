@@ -1,5 +1,6 @@
 #pragma once
 #include <BenchProtocol.h>
+#include <DemoProducts.h>
 #include <Drivers/Interface/USB/Class/Vendor/USBVendorBuilder.h>
 #include <Drivers/Interface/USB/Descriptor/Builder/USBConfigurationBuilder.h>
 #include <Drivers/Interface/USB/Descriptor/Builder/USBDescriptors.h>
@@ -37,6 +38,8 @@ using BenchUsb = USBDescriptors<[] {
 // wMaxPacketSize 18 + 4, bulk OUT address 25 + 2 and wMaxPacketSize 25 + 4.
 static_assert(USBDescriptorRead16(BenchUsb::Device, 8) == BenchProtocol::VendorId, "idVendor must be BenchProtocol::VendorId");
 static_assert(USBDescriptorRead16(BenchUsb::Device, 10) == BenchProtocol::ProductId, "idProduct must be BenchProtocol::ProductId");
+// The product table of the demos (DemoProducts.h) lists the bench's PID too, for the PC tools. This keeps it equal to the bench's own value.
+static_assert(BenchProtocol::ProductId == DemoProducts::BenchProductId, "DemoProducts::BenchProductId must be BenchProtocol::ProductId");
 static_assert(USBDescriptorRead16(BenchUsb::Device, 12) == BenchProtocol::DeviceRelease, "bcdDevice must be BenchProtocol::DeviceRelease");
 static_assert(BenchUsb::Configuration[11] == BenchProtocol::InterfaceNumber, "the vendor interface must be BenchProtocol::InterfaceNumber");
 static_assert(BenchUsb::Configuration[20] == BenchProtocol::BulkInAddress, "the bulk IN endpoint must be BenchProtocol::BulkInAddress");

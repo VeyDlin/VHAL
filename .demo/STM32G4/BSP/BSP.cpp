@@ -32,6 +32,14 @@ ResultStatus BSP::Init() {
 }
 
 
+void BSP::ReadUniqueId(std::span<uint8, UniqueIdSize> uniqueId) {
+	const volatile uint8* source = reinterpret_cast<const volatile uint8*>(UID_BASE);
+	for (std::size_t index = 0; index < UniqueIdSize; index++) {
+		uniqueId[index] = source[index];
+	}
+}
+
+
 void BSP::InitSystem() {
 	LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_PWR);
 

@@ -2,8 +2,8 @@
 #include <BSP.h>
 
 
-// Chooses the demo that runs on the board and starts it. The G4 board will host more demos later (for example a HID composite
-// device); each one is picked here, so main() stays the same.
+// Starts the demo that the build selected with VHAL_DEMO (see CMakeLists.txt). Only that demo is compiled, so main() stays the same
+// whichever demo runs.
 class Application {
 public:
 	// consoleStatus is the result of BSP::Init() for USART1. Without a working console the demo still runs.

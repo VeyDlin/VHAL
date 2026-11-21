@@ -1,6 +1,8 @@
 #pragma once
 #include <VHAL.h>
 #include <Utilities/Buffer/RingBuffer.h>
+#include <cstddef>
+#include <span>
 
 
 // Board support for the STM32G431 benchmark board: 170 MHz SYSCLK from HSI16 through the PLL, a 1 kHz SysTick, USART1 on
@@ -12,6 +14,8 @@ public:
 	static AUSB usbAdapter;
 	// Characters System::console could not store because the ring was full. They are counted, not waited for. Readable over SWD.
 	static volatile uint32 consoleDropped;
+	// The MCU's 96-bit unique ID, in bytes. The USB demos turn it into their serial number.
+	static constexpr std::size_t UniqueIdSize = 12;
 
 
 private:
@@ -26,6 +30,8 @@ private:
 public:
 	// Brings up the clocks, the USB clock and the pins. Returns the result of USART1's setup, which the caller acts on.
 	static ResultStatus Init();
+	// Copies the MCU's unique ID into uniqueId. Every demo reads it here, so the register is read in one place.
+	static void ReadUniqueId(std::span<uint8, UniqueIdSize> uniqueId);
 
 
 private:

@@ -12,18 +12,21 @@
 
 
 namespace DemoUSBBench {
-	// Packets per transfer buffer, in both directions: 32 packets of 64 bytes, a 2048-byte transfer. Longer transfers spend less time
-	// between one transfer's last packet and the next transfer's first, when the endpoints are idle.
+	// Packets per IN transfer buffer: 32 packets of 64 bytes, a 2048-byte transfer. Longer transfers spend less time between one
+	// transfer's last packet and the next transfer's first, when the endpoints are idle. OUT is one packet per transfer, so this
+	// does not apply to it.
 	constexpr uint8 BenchPacketsPerTransfer = 32;
 
 
 	// The benchmark function: the vendor bulk streaming function with the modes and vendor requests of BenchProtocol.h. Its IN
 	// stages are filled by the vendor base in Process(), called from the main loop, and by the interrupt only when no stage is
-	// ready; OUT data is taken in the interrupt. The main loop reads the counters only through TakeCountersSnapshot(), which copies
-	// them under a critical section.
+	// ready; OUT data is taken in the interrupt. StoreOut() takes every OUT packet, as a stream's consumer must (see
+	// VendorBulkStreamFunction), because the function has no backpressure. The bench sends no zero-length packet after a whole
+	// number of packets: its host reads the length it asked for. The main loop reads the counters only through
+	// TakeCountersSnapshot(), which copies them under a critical section.
 	class BenchFunction : public VendorBulkStreamFunction<BenchPacketsPerTransfer> {
 	private:
-		// Loopback ring: four transfers of 2048 bytes. The OUT side arms only when the ring has room for a whole transfer
+		// Loopback ring: four IN transfers of 2048 bytes. The OUT side arms only when the ring has room for one packet
 		// (CanAcceptOut), so the ring holds several transfers' worth to keep both directions busy at the same time.
 		static constexpr uint16 LoopbackSize = 8192;
 		static constexpr uint32 NoErrorOffset = 0xFFFFFFFF;
@@ -182,16 +185,24 @@ namespace DemoUSBBench {
 		}
 
 
-		// The oldest stage completed. The stage behind it, if any, stays staged until its own transfer completes.
+		// The oldest stage completed. The stage behind it, if any, stays staged until its own transfer completes. The engine calls
+		// this outside any section when a claimed Pump() commits, so a bus reset can land just before it. ResetData() does not give
+		// the stages back, so the completed stage is still staged then, and the commit counts it: its bytes went out before the reset.
+		// An empty list means nothing to commit, and the commit then does nothing.
 		void CommitIn(size_t count) override {
+			bool fromLoopback = false;
 			System::CriticalSection(true);
-			StagedIn completed = PopStaged();
-			counters.bytesSent += count;
+			if (stagedCount > 0) {
+				StagedIn completed = PopStaged();
+				fromLoopback = completed.fromLoopback;
+				counters.bytesSent += count;
+			}
+
 			System::CriticalSection(false);
 
 			// The ring commits every marked read at once. Only one loopback stage is ever outstanding (TakeLoopback enforces it),
-			// so this commits exactly the completed stage.
-			if (completed.fromLoopback) {
+			// so this commits exactly the completed stage. After a reset the loopback ring is empty and the commit does nothing.
+			if (fromLoopback) {
 				loopback.CommitReads();
 			}
 		}
@@ -220,7 +231,8 @@ namespace DemoUSBBench {
 				CheckPattern(data);
 			}
 
-			// One ring call per packet, so the copy in each section stays a packet long. CanAcceptOut() made room for the transfer.
+			// One ring call per packet, so the copy in each section stays a packet long. StoreOut() gets one packet per call, and
+			// CanAcceptOut() made room for it, so the loop below takes one pass.
 			if (mode == BenchProtocol::Mode::Loopback) {
 				for (size_t position = 0; position < data.size(); position += BenchProtocol::BulkPacketSize) {
 					size_t chunk = std::min(static_cast<size_t>(BenchProtocol::BulkPacketSize), data.size() - position);
@@ -230,11 +242,11 @@ namespace DemoUSBBench {
 		}
 
 
-		// The same rule as RollbackIn(): bytes staged but never sent are generated again, not skipped. Clear() has already emptied the
-		// loopback ring, so the restore only needs to move the generator back.
+		// Only the loopback ring is cleared here. The stages go back through RollbackIn(), which the engine calls once for each session
+		// change: ResetIn() when no claim is held, and LeaveClaim() when one is. Restoring here as well would give a stage back twice when
+		// a reset lands inside a claimed Pump(), and it would empty the staged list that the claim's commit still reads.
 		void ResetData() override {
 			loopback.Clear();
-			RestoreStaged();
 		}
 
 

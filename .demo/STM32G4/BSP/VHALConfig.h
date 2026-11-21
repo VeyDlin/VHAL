@@ -6,6 +6,7 @@
 #define VHAL_STM32_G4
 #define VHAL_STM32_G4_UART
 #define VHAL_STM32_G4_USB
+#define VHAL_STM32_G4_FLASH
 
 // System::console, connected to USART1 by BSP::Init()
 #define VHAL_SYSTEM_CONSOLE
