@@ -20,6 +20,7 @@ Extensible firmware bootloader framework with command protocol, Flash memory sup
 - [NRF8001Communication -- BLE Transport](#nrf8001communication----ble-transport)
 - [Host Tool (vboot)](#host-tool-vboot)
 - [BLECommunication -- BLE Transport](#blecommunication----ble-transport)
+- [USBCommunication -- USB Transport](#usbcommunication----usb-transport)
 - [Firmware Update Workflow](#firmware-update-workflow)
   - [Retrying after a lost response](#retrying-after-a-lost-response)
 - [API Reference](#api-reference)
@@ -655,6 +656,38 @@ The constructor sets `ble.onEvent`, because the adapter has one event slot. An a
 - Only `Connected` and `Disconnected` are used. Other events are forwarded to `onEvent`.
 - A disconnect and a reconnect that both happen between two `Process()` calls look like one unbroken link, so the protocol is not reset. `NRF8001Communication` has the same limit.
 - The echo test ran on hardware before the refactor. The refactored version has been compiled (the ESP32 harness check `CheckBleCommunication.cpp` and the main project) but not yet run on hardware. The hardware re-run is still to do.
+
+## USBCommunication -- USB Transport
+
+`USBCommunication<TFunction>` carries the bootloader protocol over USB: an `ICommunication` over a buffered USB function, either the CDC-ACM serial port (`CdcAcmFunction`, see [CDC-ACM](../../Drivers/Interface/USB/Class/CDC/README.md)) or a vendor bulk function (`VendorBulkFunction`). The function is owned by the application and must outlive the transport. The bootloader calls the transport's `Process()` from its own `Process()`, so the application does not call it.
+
+```cpp
+using AppSerial = CdcAcmFunction<512, 256, 4>;
+AppSerial serial(Usb::Function(0));
+USBCommunication<AppSerial> communication(serial);
+```
+
+The application builds and starts the USB device; the transport does not. Give the transport to the bootloader where an `ICommunication` is expected, as it is for the other transports.
+
+### Connection
+
+- With a CDC-ACM function, the transport is connected while the device is configured **and** the host has DTR set (the terminal is open). A host that enumerates the port without opening it does not connect the bootloader.
+- With a vendor bulk function, it is connected while the device is configured.
+
+### Sending
+
+`SendData()` is all or nothing, which the bootloader relies on. It returns `busy` and queues nothing when the TX ring has no room for the whole packet, and the bootloader sends the packet again from its `Process()`. A packet larger than the TX ring never fits, so the ring must hold the largest response. `IsReadyToSend()` is true while connected and the TX ring has room for at least one byte.
+
+### Receiving
+
+`Process()` takes every received byte and gives it to the data callback, in one or more spans. The callback gets one empty span when the transport was connected and then loses its session: a disconnect, or a configuration or bus reset between two `Process()` calls. The empty span tells the bootloader that its partial frame is lost. A connection that starts later gets no empty span. A reset made from inside the callback is seen in the same `Process()` call: the empty span comes before any byte of the new session, and only one is given.
+
+### Limits and notes
+
+- `MaxPacketSize` is 64, the bulk packet size. `GetMaxPacketSize()` returns it, and the bootloader reports it to the host.
+- The callback is the `std::function` of `ICommunication`, and it runs from `Process()`, not from the interrupt.
+- The transport adds no buffering of its own: the rings of the function are the buffers.
+- Tested in the host simulator only (`TestUsbCommunication.cpp`), over both functions. No hardware run is recorded for the USB transport yet.
 
 ## Firmware Update Workflow
 
