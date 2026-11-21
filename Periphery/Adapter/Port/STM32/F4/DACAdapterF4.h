@@ -1,5 +1,6 @@
 #pragma once
 #include <Adapter/DACAdapter.h>
+#include "DMAAdapterF4.h"
 
 
 using ADAC = class DACAdapterF4;
@@ -11,13 +12,20 @@ using ADAC = class DACAdapterF4;
 // Trigger: a triggerSource that is not set starts on software. A named TriggerSource is written as its register code, and
 // TriggerSource::Timer6Trigger is that code zero, so it is not the same as no choice.
 //
-// Not supported: continuous output by DMA (WriteContinuous and StopDMA). The F4 channels have a DMA request, but the
-// stream and channel table of the DMA contract is not in the repository yet.
+// Continuous output: WriteContinuous() starts the DMA attached with SetDMA(), and StopDMA() stops it. The channel needs a
+// hardware trigger, a timer or an external line. The default trigger is software, and a software trigger is refused with
+// invalidParameter. The DMA must be DMA1 Stream 5 for channel 1 or DMA1 Stream 6 for channel 2, on request channel 7 (RM0090,
+// DMA1 request mapping), in memory-to-peripheral direction with 16-bit items, and its memory side must increment while the
+// peripheral side stays fixed (AddressMode::IncrementingToFixed). Any other DMA is refused with invalidParameter, and the
+// channel is not started. StopDMA() stops the attached DMA without checking it against these rules. The adapter does not
+// configure the DMA; the application does that with the DMA adapter's SetParameters().
 
 
-class DACAdapterF4: public DACAdapter<DAC_TypeDef> {
+class DACAdapterF4: public DACAdapter<DAC_TypeDef, ADMA> {
 private:
 	constexpr static uint32 explicitSourceFlag = 0x80000000U;
+	constexpr static uint32 dmaStreamChannel1 = 5;
+	constexpr static uint32 dmaStreamChannel2 = 6;
 
 
 
@@ -57,8 +65,8 @@ public:
 
 
 
-	// The DMA underrun flag is reported whether or not its interrupt is enabled. This adapter does not enable it, so the flag
-	// is raised only when the application runs the DAC by DMA itself.
+	// The underrun flag is reported whether or not its interrupt is enabled. WriteContinuous() enables the interrupt
+	// and StopDMA() disables it.
 	virtual inline void IrqHandler() override {
 		if (dacChannel == 1) {
 			if (LL_DAC_IsActiveFlag_DMAUDR1(dacHandle)) {
@@ -142,8 +150,32 @@ public:
 
 
 
-	virtual ResultStatus WriteContinuous(uint16 *, uint32) override {
-		return ResultStatus::notSupported;
+	// count is in samples of 16 bits. The DMA moves 16-bit items, so the count is not doubled.
+	virtual ResultStatus WriteContinuous(uint16 *buffer, uint32 count) override {
+		if (dma == nullptr) {
+			return ResultStatus::notAvailable;
+		}
+
+		// A software trigger writes one DMA request per SWTRIG write, so it cannot clock a continuous output.
+		if (IsSoftwareTrigger()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		ResultStatus status = CheckDma();
+		if (status != ResultStatus::ok) {
+			return status;
+		}
+
+		status = dma->Start(buffer, reinterpret_cast<uint16*>(static_cast<uintptr_t>(GetDataRegisterAddress())), count);
+		if (status != ResultStatus::ok) {
+			return status;
+		}
+
+		ClearFlag_DmaUnderrun();
+		EnableDMARequest();
+		EnableTrigger();
+		EnableIT_DmaUnderrun();
+		return ResultStatus::ok;
 	}
 
 
@@ -151,7 +183,14 @@ public:
 
 
 	virtual ResultStatus StopDMA() override {
-		return ResultStatus::notSupported;
+		if (dma == nullptr) {
+			return ResultStatus::notAvailable;
+		}
+
+		DisableIT_DmaUnderrun();
+		DisableDMARequest();
+		DisableTrigger();
+		return dma->Stop();
 	}
 
 
@@ -192,6 +231,60 @@ protected:
 
 
 private:
+	// The DMA must be the stream this channel is wired to, with the DAC request, memory to peripheral and 16-bit items. RM0090
+	// (DMA1 request mapping) puts channel 1 on Stream 5 and channel 2 on Stream 6, both on request channel 7 of DMA1.
+	ResultStatus CheckDma() const {
+		uint32 stream = (dacChannel == 1) ? dmaStreamChannel1 : dmaStreamChannel2;
+		if (!dma->IsStream(DMA1, stream)) {
+			return ResultStatus::invalidParameter;
+		}
+
+		// The holding register is fixed, so the peripheral side must not increment. The memory side must.
+		if (dma->GetParameters().addressMode != ADMA::AddressMode::IncrementingToFixed) {
+			return ResultStatus::invalidParameter;
+		}
+
+		return dma->CheckPeripheral(
+			ADMA::Peripheral::Channel7.Get(),
+			ADMA::Direction::MemoryToPeripheral,
+			ADMA::DataWidth::B16
+		);
+	}
+
+
+	// An unset option and the Software option both resolve to the software register code.
+	bool IsSoftwareTrigger() const {
+		return CastTriggerSource() == LL_DAC_TRIG_SOFTWARE;
+	}
+
+
+	void EnableIT_DmaUnderrun() {
+		if (dacChannel == 1) {
+			LL_DAC_EnableIT_DMAUDR1(dacHandle);
+		} else {
+			LL_DAC_EnableIT_DMAUDR2(dacHandle);
+		}
+	}
+
+
+	void DisableIT_DmaUnderrun() {
+		if (dacChannel == 1) {
+			LL_DAC_DisableIT_DMAUDR1(dacHandle);
+		} else {
+			LL_DAC_DisableIT_DMAUDR2(dacHandle);
+		}
+	}
+
+
+	void ClearFlag_DmaUnderrun() {
+		if (dacChannel == 1) {
+			LL_DAC_ClearFlag_DMAUDR1(dacHandle);
+		} else {
+			LL_DAC_ClearFlag_DMAUDR2(dacHandle);
+		}
+	}
+
+
 	constexpr uint32 CastChannel() const {
 		switch (dacChannel) {
 			case 1: return LL_DAC_CHANNEL_1;

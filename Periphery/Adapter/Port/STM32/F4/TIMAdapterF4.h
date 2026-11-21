@@ -55,6 +55,13 @@ public:
 		static inline constexpr ChannelOption C4 { LL_TIM_CHANNEL_CH4, 0 };
 	};
 
+	struct InputPrescaler {
+		static inline constexpr InputPrescalerOption Div1 { LL_TIM_ICPSC_DIV1 };
+		static inline constexpr InputPrescalerOption Div2 { LL_TIM_ICPSC_DIV2 };
+		static inline constexpr InputPrescalerOption Div4 { LL_TIM_ICPSC_DIV4 };
+		static inline constexpr InputPrescalerOption Div8 { LL_TIM_ICPSC_DIV8 };
+	};
+
 	struct Interrupt {
 		static inline constexpr InterruptOption CaptureCompare1 { 1 };
 		static inline constexpr InterruptOption CaptureCompare2 { 2 };
@@ -206,8 +213,7 @@ public:
 
 	virtual inline void SetDivision(ClockDivisionOption division) override {
 		if (IS_TIM_CLOCK_DIVISION_INSTANCE(timHandle)) {
-			auto CR1_REG = LL_TIM_ReadReg(timHandle, CR1);
-			MODIFY_REG(CR1_REG, TIM_CR1_CKD, division.Get());
+			LL_TIM_SetClockDivision(timHandle, division.Get());
 			parameters.division = division;
 		}
 	}
@@ -372,8 +378,20 @@ protected:
 	}
 
 
-	virtual ResultStatus InputCaptureInitialization(const std::initializer_list<InputCaptureParameters>&) override {
-		return ResultStatus::notSupported;
+	// The select, prescaler, filter and polarity of each channel are written to CCMR1 or CCMR2 and to CCER by the LL functions.
+	// The remapping is written to OR. A remapping of zero writes nothing, so the default option leaves OR as it is.
+	virtual ResultStatus InputCaptureInitialization(const std::initializer_list<InputCaptureParameters>& list) override {
+		for(const InputCaptureParameters &channel : list) {
+			LL_TIM_IC_SetActiveInput(timHandle, channel.channel.Get<1>(), CastInputSelection(channel));
+			LL_TIM_IC_SetPrescaler(timHandle, channel.channel.Get<1>(), channel.prescaler.Get());
+			LL_TIM_IC_SetFilter(timHandle, channel.channel.Get<1>(), channel.filter.Get());
+			LL_TIM_IC_SetPolarity(timHandle, channel.channel.Get<1>(), CastInputPolarity(channel));
+			if (channel.remapping.Get() != 0) {
+				LL_TIM_SetRemap(timHandle, channel.remapping.Get());
+			}
+		}
+
+		return ResultStatus::ok;
 	}
 
 
@@ -436,6 +454,29 @@ protected:
 			return ResultStatus::notSupported;
 		}
 		return ResultStatus::ok;
+	}
+
+
+private:
+	constexpr uint32 CastInputSelection(const InputCaptureParameters& channel) const {
+		switch (channel.selection) {
+			case InputSelection::Direct:   return LL_TIM_ACTIVEINPUT_DIRECTTI;
+			case InputSelection::Indirect: return LL_TIM_ACTIVEINPUT_INDIRECTTI;
+			case InputSelection::TRC:      return LL_TIM_ACTIVEINPUT_TRC;
+		}
+		SystemAbort();
+		return 0;
+	}
+
+
+	constexpr uint32 CastInputPolarity(const InputCaptureParameters& channel) const {
+		switch (channel.polarity) {
+			case InputPolarity::Rising:        return LL_TIM_IC_POLARITY_RISING;
+			case InputPolarity::Falling:       return LL_TIM_IC_POLARITY_FALLING;
+			case InputPolarity::RisingFalling: return LL_TIM_IC_POLARITY_BOTHEDGE;
+		}
+		SystemAbort();
+		return 0;
 	}
 };
 

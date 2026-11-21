@@ -201,11 +201,11 @@ public:
 		ClearAllStreamFlags();
 
 		if (parameters.direction == Direction::MemoryToPeripheral) {
-			LL_DMA_SetMemoryAddress(dmaHandle, dmaChannel, reinterpret_cast<uint32>(from));
-			LL_DMA_SetPeriphAddress(dmaHandle, dmaChannel, reinterpret_cast<uint32>(to));
+			LL_DMA_SetMemoryAddress(dmaHandle, dmaChannel, AddressValue(from));
+			LL_DMA_SetPeriphAddress(dmaHandle, dmaChannel, AddressValue(to));
 		} else {
-			LL_DMA_SetPeriphAddress(dmaHandle, dmaChannel, reinterpret_cast<uint32>(from));
-			LL_DMA_SetMemoryAddress(dmaHandle, dmaChannel, reinterpret_cast<uint32>(to));
+			LL_DMA_SetPeriphAddress(dmaHandle, dmaChannel, AddressValue(from));
+			LL_DMA_SetMemoryAddress(dmaHandle, dmaChannel, AddressValue(to));
 		}
 
 		LL_DMA_SetDataLength(dmaHandle, dmaChannel, count);
@@ -344,6 +344,13 @@ public:
 	}
 
 
+	// True when this adapter is the given stream of the given controller. A port uses it to check that a peripheral request
+	// is on the stream the chip wires it to, since the request table is per stream.
+	bool IsStream(DMA_TypeDef *controller, uint32 stream) const {
+		return dmaHandle == controller && dmaChannel == stream;
+	}
+
+
 	// Stores the value and applies it through Initialization(). While a run is active the call returns
 	// busy and the value stays pending; the next Initialization() or Start() writes it.
 	ResultStatus SetFifoEnabled(bool enabled) {
@@ -373,6 +380,12 @@ public:
 
 
 private:
+	// The register takes a 32-bit address. The cast goes through uintptr_t, so a 64-bit host build of the port compiles.
+	static uint32 AddressValue(const void *address) {
+		return static_cast<uint32>(reinterpret_cast<uintptr_t>(address));
+	}
+
+
 	bool IsStreamValid() const {
 		return dmaHandle != nullptr && dmaChannel < 8;
 	}

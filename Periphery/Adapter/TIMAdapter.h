@@ -296,7 +296,7 @@ protected:
 	virtual ResultStatus SetInterrupt(InterruptOption interrupt, bool enable) = 0;
 
 	// Ports without timer DMA request support keep the default
-	virtual ResultStatus SetDMARequest(DMARequestOption request, bool enable) {
+	virtual ResultStatus SetDMARequest(DMARequestOption, bool) {
 		return ResultStatus::notSupported;
 	}
 

@@ -131,6 +131,47 @@ void TestBlockingMasterReadRunsClock() {
 
 
 
+// A single Read() is a master read of one byte: the byte is clocked out as 0xFF, and the byte that comes back is returned.
+void TestSingleReadClocksOneByte() {
+	ResetCase();
+	SPIAdapterF4 adapter(&regs);
+	simSpiRxQueue = { 0x5A };
+
+	Result<uint8> result = adapter.Read<uint8>();
+
+	EXPECT(result.IsOk());
+	EXPECT(simSpiWritten == std::vector<uint8>({ 0xFF }));
+	if (result.IsOk()) {
+		EXPECT_EQ(result.Value(), 0x5A);
+	}
+}
+
+
+
+// An async read clocks 0xFF for each byte and fills the buffer in order. Both interrupts are off when the read has ended.
+void TestAsyncReadClocksAndFillsBuffer() {
+	ResetCase();
+	SPIAdapterF4 adapter(&regs);
+	WireCallbacks(adapter);
+	simSpiRxQueue = { 0x41, 0x42 };
+	uint8 buffer[2] = { 0, 0 };
+
+	EXPECT(adapter.ReadArrayAsync<uint8>(buffer, 2) == ResultStatus::ok);
+
+	// Each handler call serves the errors, the received byte and the next clock: three calls finish two bytes.
+	for (uint32 step = 0; step < 3; step++) {
+		adapter.IrqHandler();
+	}
+
+	EXPECT(simSpiWritten == std::vector<uint8>({ 0xFF, 0xFF }));
+	EXPECT_EQ(buffer[0], 0x41);
+	EXPECT_EQ(buffer[1], 0x42);
+	EXPECT((regs.CR2 & (SPI_CR2_RXNEIE | SPI_CR2_TXEIE)) == 0);
+	EXPECT_EQ(txInterruptCount, 0);
+}
+
+
+
 // Stopping continuous receive stops the receive side only. A write that is running keeps going.
 void TestStopContinuousReceiveKeepsWriteRunning() {
 	ResetCase();
@@ -159,6 +200,8 @@ int main() {
 	TestOverrunDuringReadIsReported();
 	TestSizesAboveSixteenBitsAreRefused();
 	TestBlockingMasterReadRunsClock();
+	TestSingleReadClocksOneByte();
+	TestAsyncReadClocksAndFillsBuffer();
 	TestStopContinuousReceiveKeepsWriteRunning();
 
 	if (failureCount != 0) {
