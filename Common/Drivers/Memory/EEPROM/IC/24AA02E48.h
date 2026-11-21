@@ -3,24 +3,22 @@
 
 
 namespace EEPROM {
-	class _24AA02E48: public Eeprom {
-	protected:
-		uint16 GetMaxAddressPointer() override {
-			return 256;
-		}
-
-		AddressSize GetMemoryAddressSize() override {
-			return AddressSize::U8;
-		}
-
-
+	// 2 Kbit serial EEPROM: 256 bytes in 8-byte pages with a one-byte word address. The A0 to A2 pins are not connected, so the
+	// 7-bit device address is always 0x50. The write cycle takes up to 5 ms. The EUI-48 node address is not modelled here.
+	class Chip24AA02E48: public Eeprom {
 	public:
-		_24AA02E48() {}
+		static constexpr Geometry chipGeometry{
+			.capacity = 256,
+			.pageSize = 8,
+			.addressBytes = 1,
+			.writeCycleMs = 5
+		};
 
-		_24AA02E48(AI2C &i2c, bool a0 = false, bool a1 = false, bool a2 = false):
-			Eeprom(i2c, 0b10100000 | ((uint8)a0 << 1) | ((uint8)a1 << 2) | ((uint8)a2 << 3))
+
+		Chip24AA02E48(AI2C &i2cBus):
+			Eeprom(i2cBus, 0x50, chipGeometry)
 		{
 
 		}
-	}
+	};
 };
