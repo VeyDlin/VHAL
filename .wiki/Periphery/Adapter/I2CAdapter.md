@@ -55,7 +55,7 @@ struct Parameters {
 |--------|--------|-------------|
 | `SetParameters(Parameters val)` | `ResultStatus` | Apply configuration |
 | `SetTimeout(uint32 time)` | `void` | Set timeout for sync operations (ms) |
-| `Await()` | `ResultStatus` | Block until async operation completes |
+| `Await()` | `ResultStatus` | Block until the async operation completes, or until the timeout from `SetTimeout` expires (returns `timeout`). The default timeout is 1000 ms. A timeout does not stop the transfer: the bus stays busy until the interrupt completes it |
 | `SetSlaveLiisten(bool mode)` | `ResultStatus` | Enable/disable slave listen mode |
 | `CheckDevice(uint8 addr, uint16 repeat = 1)` | `ResultStatus` | Ping a device address |
 | `CheckDeviceAsync(uint8 addr, uint16 repeat = 1)` | `ResultStatus` | Async device check |

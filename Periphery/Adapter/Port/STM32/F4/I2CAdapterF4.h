@@ -2,8 +2,6 @@
 #include <Utilities/WaitCondition/WaitCondition.h>
 #include <Adapter/I2CAdapter.h>
 
-using namespace WaitCondition;
-
 
 // I2C master on the F4 peripheral. Blocking calls poll the flags with the adapter timeout. Asynchronous calls run on the
 // event and error interrupts: the event handler walks the transfer through the phases below, one bus event at a time.

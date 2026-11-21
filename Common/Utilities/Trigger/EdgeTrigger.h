@@ -1,41 +1,40 @@
 #pragma once
+#include <Utilities/Trigger/Trigger.h>
 
 
-// Rising-edge detector: fires once on false-to-true transition
+// Rising-edge latch. Update() takes one sample: a false-to-true change since the previous sample sets the latch. Reading never has
+// a side effect: IsSet() looks, and Take() clears. A pulse that rises and falls between two samples is not seen. Sample often
+// enough for the signal, or call Trigger::Set() from the edge interrupt itself.
 class EdgeTrigger {
 private:
-	bool lastState = false;
-	bool currentState = false;
+	Trigger latch;
+	volatile bool level = false;
+
 
 public:
-	EdgeTrigger() { }
-
-	EdgeTrigger(bool initial) :
-		lastState(initial), currentState(initial) {
+	// Feeds one sample. Call it from one context only.
+	void Update(bool sample) {
+		if (sample && !level) {
+			latch.Set();
+		}
+		level = sample;
 	}
 
-	void operator=(bool condition) {
-		lastState = currentState;
-		currentState = condition;
+
+	// Returns true when a rising edge is latched, and clears it.
+	[[nodiscard]] bool Take() {
+		return latch.Take();
 	}
 
-	operator bool() const {
-		return currentState && !lastState;
+
+	// Reads the latch without clearing it.
+	bool IsSet() const {
+		return latch.IsSet();
 	}
 
-	bool operator!() const {
-		return !currentState || lastState;
-	}
 
-	bool operator==(bool val) const {
-		return currentState == val;
-	}
-
-	bool operator!=(bool val) const {
-		return currentState != val;
-	}
-
+	// The level of the last sample.
 	bool GetState() const {
-		return currentState;
+		return level;
 	}
 };

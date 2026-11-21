@@ -28,6 +28,7 @@ uint32 freq  = System::GetCoreClock(); // core clock frequency in Hz
 | Method | Resolution | Overflow | Use case |
 |--------|-----------|----------|----------|
 | `GetTick()` | 1 ms (typical) | ~584 million years (uint64) | General timing, timeouts |
+| `GetTick32()` | 1 ms | ~49.7 days (uint32), wraps | Short timeouts, read in one 32-bit access with no critical section. Compare with unsigned subtraction |
 | `GetMs()` | 1 ms | Same as GetTick | Human-readable timestamps |
 | `GetCoreTick()` | 1 / core_freq | ~67 sec at 64 MHz (uint32) | Microsecond profiling |
 | `GetCoreClock()` | — | — | Calculating delays, baud rates |

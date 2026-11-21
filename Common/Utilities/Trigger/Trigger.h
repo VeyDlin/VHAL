@@ -1,45 +1,64 @@
 #pragma once
+#include <System/System.h>
+#include <atomic>
+#include <type_traits>
 
 
-// Single-shot trigger flag: fires once when state matches, then auto-inverts
-class Trigger {
+// One-bit latch. Set() can run in an interrupt, and Take() in a task. Take() reads and clears the latch in one step, so a Set that
+// arrives during the take stays for the next Take. Two sets before a take make one event. The latch has one owner, so it cannot
+// be copied.
+//
+// lockFree picks the storage. Where bool atomics are always lock-free, the latch is a std::atomic<bool>, and Set() is safe in any
+// interrupt. Elsewhere, such as Cortex-M0+ with no exclusive load and store, each operation runs in a System critical section. That
+// is safe in an interrupt only where the port's critical section is: on ESP32 it is task-level, so call Set() from a task there.
+template<bool lockFree>
+class BasicTrigger {
 private:
-	bool trigger = false;
+	using Flag = std::conditional_t<lockFree, std::atomic<bool>, volatile bool>;
+
+	Flag flag{false};
+
 
 public:
-	Trigger() { }
+	BasicTrigger() = default;
+	BasicTrigger(const BasicTrigger&) = delete;
+	BasicTrigger& operator=(const BasicTrigger&) = delete;
 
-	Trigger(bool val): trigger(val) { }
 
-    operator bool() const {
-        return const_cast<Trigger*>(this)->Is(true);
-    }
-
-    bool operator!() const {
-        return const_cast<Trigger*>(this)->Is(false);
-    }
-
-    bool operator==(bool val) const {
-        return trigger == val;
-    }
-
-    bool operator!=(bool val) const {
-        return trigger != val;
-    }
-
-	void operator=(bool val) {
-		trigger = val;
+	void Set() {
+		if constexpr (lockFree) {
+			flag.store(true, std::memory_order_release);
+		} else {
+			System::CriticalSection(true);
+			flag = true;
+			System::CriticalSection(false);
+		}
 	}
 
-    bool GetState() const {
-        return trigger;
-    }
 
-	bool Is(bool wait) {
-		if(trigger == wait) {
-			trigger = !trigger;
-			return true;
+	// Returns true when the latch is set, and clears it.
+	[[nodiscard]] bool Take() {
+		if constexpr (lockFree) {
+			return flag.exchange(false, std::memory_order_acq_rel);
+		} else {
+			System::CriticalSection(true);
+			bool value = flag;
+			flag = false;
+			System::CriticalSection(false);
+			return value;
 		}
-		return false;
+	}
+
+
+	// Reads the latch without clearing it.
+	bool IsSet() const {
+		if constexpr (lockFree) {
+			return flag.load(std::memory_order_acquire);
+		} else {
+			return flag;
+		}
 	}
 };
+
+
+using Trigger = BasicTrigger<std::atomic<bool>::is_always_lock_free>;

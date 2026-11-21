@@ -1,13 +1,12 @@
 # Trigger
 
-Lightweight C++ trigger utilities for one-shot event detection: flag triggers, rising-edge detectors, and variable change observers.
+A latch for events that an interrupt raises and a task takes. Two classes: `Trigger` (set and take) and `EdgeTrigger` (samples a level and latches its rising edges).
 
 ## Table of Contents
 
 - [Quick Start](#quick-start)
 - [Trigger](#trigger-1)
 - [EdgeTrigger](#edgetrigger)
-- [TriggerObserver](#triggerobserver)
 - [API Reference](#api-reference)
 
 ## Quick Start
@@ -15,202 +14,100 @@ Lightweight C++ trigger utilities for one-shot event detection: flag triggers, r
 ```cpp
 #include <Utilities/Trigger/Trigger.h>
 #include <Utilities/Trigger/EdgeTrigger.h>
-#include <Utilities/Trigger/TriggerObserver.h>
 
-// One-shot flag
-Trigger flag = false;
-flag = true;
-if (flag) {
-    // Runs once, then flag auto-resets to false
+// Set from an interrupt, taken in a task
+Trigger dataReady;
+
+void OnDataInterrupt() {
+    dataReady.Set();
 }
 
-// Rising-edge detection
-EdgeTrigger edge;
-edge = buttonPressed; // assign each loop iteration
-if (edge) {
-    // Runs once per false->true transition
+void Task() {
+    if (dataReady.Take()) {
+        ProcessData();
+    }
 }
 
-// Variable change observer
-int speed = 100;
-TriggerObserver<int> obs(speed);
-speed = 200;
-if (obs) {
-    // Runs once because speed changed from 100 to 200
+// A rising edge of a level, sampled in the main loop
+EdgeTrigger button;
+
+void MainLoop() {
+    button.Update(ReadButton());
+    if (button.Take()) {
+        OnPress();
+    }
 }
 ```
+
+---
 
 ## Trigger
 
-A single-shot boolean flag. When checked via `if (trigger)` or `Is(true)`, the condition fires **once** if the internal state matches, then the state auto-inverts. To fire again, you must explicitly set the flag back.
+A one-bit latch. `Set()` raises it. `Take()` returns it and clears it in one step. `IsSet()` reads it without clearing.
 
-### Usage
+- `Set()` is safe from an interrupt. On the critical-section path it is safe only where `System::CriticalSection` is: on ESP32 that is task-level, so call `Set()` from a task there.
+- A `Set()` that arrives during a `Take()` is not lost. It stays for the next `Take()`.
+- Two `Set()` calls before one `Take()` make one event. A latch holds a yes or no, not a count.
+- A latch has one owner, so it cannot be copied.
 
-```cpp
-Trigger flag = false;
-
-// Main loop
-while (true) {
-    if (flag) {
-        // Executes once when flag is true, then flag becomes false
-        HandleEvent();
-    }
-}
-
-// Somewhere else (e.g., interrupt, another task):
-flag = true;  // Arms the trigger -- the if-block above will fire once
-```
-
-### Waiting for false
+On targets where GCC reports `bool` atomics as always lock-free (checked for Cortex-M4 and x86) the latch is a `std::atomic<bool>`. On Cortex-M0+, which has no exclusive load and store, each operation runs in a `System::CriticalSection`. The choice is made at compile time, and the code is the same.
 
 ```cpp
-Trigger flag = true;
+Trigger error;
 
-while (true) {
-    if (!flag) {
-        // Executes once when flag is false, then flag becomes true
-    }
+error.Set();
+if (error.IsSet()) {            // true, nothing cleared
+    // ...
 }
-
-flag = false; // Arms the trigger for the !flag check
+if (error.Take()) {             // true, and the latch is clear
+    // ...
+}
+if (error.Take()) {             // false
+}
 ```
 
-### Reading state without triggering
-
-Use `==`, `!=`, or `GetState()` to inspect the current state without consuming the trigger:
-
-```cpp
-Trigger flag = true;
-
-if (flag == true) {
-    // Non-destructive read -- does NOT reset the flag
-}
-
-bool current = flag.GetState(); // Also non-destructive
-```
+---
 
 ## EdgeTrigger
 
-Detects a **rising edge** (false-to-true transition) on an externally assigned boolean condition. Unlike `Trigger`, you assign the condition value each iteration and `EdgeTrigger` tracks the transition internally.
+Latches a rising edge (false to true) of a level that the caller samples. `Update(sample)` takes one sample. A change from `false` to `true` since the previous sample sets the latch.
 
-### Usage
+- `IsSet()` and `GetState()` never change anything. Only `Take()` clears the latch.
+- Call `Update()` from one context only.
+- A pulse that rises and falls between two samples is not seen. Sample often enough for the signal, or call `Trigger::Set()` from the edge interrupt itself.
 
 ```cpp
-EdgeTrigger trigger;
+EdgeTrigger overCurrent;
 
-while (true) {
-    bool error = CheckForError();
-    trigger = error; // Update with current condition
-
-    if (trigger) {
-        // Fires once when error goes from false to true
-        LogError();
-    }
+// In the loop, every 1 ms
+overCurrent.Update(ReadOverCurrentPin());
+if (overCurrent.Take()) {
+    ShutDown();
 }
 ```
 
-The trigger will not fire again until the condition returns to `false` and then becomes `true` again.
-
-### Inspecting state
-
-```cpp
-EdgeTrigger trigger;
-trigger = someCondition;
-
-if (trigger == true) {
-    // Current state is true (does not consume edge)
-}
-
-bool state = trigger.GetState(); // Returns current internal state
-```
-
-## TriggerObserver
-
-A **generic change detector**. Monitors a variable by reference and fires once each time the value changes. Works with any type that supports `!=` and copy assignment.
-
-### Usage
-
-```cpp
-int mode = 0;
-TriggerObserver<int> modeChanged(mode);
-
-while (true) {
-    if (modeChanged) {
-        // Fires once each time `mode` changes value
-        ApplyNewMode(mode);
-    }
-}
-
-// Elsewhere:
-mode = 1; // Next check of modeChanged will fire
-mode = 1; // No change -- will not fire
-mode = 2; // Will fire again
-```
-
-### With custom types
-
-```cpp
-struct Config {
-    int baudRate;
-    bool operator!=(const Config& o) const { return baudRate != o.baudRate; }
-};
-
-Config cfg{9600};
-TriggerObserver<Config> cfgChanged(cfg);
-
-cfg.baudRate = 115200;
-if (cfgChanged) {
-    // Config changed -- reconfigure peripheral
-}
-```
-
-### Using Event() directly
-
-The `Event()` method is equivalent to the `bool` conversion operator:
-
-```cpp
-TriggerObserver<float> tempChanged(temperature);
-
-if (tempChanged.Event()) {
-    // Same as: if (tempChanged)
-}
-```
+---
 
 ## API Reference
 
-### Trigger
+### Trigger (`BasicTrigger<lockFree>`, alias `Trigger`)
 
 | Member | Description |
 |---|---|
-| `Trigger()` | Default constructor, state = `false` |
-| `Trigger(bool val)` | Construct with initial state |
-| `operator bool()` | Returns `true` once if state is `true`, then auto-inverts to `false` |
-| `operator!()` | Returns `true` once if state is `false`, then auto-inverts to `true` |
-| `operator=(bool val)` | Sets the internal state |
-| `operator==(bool val)` | Non-destructive state comparison |
-| `operator!=(bool val)` | Non-destructive state comparison |
-| `GetState()` | Returns current state without triggering |
-| `Is(bool wait)` | Returns `true` and inverts state if current state equals `wait` |
+| `Trigger()` | Default constructor. The latch is clear |
+| `Trigger(const Trigger&)`, `operator=` | Deleted. The latch has one owner |
+| `void Set()` | Raises the latch. Safe from an interrupt, with the target note above |
+| `[[nodiscard]] bool Take()` | Returns `true` when the latch is raised, and clears it |
+| `bool IsSet() const` | Returns the latch without clearing it |
+
+`BasicTrigger<true>` uses `std::atomic<bool>`. `BasicTrigger<false>` uses a critical section. `Trigger` is `BasicTrigger<std::atomic<bool>::is_always_lock_free>`.
 
 ### EdgeTrigger
 
 | Member | Description |
 |---|---|
-| `EdgeTrigger()` | Default constructor, both states = `false` |
-| `EdgeTrigger(bool initial)` | Construct with initial state |
-| `operator=(bool condition)` | Updates internal state (shifts current to last) |
-| `operator bool()` | Returns `true` if rising edge detected (`!last && current`) |
-| `operator!()` | Returns `true` if no rising edge |
-| `operator==(bool val)` | Compares current state (non-destructive) |
-| `operator!=(bool val)` | Compares current state (non-destructive) |
-| `GetState()` | Returns current internal state |
-
-### TriggerObserver\<Type\>
-
-| Member | Description |
-|---|---|
-| `TriggerObserver()` | Default constructor (no variable bound) |
-| `TriggerObserver(Type& val)` | Construct and bind to a variable by reference |
-| `operator bool()` | Returns `true` once if the monitored value changed since last check |
-| `operator!()` | Returns `true` if the monitored value has not changed |
-| `Event()` | Explicit form of `operator bool()` -- returns `true` and updates snapshot if value changed |
+| `EdgeTrigger()` | Default constructor. The level and the latch are clear |
+| `void Update(bool sample)` | Takes one sample. A rising edge since the last sample sets the latch |
+| `[[nodiscard]] bool Take()` | Returns `true` when a rising edge is latched, and clears it |
+| `bool IsSet() const` | Returns the latch without clearing it |
+| `bool GetState() const` | Returns the level of the last sample |

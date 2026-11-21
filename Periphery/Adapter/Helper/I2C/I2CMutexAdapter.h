@@ -27,8 +27,11 @@ public:
 
 	virtual ResultStatus CheckDeviceAsync(uint8 deviceAddress, uint16 repeat = 1) override {
 		CallMutex(true);
-		auto status = AdapterClass::CheckDeviceAsync(deviceAddress, repeat);
-		StatusAssert(status);
+		ResultStatus status = AdapterClass::CheckDeviceAsync(deviceAddress, repeat);
+		if (status != ResultStatus::ok) {
+			CallMutex(false);
+			return status;
+		}
 		status = AdapterClass::Await();
 		CallMutex(false);
 		return status;
@@ -47,15 +50,16 @@ public:
 
 	virtual Result<uint8> ScanAsync(uint8 *listBuffer, uint8 size) override {
 		CallMutex(true);
-		auto status = AdapterClass::ScanAsync(listBuffer, size);
+		Result<uint8> status = AdapterClass::ScanAsync(listBuffer, size);
 		if(status.IsErr()) {
+			CallMutex(false);
 			return status;
 		}
-		auto awaitStatus = AdapterClass::Await();
+		ResultStatus awaitStatus = AdapterClass::Await();
+		CallMutex(false);
 		if(awaitStatus != ResultStatus::ok) {
 			return awaitStatus;
 		}
-		CallMutex(false);
 		return status;
 	}
 
@@ -81,8 +85,11 @@ public:
 
 	virtual ResultStatus WriteByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* writeData, uint32 dataSize) override {
 		CallMutex(true);
-		auto status = AdapterClass::WriteByteArrayAsync(device, address, addressSize, writeData, dataSize);
-		StatusAssert(status);
+		ResultStatus status = AdapterClass::WriteByteArrayAsync(device, address, addressSize, writeData, dataSize);
+		if (status != ResultStatus::ok) {
+			CallMutex(false);
+			return status;
+		}
 		status = AdapterClass::Await();
 		CallMutex(false);
 		return status;
@@ -92,8 +99,11 @@ public:
 
 	virtual ResultStatus ReadByteArrayAsync(uint8 device, uint16 address, uint8 addressSize, uint8* readData, uint32 dataSize) override {
 		CallMutex(true);
-		auto status = AdapterClass::ReadByteArrayAsync(device, address, addressSize, readData, dataSize);
-		StatusAssert(status);
+		ResultStatus status = AdapterClass::ReadByteArrayAsync(device, address, addressSize, readData, dataSize);
+		if (status != ResultStatus::ok) {
+			CallMutex(false);
+			return status;
+		}
 		status = AdapterClass::Await();
 		CallMutex(false);
 		return status;

@@ -1,16 +1,16 @@
 # WaitCondition
 
-Polling-based conditional wait utilities with timeout support for embedded systems (VHAL).
+A header-only wait for a condition, with a timeout. An adapter uses it where it waits for a flag, a state or a peripheral.
 
 ---
 
 ## Table of Contents
 
 - [Quick Start](#quick-start)
-- [API Reference](#api-reference)
-  - [Wait](#wait)
-  - [WaitDouble](#waitdouble)
-- [Usage Examples](#usage-examples)
+- [WaitFor](#waitfor)
+- [Policies](#policies)
+- [Example: an adapter wait](#example-an-adapter-wait)
+- [Limits](#limits)
 
 ---
 
@@ -19,98 +19,84 @@ Polling-based conditional wait utilities with timeout support for embedded syste
 ```cpp
 #include <Utilities/WaitCondition/WaitCondition.h>
 
-// Block until a flag is set, with a 500-tick timeout
-bool ok = WaitCondition::Wait(
-    []() { return myPeripheral.IsReady(); },
-    500
-);
+// Wait at most 2 ms for the transmit-complete flag
+ResultStatus status = WaitCondition::WaitFor([this]() -> bool {
+    return LL_USART_IsActiveFlag_TC(uartHandle);
+}, 2);
 
-if (!ok) {
-    // Timed out
+if (status != ResultStatus::ok) {
+    // ResultStatus::timeout
 }
 ```
 
 ---
 
-## API Reference
-
-### Wait
+## WaitFor
 
 ```cpp
-bool WaitCondition::Wait(std::function<bool()> condition, uint32 timeout);
+template<typename Policy = NoYield, typename Predicate>
+ResultStatus WaitCondition::WaitFor(Predicate&& predicate, uint32 timeoutMs);
 ```
 
-Polls `condition()` in a busy loop until it returns `true` or the elapsed time since entry reaches `timeout` ticks (as measured by `System::GetTick()`).
+Polls `predicate()` until it returns `true` (returns `ResultStatus::ok`) or until `timeoutMs` milliseconds have passed while it is still `false` (returns `ResultStatus::timeout`).
 
-`condition()` is evaluated before the timeout is checked. If it returns `true` on entry, `Wait` returns `true` at once, even when `timeout` is `0`. With `timeout` of `0` and a `false` condition, `Wait` evaluates the condition once and returns `false`.
+- The predicate runs first. A condition that is already true costs one call and no clock read.
+- The timeout is measured with `System::GetTick32()`. A tick is one period of `System::TickHandler`. The application calls it once per millisecond, so there a tick is one millisecond.
+- The result is `timeout` only when the last predicate call returned `false`. A condition that is true at that call returns `ok`, even when that call reaches the limit.
+- `timeoutMs = 0` polls the predicate twice (on entry and before the timeout check) and then returns `timeout` if it is still false.
+- The predicate and the policy are template arguments. A lambda inlines. Nothing is allocated, and no `std::function` is built.
 
-| Parameter   | Type                      | Description                                       |
-|-------------|---------------------------|---------------------------------------------------|
-| `condition` | `std::function<bool()>`   | Callable that returns `true` when the wait is over |
-| `timeout`   | `uint32`                  | Maximum number of ticks to wait                    |
+| Parameter   | Type       | Description                                                  |
+|-------------|------------|--------------------------------------------------------------|
+| `predicate` | callable   | Returns `true` when the wait is over. Taken by forwarding reference |
+| `timeoutMs` | `uint32`   | Longest wait in milliseconds                                  |
 
-**Returns:** `true` if `condition()` is `true` before the timeout; `false` once the timeout has elapsed while `condition()` is still `false`.
+**Returns:** `ResultStatus::ok` when the predicate became `true`, `ResultStatus::timeout` otherwise.
 
 ---
 
-### WaitDouble
+## Policies
+
+The policy decides what happens between two polls. It is the first template argument.
+
+| Policy | Between polls | Use it for |
+|--------|---------------|------------|
+| `NoYield` (default) | Nothing. The loop polls at once | A flag that a peripheral sets within microseconds |
+| `RtosYield` | Calls `System::rtosDelayMsHandle(1)` when it is set, which yields to the RTOS for one millisecond. With no handle it polls like `NoYield` | A wait that can take milliseconds, under an RTOS |
 
 ```cpp
-bool WaitCondition::WaitDouble(
-    std::function<bool()> condition,
-    std::function<bool()> mandatoryCondition,
-    uint32 timeout
-);
+// A long wait under an RTOS: the other tasks keep running
+ResultStatus status = WaitCondition::WaitFor<WaitCondition::RtosYield>([this]() -> bool {
+    return state == ResultStatus::ready;
+}, 1000);
 ```
-
-Same as `Wait`, but adds a **mandatory condition** that is checked on every iteration while `condition()` is `false`. If `condition()` is `true` on entry, `mandatoryCondition()` is not called and the function returns `true`. If `mandatoryCondition()` returns `false` while `condition()` is `false`, the function exits immediately with `false`, regardless of the timeout.
-
-| Parameter            | Type                      | Description                                                  |
-|----------------------|---------------------------|--------------------------------------------------------------|
-| `condition`          | `std::function<bool()>`   | Callable that returns `true` when the wait is over            |
-| `mandatoryCondition` | `std::function<bool()>`   | Invariant that must stay `true`; violation causes early abort |
-| `timeout`            | `uint32`                  | Maximum number of ticks to wait                               |
-
-**Returns:** `true` if `condition()` is `true` before the timeout. `false` if `mandatoryCondition()` returns `false` while `condition()` is still `false`, or if the timeout elapses first.
 
 ---
 
-## Usage Examples
+## Example: an adapter wait
 
-### Waiting for a peripheral flag
-
-```cpp
-bool ok = WaitCondition::Wait(
-    []() { return UART_GetFlag(UART1, UART_FLAG_TC); },
-    1000
-);
-```
-
-### Waiting with a safety guard (WaitDouble)
-
-Wait for a transfer to complete, but abort immediately if the device is disconnected:
+The base `I2CAdapter::Await()` waits for the state an interrupt sets. It uses the timeout from `SetTimeout`:
 
 ```cpp
-bool ok = WaitCondition::WaitDouble(
-    []() { return dma.TransferComplete(); },   // target condition
-    []() { return device.IsConnected(); },     // mandatory invariant
-    2000
-);
+virtual ResultStatus Await() {
+    ResultStatus waitStatus = WaitCondition::WaitFor([this]() -> bool {
+        return state == ResultStatus::ready || state == ResultStatus::error;
+    }, timeout);
 
-if (!ok) {
-    // Either timed out or device disconnected
+    if (waitStatus != ResultStatus::ok) {
+        return waitStatus;   // timeout
+    }
+
+    return state == ResultStatus::ready ? ResultStatus::ok : ResultStatus::error;
 }
 ```
 
-### Using with lambdas that capture state
+`state` is `volatile`, because an interrupt writes it. A plain member could be read once and kept in a register.
 
-```cpp
-volatile bool rxDone = false;
+---
 
-StartAsyncReceive(&rxDone);
+## Limits
 
-bool ok = WaitCondition::Wait(
-    [&]() { return rxDone; },
-    5000
-);
-```
+- **Clock.** The timeout is a count of ticks of `System::GetTick32()`, which is 32 bits wide and wraps about every 49.7 days. The wait compares with unsigned subtraction, so it stays correct across the wrap for any `uint32` timeout.
+- **Frozen tick.** The tick moves when the application calls `System::TickHandler`, for example from the SysTick interrupt. Inside a critical section, or with the interrupts masked, it stops, and the wait cannot time out. Never wait there. A predicate that never becomes `true` then hangs, as it would with no timeout at all.
+- **Cost.** One call to the predicate and one `System::GetTick32()` read per poll. `GetTick32()` is inline: one aligned 32-bit volatile load, with no call and no critical section.

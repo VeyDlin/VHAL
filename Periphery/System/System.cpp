@@ -6,6 +6,7 @@
 
 
 volatile uint64 System::tickCounter = 0;
+volatile uint32 System::tickLow = 0;
 uint32 System::msPerTick = 1;
 
 std::function<void(const char *message, const char *file, uint32 line)> System::criticalErrorHandle = nullptr;
@@ -41,7 +42,9 @@ void System::Init() {
 
 
 void System::TickHandler() {
-    tickCounter = tickCounter + 1;
+	uint64 tick = tickCounter + 1;
+	tickCounter = tick;
+	tickLow = static_cast<uint32>(tick);
 }
 
 

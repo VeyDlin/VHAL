@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Builds every host test of the adapter base classes and runs it with g++. Exits non-zero when a test fails to build or fails.
 # Works in Git Bash on Windows and on Linux or macOS. Build output goes to a temporary directory outside the repository.
+# The tests are optimised. A state the optimiser keeps in a register makes Await time out instead of seeing the interrupt's write,
+# and TestAwaitEndedByAnotherThread fails.
 set -u
 
 simDir="$(cd "$(dirname "$0")" && pwd)"
@@ -20,9 +22,9 @@ for source in "$simDir"/Test*.cpp; do
     name="$(basename "$source" .cpp)"
     exe="$buildDir/$name$exeSuffix"
 
-    if ! "$cxx" -std=c++20 -Wall -Wextra -Werror \
+    if ! "$cxx" -std=c++20 -O2 -Wall -Wextra -Werror \
         -I "$simDir/shim" -I "$vhalRoot/Periphery" -I "$vhalRoot/Common" \
-        -o "$exe" "$source"; then
+        -o "$exe" "$source" -pthread; then
         echo "BUILD FAILED: $name"
         failures=$((failures + 1))
         continue

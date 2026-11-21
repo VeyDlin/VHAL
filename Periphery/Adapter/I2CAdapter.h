@@ -1,5 +1,6 @@
 #pragma once
 #include "IAdapter.h"
+#include <Utilities/WaitCondition/WaitCondition.h>
 
 #define VHAL_I2C_ADAPTER
 
@@ -43,7 +44,8 @@ protected:
 
 	uint32 timeout = 1000;
 
-	ResultStatus state = ResultStatus::ready;
+	// Written by the interrupt and read by Await, so it is volatile: every read reaches memory.
+	volatile ResultStatus state = ResultStatus::ready;
 
 	uint16 deviceAddress = 0;
 
@@ -90,10 +92,20 @@ public:
 	}
 
 
+	// Waits until the transfer ends, for at most the timeout set by SetTimeout. Returns timeout when it does not end in time. A timeout
+	// does not stop the transfer: the state stays busy until the interrupt completes it, and the next Await sees that completion.
 	virtual ResultStatus Await() {
 		// TODO: [VHAL] [I2C] [ADAPTER] [ADD] add slave listen
-		// TODO: [VHAL] [I2C] [ADAPTER] [ADD]  add timeout
-		while(state != ResultStatus::ready && state != ResultStatus::error);
+		ResultStatus waitStatus = WaitCondition::WaitFor(
+			[this]() -> bool {
+				return state == ResultStatus::ready || state == ResultStatus::error;
+			},
+			timeout
+		);
+
+		if (waitStatus != ResultStatus::ok) {
+			return waitStatus;
+		}
 
 		if (state == ResultStatus::ready) {
 			return ResultStatus::ok;

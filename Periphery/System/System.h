@@ -35,6 +35,8 @@ public:
 #endif
 	static std::function<void(const char *message, const char *file, uint32 line)> criticalErrorHandle;
 	static std::function<bool(uint32 delay)> rtosDelayMsHandle;
+	// The low 32 bits of the tick. Only TickHandler writes it. Read it through GetTick32().
+	static volatile uint32 tickLow;
 
 	typedef union {
 	    struct {
@@ -63,6 +65,11 @@ public:
     static void SetWriteHandler(std::function<void(const char* string, size_t size)> handler);
     static void SetReadHandler(std::function<int()> handler);
     static uint64 GetTick();
+    // The low 32 bits of the tick, in one aligned read with no critical section. The value wraps about every 49.7 days, so
+    // compare two readings with unsigned subtraction: (now - start) >= timeout stays right across the wrap.
+    static inline uint32 GetTick32() {
+        return tickLow;
+    }
     static uint64 GetMs();
     static uint32 GetCoreTick();
     static uint32 GetCoreClock();
