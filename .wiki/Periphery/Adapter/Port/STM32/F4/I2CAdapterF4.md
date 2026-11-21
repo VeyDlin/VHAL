@@ -17,7 +17,7 @@ Class: `I2CAdapterF4`. Alias: `AI2C`. The constructor takes the peripheral handl
 | `Read`, `ReadArray`, `ReadByteArray` | Blocking. Register address (1 or 2 bytes), then a repeated START once the register bytes have left the shift register, then data. Counts 1, 2 and 3 are handled as the reference manual gives. |
 | `WriteByteArrayAsync`, `WriteAsync`, `WriteArrayAsync` | Interrupt-driven. Register address, then data, then STOP. |
 | `ReadByteArrayAsync`, `ReadAsync`, `ReadArrayAsync` | Interrupt-driven. Register address, repeated START, then data. A size of 0 returns `invalidParameter`. |
-| `Await()` | Waits until the transfer completes or fails. Returns `ok` on completion and `error` on failure. It reads the state on every pass, so it sees the end of a transfer the interrupt handlers finish on another thread. |
+| `Await()` | The base adapter's `Await()`: waits until the transfer completes or fails, for at most the `SetTimeout` value. Returns `ok` on completion, `error` on failure and `timeout` when the transfer does not end in time. The state is `volatile`, so every pass sees the end of a transfer the interrupt handlers finish. |
 | `IrqEventHandler()`, `IrqErrorHandler()`, `IrqHandler()` | `IrqHandler()` routes an enabled error flag to `IrqErrorHandler()` and everything else to `IrqEventHandler()`. |
 
 An asynchronous transfer ends with the state `ready` (completed) or `error` (failed). The next transfer may start from either state. `Await()` returns right away when the state is `ready` or `error`.

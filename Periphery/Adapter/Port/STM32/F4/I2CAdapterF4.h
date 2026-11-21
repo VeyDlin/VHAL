@@ -124,20 +124,6 @@ public:
 
 
 
-	// Waits for the end of the asynchronous transfer. The handlers write the state from interrupt context, so every pass
-	// reads it through a volatile access. A plain read could be hoisted out of the loop, and the wait would never end.
-	virtual ResultStatus Await() override {
-		ResultStatus current = ReadState();
-
-		while (current != ResultStatus::ready && current != ResultStatus::error) {
-			current = ReadState();
-		}
-
-		return current == ResultStatus::ready ? ResultStatus::ok : ResultStatus::error;
-	}
-
-
-
 	// The clock and the pins are set up only while the bus is idle, so a transfer keeps the settings it started with.
 	virtual ResultStatus SetParameters(Parameters val) override {
 		if (state == ResultStatus::busy) {
@@ -721,12 +707,6 @@ private:
 		*rxDataPointer = LL_I2C_ReceiveData8(i2cHandle);
 		rxDataPointer++;
 		rxDataCounter++;
-	}
-
-
-
-	ResultStatus ReadState() const {
-		return *static_cast<const volatile ResultStatus *>(&state);
 	}
 
 
