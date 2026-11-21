@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <vector>
 
 #include <libusb.h>
 
@@ -26,7 +27,10 @@ public:
 	~LibUsbBackend() override;
 
 
-	bool Open(std::string& error) override;
+	bool Enumerate(std::vector<UsbDeviceInfo>& devices, std::string& error) override;
+
+
+	bool Open(const std::string& serial, std::string& error) override;
 
 
 	void Close() override;

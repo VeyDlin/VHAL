@@ -3,6 +3,7 @@
 #include <setupapi.h>
 #include <objbase.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -12,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "DeviceSelection.h"
 #include "Options.h"
 #include "Text.h"
 
@@ -164,6 +166,31 @@ std::wstring LowerCase(std::wstring text) {
 }
 
 
+// Device paths are ASCII. Anything else is shown as '?', the way libusb shows a non-ASCII string.
+std::string NarrowAscii(const std::wstring& text) {
+	std::string narrow;
+	for (wchar_t character : text) {
+		narrow.push_back(character < 0x80 ? static_cast<char>(character) : '?');
+	}
+
+	return narrow;
+}
+
+
+// The location column of `list`. An interface path is \\?\usb#vid_..&pid_..#<instance>#{guid}: the instance segment is the
+// device instance ID, which differs between two boards on the bus. A path of another shape is shown whole.
+std::string InstanceText(const std::wstring& path) {
+	std::size_t first = path.find(L'#');
+	std::size_t second = first == std::wstring::npos ? std::wstring::npos : path.find(L'#', first + 1);
+	std::size_t third = second == std::wstring::npos ? std::wstring::npos : path.find(L'#', second + 1);
+	if (third == std::wstring::npos) {
+		return NarrowAscii(path);
+	}
+
+	return "instance " + NarrowAscii(path.substr(second + 1, third - second - 1));
+}
+
+
 // Reads the device path of one interface, which contains the vendor and product IDs.
 bool ReadInterfacePath(HDEVINFO deviceInfo, SP_DEVICE_INTERFACE_DATA& interfaceData, std::wstring& path, std::string& error) {
 	DWORD requiredSize = 0;
@@ -186,9 +213,168 @@ bool ReadInterfacePath(HDEVINFO deviceInfo, SP_DEVICE_INTERFACE_DATA& interfaceD
 }
 
 
-// Pipe policies. RAW_IO hands requests straight to the host controller, which is what keeps the throughput up; every
-// request length must then be a multiple of the packet size, which usbbench checks first. The default control pipe
-// (ID 0) gets the control timeout, so a vendor request that the device never answers fails instead of hanging.
+// Device paths of every interface with the benchmark GUID and IDs, in SetupAPI order.
+bool FindDevicePaths(std::vector<std::wstring>& paths, std::string& error) {
+	GUID interfaceGuid {};
+	std::wstring guidText = WidenAscii(BenchProtocol::InterfaceGuid);
+	if (CLSIDFromString(guidText.c_str(), &interfaceGuid) != S_OK) {
+		error = "BenchProtocol::InterfaceGuid is not a valid GUID";
+		return false;
+	}
+
+	// Device paths are lower case and contain the IDs as "vid_xxxx&pid_xxxx".
+	wchar_t idFilter[64] {};
+	std::swprintf(
+		idFilter,
+		sizeof(idFilter) / sizeof(idFilter[0]),
+		L"vid_%04x&pid_%04x",
+		static_cast<unsigned int>(BenchProtocol::VendorId),
+		static_cast<unsigned int>(BenchProtocol::ProductId));
+
+	ScopedDeviceInfo deviceInfo(SetupDiGetClassDevsW(&interfaceGuid, nullptr, nullptr, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE));
+	if (!deviceInfo.IsValid()) {
+		error = "SetupDiGetClassDevs failed: " + FormatWindowsError(GetLastError());
+		return false;
+	}
+
+	paths.clear();
+	for (DWORD index = 0;; index++) {
+		SP_DEVICE_INTERFACE_DATA interfaceData {};
+		interfaceData.cbSize = sizeof(interfaceData);
+		if (!SetupDiEnumDeviceInterfaces(deviceInfo.Get(), nullptr, &interfaceGuid, index, &interfaceData)) {
+			if (GetLastError() == ERROR_NO_MORE_ITEMS) {
+				break;
+			}
+
+			error = "SetupDiEnumDeviceInterfaces failed: " + FormatWindowsError(GetLastError());
+			return false;
+		}
+
+		std::wstring path;
+		if (!ReadInterfacePath(deviceInfo.Get(), interfaceData, path, error)) {
+			return false;
+		}
+
+		if (LowerCase(path).find(idFilter) != std::wstring::npos) {
+			paths.push_back(path);
+		}
+	}
+
+	return true;
+}
+
+
+// Frees the interface and closes the device, and leaves both handles empty.
+void ReleasePath(HANDLE& device, WINUSB_INTERFACE_HANDLE& interfaceHandle) {
+	if (interfaceHandle != nullptr) {
+		WinUsb_Free(interfaceHandle);
+		interfaceHandle = nullptr;
+	}
+
+	if (device != INVALID_HANDLE_VALUE) {
+		CloseHandle(device);
+		device = INVALID_HANDLE_VALUE;
+	}
+}
+
+
+// Opens one device path and WinUSB on its interface. On failure both handles are left empty.
+bool OpenPath(const std::wstring& path, HANDLE& device, WINUSB_INTERFACE_HANDLE& interfaceHandle, std::string& error) {
+	device = CreateFileW(
+		path.c_str(),
+		GENERIC_READ | GENERIC_WRITE,
+		FILE_SHARE_READ | FILE_SHARE_WRITE,
+		nullptr,
+		OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED,
+		nullptr);
+	if (device == INVALID_HANDLE_VALUE) {
+		error = "cannot open the benchmark device: " + FormatWindowsError(GetLastError());
+		return false;
+	}
+
+	// The first interface of the device is the benchmark interface (BenchProtocol::InterfaceNumber 0).
+	interfaceHandle = nullptr;
+	if (!WinUsb_Initialize(device, &interfaceHandle)) {
+		error = "WinUsb_Initialize failed: " + FormatWindowsError(GetLastError());
+		ReleasePath(device, interfaceHandle);
+		return false;
+	}
+
+	// Set before anything reads a descriptor (Enumerate and Open both do), so a device that never answers those reads
+	// fails within ControlTimeoutMs instead of hanging. The default control pipe has ID 0.
+	ULONG controlTimeout = ControlTimeoutMs;
+	if (!WinUsb_SetPipePolicy(interfaceHandle, 0, PIPE_TRANSFER_TIMEOUT, sizeof(controlTimeout), &controlTimeout)) {
+		error = "WinUsb_SetPipePolicy(control PIPE_TRANSFER_TIMEOUT) failed: " + FormatWindowsError(GetLastError());
+		ReleasePath(device, interfaceHandle);
+		return false;
+	}
+
+	return true;
+}
+
+
+// The English (US) language ID. The benchmark firmware has one language, and libusb's ASCII string helper uses the same.
+constexpr USHORT EnglishLanguageId = 0x0409;
+
+
+// Reads the serial number string through the interface, the same string libusb reads with its ASCII helper. On failure
+// `problem` says why and `serial` stays empty.
+bool ReadSerial(WINUSB_INTERFACE_HANDLE interfaceHandle, std::string& serial, std::string& problem) {
+	USB_DEVICE_DESCRIPTOR descriptor {};
+	ULONG transferred = 0;
+	if (!WinUsb_GetDescriptor(
+		interfaceHandle,
+		USB_DEVICE_DESCRIPTOR_TYPE,
+		0,
+		0,
+		reinterpret_cast<PUCHAR>(&descriptor),
+		sizeof(descriptor),
+		&transferred)) {
+		problem = "WinUsb_GetDescriptor(device) failed: " + FormatWindowsError(GetLastError());
+		return false;
+	}
+
+	if (descriptor.iSerialNumber == 0) {
+		problem = "the device reports no serial number";
+		return false;
+	}
+
+	std::uint8_t buffer[256] {};
+	transferred = 0;
+	if (!WinUsb_GetDescriptor(
+		interfaceHandle,
+		USB_STRING_DESCRIPTOR_TYPE,
+		descriptor.iSerialNumber,
+		EnglishLanguageId,
+		buffer,
+		sizeof(buffer),
+		&transferred)) {
+		problem = "the serial string could not be read: " + FormatWindowsError(GetLastError());
+		return false;
+	}
+
+	// A string descriptor is its length in bytes, its type, then UTF-16LE code units.
+	std::size_t length = std::min(static_cast<std::size_t>(buffer[0]), static_cast<std::size_t>(transferred));
+	std::string text;
+	for (std::size_t index = 2; index + 1 < length; index += 2) {
+		std::uint32_t unit = static_cast<std::uint32_t>(buffer[index]) | (static_cast<std::uint32_t>(buffer[index + 1]) << 8);
+		text.push_back(unit < 0x80 ? static_cast<char>(unit) : '?');
+	}
+
+	if (text.empty()) {
+		problem = "the serial string is empty";
+		return false;
+	}
+
+	serial = text;
+	return true;
+}
+
+
+// Pipe policies of the bulk endpoints. RAW_IO hands requests straight to the host controller, which is what keeps the
+// throughput up; every request length must then be a multiple of the packet size, which usbbench checks first. The
+// control pipe's timeout is set in OpenPath, before any descriptor read.
 bool ConfigurePipes(WINUSB_INTERFACE_HANDLE interfaceHandle, std::string& error) {
 	const std::uint8_t endpoints[2] = {
 		BenchProtocol::BulkInAddress,
@@ -197,12 +383,6 @@ bool ConfigurePipes(WINUSB_INTERFACE_HANDLE interfaceHandle, std::string& error)
 	UCHAR rawIo = 1;
 	UCHAR autoClearStall = 1;
 	ULONG timeout = BulkTimeoutMs;
-	ULONG controlTimeout = ControlTimeoutMs;
-
-	if (!WinUsb_SetPipePolicy(interfaceHandle, 0, PIPE_TRANSFER_TIMEOUT, sizeof(controlTimeout), &controlTimeout)) {
-		error = "WinUsb_SetPipePolicy(control PIPE_TRANSFER_TIMEOUT) failed: " + FormatWindowsError(GetLastError());
-		return false;
-	}
 
 	for (std::uint8_t endpoint : endpoints) {
 		if (!WinUsb_SetPipePolicy(interfaceHandle, endpoint, RAW_IO, sizeof(rawIo), &rawIo)) {
@@ -455,70 +635,68 @@ WinUsbBackend::~WinUsbBackend() {
 }
 
 
-bool WinUsbBackend::Open(std::string& error) {
+bool WinUsbBackend::Enumerate(std::vector<UsbDeviceInfo>& devices, std::string& error) {
+	std::vector<std::wstring> paths;
+	if (!FindDevicePaths(paths, error)) {
+		return false;
+	}
+
+	devices.clear();
+	for (const std::wstring& path : paths) {
+		UsbDeviceInfo info;
+		info.location = InstanceText(path);
+
+		HANDLE device = INVALID_HANDLE_VALUE;
+		WINUSB_INTERFACE_HANDLE interfaceHandle = nullptr;
+		std::string openError;
+		if (OpenPath(path, device, interfaceHandle, openError)) {
+			ReadSerial(interfaceHandle, info.serial, info.problem);
+		} else {
+			info.problem = openError;
+		}
+
+		ReleasePath(device, interfaceHandle);
+		devices.push_back(info);
+	}
+
+	return true;
+}
+
+
+bool WinUsbBackend::Open(const std::string& serial, std::string& error) {
 	Close();
 
-	GUID interfaceGuid {};
-	std::wstring guidText = WidenAscii(BenchProtocol::InterfaceGuid);
-	if (CLSIDFromString(guidText.c_str(), &interfaceGuid) != S_OK) {
-		error = "BenchProtocol::InterfaceGuid is not a valid GUID";
+	std::vector<std::wstring> paths;
+	if (!FindDevicePaths(paths, error)) {
 		return false;
 	}
 
-	// Device paths are lower case and contain the IDs as "vid_xxxx&pid_xxxx".
-	wchar_t idFilter[64] {};
-	std::swprintf(
-		idFilter,
-		sizeof(idFilter) / sizeof(idFilter[0]),
-		L"vid_%04x&pid_%04x",
-		static_cast<unsigned int>(BenchProtocol::VendorId),
-		static_cast<unsigned int>(BenchProtocol::ProductId));
-
-	ScopedDeviceInfo deviceInfo(SetupDiGetClassDevsW(&interfaceGuid, nullptr, nullptr, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE));
-	if (!deviceInfo.IsValid()) {
-		error = "SetupDiGetClassDevs failed: " + FormatWindowsError(GetLastError());
-		return false;
-	}
-
-	for (DWORD index = 0;; index++) {
-		SP_DEVICE_INTERFACE_DATA interfaceData {};
-		interfaceData.cbSize = sizeof(interfaceData);
-		if (!SetupDiEnumDeviceInterfaces(deviceInfo.Get(), nullptr, &interfaceGuid, index, &interfaceData)) {
-			if (GetLastError() == ERROR_NO_MORE_ITEMS) {
-				break;
-			}
-
-			error = "SetupDiEnumDeviceInterfaces failed: " + FormatWindowsError(GetLastError());
-			return false;
-		}
-
-		std::wstring path;
-		if (!ReadInterfacePath(deviceInfo.Get(), interfaceData, path, error)) {
-			return false;
-		}
-
-		if (LowerCase(path).find(idFilter) == std::wstring::npos) {
+	OpenFailures failures;
+	failures.serial = serial;
+	for (const std::wstring& path : paths) {
+		std::string openError;
+		if (!OpenPath(path, deviceHandle, interfaceHandle, openError)) {
+			// Without an open handle the serial cannot be read, so this device may be the one that was asked for.
+			failures.unreadable++;
+			failures.readError = openError;
 			continue;
 		}
 
-		deviceHandle = CreateFileW(
-			path.c_str(),
-			GENERIC_READ | GENERIC_WRITE,
-			FILE_SHARE_READ | FILE_SHARE_WRITE,
-			nullptr,
-			OPEN_EXISTING,
-			FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED,
-			nullptr);
-		if (deviceHandle == INVALID_HANDLE_VALUE) {
-			error = "cannot open the benchmark device: " + FormatWindowsError(GetLastError());
-			return false;
-		}
+		// Several boards share the IDs, so the serial number decides which one stays open.
+		if (!serial.empty()) {
+			std::string found;
+			std::string problem;
+			if (!ReadSerial(interfaceHandle, found, problem)) {
+				Close();
+				failures.unreadable++;
+				failures.readError = problem;
+				continue;
+			}
 
-		// The first interface of the device is the benchmark interface (BenchProtocol::InterfaceNumber 0).
-		if (!WinUsb_Initialize(deviceHandle, &interfaceHandle)) {
-			error = "WinUsb_Initialize failed: " + FormatWindowsError(GetLastError());
-			Close();
-			return false;
+			if (!SameSerial(found, serial)) {
+				Close();
+				continue;
+			}
 		}
 
 		if (!ConfigurePipes(interfaceHandle, error)) {
@@ -529,21 +707,13 @@ bool WinUsbBackend::Open(std::string& error) {
 		return true;
 	}
 
-	error = NoDeviceMessage();
+	error = OpenFailureText(failures);
 	return false;
 }
 
 
 void WinUsbBackend::Close() {
-	if (interfaceHandle != nullptr) {
-		WinUsb_Free(interfaceHandle);
-		interfaceHandle = nullptr;
-	}
-
-	if (deviceHandle != INVALID_HANDLE_VALUE) {
-		CloseHandle(deviceHandle);
-		deviceHandle = INVALID_HANDLE_VALUE;
-	}
+	ReleasePath(deviceHandle, interfaceHandle);
 }
 
 

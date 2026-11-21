@@ -88,9 +88,39 @@ bool CheckBulkBytes(std::uint64_t bytes, std::string& error) {
 }
 
 
+// The --serial and --all rules. They can only be checked once the command is known.
+bool CheckDeviceChoice(const Options& options, std::string& error) {
+	if (options.allDevices && !options.serial.empty()) {
+		error = "--all and --serial cannot be used together: --all already takes every device";
+		return false;
+	}
+
+	if (options.command == Command::List && (options.allDevices || !options.serial.empty())) {
+		error = "list takes no --serial or --all: it shows every attached device";
+		return false;
+	}
+
+	bool measuring = options.command == Command::In
+		|| options.command == Command::Out
+		|| options.command == Command::Loopback
+		|| options.command == Command::SourceSink;
+	if (options.allDevices && !measuring) {
+		error = "--all works with in, out, loopback and sourcesink; info, counters and reconnect act on one device";
+		return false;
+	}
+
+	return true;
+}
+
+
 bool ParseCommandName(const std::string& name, Command& command, bool& takesBytes, bool& takesMilliseconds) {
 	takesBytes = false;
 	takesMilliseconds = false;
+	if (name == "list") {
+		command = Command::List;
+		return true;
+	}
+
 	if (name == "info") {
 		command = Command::Info;
 		return true;
@@ -145,6 +175,12 @@ ParseResult ParseOptions(int argc, char** argv, Options& options, std::string& e
 			return ParseResult::Help;
 		}
 
+		// A switch takes no value, so it is handled before the name=value split.
+		if (argument == "--all") {
+			options.allDevices = true;
+			continue;
+		}
+
 		if (argument.rfind("--", 0) != 0) {
 			positional.push_back(argument);
 			continue;
@@ -192,6 +228,19 @@ ParseResult ParseOptions(int argc, char** argv, Options& options, std::string& e
 			}
 
 			options.transferSize = static_cast<std::size_t>(transfer);
+		} else if (name == "--serial") {
+			if (value.empty()) {
+				error = "--serial needs a serial number";
+				return ParseResult::Error;
+			}
+
+			// "--serial --all" leaves the serial out, so the switch after it must not be taken as the serial.
+			if (value.starts_with("--")) {
+				error = "--serial needs a value: '" + value + "' is an option, not a serial number";
+				return ParseResult::Error;
+			}
+
+			options.serial = value;
 		} else {
 			error = "unknown option " + name;
 			return ParseResult::Error;
@@ -245,6 +294,10 @@ ParseResult ParseOptions(int argc, char** argv, Options& options, std::string& e
 		}
 	}
 
+	if (!CheckDeviceChoice(options, error)) {
+		return ParseResult::Error;
+	}
+
 	return ParseResult::Ok;
 }
 
@@ -256,6 +309,7 @@ std::string UsageText() {
 		"Usage: usbbench <command> [argument] [options]\n"
 		"\n"
 		"Commands:\n"
+		"  list                 every attached benchmark device with its serial number\n"
 		"  info                 descriptors of the benchmark device\n"
 		"  counters             counters kept by the device\n"
 		"  in <bytes>           device sends the pattern, host checks it\n"
@@ -268,8 +322,12 @@ std::string UsageText() {
 		"  --backend libusb|winusb   libusb (default, all platforms) or native WinUSB (Windows)\n"
 		"  --inflight N              transfers in flight per direction, 1 to 32 (default 8)\n"
 		"  --transfer bytes          bytes per transfer, a multiple of 64, up to 1M (default 64k)\n"
+		"  --serial text             the device with this serial number (see list)\n"
+		"  --all                     in, out, loopback or sourcesink on every attached device at once;\n"
+		"                            refused for info, counters and reconnect (they act on one device)\n"
 		"  --help                    this text\n"
 		"\n"
 		"Sizes accept k, m and g suffixes (binary). <bytes> must be a multiple of 64.\n"
+		"With several devices attached, a command needs --serial or --all; without either it stops and lists them.\n"
 		"Exit codes: 0 pass, 1 device or transport failure, 2 usage error, 3 data error.\n";
 }

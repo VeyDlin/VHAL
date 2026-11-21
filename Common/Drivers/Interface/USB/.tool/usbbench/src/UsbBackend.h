@@ -5,6 +5,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <vector>
 
 #include "BenchProtocol.h"
 #include "BulkLane.h"
@@ -13,6 +14,14 @@
 enum class BackendKind : std::uint8_t {
 	LibUsb,
 	WinUsb
+};
+
+// One benchmark device found by IUsbBackend::Enumerate. `serial` is empty when the device could not be read, and then
+// `problem` says why. `location` tells two boards with the same serial number apart on the bus.
+struct UsbDeviceInfo {
+	std::string serial;
+	std::string location;
+	std::string problem;
 };
 
 // Every bulk transfer times out after this long: libusb sets it per transfer, WinUSB as the pipe policy. A device that
@@ -35,8 +44,13 @@ class IUsbBackend {
 public:
 	virtual ~IUsbBackend() = default;
 
-	// Finds the device by BenchProtocol::VendorId/ProductId, opens it and claims BenchProtocol::InterfaceNumber.
-	virtual bool Open(std::string& error) = 0;
+	// Lists every attached benchmark device with its serial number. A device is opened only long enough to read the
+	// string, so listing claims nothing and can run while another device is streaming.
+	virtual bool Enumerate(std::vector<UsbDeviceInfo>& devices, std::string& error) = 0;
+
+	// Finds the device by BenchProtocol::VendorId/ProductId, opens it and claims BenchProtocol::InterfaceNumber. With a
+	// serial number only the device that reports it is opened; an empty serial takes the first device found.
+	virtual bool Open(const std::string& serial, std::string& error) = 0;
 
 	virtual void Close() = 0;
 
@@ -75,6 +89,24 @@ inline std::string NoDeviceMessage() {
 		static_cast<unsigned int>(BenchProtocol::VendorId),
 		static_cast<unsigned int>(BenchProtocol::ProductId),
 		static_cast<unsigned int>(BenchProtocol::InterfaceNumber)
+	);
+	return text;
+}
+
+
+// The same, for a device that was asked for by its serial number.
+inline std::string NoDeviceMessage(const std::string& serial) {
+	if (serial.empty()) {
+		return NoDeviceMessage();
+	}
+
+	std::string text;
+	AppendFormat(
+		text,
+		"Benchmark device with serial '%s' (%04X:%04X) is not attached. Connect the board and try again.",
+		serial.c_str(),
+		static_cast<unsigned int>(BenchProtocol::VendorId),
+		static_cast<unsigned int>(BenchProtocol::ProductId)
 	);
 	return text;
 }

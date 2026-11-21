@@ -8,6 +8,7 @@
 
 enum class Command : std::uint8_t {
 	None,
+	List,
 	Info,
 	Counters,
 	In,
@@ -30,6 +31,8 @@ struct Options {
 	std::size_t transferSize = DefaultTransferBytes;
 	std::uint64_t bytes = 0;
 	std::uint64_t reconnectMs = 0;
+	std::string serial;
+	bool allDevices = false;
 };
 
 enum class ParseResult : std::uint8_t {

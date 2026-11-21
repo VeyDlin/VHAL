@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "DeviceSelection.h"
 #include "Text.h"
 
 namespace {
@@ -247,6 +248,25 @@ std::string ReadString(libusb_device_handle* deviceHandle, std::uint8_t index) {
 	return text;
 }
 
+
+// The bus and port path of a device. It tells apart two boards that report the same serial number.
+std::string DeviceLocation(libusb_device* device) {
+	std::string text;
+	AppendFormat(text, "bus %u", static_cast<unsigned int>(libusb_get_bus_number(device)));
+
+	std::uint8_t ports[8] {};
+	int count = libusb_get_port_numbers(device, ports, static_cast<int>(sizeof(ports)));
+	for (int index = 0; index < count; index++) {
+		if (index == 0) {
+			AppendFormat(text, " port %u", static_cast<unsigned int>(ports[index]));
+		} else {
+			AppendFormat(text, ".%u", static_cast<unsigned int>(ports[index]));
+		}
+	}
+
+	return text;
+}
+
 }
 
 
@@ -259,7 +279,58 @@ LibUsbBackend::~LibUsbBackend() {
 }
 
 
-bool LibUsbBackend::Open(std::string& error) {
+bool LibUsbBackend::Enumerate(std::vector<UsbDeviceInfo>& devices, std::string& error) {
+	if (!EnsureContext(error)) {
+		return false;
+	}
+
+	devices.clear();
+	libusb_device** libusbDevices = nullptr;
+	std::ptrdiff_t deviceCount = static_cast<std::ptrdiff_t>(libusb_get_device_list(context, &libusbDevices));
+	if (deviceCount < 0) {
+		error = "libusb_get_device_list failed";
+		return false;
+	}
+
+	for (std::ptrdiff_t index = 0; index < deviceCount; index++) {
+		libusb_device_descriptor descriptor {};
+		if (libusb_get_device_descriptor(libusbDevices[index], &descriptor) < 0) {
+			continue;
+		}
+
+		if (descriptor.idVendor != BenchProtocol::VendorId || descriptor.idProduct != BenchProtocol::ProductId) {
+			continue;
+		}
+
+		UsbDeviceInfo info;
+		info.location = DeviceLocation(libusbDevices[index]);
+
+		libusb_device_handle* opened = nullptr;
+		int result = libusb_open(libusbDevices[index], &opened);
+		if (result < 0) {
+			info.problem = std::string("cannot open the device: ") + libusb_error_name(result);
+		} else {
+			if (descriptor.iSerialNumber == 0) {
+				info.problem = "the device reports no serial number";
+			} else {
+				info.serial = ReadString(opened, descriptor.iSerialNumber);
+				if (info.serial.empty()) {
+					info.problem = "the serial string could not be read";
+				}
+			}
+
+			libusb_close(opened);
+		}
+
+		devices.push_back(info);
+	}
+
+	libusb_free_device_list(libusbDevices, 1);
+	return true;
+}
+
+
+bool LibUsbBackend::Open(const std::string& serial, std::string& error) {
 	Close();
 	if (!EnsureContext(error)) {
 		return false;
@@ -273,7 +344,8 @@ bool LibUsbBackend::Open(std::string& error) {
 	}
 
 	bool found = false;
-	std::string openError;
+	OpenFailures failures;
+	failures.serial = serial;
 	for (std::ptrdiff_t index = 0; index < deviceCount && !found; index++) {
 		libusb_device_descriptor descriptor {};
 		if (libusb_get_device_descriptor(devices[index], &descriptor) < 0) {
@@ -287,14 +359,32 @@ bool LibUsbBackend::Open(std::string& error) {
 		libusb_device_handle* opened = nullptr;
 		int result = libusb_open(devices[index], &opened);
 		if (result < 0) {
-			openError = std::string("cannot open the benchmark device: ") + libusb_error_name(result);
+			// Without an open handle the serial cannot be read, so this device may be the one that was asked for.
+			failures.unreadable++;
+			failures.readError = std::string("cannot open the benchmark device: ") + libusb_error_name(result);
 			continue;
+		}
+
+		// Several boards share the IDs, so the serial number decides which one stays open.
+		if (!serial.empty()) {
+			std::string candidate = ReadString(opened, descriptor.iSerialNumber);
+			if (candidate.empty()) {
+				libusb_close(opened);
+				failures.unreadable++;
+				failures.readError = "the serial string could not be read";
+				continue;
+			}
+
+			if (!SameSerial(candidate, serial)) {
+				libusb_close(opened);
+				continue;
+			}
 		}
 
 		result = libusb_claim_interface(opened, BenchProtocol::InterfaceNumber);
 		if (result < 0) {
 			// Without a claim there is no access to the endpoints; on Windows this usually means WinUSB is not bound.
-			openError = std::string("cannot claim interface 0: ") + libusb_error_name(result)
+			failures.matchError = std::string("cannot claim interface 0: ") + libusb_error_name(result)
 				+ " (on Windows the interface must be bound to WinUSB)";
 			libusb_close(opened);
 			continue;
@@ -307,7 +397,7 @@ bool LibUsbBackend::Open(std::string& error) {
 	libusb_free_device_list(devices, 1);
 
 	if (!found) {
-		error = openError.empty() ? NoDeviceMessage() : openError;
+		error = OpenFailureText(failures);
 		return false;
 	}
 

@@ -1,10 +1,8 @@
 #include <cstdio>
-#include <memory>
 #include <string>
 
 #include "Commands.h"
 #include "Options.h"
-#include "UsbBackend.h"
 
 int main(int argc, char** argv) {
 	Options options;
@@ -21,11 +19,5 @@ int main(int argc, char** argv) {
 		return ExitUsage;
 	}
 
-	std::unique_ptr<IUsbBackend> backend = CreateBackend(options.backend, error);
-	if (!backend) {
-		std::fprintf(stderr, "usbbench: %s\n", error.c_str());
-		return ExitUsage;
-	}
-
-	return RunCommand(*backend, options);
+	return RunCommand(options);
 }
