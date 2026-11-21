@@ -63,11 +63,11 @@ struct Parameters {
 | `ScanAsync(uint8* list, uint8 size)` | `Result<uint8>` | Async bus scan |
 | `Write<DataType, AddressType>(uint8 device, AddressType address, DataType data)` | `ResultStatus` | Write one typed value to a register |
 | `WriteArray<DataType, AddressType>(uint8 device, AddressType address, DataType* buffer, uint32 size)` | `ResultStatus` | Write a typed array to a register |
-| `Read<DataType, AddressType>(uint8 device, AddressType address, uint32 size = 1)` | `Result<DataType>` | Read a typed value from a register |
+| `Read<DataType, AddressType>(uint8 device, AddressType address)` | `Result<DataType>` | Read one typed value from a register. Use `ReadArray` for more than one |
 | `ReadArray<DataType, AddressType>(uint8 device, AddressType address, DataType* buffer, uint32 size = 1)` | `ResultStatus` | Read a typed array from a register |
 | `WriteAsync<DataType, AddressType>(uint8 device, AddressType address, DataType data)` | `ResultStatus` | Start an async typed write |
 | `WriteArrayAsync<DataType, AddressType>(uint8 device, AddressType address, DataType* buffer, uint32 size)` | `ResultStatus` | Start an async typed array write |
-| `ReadAsync<DataType, AddressType>(uint8 device, AddressType address, uint32 size = 1)` | `Result<DataType>` | Start an async typed read |
+| `ReadAsync<DataType, AddressType>(uint8 device, AddressType address)` | `Result<DataType>` | Start an async typed read of one value. Use `ReadArrayAsync` for more than one |
 | `ReadArrayAsync<DataType, AddressType>(uint8 device, AddressType address, DataType* buffer, uint32 size = 1)` | `ResultStatus` | Start an async typed array read |
 | `WriteByteArray(uint8 device, uint16 addr, uint8 addrSize, uint8* data, uint32 size)` | `ResultStatus` | Write to device register |
 | `ReadByteArray(uint8 device, uint16 addr, uint8 addrSize, uint8* data, uint32 size)` | `ResultStatus` | Read from device register |

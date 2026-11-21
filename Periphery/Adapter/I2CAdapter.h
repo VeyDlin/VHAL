@@ -36,7 +36,7 @@ public:
 
 
 protected:
-	HandleType *i2cHandle;
+	HandleType *i2cHandle = nullptr;
 	Parameters parameters;
 
 	uint32 inputBusClockHz = 0;
@@ -156,10 +156,10 @@ public:
 
 
 	template <typename DataType, typename AddressType>
-	inline Result<DataType> Read(uint8 device, AddressType address, uint32 size = 1) {
+	inline Result<DataType> Read(uint8 device, AddressType address) {
 		DataType data;
 		return Result<DataType>::Capture(
-			ReadByteArray(device, address, sizeof(AddressType), reinterpret_cast<uint8*>(&data), sizeof(DataType) * size), data
+			ReadByteArray(device, address, sizeof(AddressType), reinterpret_cast<uint8*>(&data), sizeof(DataType)), data
 		);
 	}
 
@@ -195,10 +195,10 @@ public:
 
 
 	template <typename DataType, typename AddressType>
-	inline Result<DataType> ReadAsync(uint8 device, AddressType address, uint32 size = 1) {
+	inline Result<DataType> ReadAsync(uint8 device, AddressType address) {
 		DataType data;
 		return Result<DataType>::Capture(
-			ReadByteArrayAsync(device, address, sizeof(AddressType), reinterpret_cast<uint8*>(&data), sizeof(DataType) * size), data
+			ReadByteArrayAsync(device, address, sizeof(AddressType), reinterpret_cast<uint8*>(&data), sizeof(DataType)), data
 		);
 	}
 
