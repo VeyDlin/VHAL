@@ -11,7 +11,7 @@ Headers:
 - `#include <Drivers/Interface/USB/Descriptor/...>` for the descriptor builders
 - `#include <Drivers/Interface/USB/Class/Vendor/VendorBulkFunction.h>` for the vendor bulk function
 
-Status: the core, the descriptor builders, the vendor bulk function, the STM32G4 port, the host simulator tests, the G431 test firmware (`.demo/STM32G4`) and the PC benchmark `usbbench` (`.tool/usbbench`) are in the tree. The device side runs on an STM32G431 with Windows as the host; see [Host Support](#host-support) and [the measured results](#measured-results).
+Status: the core, the descriptor builders, WebUSB, the built-in classes (vendor bulk, CDC-ACM, CDC-NCM, HID, MIDI, USB Audio 1.0, mass storage and DFU), the STM32G4 port, the host simulator tests, the G431 test firmware (`.demo/STM32G4`) and the PC benchmark `usbbench` (`.tool/usbbench`) are in the tree. The device side runs on an STM32G431 with Windows and Linux as hosts; see [Host Support](#host-support) and [the measured results](#measured-results).
 
 ## Scope
 
@@ -19,12 +19,17 @@ Status: the core, the descriptor builders, the vendor bulk function, the STM32G4
 |----|-----|
 | Full-speed device on the STM32G4 `fsdev` controller, see [USBDeviceAdapterG4](../../../../Periphery/Adapter/Port/STM32/G4/USBDeviceAdapterG4.md) | Host role |
 | Control pipe, standard requests, SET_ADDRESS, one configuration with interface alternate settings | High speed. All current ports are full speed, with no external PHY |
-| Class and vendor requests, routed to the function that owns the interface or endpoint | Isochronous transfers |
+| Class and vendor requests, routed to the function that owns the interface or endpoint | USB Audio 2.0, and a speaker with a feedback endpoint (the USB Audio 1.0 speaker is adaptive, see [Class/Audio](Class/Audio/README.md)) |
+| USB Audio 1.0: a microphone and a speaker on isochronous endpoints, with mute, volume and sampling rates, see [Class/Audio](Class/Audio/README.md) | - |
 | Descriptor builders that run at compile time and check their input | USB Power Delivery, Link Power Management, battery charging detection |
-| Vendor bulk function, in a buffered mode and a streaming mode | Built-in classes. CDC, HID, MSC and DFU come later |
-| Optional Microsoft OS 2.0 component, which lets Windows bind WinUSB without an INF file | Any identity or host-specific default |
+| Built-in classes, each for one job: vendor bulk (a program's own protocol, in buffered and streaming modes), CDC-ACM (a serial port), CDC-NCM (a network adapter, Ethernet over USB with NTB-16), HID (keyboard, mouse and raw reports), MIDI 1.0 (music messages), mass storage (a disk, Bulk-Only with SCSI) and DFU 1.1 (firmware update, run-time and mode) | - |
+| Optional Microsoft OS 2.0 component, which lets Windows bind WinUSB without an INF file, and the optional WebUSB landing page | Any identity or host-specific default |
 
-Planned, in this order: CDC-ACM, HID, MSC, DFU (a transport for the VHAL bootloader), and composite devices. After that come the STM32G0 `fsdev` port (G0B1 and G0C1 only) and the STM32F4 OTG port (`dwc2`).
+Isochronous endpoints are in the adapter and the G4 port: one packet per frame, with no handshake and no halt. On fsdev the DTOG bit selects the packet buffer; it is not a USB data toggle. They are the base of USB Audio 1.0, see [Class/Audio](Class/Audio/README.md). The contract is in [USBDeviceAdapter](../../../../Periphery/Adapter/USBDeviceAdapter.md#isochronous-endpoints).
+
+Also planned: the STM32G0 `fsdev` port (G0B1 and G0C1 only) and the STM32F4 OTG port (`dwc2`). The G0 and F4 folders in `Periphery/Adapter/Port/STM32/` have no USB adapter yet.
+
+CDC-NCM, the network adapter, carries Ethernet frames only (see [Class/CDC/NcmFunction](Class/CDC/NcmFunction.md)). VHAL has no TCP/IP stack for STM32 yet, so [SocketAdapter](../../../../Periphery/Adapter/SocketAdapter.md) and [HttpClient](../Network/Http/README.md) do not run over it. The USBNetwork demo answers DHCP, ARP and ping with its own small responder, in the `Network` folder of `.demo/STM32G4/Application/DemoUSBNetwork`.
 
 ### Host-agnostic
 
@@ -51,6 +56,16 @@ A device built with this stack is written to work with any standard host; only t
 | Descriptor builders: fluent (`Descriptor/Builder/`) and positional (`Descriptor/*.h`) | `Common/Drivers/Interface/USB/Descriptor/` | [Descriptor](Descriptor/README.md) |
 | Microsoft OS 2.0 (optional) | `Common/Drivers/Interface/USB/Descriptor/MsOs20/*.h` | [Descriptor/MsOs20](Descriptor/MsOs20/README.md) |
 | Vendor bulk function | `Common/Drivers/Interface/USB/Class/Vendor/*.h` | [Class/Vendor](Class/Vendor/README.md) |
+| Bulk engine and buffered channel, shared by vendor bulk and CDC-ACM | `Common/Drivers/Interface/USB/Class/Common/*.h` | [Class/CDC](Class/CDC/README.md) and [Class/Vendor](Class/Vendor/README.md). No page of its own |
+| CDC-ACM serial port | `Common/Drivers/Interface/USB/Class/CDC/*.h` | [Class/CDC](Class/CDC/README.md) |
+| CDC-NCM network adapter and NTB-16 codec | `Common/Drivers/Interface/USB/Class/CDC/NcmFunction.h`, `NcmNtb16.h`, `USBCdcNcmBuilder.h` | [Class/CDC/NcmFunction](Class/CDC/NcmFunction.md) |
+| HID: report descriptors, keyboard, mouse, raw reports | `Common/Drivers/Interface/USB/Class/HID/*.h` | [Class/HID](Class/HID/README.md) |
+| USB-MIDI 1.0 | `Common/Drivers/Interface/USB/Class/MIDI/*.h` | [Class/MIDI](Class/MIDI/README.md) |
+| USB Audio 1.0 microphone and speaker | `Common/Drivers/Interface/USB/Class/Audio/*.h` | [Class/Audio](Class/Audio/README.md) |
+| Mass storage (Bulk-Only, SCSI) | `Common/Drivers/Interface/USB/Class/MSC/*.h` | [Class/MSC](Class/MSC/README.md) |
+| DFU 1.1: run-time and mode functions, memory target | `Common/Drivers/Interface/USB/Class/DFU/*.h` | [Class/DFU](Class/DFU/README.md) |
+| WebUSB landing page (optional) | `Common/Drivers/Interface/USB/Descriptor/WebUsb/*.h` | [Descriptor/WebUsb](Descriptor/WebUsb/README.md) |
+| Bootloader transport over CDC-ACM or vendor bulk | `Common/Utilities/Bootloader/Communication/USBCommunication.h` | [Bootloader](../../../Utilities/Bootloader/README.md#usbcommunication----usb-transport) |
 | Host tests, test firmware, `usbbench` and test identities | `Common/Drivers/Interface/USB/.tool/` (the pages write it as `.tool/`) | [Tests and tools](#tests-and-tools) |
 
 The controller is a separate class from the core, so the core does not depend on a vendor handle. The register code for `fsdev` lives once in `Port/STM32/Common/`. The family file only gives its constants.
@@ -136,7 +151,7 @@ using AppUsb = USBDescriptors<[] {
 }>;
 ```
 
-`VendorId`, `ProductId` and `InterfaceGuid` are the product's own values; the builder has no defaults for them. The full chain, with its rules, is on the [Descriptor](Descriptor/README.md) page. The Microsoft OS 2.0 part is on the [Descriptor/MsOs20](MsOs20/README.md) page, and the descriptor bytes are in the Descriptor page's positional example.
+`VendorId`, `ProductId` and `InterfaceGuid` are the product's own values; the builder has no defaults for them. The full chain, with its rules, is on the [Descriptor](Descriptor/README.md) page. The Microsoft OS 2.0 part is on the [Descriptor/MsOs20](Descriptor/MsOs20/README.md) page, and the descriptor bytes are in the Descriptor page's positional example.
 
 ### 4. Functions
 
@@ -212,6 +227,7 @@ System::CriticalSection(false);
 | Packet memory (G4) | 1024 bytes, shared by all endpoints. Endpoint 0 takes 128 bytes |
 | Bulk packet size | 8, 16, 32 or 64 bytes. The vendor function uses 64 |
 | Interrupt packet size | 1 to 64 bytes |
+| Isochronous packet size | 1 to 1023 bytes, one packet per frame, `bInterval` 1. On the G4 two packet buffers of the rounded size per endpoint (see the [G4 port](../../../../Periphery/Adapter/Port/STM32/G4/USBDeviceAdapterG4.md#packet-memory-cost)), so only a small one fits beside the others |
 | Control packet size | 64 bytes (`bMaxPacketSize0`) |
 | Device address | 0 to 127 |
 | String descriptor | 126 UTF-16 code units |
@@ -235,7 +251,7 @@ sh run.sh
 - Each `Test*.cpp` is built with `-std=c++20 -Wall -Wextra -Werror` and run. The script exits non-zero when a test does not build or a check fails.
 - Build output goes to a temporary folder outside the repository.
 
-Status: all 15 test executables pass, with the builder error snippets. The MS OS 2.0 check is covered on its [page](Descriptor/MsOs20/README.md).
+`run.sh` builds and runs the 60 test files (`Test*.cpp`), then runs the 91 builder error snippets in `.tool/sim/BuilderErrors/` through `BuilderErrors/check.sh`. Each snippet is a compile-error check with its expected message. The MS OS 2.0 check is covered on its [page](Descriptor/MsOs20/README.md).
 
 The tests cover:
 
@@ -247,10 +263,13 @@ The tests cover:
 - suspend, resume and remote wakeup
 - routing of class, vendor and bulk traffic to the owning function
 - the vendor bulk FIFOs at their limits
+- the classes, each on its own page: HID, CDC-ACM, CDC-NCM, MIDI, USB Audio 1.0, mass storage and DFU, with the bootloader's USB transport over CDC-ACM and vendor bulk
+- run-time strings: the string table the application fills after it starts, the refusal of an empty or over-long descriptor, the device's refusal to start before every string is given, and the hex-string descriptor's length limit
+- the network demo (`DemoUSBNetwork`): the Internet checksum, and the ARP, ICMP echo, DHCP and UDP responders with their malformed and foreign frames
 
 ### Benchmark firmware and `usbbench`
 
-The G431 firmware is in `.demo/STM32G4` (the STM32G4 demo, which is the USB benchmark for now) and `usbbench` is in `.tool/usbbench`. Their protocol is in `.tool/common/BenchProtocol.h`, which both sides include. The header holds the test identities. They are for tests only. A product must use its own.
+The G431 firmware is in `.demo/STM32G4` (the STM32G4 demo, which is the USB benchmark for now) and [`usbbench`](.tool/usbbench/README.md) is in `.tool/usbbench`. Their protocol is in `.tool/common/BenchProtocol.h`, which both sides include. The header holds the test identities. They are for tests only. A product must use its own.
 
 - Endpoints: bulk IN `0x81`, bulk OUT `0x02`, 64-byte packets, interface 0. `0x02` and not `0x01`, so both endpoints get double buffering on fsdev (see [Class/Vendor](Class/Vendor/README.md))
 - Vendor requests to the interface: `bmRequestType` `0x41` (OUT) or `0xC1` (IN). The codes are `SetMode` (`0x01`), `GetCounters` (`0x02`, 32 bytes), `ResetCounters` (`0x03`) and `Reconnect` (`0x04`)
@@ -258,6 +277,12 @@ The G431 firmware is in `.demo/STM32G4` (the STM32G4 demo, which is the USB benc
 - The data pattern is an xorshift32 stream from seed `0x12345678`. The receiver checks it byte by byte
 
 A run: build the firmware, flash it with the ST programmer, wait for the device, run `usbbench` in IN, OUT or loopback mode, and compare the rate with the threshold.
+
+Several boards on one PC: each board reports its MCU unique ID as its USB serial number. `usbbench list` shows every attached board with its serial number and where it sits on the bus. `--serial <text>` picks one board for any command. With several boards attached and no `--serial`, a command stops and lists them instead of guessing. `--all` runs `in`, `out`, `loopback` or `sourcesink` on every board at once, starting their transfers together, and prints one line per board and a total. The total is the aggregate rate of the bus per direction: the bytes of all boards over the time from the first transfer start to the last transfer end. Its exit code is non-zero if any board failed. `info`, `counters` and `reconnect` act on one board only.
+
+### Class check: `usbclasscheck`
+
+`usbclasscheck` in `.tool/usbclasscheck` checks the USB classes of the STM32G4 demos on a real board, end to end: the composite's serial port, keyboard, mouse and vendor channel, the storage demo's disk, the DFU demo's download and upload, the network demo's adapter, DHCP lease, echoes and ARP entry, and the audio demo's microphone tone and speaker loopback (the endpoints are found in Windows audio by their USB device, and a 440 Hz test tone plays into the board's speaker for a second; no default device or volume is changed). It prints PASS or FAIL for each step, and it exits non-zero on a failure. The download overwrites the DFU region, the keyboard check moves the pointer briefly, and the audio check is audible on the board's speaker. Its [page](.tool/usbclasscheck/README.md) has the build, the usage and what each check changes.
 
 ### Measured Results
 
@@ -288,11 +313,30 @@ Full speed carries at most 19 bulk packets of 64 bytes per 1 ms frame, about 1.2
 - Behind a USB 2.0 hub with a single transaction translator (the board was first on a Genesys GL850G), every full-speed transfer goes through split transactions and the same board gave about 0.8 MB/s. Use a root port, or a multi-TT hub when several full-speed devices must run at full rate at once.
 - On fsdev a double-buffered IN endpoint is at most one packet ahead of the CPU: the controller sends nothing while DTOG_TX equals SW_BUF, which was checked on the board with the CPU halted. Every IN packet therefore needs the interrupt to release the next buffer, and the port releases it with the first register write of the interrupt.
 
+## Tools
+
+The three host tools have a page each. Each tool folder has a short README that points to its page.
+
+| Tool | Page | What it does |
+|------|------|--------------|
+| sim | [.tool/sim](.tool/sim/README.md) | Host tests of the device stack on a software controller. No board |
+| usbbench | [.tool/usbbench](.tool/usbbench/README.md) | Throughput and data check of the benchmark firmware, on libusb or WinUSB |
+| usbclasscheck | [.tool/usbclasscheck](.tool/usbclasscheck/README.md) | End-to-end class check of the demo boards. Runs on a real board and changes some state on the PC and the board |
+| overview | [.tool](.tool/README.md) | The three tools, their folders and the test identities they share |
+
 ## Pages
 
 - [USBDeviceAdapter](../../../../Periphery/Adapter/USBDeviceAdapter.md): the controller contract
 - [USBDeviceAdapterG4](../../../../Periphery/Adapter/Port/STM32/G4/USBDeviceAdapterG4.md): the STM32G4 port
 - [Device](Device/README.md): the device core, states, control stages and functions
-- [Descriptor](Descriptor/README.md): the descriptor builders
+- [Descriptor](Descriptor/README.md): the descriptor builders, fluent (`Descriptor/Builder/`) and positional
 - [Descriptor/MsOs20](Descriptor/MsOs20/README.md): the Microsoft OS 2.0 component
+- [Descriptor/WebUsb](Descriptor/WebUsb/README.md): the WebUSB landing page, an optional BOS capability
 - [Class/Vendor](Class/Vendor/README.md): the vendor bulk function
+- [Class/CDC](Class/CDC/README.md): the CDC class, with the CDC-ACM serial port
+- [Class/CDC/NcmFunction](Class/CDC/NcmFunction.md): the CDC-NCM network adapter
+- [Class/HID](Class/HID/README.md): the HID class: report descriptors, the function, keyboard and mouse
+- [Class/MIDI](Class/MIDI/README.md): the USB-MIDI 1.0 function
+- [Class/Audio](Class/Audio/README.md): the USB Audio 1.0 microphone and speaker function, on isochronous endpoints
+- [Class/MSC](Class/MSC/README.md): the mass storage class, Bulk-Only Transport and SCSI
+- [Class/DFU](Class/DFU/README.md): the DFU 1.1 run-time and mode functions, with the memory target

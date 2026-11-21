@@ -61,7 +61,7 @@ Jack IDs are numbered in blocks of four per cable, from 1: cable 0 has embedded 
 
 The MS header's wTotalLength covers the MS header and the jacks, and not the endpoint descriptors that follow the jacks.
 
-The audio-form endpoint is the standard 7-byte endpoint with bRefresh and bSynchAddress added (9 bytes in all). The audio class defines it for bulk and isochronous endpoints, and the stack has no isochronous endpoints, so the configuration accepts it only for bulk endpoints with both added fields zero. Standard 7-byte endpoints keep their rules and may share a configuration with the audio form, as the keyboard and MIDI test does.
+The audio-form endpoint is the standard 7-byte endpoint with bRefresh and bSynchAddress added (9 bytes in all). The audio class defines it for bulk and isochronous endpoints. The configuration accepts it for bulk endpoints with both added fields zero, and for isochronous endpoints with `bSynchAddress` 0 or the address of an IN feedback endpoint. Standard 7-byte endpoints keep their rules and may share a configuration with the audio form, as the keyboard and MIDI test does.
 
 ## Function
 
@@ -71,12 +71,25 @@ The audio-form endpoint is the standard 7-byte endpoint with bRefresh and bSynch
 |--------|---------|-------------|
 | `SendEvent(packet)` | Thread | Queues one complete event packet. `invalidParameter` for a cable outside the function or a malformed packet, `notReady` while unconfigured, `busy` when the queue is full |
 | `NoteOn`, `NoteOff`, `PolyKeyPressure`, `ControlChange`, `ProgramChange`, `ChannelPressure`, `PitchBend` | Thread | Channel messages on a cable. Data bytes are 7-bit, the channel 0 to 15; pitch bend is 14-bit, 0 to 16383 |
-| `SendSysEx(cable, bytes)` | Thread | A SysEx message as 3-byte start packets and a closing packet. The bytes after the first must be 7-bit, and only a final F7 has bit 7 set (`invalidParameter` otherwise). Queued whole or not at all (`busy` when the queue has no room) |
+| `SendSysEx(cable, bytes)` | Thread | A whole SysEx message, framed by 0xF0 first and 0xF7 last (see the rule below). `invalidParameter` for a message not framed so, a status byte inside it, or one longer than the TX queue. Queued whole or not at all: `busy` when the queue has room for fewer of its packets now |
 | `ReadEvent(packet)` | Thread | Takes the oldest received event. `notReady` when none |
 | `GetSendableCount()`, `GetReadableCount()` | Thread | Queued events waiting to be sent and received events waiting to be read. Both are 0 while unconfigured |
 | `SetEventHandler(handler)`, `SetSysExHandler(handler)` | Thread | Called in interrupt context for each received event, and with the bytes of each received SysEx packet. Return `busy` while configured |
 
-Received packets go to the RX queue and to the event handler, except packets on a cable the function does not have, which are dropped. A SysEx packet also gives its bytes to the SysEx handler as a byte stream, so a message can be reassembled without the queue. The OUT endpoint is armed only while the RX queue has room for a whole transfer, so the host keeps its packets when the thread is behind. Each IN transfer carries up to 16 whole packets; a bus reset or a new configuration clears both queues.
+Received packets go to the RX queue and to the event handler, except packets on a cable the function does not have, which are dropped. A SysEx packet also gives its bytes to the SysEx handler as a byte stream, so a message can be reassembled without the queue. The OUT endpoint is armed only while the RX queue has room for a whole transfer, so the host keeps its packets when the thread is behind. Each IN transfer carries up to 16 whole packets; a bus reset or a new configuration clears both queues. A transfer of 16 packets (64 bytes) ends with a zero-length packet when no event is queued behind it, so the host's read ends there, and a transfer with events behind it needs none, because the next one starts at its completion. A shorter transfer ends with a short packet, as before.
+
+SysEx is sent as a whole message, never as fragments. The rule:
+
+- The message starts with 0xF0 and ends with 0xF7, and it has at least those two bytes. A message without its start byte, without its end byte, or with a data byte first, is refused with `invalidParameter`.
+- The bytes between them are 7-bit. A status byte inside a message ends it on the host, so a byte with bit 7 set is refused, except the final 0xF7.
+- A message of N bytes takes ceil(N / 3) packets. It is queued whole or not at all: while the queue has room for fewer packets than it needs, `SendSysEx()` returns `busy` and queues nothing, and the caller retries.
+- A message longer than the TX queue can never be sent: it is refused with `invalidParameter` even on an empty queue, because the function does not split a message over two calls. The queue holds `TxQueueEvents` packets, so the longest message is 3 * `TxQueueEvents` bytes. With the 32-event queue of the example above, that is 96 bytes, and 97 bytes is refused. A longer message needs a larger `TxQueueEvents`.
+
+The application must call `device.Process()` from its main loop. `Process()` of the function starts the IN transfer and re-arms the OUT endpoint, because `ReadEvent()` has no device context and cannot do it. Without `Process()`:
+
+- No queued event leaves the device. Nothing starts the first IN transfer, so the TX queue fills and `SendEvent()` returns `busy`.
+- Received packets stop after the RX queue fills. A completion re-arms the OUT endpoint only while the RX queue has room for a whole transfer, and `ReadEvent()` does not re-arm it, so the host's packets are NAKed from then on.
+- Events queued after the TX queue has drained wait too. The IN completion starts the next transfer only while packets are queued, so a new event needs a `Process()` to start.
 
 The function's critical sections nest, so the thread calls may use the ring buffers inside their own section. Each section stays short.
 
@@ -88,7 +101,8 @@ A rule violation is a compile error with its message:
 - `a USB-MIDI interface needs its cables: call Cables()`: a function without `Cables()`
 - `BulkOut needs an OUT address (bit 7 clear)` and `BulkIn needs an IN address (bit 7 set)`, and `endpoint 0 belongs to the control pipe`
 - `bRefresh and bSynchAddress are 0 for bulk endpoints`: a 9-byte endpoint with either field set (see `.tool/sim/BuilderErrors/audio_endpoint_refresh_not_zero.cpp`)
-- `the 9-byte endpoint form is bulk`: a 9-byte endpoint that is interrupt or isochronous, from the builder or from a plain array (see `.tool/sim/BuilderErrors/audio_endpoint_interrupt.cpp` and `audio_endpoint_isochronous.cpp`)
+- `the 9-byte endpoint form is bulk or isochronous`: a 9-byte endpoint that is interrupt, from the builder or from a plain array (see `.tool/sim/BuilderErrors/audio_endpoint_interrupt.cpp`)
+- `bInterval of a full-speed isochronous endpoint is 1`: an isochronous endpoint with another interval, from the builder or from a plain array (see `.tool/sim/BuilderErrors/audio_endpoint_interval_not_one.cpp`)
 - `endpoint address bits 6..4 are reserved`: an endpoint address with a reserved bit set, from a plain array too (see `.tool/sim/BuilderErrors/endpoint_reserved_bits_plain.cpp`)
 
 The snippets are in `.tool/sim/BuilderErrors/midi_*.cpp`, checked by `check.sh`.
@@ -100,4 +114,4 @@ The host tests are in `.tool/sim` and run with `run.sh`:
 - `TestMidiDescriptors.cpp`: the configuration for one and two cables, byte for byte, against arrays written out by hand from MIDI 1.0 and Audio 1.0. Also the association and device class, the automatic and explicit endpoint addresses, the interface and jack names through the string table, and a keyboard and a MIDI function in one configuration.
 - `TestAudioEndpointDescriptors.cpp`: the 7-byte and the 9-byte endpoint forms, alone and in one configuration.
 - `TestMidiBuilder.cpp`: `MidiFunction` built from the builder's layout, events from the host to the device and back through the simulated host, and a SysEx message.
-- `TestMidi.cpp`: the function's queues, SysEx, back-pressure, resets and halts, with a hand-written descriptor set.
+- `TestMidi.cpp`: the function's queues, SysEx, back-pressure, resets and halts, with a hand-written descriptor set. The SysEx framing is refused for a missing 0xF0 or 0xF7, a fragment, and a status byte inside; the longest message on the queue (96 bytes) is accepted and 97 bytes are refused; a full IN transfer ends with a zero-length packet only when nothing is queued behind it.

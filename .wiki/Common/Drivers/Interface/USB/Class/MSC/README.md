@@ -8,7 +8,7 @@ Headers:
 - `#include <Drivers/Interface/USB/Class/MSC/MscFunction.h>`: the function, the Bulk-Only Transport and the SCSI commands
 - `#include <Drivers/Interface/USB/Class/MSC/MscProtocol.h>`: the wire values (class, CBW and CSW layout, opcodes, sense codes)
 
-The medium is an `IBlockDevice` (see [Block Device](../../../../../Memory/BlockDevice/README.md)). A volume for a RAM disk is built with the [FAT12 image builder](../../../../../../Utilities/FileSystem/README.md).
+The medium is an `IBlockDevice` (see [Block Device](../../../../Memory/BlockDevice/README.md)). A volume for a RAM disk is built with the [FAT12 image builder](../../../../../Utilities/FileSystem/README.md).
 
 ## Descriptors
 
@@ -48,7 +48,7 @@ MscFunction<4096> msc(AppUsb::Function(0), disk, MscIdentity{ "VHAL", "RAM Disk"
 | Method | Description |
 |--------|-------------|
 | `SetEjectDelegate(delegate)` | Called from the interrupt when the host ejects the medium. Set before the device starts: `busy` once configured |
-| `Process(context)` | From the loop. Reads the medium's presence and write protection, then does one chunk of the medium work a command needs |
+| `Process(context)` | From the loop. Reads the medium's presence and write protection while the function is idle, arms the first CBW of a configuration once that read is done, then does one chunk of the medium work a command needs |
 
 The function keeps no pointer to the device. The application's loop calls `device.Process()`, which calls the function's `Process()`.
 
@@ -56,7 +56,7 @@ The function keeps no pointer to the device. The application's loop calls `devic
 
 The function follows BOT 1.0. A command runs in these steps:
 
-1. The CBW (31 bytes, signature `USBC`) arrives on the OUT endpoint. A CBW that is not 31 bytes long, or has another signature, is not valid. Both pipes are stalled and the function waits for a reset; a host clear of the halt alone does not reopen the pipes. A CBW that is valid but not meaningful (another LUN, a reserved flag bit, a command length outside 1 to 16) fails as a command with no data of the device's own.
+1. The CBW (31 bytes, signature `USBC`) arrives on the OUT endpoint. A CBW that is not 31 bytes long, or has another signature, is not valid. Both pipes are stalled and the function waits for a reset; a host clear of the halt alone does not reopen the pipes. A CBW that is valid but not meaningful (another LUN, a reserved flag bit, a command length outside 1 to 16) fails as a command with no data of the device's own. A command block shorter than its opcode needs (a READ(10) in 6 bytes, say) fails with ILLEGAL REQUEST, INVALID FIELD IN CDB.
 2. The device decides the command from the CBW and works out what it intends to move (its direction and its length). The host's length and direction (`dCBWDataTransferLength`, the Direction bit) are compared with that, and the case of the thirteen in BOT section 6.7 is chosen before any data moves.
 3. The data stage moves, in chunks of at most `BufferSize` bytes.
 4. The CSW (13 bytes, signature `USBS`, the tag of the CBW, the residue and the status) goes on the IN endpoint.
@@ -83,7 +83,7 @@ Where the table says the CSW follows a clear, the host clears the halt with `CLE
 
 Reset recovery: a Bulk-Only Mass Storage Reset (`bRequest` 0xFF, `wValue` 0, `wLength` 0, on the interface) abandons the command in progress, stalls any data pipe the function had armed, and returns to the idle stage. The host then clears both halts. The function does not clear the halts itself.
 
-GET_MAX_LUN (`bRequest` 0xFE, one byte) answers 0. The class requests reach the function once the configuration selects it.
+GET_MAX_LUN (`bRequest` 0xFE, one byte) answers 0. The class requests reach the function once the configuration selects it. Each class request must name the interface in `wIndex`, with `wValue` 0 and the `wLength` of its data stage: 1 for GET_MAX_LUN, 0 for the reset. Any other request on the interface is stalled, and a stalled reset does nothing.
 
 ## SCSI Commands
 
@@ -111,13 +111,13 @@ Media access runs only in `Process()`, from the application's loop. The interrup
 - A read is one chunk: `Process()` reads the blocks into the buffer, then arms the IN endpoint. Until then the host gets NAK.
 - A write is one chunk: the OUT endpoint takes the chunk into the buffer and then waits. `Process()` writes the chunk, then arms the next one. Until then the host gets NAK.
 
-The presence is read by the constructor and again by each `Process()`. An eject makes the function report the medium absent at once and calls the eject delegate from the interrupt. The delegate should make the block device's `IsPresent()` return `notExist`, so the next `Process()` agrees with the function.
+The presence is read by the constructor, and again by each `Process()` while the function is idle. A configuration arms no CBW until the next `Process()` has read the presence after it, so the first TEST UNIT READY of a configuration is answered from a fresh read, also when the medium was ejected before and the application makes it present again in its `OnConfigured()`. A sample that an eject or a configuration overtakes is dropped. An eject makes the function report the medium absent at once and calls the eject delegate from the interrupt. The delegate should make the block device's `IsPresent()` return `notExist`, so the next `Process()` agrees with the function.
 
 | Code | Context | Rule |
 |------|---------|------|
 | Endpoint callbacks, `OnControlRequest`, `OnConfigured`, `OnDeconfigured`, `OnBusReset` | Interrupt | Short. No medium access, no blocking call. Only the state and the endpoint calls |
 | Eject delegate | Interrupt | Short. It runs from START STOP UNIT |
-| `Process()` | Thread | Takes a section to plan the medium work and another to commit its result. The medium access itself is outside every section. A reset that happens during the access drops the result |
+| `Process()` | Thread | Takes a section to plan the medium work and another to commit its result. The medium access itself is outside every section. A reset that happens during the access drops the result, and no CBW is armed until the access is over |
 | `SetEjectDelegate()` | Thread | Before the device starts |
 
 ## Limits
@@ -134,7 +134,8 @@ The host tests are in `.tool/sim` and run with `run.sh`. They use a BOT host mod
 
 - `TestMscDescriptors.cpp`: the device and configuration bytes, the function layout and the assigned endpoint addresses, against bytes written out by hand.
 - `TestMscEnumeration.cpp`: the Windows, Linux and macOS enumeration orders, GET_MAX_LUN, a TEST UNIT READY loop for a medium inserted late, and the mounting reads (INQUIRY, READ CAPACITY, READ FORMAT CAPACITIES, MODE SENSE, READ(10) of block 0).
-- `TestMscBot.cpp`: each of the thirteen cases of section 6.7 with the data, the CSW and the stall counts it must produce, the invalid CBWs, reset recovery, an armed read reset, an unknown opcode, and CBWs that are not meaningful.
-- `TestMscScsi.cpp`: each command's answer, the sense data kept per error, the eject and the prevent, VERIFY and SYNCHRONIZE CACHE, and a read past the end.
-- `TestMscMedia.cpp`: round trips across the buffer boundaries (one-block and eight-block chunks), partial reads in both directions, the NAK while `Process()` reads and writes, write protection, read and write errors in the middle of a transfer, and a reset with a write armed.
+- `TestMscBot.cpp`: each of the thirteen cases of section 6.7 with the data, the CSW and the stall counts it must produce, the invalid CBWs, reset recovery, an armed read reset, an unknown opcode, CBWs that are not meaningful, a command block shorter than its opcode, and the fields of the class requests.
+- `TestMscScsi.cpp`: each command's answer, the sense data kept per error, the eject and the prevent, an eject during the presence sample, VERIFY and SYNCHRONIZE CACHE, and a read past the end.
+- `TestMscPresence.cpp`: a medium ejected and made present again in the configuration (the storage demo's re-plug), with the first TEST UNIT READY of the new configuration answered from the fresh presence.
+- `TestMscMedia.cpp`: round trips across the buffer boundaries (one-block and eight-block chunks), partial reads in both directions, the NAK while `Process()` reads and writes, write protection, read and write errors in the middle of a transfer, a reset with a write armed, a reset sent from inside a write's medium access, and a short OUT packet.
 - `BuilderErrors/msc_*.cpp`: the builder's endpoint rules, each with the message it must give.

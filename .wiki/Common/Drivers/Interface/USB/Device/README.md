@@ -22,6 +22,7 @@ The device keeps copies of the descriptor spans, not the bytes. The arrays behin
 |--------|---------|---------|-------------|
 | `Start(const USBDeviceAdapter::Parameters&)` | Thread | `ResultStatus` | Checks the set and the functions, applies the parameters, subscribes to the adapter events and connects |
 | `SetSerialNumber(std::span<const uint8>)` | Thread, before `Start()` | `ResultStatus` | Gives the string at iSerialNumber at run time. Refused unless the set reserves it (`SerialNumberAtRuntime()`). See [Serial Number](#serial-number) |
+| `SetRuntimeString(uint8, std::span<const uint8>)` | Thread, before `Start()` | `ResultStatus` | Gives the descriptor of a run-time string the set reserves, such as a MAC address. See [Run-Time Strings](#run-time-strings) |
 | `Stop()` | Thread, in a critical section | none | Deconfigures, closes the endpoints and detaches. Does nothing when not started |
 | `Process()` | Thread | none | Calls `Process()` of each function |
 | `GetState()` | Either | `USBDeviceState` | Current state, see below |
@@ -49,6 +50,9 @@ Checks on the set:
 - The BOS, if present, is at least 5 bytes, has type 15, and its `wTotalLength` equals its size.
 - Each string has a `bLength` that equals its size and type 3.
 - A set with `serialNumberAtRuntime` needs a serial number from `SetSerialNumber()`, and a non-zero iSerialNumber in its device descriptor.
+- Every run-time string the set reserves needs a descriptor from `SetRuntimeString()`. A set that reserves more than four is refused.
+
+A refused `Start()` changes nothing, so the same device starts once the missing descriptors are given.
 
 The state is `Detached` until the first bus reset.
 
@@ -60,7 +64,7 @@ The state is `Detached` until the first bus reset.
 |--------|-------|
 | `ok` | The descriptor is kept |
 | `busy` | The device is started. The string cannot change while the host may read it |
-| `invalidParameter` | Not a string descriptor: fewer than 2 bytes, an odd size, `bLength` not equal to the size, or `bDescriptorType` not 3 |
+| `invalidParameter` | Not a string descriptor: fewer than 4 bytes (an empty string), an odd size, `bLength` not equal to the size, or `bDescriptorType` not 3 |
 
 The device keeps the span, not a copy, so the array must have static storage. The helper `MakeUSBSerialNumberDescriptor()` (in `Descriptor/USBSerialNumber.h`) builds the descriptor from an ID's bytes.
 
@@ -77,6 +81,34 @@ if (status == ResultStatus::ok) {
 ```
 
 A set that does not reserve the serial number does not need the call. If it is called anyway, the string replaces the one at iSerialNumber.
+
+### Run-Time Strings
+
+A class reserves a run-time string in the [fluent builder](../Descriptor/README.md#run-time-strings) (`RuntimeStringCount()`, `RawWithRuntimeString()`), and the set lists its index in `runtimeStringIndexes`. Then:
+
+| Result | Cause |
+|--------|-------|
+| `ok` | The descriptor is kept. A later call for the same index, before `Start()`, replaces it |
+| `busy` | The device is started |
+| `invalidParameter` | The set does not reserve the index, or the descriptor is not a string descriptor: `bLength` not equal to the size, `bDescriptorType` not 3, an odd size, or fewer than 4 bytes (an empty string) |
+
+The device keeps the span, not a copy, so the array must have static storage, and it must stay valid for the life of the device. The four slots are fixed, one for each run-time string a configuration can reserve. A slot is kept for the index of the same position in the set's list.
+
+GET_DESCRIPTOR(STRING) answers a run-time index with its descriptor, cut to `wLength`. The language in `wIndex` is ignored, as for the other strings.
+
+```cpp
+// Before the first Start(). The MAC address is the same in every boot, so the host finds the same interface again.
+ResultStatus SetMacString(USBDevice& device) {
+	ResultStatus status = MakeUSBHexStringDescriptor(macAddress, macDescriptor);
+	if (status != ResultStatus::ok) {
+		return status;
+	}
+
+	return device.SetRuntimeString(AppUsb::RuntimeStringIndexes[0], macDescriptor);
+}
+```
+
+The function that reserved the string learns its index from its layout (`USBFunctionLayout::runtimeStrings`), as the layout is given to the function's constructor.
 
 ### Stop and Process
 
@@ -254,6 +286,7 @@ From an interrupt callback, these calls need no critical section. From `Process(
 ## Limits
 
 - One configuration, one speed.
+- Four run-time strings in one configuration (`USBMaxRuntimeStrings`), each given before `Start()` in static storage.
 - Critical sections nest, so a caller may wrap a call in its own section, even inside another one. The core opens no section of its own.
 - No allocation. The core stores what it needs in its own members.
 - A request with a data stage must have one. The core stalls a request that says it has data and gets none.

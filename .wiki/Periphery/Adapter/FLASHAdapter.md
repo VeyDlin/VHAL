@@ -74,6 +74,13 @@ struct Parameters {
 | `SetReadProtectionLevel(FlashProtectionLevel)` | `ResultStatus` | Set protection level |
 | `DisableReadProtection()` | `ResultStatus` | Remove read protection (Level0) |
 
+## Code Location and Timing
+
+- On the STM32G4 adapter, erase and program are polled. The FLASH interrupt is not used, and each call returns when the operation is done or its timeout has passed.
+- While a bank is erased or programmed, a read of that bank waits until the operation ends. On a single-bank part (STM32G431) every read of the flash waits, so the CPU stalls for up to one operation, and the interrupts wait with it. Nothing is corrupted. Code that calls `PageErase()`, `MassErase()` or `WriteData()` can therefore run from flash.
+- Run that code from RAM only when the interrupt latency during the operation matters. On dual-bank parts, read-while-write runs the code from the other bank instead.
+- The STM32G4 adapter bounds a double-word program at 10 ms and a page erase at 100 ms, and it fails the call past the bound. The bounds are not measured times. The times on a given board are to be measured.
+
 ## BSP Configuration Example
 
 ```cpp

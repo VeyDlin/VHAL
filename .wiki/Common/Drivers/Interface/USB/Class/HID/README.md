@@ -1,6 +1,6 @@
 # HID Class
 
-A Human Interface Device function: an interface with an interrupt IN endpoint, and optionally an interrupt OUT endpoint, that carries reports to and from a host. Keyboards, mice and a vendor-defined raw channel use it. A keyboard or a mouse is taken by the host's in-box HID driver, so it needs no driver of its own. The vendor raw report is reached through the system's HID API. The stack is tested in the host simulator only; no hardware measurement is recorded for HID yet (see [Host Support](../../README.md#host-support)).
+A Human Interface Device function: an interface with an interrupt IN endpoint, and optionally an interrupt OUT endpoint, that carries reports to and from a host. Keyboards, mice and a vendor-defined raw channel use it. A keyboard or a mouse is taken by the host's in-box HID driver, so it needs no driver of its own. The vendor raw report is reached through the system's HID API. The stack is tested in the host simulator and on the USBComposite demo: on Windows 11 both HID interfaces start with the zero-size-free report descriptors described below (see [Host Support](../../README.md#host-support)).
 
 Headers:
 
@@ -16,18 +16,20 @@ Headers:
 ```cpp
 using KeyboardReport = USBHidReportDescriptor<+[] { return USBHidReportBuilder::BootKeyboard(); }>;
 
-// KeyboardReport::Bytes is the descriptor (59 bytes). KeyboardReport::Info is what the class builder and the function take.
+// KeyboardReport::Bytes is the descriptor (64 bytes). KeyboardReport::Info is what the class builder and the function take.
 ```
 
 The chain has one item per method: `UsagePage`, `Usage`, `UsageMinimum`, `UsageMaximum`, `Collection(USBHidCollection)`, `EndCollection`, `LogicalMinimum`, `LogicalMaximum`, `PhysicalMinimum`, `PhysicalMaximum`, `Unit`, `UnitExponent`, `ReportSize`, `ReportCount`, `ReportId`, and `Input`, `Output`, `Feature` with the flags of `USBHidFlags` (`Constant`, `Variable`, `Relative`, `Wrap`, `NonLinear`, `NoPreferred`, `NullState`, `Volatile`, `BufferedBytes`; the zero value of each pair is the first name, `Data`, `Array` and `Absolute`).
 
-Items use the shortest encoding of HID 1.11 section 6.2.2.2. A value of 0 takes no data byte, other values take 1, 2 or 4 bytes, and logical and physical ranges are signed. So `LogicalMinimum(0)` is `0x14`, and a physical collection is `0xA0`. The appendix writes the zero values with one byte; both are valid.
+Items use the shortest encoding of HID 1.11 section 6.2.2.2, with one rule on top: every item with a value takes at least one data byte, so a value of 0 is one byte of 0, and logical and physical ranges are signed. So `LogicalMinimum(0)` is `0x15 0x00`, `UsageMinimum(0)` is `0x19 0x00`, an `Input(Array)` is `0x81 0x00`, and a physical collection is `0xA1 0x00`. Only `EndCollection` takes no data.
+
+The zero-size form (bSize 0, the value 0 with no data byte) is allowed by HID 1.11, but Windows' HID parser rejects it. On the first hardware run (Windows 11, the USBComposite demo), both HID interfaces failed to start: the keyboard with 0xC000001D and the mouse with 0xC00000B9 (STATUS_COULD_NOT_INTERPRET). The builder wrote those items with no data byte. With every value given one data byte, both devices started and the composite HID checks passed. `TestHidDescriptors.cpp` checks that no preset has a zero-size item other than End Collection (`CheckNoZeroSizeItems`). Push and Pop would also be exempt, but the builder does not write them.
 
 | Preset | Input | Output | Notes |
 |--------|-------|--------|-------|
-| `BootKeyboard()` | 8 bytes: modifiers, reserved, six keys | 1 byte: five LEDs and padding | HID 1.11 Appendix B.1. No report ID. 59 bytes |
-| `BootMouse()` | 4 bytes: buttons (3 and padding), X, Y, wheel | none | HID 1.11 Appendix B.2 with the wheel appended. The first 3 bytes are the boot report. No report ID. 54 bytes |
-| `ConsumerControl()` | 2 bytes: one 16-bit usage (0x0000 to 0x03FF) | none | Usage page 0x0C. No report ID. 20 bytes |
+| `BootKeyboard()` | 8 bytes: modifiers, reserved, six keys | 1 byte: five LEDs and padding | HID 1.11 Appendix B.1, with the key array widened to usages and logical values 0 to 255 as most keyboards send it. No report ID. 64 bytes. A boot protocol host reads the fixed 8 bytes and ignores the descriptor |
+| `BootMouse()` | 4 bytes: buttons (3 and padding), X, Y, wheel | none | HID 1.11 Appendix B.2 with the wheel appended. The first 3 bytes are the boot report. No report ID. 56 bytes |
+| `ConsumerControl()` | 2 bytes: one 16-bit usage (0x0000 to 0x03FF) | none | Usage page 0x0C. No report ID. 23 bytes |
 | `VendorRaw(n)` | n bytes (1 to 64) | n bytes | Usage page 0xFF00, usage 0x01 in and 0x02 out. No report ID. Any OS opens it without a driver |
 
 Rules. A violated rule is a compile error with its message:
@@ -113,7 +115,7 @@ Input reports:
 - Boot protocol sends the first 8 bytes (keyboard) or 3 bytes (mouse) of a report. The cut is made when a report is sent, so a switch of protocol applies to the reports already queued.
 - Remote wakeup: the configuration must advertise it (`RemoteWakeup()` in `USBConfigurationBuilder`), or the host never enables it; `USBHidBuilder` does not set it. A report that waits while the device is suspended asks for resume through the context, once per suspension. When the host has not enabled remote wakeup, the request is refused and the report waits for the host's own resume.
 - A halt of the IN endpoint keeps the head queued, and it is sent after the host clears the halt.
-- A bus reset and a new configuration drop the queue.
+- A bus reset and a new configuration drop the queue. Deconfiguration (SET_CONFIGURATION 0, or `Stop()`) drops it too. Both then call the reset delegate, so the application's state that describes what the host has seen is dropped as well: `HidMouse` drops its pending movement this way.
 
 Output reports arrive from the OUT endpoint (a packet of another length than the output report is dropped) or from SET_REPORT(Output). Both call the output delegate in interrupt context. The OUT endpoint is armed with one packet, so a report of the packet size completes it.
 
@@ -122,8 +124,9 @@ Output reports arrive from the OUT endpoint (a packet of another length than the
 | `OutputDelegate` | `void(span report)` | Output reports, from the OUT endpoint or SET_REPORT |
 | `FeatureGetDelegate` | `bool(reportId, span report)` | GET_REPORT feature. It fills the report, which is exactly the feature length |
 | `FeatureSetDelegate` | `bool(span report)` | SET_REPORT feature. It returns false to stall |
+| `ResetDelegate` | `void()` | The function is deconfigured or the bus resets, after the queue is cleared. It runs in the context of the event (interrupt, or the section of `Stop()`), so it only touches state that the thread side guards with a section |
 
-The delegates are `VSTD::Delegate`s, so they never allocate. Set them with `SetOutputDelegate()`, `SetFeatureGetDelegate()` and `SetFeatureSetDelegate()` before the device starts; after that they return `busy`.
+The delegates are `VSTD::Delegate`s, so they never allocate. Set them with `SetOutputDelegate()`, `SetFeatureGetDelegate()`, `SetFeatureSetDelegate()` and `SetResetDelegate()` before the device starts; after that they return `busy`.
 
 ## Keyboard
 
@@ -136,7 +139,7 @@ keyboard.TypeText("Hello");
 
 | Method | Description |
 |--------|-------------|
-| `Press(keyCode)`, `Release(keyCode)` | One report. A key code of 0xE0 to 0xE7 is a modifier. Key codes 0x04 to 0x65 are keys; others are `invalidParameter`. Repeating a state is a no-op |
+| `Press(keyCode)`, `Release(keyCode)` | One report. A key code of 0xE0 to 0xE7 is a modifier. Key codes 0x04 to 0xDD are keys (the keyboard page, so F13 is 0x68 and F24 is 0x73); 0x00 to 0x03 (the error codes), 0xDE, 0xDF and 0xE8 and above are `invalidParameter`. Repeating a state is a no-op |
 | `ReleaseAll()` | Releases every key and modifier with one report |
 | `SetModifiers(mask)` | Sets the modifier byte, one report |
 | `Tap(keyCode, modifiers)` | Press, then release: two reports. The press carries the held modifiers plus `modifiers`; the release carries the held modifiers. A key that is held is refused |
@@ -163,6 +166,8 @@ keyboard.TypeText("Hello");
 
 - A movement of more than 127 steps per axis is split into reports of at most 127 each, one per queue place.
 - While the queue is full, the movement waits in the mouse and the call returns `busy`. `Flush()` sends it later.
+- The pending movement of each axis, the wheel included, is bounded to `MaxPendingSteps` (32767, the int16 range). A `Move()` or `Scroll()` that would take an axis past the bound returns `outOfRange` and changes nothing; the host has to take the pending reports first. `busy` means the movement was taken and waits for queue room, so the two answers tell a caller whether the movement is pending. The sums are taken in 64 bits, so no argument overflows.
+- The pending movement is dropped when the function is deconfigured or the bus resets (the mouse registers for the function's reset delegate). The host does not receive movement that was made while it was away as one jump after the next enumeration. The buttons are not reset by this; the application sets them.
 - `SetButtons()` keeps the new buttons when its report is refused, so the next report carries them.
 - The idle repeat and GET_REPORT of the mouse answer with the buttons and no motion, so a repeat does not move the pointer again.
 
@@ -171,15 +176,17 @@ keyboard.TypeText("Hello");
 | Code | Context | Rule |
 |------|---------|------|
 | `OnConfigured`, `OnDeconfigured`, `OnBusReset`, `OnSuspend`, `OnResume`, `OnControlRequest`, `OnControlDataReceived`, `OnTransferComplete`, `OnEndpointHaltChanged` | Interrupt | Short. No section is entered, because `OnDeconfigured` also runs inside `Stop()`, which the caller wraps in a section |
-| Output and feature delegates, `SetLedDelegate` callback | Interrupt | Short. Keep it simple and bounded |
+| Output, feature and reset delegates, `SetLedDelegate` callback | Interrupt | Short. Keep it simple and bounded |
 | `SendReport()`, `FreeSlots()`, `Process()` | Thread | Shares the queue with the interrupt through short sections. The transfer start is inside the section too: sections nest, and a completion inside the call runs in the same section |
+| `HidMouse` `Move()`, `Scroll()`, `Flush()`, `SetButtons()`, `Click()` | Thread | Each takes a section around the pending movement, since the reset delegate clears it from the interrupt |
 | `SetOutputDelegate()` and the other setters | Thread | Before the device starts |
 
 ## Tests
 
 The host tests are in `.tool/sim` and run with `run.sh`:
 
-- `TestHidDescriptors.cpp`: the presets, the HID descriptor, the configurations of the boot keyboard, the boot mouse, the vendor device and the identified report, checked against arrays written out by hand from HID 1.11. The builder is not used to produce them.
+- `TestHidDescriptors.cpp`: the presets, the HID descriptor, the configurations of the boot keyboard, the boot mouse, the vendor device and the identified report, checked against arrays written out by hand from HID 1.11, and no zero-size item except End Collection. The builder is not used to produce them.
 - `TestHid.cpp`: the class requests, the queue, the idle repeat, protocol switching, remote wakeup, halts, bus reset and both output paths, through the simulated host.
+- `TestHidInput.cpp`: the keyboard and the mouse byte for byte, including the key code range (0x04 to 0xDD), F13 and F24, the mouse's pending bound and the drop of the pending movement on deconfiguration and bus reset.
 - `TestHidInput.cpp`: the keyboard (key state, rollover, `Tap`, `TypeText`, the key limit, LEDs) and the mouse (splitting, accumulation, buttons and clicks), byte for byte.
 - `BuilderErrors/hid_*.cpp`: the compile errors above, each with the message it must give.

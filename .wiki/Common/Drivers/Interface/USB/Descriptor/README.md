@@ -7,6 +7,7 @@ Headers:
 - `#include <Drivers/Interface/USB/Descriptor/Builder/USBDescriptors.h>` for `USBDescriptors`, `USBDeviceBuilder` and `USBConfigurationBuilder`
 - `#include <Drivers/Interface/USB/Class/Vendor/USBVendorBuilder.h>` for the vendor bulk class builder
 - `#include <Drivers/Interface/USB/Descriptor/USBSerialNumber.h>` for the run-time serial number helper
+- `#include <Drivers/Interface/USB/Descriptor/USBHexStringDescriptor.h>` for the general hex string helper, which a MAC address or any other run-time string uses
 - `#include <Drivers/Interface/USB/Descriptor/USBDescriptorSet.h>` for `USBDescriptorSet`, the only thing the core reads
 - the header of each positional builder, listed under [Positional Builders](#positional-builders-the-byte-layer)
 
@@ -57,8 +58,9 @@ USBDevice device(BSP::usbAdapter, AppUsb::Set, functions);
 
 | Member | Type | Description |
 |--------|------|-------------|
-| `Set` | `USBDescriptorSet` | The set for `USBDevice`. Includes `serialNumberAtRuntime` |
-| `Function(index)` | `USBFunctionLayout` | The interfaces, endpoint addresses and descriptor slice of function `index`. `consteval`: the index must be a constant |
+| `Set` | `USBDescriptorSet` | The set for `USBDevice`. Includes `serialNumberAtRuntime` and `runtimeStringIndexes` |
+| `Function(index)` | `USBFunctionLayout` | The interfaces, endpoint addresses, descriptor slice and run-time string indexes of function `index`. `consteval`: the index must be a constant |
+| `RuntimeStringIndexes` | `std::array<uint8, N>` | The string indexes of the run-time strings, in the order the classes reserved them. See [Run-Time Strings](#run-time-strings) |
 | `Device` | `std::array<uint8, 18>` | The device descriptor |
 | `Configuration` | `std::array<uint8, N>` | The configuration descriptor with all its interfaces and endpoints |
 | `StringTable` | `std::array<std::span<const uint8>, N>` | The string descriptors, index 0 is the language list |
@@ -110,15 +112,28 @@ A class builder is a class that meets `USBClassFunctionBuilder`. The configurati
 | `FunctionClass()`, `FunctionSubClass()`, `FunctionProtocol()` | `uint8` | Class of the interface association |
 | `HasWinUsb()`, `WinUsbGuid()` | `bool`, text | Binds WinUSB. An empty GUID gives the compatible ID only |
 | `Emit(emitter)` | none | Writes the interface, class-specific and endpoint descriptors through the emitter |
+| `RuntimeStringCount()` | count | Optional. The run-time strings the class reserves, at most 4 in one configuration. A class without it reserves none. See [Run-Time Strings](#run-time-strings) |
 
 The emitter gives the class its numbers, so the class never handles them itself:
 
 - `InterfaceNumber(i)`, `EndpointAddress(i)`: the numbers the configuration resolved
-- `Interface(i, class, subClass, protocol, stringIndex)`: an interface descriptor. `stringIndex` is an index into the class's own strings, or `USBNoString`
+- `Interface(i, class, subClass, protocol, stringIndex)`: an interface descriptor with alternate setting 0. `stringIndex` is an index into the class's own strings, or `USBNoString`
+- `Alternate(i, alternateSetting, class, subClass, protocol, stringIndex)`: an interface descriptor with another alternate setting of interface `i`, for a class with memory regions or modes that a host selects with SET_INTERFACE. Alternates share the interface number, so `bNumInterfaces` still counts the interface once. Each setting may name its own string
 - `Endpoint(i)`: the endpoint descriptor for request `i`
 - `Raw(bytes)`: a class-specific descriptor, such as a functional descriptor. Its `bLength` must equal its size, and it cannot be a configuration, interface, endpoint or association
+- `RawWithString(bytes, offset, i)`: as `Raw()`, with the string index of an interface name at `offset`, for example the `iJack` of a MIDI jack. The byte is given as 0
+- `RawWithRuntimeString(bytes, offset, i)`: as `Raw()`, with the index of the function's run-time string `i` at `offset`, for example `iMACAddress` of the Ethernet functional descriptor. The byte is given as 0. See [Run-Time Strings](#run-time-strings)
+
+The alternate-setting rule for a class builder:
+
+- Call `Interface(i, ...)` for alternate 0 first. Then `Alternate(i, n, ...)` for each further setting, directly after it, in ascending order, each number once. Each is a compile error otherwise: the message names the rule (`an alternate setting follows its alternate 0 directly`, `alternate settings are listed in ascending order`, `an alternate setting is given once`). `Alternate(i, 0, ...)` is refused: alternate 0 is `Interface()`.
+- Write the class-specific descriptors that belong to the whole interface (a DFU functional descriptor, for one) once, after the last alternate. The host reads the alternates in order, and a descriptor between two alternates belongs to the one before it.
+- A class that gives endpoints to an alternate calls `Endpoint(i)` after that alternate. The configuration numbers the endpoints from the endpoint requests as usual.
+- A class with one alternate calls `Interface()` only and writes the same bytes as before the alternates existed.
 
 `USBVendorBuilder` is the vendor bulk class: one interface of class 0xFF with a bulk IN and a bulk OUT endpoint, 64-byte packets, interval 0.
+
+Each class brings its own builder, described on its page: `USBHidBuilder` ([HID](../Class/HID/README.md)), `USBCdcAcmBuilder` ([CDC](../Class/CDC/README.md)), `USBMidiBuilder` ([MIDI](../Class/MIDI/README.md)), `USBMscBuilder` ([MSC](../Class/MSC/README.md)) and `USBDfuBuilder` ([DFU](../Class/DFU/README.md)).
 
 | Method | Description |
 |--------|-------------|
@@ -137,12 +152,13 @@ The layout's endpoint list is IN first, then OUT. That is the order `VendorBulkF
 - An endpoint without an address takes the smallest number from 1 for which neither the IN nor the OUT endpoint is already used. So IN and OUT never share a number. On fsdev a shared number puts both endpoints in one register and disables double buffering.
 - An endpoint number above `EndpointNumberLimit` is a compile error when the configuration joins the device.
 - A duplicate address, an explicit address whose direction differs from the request, a reserved address bit, and endpoint 0 are compile errors.
-- A class requests bulk or interrupt endpoints only. An isochronous request is a compile error.
+- A class requests bulk, interrupt or isochronous endpoints. An isochronous request sets `interval` to 1, and may set `isoSync` and `isoUsage` for the bits of `bmAttributes`. A packet above 1023 bytes, or an interval other than 1, is a compile error.
 
 ### Strings
 
 - Each distinct text is one string descriptor. A text used twice is one entry.
 - Strings are numbered in the order the chain first uses them. A device string takes its number when its method is called. A configuration's strings take theirs when `Configuration()` is called. So a string given before `Configuration()` has a lower number than the configuration's own strings.
+- The run-time strings come after all the fixed strings, whatever the order of the chain. See [Run-Time Strings](#run-time-strings).
 - The language list is string 0. Its language is 0x0409 unless `Language()` is given.
 - A string must be valid UTF-8, at most 126 UTF-16 code units, and not empty.
 
@@ -194,12 +210,67 @@ ResultStatus SetUniqueSerial() {
 }
 ```
 
-- `MakeUSBSerialNumberDescriptor()` writes the bytes of the ID as upper-case hex, two characters per byte, in UTF-16LE. The same ID gives the same text, so the host finds the device again after a reboot. It returns `invalidParameter` when the buffer is too small, or when the descriptor would be longer than 255 bytes (more than 63 bytes of ID).
+- `MakeUSBSerialNumberDescriptor()` writes the bytes of the ID as upper-case hex, two characters per byte, in UTF-16LE. The same ID gives the same text, so the host finds the device again after a reboot. It returns `invalidParameter` when the buffer is too small, or when the descriptor would be longer than 255 bytes (more than 63 bytes of ID). It is `MakeUSBHexStringDescriptor()` under the serial number's name, so the same rules apply to any run-time string.
 - `SetSerialNumber()` keeps the span, so the array must have static storage. It returns `busy` after `Start()`, and `invalidParameter` for a descriptor that is not a string descriptor of the right length, for an empty string, and for a set that does not reserve the run-time serial.
 - `Start()` returns `invalidParameter` when the set reserves iSerialNumber and no serial number was given, and when the device descriptor's iSerialNumber is 0.
 - Without `SerialNumberAtRuntime()`, the set does not need `SetSerialNumber()`, and the call is refused. A static serial given with `SerialNumber()` is never replaced.
 
 The bench firmware (`.demo/STM32G4/Application/DemoUSBBench/DemoUSBBench.cpp`) does exactly this, so several boards of one firmware are told apart on one PC.
+
+### Run-Time Strings
+
+A class can reserve strings whose text the application gives before `Start()`, such as the MAC address that CDC-NCM names in its `iMACAddress`. The serial number is the one fixed case of this, and the rule is the same for any function:
+
+1. The class reserves a string with `RuntimeStringCount()`, and writes its index into its own descriptor with `emitter.RawWithRuntimeString()`. The byte is given as 0 and the device fills it in.
+2. The configuration numbers the run-time strings after the fixed strings, in the order the classes reserved them. The chain's result gives the indexes: `Set.runtimeStringIndexes`, and `Function(i).runtimeStrings` for the strings of function `i`. A function object can read its own indexes from its layout.
+3. Before `Start()`, the application gives each string its descriptor with `USBDevice::SetRuntimeString(index, descriptor)`. The descriptor is a complete string descriptor in static storage. `Start()` returns `invalidParameter` while a reserved string has none.
+
+```cpp
+// The class reserves one string and writes its index at offset 3 of its functional descriptor (iMACAddress of CDC-NCM has this form).
+class NcmLikeFunction {
+public:
+	constexpr std::size_t RuntimeStringCount() const {
+		return 1;
+	}
+
+	constexpr void Emit(USBFunctionEmitter& emitter) const {
+		emitter.Interface(0, 0x02, 0x0D, 0x00, USBNoString);
+		std::array<uint8, 5> functional = { 0x05, 0x24, 0x0F, 0x00, 0x00 };
+		emitter.RawWithRuntimeString(functional, 3, 0);
+		emitter.Endpoint(0);
+	}
+	// ... the rest of the class builder concept, as in Class Builders
+};
+
+using AppUsb = USBDescriptors<[] {
+	return USBDeviceBuilder()
+		// ... identities and the serial number
+		.Configuration(USBConfigurationBuilder()
+			.MaxPowerMilliamps(100)
+			.Function(NcmLikeFunction()));
+}>;
+
+// Before the first Start(). The MAC address is 6 bytes, so the descriptor is 26 bytes (2 + 4 * 6) of "020000ABCDEF" in UTF-16LE.
+static std::array<uint8, 2 + 4 * 6> macDescriptor{};
+
+ResultStatus SetMacString(USBDevice& device, std::span<const uint8, 6> mac) {
+	ResultStatus status = MakeUSBHexStringDescriptor(mac, macDescriptor);
+	if (status != ResultStatus::ok) {
+		return status;
+	}
+
+	return device.SetRuntimeString(AppUsb::RuntimeStringIndexes[0], macDescriptor);
+}
+```
+
+- `MakeUSBHexStringDescriptor()` (in `Descriptor/USBHexStringDescriptor.h`) makes the descriptor of a byte span as upper-case hex. A 6-byte MAC address gives the 12 digits that `iMACAddress` asks for, for example `02 00 00 AB CD EF` gives `020000ABCDEF`. It returns `invalidParameter` for an empty span, a buffer that is too small, or a size above 255 bytes.
+- The index is not known to the class in `Emit()`: the device joins the configuration after the fixed strings are numbered, and only then writes the index. The class gets the index from its layout at run time.
+- `RawWithRuntimeString()` takes the position of the string within the function, from 0. A position past the function's count is a compile error.
+- A class that reserves a string and never writes its index is a compile error, because the host could not read the string.
+- Four run-time strings at most in one configuration. A fifth is a compile error. The device keeps one slot for each.
+- `SetRuntimeString()` is refused for an index the set does not reserve, for a descriptor that is not a string descriptor (`bLength` must equal its size, the type must be 3, and the size must be even and at least 4, one character), and after `Start()`. Before `Start()`, a later call for the same index replaces the descriptor.
+- The device keeps the span, not a copy, so the array must have static storage. The string is served by GET_DESCRIPTOR(STRING) at its index, cut to `wLength` like the other strings.
+- The serial number keeps its own call, `SetSerialNumber()`, and its own reservation, `SerialNumberAtRuntime()`. It does not use a run-time string slot.
 
 ### Compile-Time Errors
 
@@ -234,8 +305,9 @@ The rule checks sit in `.tool/sim/BuilderErrors/`: one snippet per rule, each wi
 | Functions in one configuration | 8 |
 | Endpoints in one configuration | 32 |
 | Endpoints in one function | 16 |
-| Strings in one device | 32, including the serial placeholder |
+| Strings in one device | 32, including the serial placeholder and the run-time placeholders |
 | Strings in one function | 4 |
+| Run-time strings in one configuration | 4 (`USBMaxRuntimeStrings`) |
 | Bytes of one part (configuration, strings, BOS, MS OS 2.0 set) | 1024 |
 | Interfaces | 256, the one-byte numbers |
 
@@ -261,7 +333,7 @@ Each builder is `constexpr`. Its result is an array of bytes, in flash when the 
 |---------|--------|--------|
 | `MakeUSBDeviceDescriptor(bcdUSB, class, subClass, protocol, maxPacketSize0, idVendor, idProduct, bcdDevice, iManufacturer, iProduct, iSerialNumber, numConfigurations)` | 18 bytes | `bcdUSB` 2.00 or later. `maxPacketSize0` is 64. `numConfigurations` is 1 |
 | `MakeUSBInterfaceDescriptor(number, alternate, class, subClass, protocol, iInterface)` | 9 bytes | `bNumEndpoints` is set by the configuration builder |
-| `MakeUSBEndpointDescriptor(address, type, maxPacketSize, interval)` | 7 bytes | Not endpoint 0. Bits 6 to 4 of the address are 0. Bulk: 8, 16, 32 or 64 bytes and interval 0. Interrupt: 1 to 64 bytes and interval 1 or more. No isochronous |
+| `MakeUSBEndpointDescriptor(address, type, maxPacketSize, interval)` | 7 bytes | Not endpoint 0. Bits 6 to 4 of the address are 0. Bulk: 8, 16, 32 or 64 bytes and interval 0. Interrupt: 1 to 64 bytes and interval 1 or more. Isochronous: 1 to 1023 bytes and interval 1, with optional `USBIsoSync` and `USBIsoUsage` (the default is none and data). `MakeUSBAudioEndpointDescriptor()` takes the same arguments and adds `refresh` and `synchAddress` for the 9-byte form |
 | `MakeUSBInterfaceAssociationDescriptor(firstInterface, count, class, subClass, protocol, iFunction)` | 8 bytes | `count` is 1 or more, and the range stays within 0 to 255 |
 | `MakeUSBRawDescriptor<Size>({ ... })` | `Size` bytes | `bLength` equals the size. Size 2 to 255. Not a configuration, interface, endpoint or association. For class-specific bytes |
 | `MakeUSBConfigurationDescriptor(value, iConfiguration, selfPowered, remoteWakeup, maxPower, pieces...)` | 9 bytes plus the pieces | `value` is 1 or more. `maxPower` is 250 or less (units of 2 mA). Computes `wTotalLength`, `bNumInterfaces` and each `bNumEndpoints`. Checks that each endpoint follows its interface and that association and interface numbers agree |

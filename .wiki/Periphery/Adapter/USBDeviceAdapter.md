@@ -14,7 +14,7 @@ The adapter and the core share the types in `Adapter/Utilities/USBTypes.h`. They
 
 | Type | Values or members | Description |
 |------|-------------------|-------------|
-| `USBEndpointType` | `Control`, `Isochronous`, `Bulk`, `Interrupt` | Transfer type. Isochronous is not used by the stack |
+| `USBEndpointType` | `Control`, `Isochronous`, `Bulk`, `Interrupt` | Transfer type. Isochronous endpoints are described in [Isochronous Endpoints](#isochronous-endpoints) |
 | `USBSpeed` | `Low`, `Full`, `High` | Full speed is the only speed of the current ports. High is reserved for a port with an external PHY |
 | `USBSetupBytes` | `bytes[8]` | The 8-byte SETUP packet as received. `USBSetupPacket::Parse()` decodes it |
 | `USBEndpoint` | `Number()`, `IsIn()`, `IsControl()`, `IsValid()`, `MakeIn()`, `MakeOut()`, `ControlOut` (`0x00`), `ControlIn` (`0x80`) | Address helpers. Bit 7 is the direction. Bits 3 to 0 are the number. Bits 6 to 4 must be 0 |
@@ -33,7 +33,7 @@ struct Parameters {
 | Field | Default | Description |
 |-------|---------|-------------|
 | `endpointCount` | 4 | Endpoint numbers in use, endpoint 0 included. Numbers 0 to `endpointCount - 1` may be opened. `SetParameters()` returns `invalidParameter` for 0 or for more than the hardware has (8 on the G4) |
-| `startOfFrameEvents` | `false` | Raises `onStartOfFrame` every 1 ms. Off by default, because the interrupt costs time on every frame |
+| `startOfFrameEvents` | `false` | Raises `onStartOfFrame` every 1 ms, in interrupt context, before the completions of that frame's interrupt. Off by default, because the interrupt costs time on every frame |
 
 ## EndpointConfig
 
@@ -49,9 +49,9 @@ struct EndpointConfig {
 | Field | Description |
 |-------|-------------|
 | `address` | Endpoint address. Endpoint 0 is refused |
-| `type` | `Bulk` or `Interrupt`. Control is refused |
-| `maxPacketSize` | Full speed: 8, 16, 32 or 64 for bulk, 1 to 64 for interrupt |
-| `doubleBuffer` | Bulk only. Two packet buffers, so the hardware keeps one busy while the other is handled. A port that cannot give it returns `notSupported`, for example fsdev with the other direction of the number open. Any other type with this set returns `invalidParameter` |
+| `type` | `Bulk`, `Interrupt` or `Isochronous`. Control is refused |
+| `maxPacketSize` | Full speed: 8, 16, 32 or 64 for bulk, 1 to 64 for interrupt, 1 to 1023 for isochronous. A port may refuse an isochronous size it cannot place (`outOfMemory`) |
+| `doubleBuffer` | Bulk only. Two packet buffers, so the hardware keeps one busy while the other is handled. A port that cannot give it returns `notSupported`, for example fsdev with the other direction of the number open. Any other type with this set returns `invalidParameter`. An isochronous endpoint always has its two buffers in the port, so it must leave this `false` |
 
 ## Error
 
@@ -73,7 +73,7 @@ Assign them before `Connect()`. They run in interrupt context, so a handler must
 | `onSetup` | `const USBSetupBytes&` | For each SETUP packet on endpoint 0 |
 | `onTransferComplete` | `uint8 address`, `uint32 byteCount` | When a transfer has finished. `byteCount` is the bytes sent (IN), stored (OUT) or 0 for a zero-length packet |
 | `onSuspend`, `onResume` | none | Suspend, and the end of resume signalling |
-| `onStartOfFrame` | `uint16 frameNumber` | Each frame, when `startOfFrameEvents` is on |
+| `onStartOfFrame` | `uint16 frameNumber` | Each frame, when `startOfFrameEvents` is on. Interrupt context, before the completions of that frame's interrupt |
 | `onError` | `Error` | A hardware error. Fires before the transfer's completion, if there is one |
 
 The core subscribes to the first six. The application may use `onStartOfFrame` only.
@@ -95,8 +95,8 @@ When `onTransferComplete` runs, the transfer is no longer in flight. The callbac
 | `CloseAllEndpoints()` | `void` | Either | Closes all endpoints except 0. Used on bus reset and on configuration 0 |
 | `StartInTransfer(address, data, zeroLengthPacket)` | `ResultStatus` | Either | Sends `data` on an IN endpoint, see below |
 | `StartOutTransfer(address, buffer)` | `ResultStatus` | Either | Arms reception into `buffer` on an OUT endpoint, see below |
-| `Stall(address)` | `ResultStatus` | Either | Halts the endpoint. Endpoint 0 halts both directions. `notExist` if not open |
-| `ClearStall(address)` | `ResultStatus` | Either | Clears the halt and resets the data toggle to DATA0. See the exception below |
+| `Stall(address)` | `ResultStatus` | Either | Halts the endpoint. Endpoint 0 halts both directions. `notExist` if not open. `invalidParameter` for an isochronous endpoint |
+| `ClearStall(address)` | `ResultStatus` | Either | Clears the halt and resets the data toggle to DATA0. See the exception below. `ok` and no change for an isochronous endpoint |
 | `IsStalled(address)` | `bool` | Either | The endpoint is halted |
 | `RemoteWakeup()` | `ResultStatus` | Either | Starts resume signalling. `notReady` unless suspended. Returns at once. The port raises `onResume` when the signalling ends. See the 5 ms rule below |
 | `GetFrameNumber()` | `uint16` | Either | Frame number of the last start-of-frame, 11 bits |
@@ -109,8 +109,8 @@ When `onTransferComplete` runs, the transfer is no longer in flight. The callbac
 | `ok` | Opened |
 | `invalidParameter` | Address is not a number the `endpointCount` allows, or the type, packet size or `doubleBuffer` does not fit. On a port that shares a number's register between its directions (fsdev), also a type mismatch with the other direction, or a single-buffered request beside a double-buffered other direction |
 | `busy` | A transfer is in flight on the address |
-| `notSupported` | `doubleBuffer` is asked for and the port cannot give it, for example fsdev with the other direction of the number open |
-| `outOfMemory` | Packet memory (fsdev) or FIFO space (dwc2) does not fit the request |
+| `notSupported` | `doubleBuffer` is asked for and the port cannot give it, for example fsdev with the other direction of the number open. An isochronous endpoint has two buffers too, so an isochronous IN and OUT on one number are `notSupported` as well |
+| `outOfMemory` | Packet memory (fsdev) or FIFO space (dwc2) does not fit the request, for example an isochronous packet size the port cannot place |
 
 An address already open is reconfigured. The adapter keeps the memory until `CloseEndpoint()` or `CloseAllEndpoints()`.
 
@@ -138,7 +138,7 @@ An address already open is reconfigured. The adapter keeps the memory until `Clo
 
 ### ClearStall
 
-- Clears the halt and resets the data toggle to DATA0. `notExist` for a closed endpoint.
+- Clears the halt and resets the data toggle to DATA0. `notExist` for a closed endpoint. An isochronous endpoint has neither, so the call is `ok` and changes nothing.
 - The port takes no critical section. A thread-context caller wraps the call in `System::CriticalSection()`.
 - Exception to the IN contract: on a double-buffered IN endpoint (fsdev), a transfer the hardware had already finished can complete inside this call. `onTransferComplete` then runs before `ClearStall()` returns, and the function may start its next IN transfer there.
 - The core calls the function's `OnEndpointHaltChanged()` only after `ClearStall()` returns. A function must not restart its IN while the halt is still set. `VendorBulkFunctionBase` keeps that rule.
@@ -184,6 +184,42 @@ A rejected request is answered with `Stall(0x80)`. That halts both endpoint 0 di
 4. `Connect()`: the host sees the device.
 5. Each bus reset opens endpoint 0 again.
 6. `Disconnect()` detaches. The core closes the endpoints.
+
+## Isochronous Endpoints
+
+An isochronous endpoint moves one packet per frame (USB 2.0 section 5.6.4). It has no handshake, no retry, no NAK and no halt. Every frame's token is answered, so a frame with nothing armed is still a packet on the wire: a zero-length one for IN. The model below is the one the fsdev ports follow (see [USBFsdev.h](../../../Periphery/Adapter/Port/STM32/Common/USBFsdev.h) and the [G4 port](Port/STM32/G4/USBDeviceAdapterG4.md#isochronous-endpoints)).
+
+| Item | Rule |
+|------|------|
+| Open | Type `Isochronous`, packet size 1 to 1023 bytes, `doubleBuffer` `false`. The port gives it both buffers of its direction. A size the port cannot place in its memory is `outOfMemory` |
+| Arm | `StartInTransfer()` and `StartOutTransfer()` arm one packet. An IN span holds at most `maxPacketSize` bytes; an empty span is a zero-length packet, and `sendZeroLengthPacket` has no effect. One transfer per direction: `busy` while one is armed |
+| Pace | The completion ends the transfer. The function arms the next packet in the callback of the packet before, so the packet is in place about a frame before its token. Arming at the start of a frame races that frame's token, so a function does not arm there |
+| IN, sent | A packet armed from inside its own endpoint's completion callback (the streaming path) goes out at the host's token of the next frame. `onTransferComplete(address, size)` fires when it has left |
+| IN, armed from elsewhere | A packet armed from thread context, from the control request that selects the alternate setting, or from another endpoint's callback is pending. The next token sends a zero-length packet with no completion and writes the packet, and the token after that sends it and completes. A packet armed while the endpoint's `CTR_TX` is already set, and not yet served by the interrupt, goes out one token earlier, since the interrupt writes it after the finished token. The simulator models the pending packet as above |
+| IN, nothing armed | A frame with no packet armed is a zero-length IN packet. The host gets no data, nothing completes, no event is raised and the port counts nothing. The packet armed after a frame goes out at the following token, never at the one before it, so a stale packet is never sent. The port keeps this true by writing a packet from outside the callback only at a token, never while a token reads the buffer |
+| Bound | The USB interrupt must be served within one frame of the token. A later service merges the completions of two tokens, and the port cannot tell which buffer went out |
+| OUT, stored | The packet of a frame is stored in the armed buffer and completes the transfer. `byteCount` is the bytes the frame carried: 0 for a zero-length packet, and any size up to the buffer |
+| OUT, too large | A packet that does not fit is dropped whole, with `onError(DataOverrun)`. The completion is the bytes stored before it, which is 0 for a one-packet transfer |
+| OUT, nothing armed | The hardware stores the frame's packet and the port drops it: no event, and the packet is not kept for a later transfer, so a stale packet is never delivered |
+| Toggle | None to reset, and no data PID is assumed. The port alternates the two buffers with each frame, armed or not, so consecutive packets sit in different buffers. The function does not see the buffers |
+| Halt | `Stall()` returns `notExist` for a direction that is not open, and `invalidParameter` for an open one. `ClearStall()` returns `ok` and changes nothing, because the endpoint is never halted. The core stalls a host's `SET_FEATURE` of `ENDPOINT_HALT` on it, acknowledges `CLEAR_FEATURE`, and `GET_STATUS` reports no halt. `IsStalled()` is `false` |
+| Two directions | An isochronous IN and an isochronous OUT on one number cannot both be open. The second is `notSupported`: the register holds one pair of buffers |
+| Close, reset, detach | `CloseEndpoint()`, a bus reset and `Disconnect()` work as for the other types: an armed packet is abandoned with no event |
+| Bus errors | fsdev reports no CRC error per packet. A bus error raises its ERR flag, which the port reports as `Error::Unknown`. The packet of that frame does not complete the transfer, so it waits for the next packet. A port that sees a CRC error reports `Error::Crc` |
+| Start of frame | `onStartOfFrame` with `startOfFrameEvents` on, once per frame, in interrupt context, before the completions of that frame's interrupt. The core does not subscribe to it. It is for timekeeping, for example counting frames or pacing a producer |
+
+The transfers are per packet: a function that streams data queues one packet at a time from its completion. The next packet is armed in the callback of the packet before it, which keeps it ahead of its token. Arming in a main-loop pass can land in the frame of the token, where it races the token.
+
+### Measured on hardware
+
+On the STM32G431 under Windows 11, with the in-box USBAudio class, both directions stream at one packet per frame. The microphone (isochronous IN) delivered 1000 packets per second with one underrun at stream start, and the speaker (isochronous OUT) received 1000 packets per second with no error.
+
+Not measured yet: the zero-length packet that the first token sends after a deferred arm (the one underrun at stream start is what the model predicts for it, but the bus was not checked for that packet), and the one-frame bound on the interrupt, that is, how late a service may be before the completions of two tokens merge.
+
+Sizes and limits:
+
+- A port that cannot place a packet size refuses it with `outOfMemory`. On fsdev, the G4 port takes 416 bytes at most beside endpoint 0 (see the [G4 port](Port/STM32/G4/USBDeviceAdapterG4.md#packet-memory-cost)).
+- An endpoint number holds one isochronous direction. An IN and an OUT on the same number are `notSupported`.
 
 ## Ports
 

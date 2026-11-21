@@ -60,8 +60,8 @@ Each rule is checked at compile time, and a violation is an error with its messa
 |------|---------|
 | `Sectors()` is required | a FAT12 image needs a size: call Sectors() |
 | At most 512 sectors | the image is larger than the builder capacity of 512 sectors |
-| The FAT fits a 16-bit sector count | a FAT12 image holds at most 65535 sectors |
-| Fewer than 4085 clusters, which makes the volume FAT12 | a FAT12 volume has at most 4084 clusters |
+| At most 65535 sectors, the 16-bit sector count of the boot sector. A guard for a larger cap: at 512 sectors it never fires | a FAT12 image holds at most 65535 sectors |
+| At most 4084 clusters, which keeps the volume FAT12. A guard for a larger cap: at 512 sectors it never fires | a FAT12 volume has at most 4084 clusters |
 | Sectors per cluster is a power of two from 1 to 128 | sectors per cluster is a power of two from 1 to 128 |
 | One or two FAT copies | a FAT has 1 or 2 copies |
 | Root entries a multiple of 16, at least 16 | root entries are a multiple of 16, at least 16 |
