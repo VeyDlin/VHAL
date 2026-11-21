@@ -256,7 +256,8 @@ private:
 
     // Only called with capacity already reserved, so none of these pushes can allocate.
     void PopTerminator() {
-        if (!data_.Empty() && data_.Back() == '\0') {
+        char* last = data_.Back();
+        if (last != nullptr && *last == '\0') {
             data_.PopBack();
         }
     }

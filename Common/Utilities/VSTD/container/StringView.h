@@ -26,8 +26,22 @@ public:
     constexpr const char* Data() const { return data_; }
 
     constexpr char operator[](std::size_t i) const { return data_[i]; }
-    constexpr char Front() const { return data_[0]; }
-    constexpr char Back() const { return data_[size_ - 1]; }
+
+    // Pointer to the first or last character, or nullptr when the view is empty. operator[] does not check the index.
+    constexpr const char* Front() const {
+        if (size_ == 0) {
+            return nullptr;
+        }
+        return data_;
+    }
+
+
+    constexpr const char* Back() const {
+        if (size_ == 0) {
+            return nullptr;
+        }
+        return data_ + size_ - 1;
+    }
 
     constexpr StringView Substr(std::size_t pos, std::size_t count) const {
         if (pos >= size_) return StringView();

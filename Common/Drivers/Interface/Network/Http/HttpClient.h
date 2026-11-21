@@ -256,6 +256,10 @@ public:
 	// Streams the rest of the body to onBody. Returns ok at the end of the body, connectionClosed when the peer closed
 	// before the body was complete, or the status of a failed read or of the callback.
 	ResultStatus ReadBody(const BodyCallback& onBody) {
+		if (!onBody) {
+			return ResultStatus::invalidParameter;
+		}
+
 		if (!bodyPending) {
 			return ResultStatus::notReady;
 		}

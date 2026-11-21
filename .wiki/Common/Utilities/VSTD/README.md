@@ -1,6 +1,6 @@
 # VSTD — Embedded C++ Standard Library
 
-Header-only C++20 standard library replacement for embedded systems (Cortex-M, ESP32). All heap-backed types use a **handle-based allocator** with optional defragmentation — pointers remain valid after memory compaction.
+Header-only C++20 standard library replacement for embedded systems (Cortex-M, ESP32). All heap-backed types use a **handle-based allocator** with optional defragmentation. Only a `Handle` stays valid across defragmentation; raw pointers do not (see [Handle-Based Indirection](#handle-based-indirection)).
 
 ## Quick Start
 
@@ -30,7 +30,7 @@ auto shared = VSTD::MakeShared<int>(100);
 
 ### Handle-Based Indirection
 
-All heap allocations return a `Handle` — an indirect reference through an entry table. The heap can relocate data blocks during defragmentation without invalidating handles.
+All heap allocations return a `Handle` — an indirect reference through an entry table. The heap can relocate data blocks during defragmentation, and a `Handle` follows the move.
 
 ```
 Buffer layout:
@@ -44,6 +44,25 @@ void* ptr = h.Data();       // resolve current pointer
 std::size_t sz = h.Size();  // allocation size, rounded up to a multiple of 8 bytes
 bool ok = h.IsValid();      // check if alive
 ```
+
+**Validity of pointers.** A pointer from `Handle::Data()`, and any reference or iterator into a block, is valid only until the next call that can move or free that block: `Defragment()`, `DefragStep()`, `Reallocate()`, `Deallocate()`, or a growing operation of a container. Keep the `Handle` and call `Data()` again after any of these. Only the `Handle` stays valid across `Defragment()`.
+
+**Stale handles.** Each entry carries a generation that changes whenever the slot is reused. A copy of a `Handle` taken before its block was freed stays invalid, even after another block takes the same slot:
+
+```cpp
+VSTD::Handle owner = heap.Allocate(32);
+VSTD::Handle stale = owner;     // a copy
+heap.Deallocate(owner);
+VSTD::Handle reuser = heap.Allocate(32);
+
+stale.IsValid();                // false, even if reuser took the same slot
+heap.Deallocate(stale);         // does nothing; reuser is still valid
+stale.Invalidate();             // only clears stale; reuser is still valid
+```
+
+`Handle::Invalidate()` clears only the copy it is called on. The block stays allocated, and other copies of the handle stay valid. Only `Deallocate()` frees a block. `Data()` and `Size()` of an invalid handle return `nullptr` and `0`, and `GetEntry()` returns `nullptr` for an invalid handle.
+
+The generation has 32 bits. After a slot has been brought into use 2^32 times, an old copy can match it again, so a copy kept across that many reuses of one slot can be wrongly valid.
 
 ### Heap
 
@@ -60,6 +79,10 @@ VSTD::Heap heap(buf);
 VSTD::Heap heap(8192);
 ```
 
+The buffer constructors start the heap at the first address that aligns entries, so a buffer that is not aligned, or whose size is not a multiple of the entry alignment, loses a few bytes at either end. `TotalBytes()` reports the usable capacity.
+
+**Global operator new.** The constructor with an internal buffer (`Heap heap(8192)`) allocates with the global `operator new[]` and frees with `operator delete[]`. A port must provide both. The constructors that take a buffer need no global operator. Nothing else in VSTD calls `new` except placement new, which needs only `<new>`.
+
 **Allocator interface:**
 ```cpp
 Handle h = heap.Allocate(128);           // allocate 128 bytes
@@ -74,9 +97,11 @@ heap.OnOutOfMemory([]() {
 });
 ```
 
-**Defragmentation policies** — template parameter controls when/how defrag runs:
+**Merging free blocks.** When a block is freed, it merges with a free block before it and with free blocks after it. A free block at the end of the used region returns its space to the unallocated tail. So a request can use the whole of two adjacent freed blocks without any defragmentation.
+
+**Defragmentation policies** — template parameter controls when/how defrag runs. Defragmentation runs only when the application calls `Defragment()`; there is no background collector:
 ```cpp
-VSTD::Heap<VSTD::NoDefrag>              heap(buf);   // no defrag (default)
+VSTD::Heap<VSTD::NoDefrag>              heap(buf);   // no defrag (default): Defragment() moves nothing
 VSTD::Heap<VSTD::IncrementalDefrag<1>>  heap(buf);   // 1 step per Defragment() call
 VSTD::Heap<VSTD::BatchDefrag<4>>        heap(buf);   // 4 steps per call
 VSTD::Heap<VSTD::ThresholdDefrag<30>>   heap(buf);   // defrag when fragmentation ≥ 30%
@@ -86,6 +111,27 @@ VSTD::Heap<VSTD::ThresholdDefrag<30>>   heap(buf);   // defrag when fragmentatio
 heap.Defragment();       // run defrag policy
 heap.DefragStep();       // single compaction step (manual)
 ```
+
+A step moves at most one used block down over a free block. Every block that moves gets a new address, so pointers and references into it are invalid afterwards. Its `Handle` keeps the data:
+
+```cpp
+VSTD::Heap<VSTD::IncrementalDefrag<4>> heap(buf);
+VSTD::Handle a = heap.Allocate(64);
+VSTD::Handle b = heap.Allocate(64);
+VSTD::Handle c = heap.Allocate(64);
+uint8_t* raw = static_cast<uint8_t*>(c.Data());
+
+heap.Deallocate(a);
+heap.Deallocate(b);
+heap.Defragment();       // c moved down over the free space
+
+c.Data() != raw;         // true: the raw pointer is stale
+c.Data();                // the current address of c, with its contents
+```
+
+An allocation can still fail when the free space is split into several blocks that are not next to each other. `Defragment()` is the tool for that case.
+
+Each call takes the lock once. `Reallocate()` allocates, copies and frees under that one lock, so `Defragment()` cannot move the old block between the steps.
 
 **Lock policy** — second template parameter for thread safety:
 ```cpp
@@ -132,6 +178,23 @@ VSTD::IAllocator* alloc = VSTD::GetDefaultHeap();
 // Containers use it automatically
 VSTD::Vector<int> v;              // uses default heap
 VSTD::Vector<int> v2(&pool);      // uses specific allocator
+```
+
+A container remembers the allocator that holds its block. It frees the block to that allocator, even if the default heap changes later.
+
+**No default heap.** When no allocator is given and no default heap is set, containers do not crash. Every growing operation returns its failure value and leaves the container empty or unchanged, as for an allocator that refuses memory. `Vector` and `String` behave this way.
+
+## Empty Containers
+
+Rule for every container that can be empty: `Front()` and `Back()` return a pointer to the first or last element, and return `nullptr` when the container is empty. The rule applies to `Vector`, `Span` and `StringView`. `Array` with a size greater than zero is never empty, so its `Front()` and `Back()` return references, and `Array<T, 0>` has neither.
+
+`operator[]` does not check its index on any container.
+
+```cpp
+VSTD::Vector<int> v;
+if (int* first = v.Front()) {    // nullptr when empty
+    // use *first
+}
 ```
 
 ## Containers
@@ -218,7 +281,9 @@ if (!v.PushBack(42)) {
 
 `EmplaceBack` used to return `T&`; code that chained a member access on the result must now check the pointer.
 
-**Copying.** The copy constructor cannot report failure: when the allocator refuses memory the new vector is empty. Copy assignment (`=`) also cannot report, and keeps the old contents on failure. For a checked copy use `Assign`:
+`PushBack(T&&)` and `EmplaceBack(args...)` accept a value that lies in the vector's own buffer. When the buffer must grow, the value is moved or built out first, because growing frees the old buffer. If the growth is then refused, a `PushBack(T&&)` argument that lay in the buffer has been moved from.
+
+**Copying.** The copy constructor cannot report failure: when no allocator is available, or the allocator refuses memory, the new vector is empty. Copy assignment (`=`) also cannot report, and keeps the old contents on failure. For a checked copy use `Assign`:
 
 ```cpp
 bool Assign(const Vector& other);   // false, with this vector unchanged, when the allocator refuses memory
@@ -394,7 +459,7 @@ auto c = VSTD::AllocateShared<int>(&pool, 99);
 
 ### Function
 
-Type-erased callable wrapper. Small-buffer optimization (32 bytes) with heap fallback.
+Type-erased callable wrapper. Small-buffer optimization (32 bytes) with heap fallback. The callable is stored in the object or in a block, and nothing stores its address. So a `Function` moves correctly when a container grows or the heap defragments. The callable itself must tolerate a byte-for-byte copy.
 
 ```cpp
 VSTD::Function<int(int, int)> fn = [](int a, int b) { return a + b; };
@@ -405,7 +470,15 @@ bool callable = static_cast<bool>(fn);   // true if holds a callable
 // Lambdas with captures
 int x = 10;
 VSTD::Function<int()> fn2 = [x]() { return x * 2; };
+
+// A block for a large callable comes from a given allocator, and is freed to it
+VSTD::Function<int()> fn3(&pool, [big]() { return big[0]; });
 ```
+
+- A callable that does not fit in the small buffer uses the default heap, or the allocator given to the constructor. The allocator is remembered and used for the free.
+- If that allocator refuses the block, the `Function` is empty. `static_cast<bool>` reports it.
+- Calling an empty `Function` returns a value-initialized result (`0` for `int`), and does nothing for `void`. So the result type must be default constructible and not a reference. Any other result type makes a call to the `Function` fail to compile.
+- A callable must be aligned no more than `std::max_align_t` to fit the small buffer, and no more than a pointer to be stored in a block. An over-aligned callable fails to compile.
 
 ### Delegate
 
@@ -437,3 +510,14 @@ VSTD::Move(value);          // cast to rvalue reference
 VSTD::Forward<T>(value);    // perfect forwarding
 VSTD::Swap(a, b);           // swap two values
 ```
+
+## Port Requirements
+
+VSTD is header-only. A port needs:
+
+- `<string.h>`: `memcpy`, `memmove`, `memcmp`, `strlen`, `strcmp`.
+- The standard header `<utility>` (`Vector`).
+- The global `operator new[]` and `operator delete[]`, but only for the `Heap` constructor that takes a size. Heaps over a buffer you own do not use them.
+- The standard headers `<new>`, `<cstddef>`, `<cstdint>` and `<type_traits>`. The placement `new` in `<new>` is the only `new` expression the containers use.
+
+Nothing else from the platform is used. The heap takes no lock unless a lock policy is given, so it is not interrupt-safe without one.

@@ -48,9 +48,7 @@ public:
 
 		std::size_t blockIndex = (reinterpret_cast<uint8_t*>(node) - pool_) / kStride;
         BlockEntry& be = entries_[blockIndex];
-        be.handleEntry.data = node;
-        be.handleEntry.size = size;
-        be.handleEntry.alive = true;
+        be.handleEntry.Activate(node, size);
         be.blockIndex = blockIndex;
 
         allocatedCount_++;
@@ -68,7 +66,8 @@ public:
         node->next = freeList_;
         freeList_ = node;
 
-        handle.Invalidate();
+        handle.GetEntry()->Deactivate();
+        handle = Handle{};
         allocatedCount_--;
     }
 

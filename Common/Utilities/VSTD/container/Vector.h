@@ -4,6 +4,7 @@
 #include "../memory/IAllocator.h"
 #include "../memory/DefaultHeap.h"
 #include <cstddef>
+#include <cstdint>
 #include <string.h>
 #include <new>
 #include <type_traits>
@@ -31,20 +32,20 @@ public:
 
     ~Vector() {
         DestroyElements();
-        if (handle_.IsValid()) {
-            auto* alloc = GetAlloc();
-            if (alloc) alloc->Deallocate(handle_);
-        }
+        ReleaseBuffer();
     }
 
 
-    // Copy constructor. Cannot report failure: when the allocator refuses memory the result is empty.
-    // Use an empty vector and Assign for a checked copy.
+    // Copy constructor. Cannot report failure: when no allocator is available, or the allocator refuses memory,
+    // the result is empty. Use an empty vector and Assign for a checked copy.
     Vector(const Vector& other) : allocator_(other.allocator_) {
         if (other.size_ > 0) {
-            auto* alloc = GetAlloc();
-            handle_ = alloc->Allocate(other.size_ * sizeof(T));
+            IAllocator* alloc = GetAlloc();
+            if (alloc != nullptr) {
+                handle_ = alloc->Allocate(other.size_ * sizeof(T));
+            }
             if (handle_.IsValid()) {
+                allocator_ = alloc;
                 capacity_ = other.size_;
                 T* dst = RawData();
                 const T* src = other.RawData();
@@ -80,8 +81,12 @@ public:
 
         // The new buffer is allocated and filled before anything of this vector is touched.
         Handle fresh;
+        IAllocator* newAlloc = nullptr;
         if (other.size_ > 0) {
-            IAllocator* newAlloc = other.GetAlloc();
+            newAlloc = other.GetAlloc();
+            if (newAlloc == nullptr) {
+                return false;
+            }
             fresh = newAlloc->Allocate(other.size_ * sizeof(T));
             if (!fresh.IsValid()) {
                 return false;
@@ -94,13 +99,11 @@ public:
         }
 
         DestroyElements();
-        if (handle_.IsValid()) {
-            GetAlloc()->Deallocate(handle_);
-        }
+        ReleaseBuffer();
         handle_ = fresh;
         size_ = other.size_;
         capacity_ = other.size_;
-        allocator_ = other.allocator_;
+        allocator_ = newAlloc != nullptr ? newAlloc : other.allocator_;
         return true;
     }
 
@@ -108,10 +111,7 @@ public:
     Vector& operator=(Vector&& other) noexcept {
         if (this != &other) {
             DestroyElements();
-            if (handle_.IsValid()) {
-                auto* alloc = GetAlloc();
-                if (alloc) alloc->Deallocate(handle_);
-            }
+            ReleaseBuffer();
             handle_ = other.handle_;
             size_ = other.size_;
             capacity_ = other.capacity_;
@@ -126,26 +126,41 @@ public:
 
     // Growing operations return false, and leave the vector unchanged, when the allocator refuses memory.
     bool PushBack(const T& value) {
-		// value may refer into our own buffer, which Grow can free
-		return PushBack(T(value));
+        // value may refer into our own buffer, which Grow can free, so it is copied first
+        return PushBack(T(value));
     }
 
+    // When the vector is full and value lies in its buffer, value is moved out before the buffer is freed. A refused
+    // growth then leaves value moved from.
     bool PushBack(T&& value) {
-        if (size_ >= capacity_ && !Grow(size_ + 1)) {
-            return false;
+        if (size_ >= capacity_) {
+            if (InOwnBuffer(&value)) {
+                T moved(static_cast<T&&>(value));
+                return PushBack(static_cast<T&&>(moved));
+            }
+            if (!Grow(size_ + 1)) {
+                return false;
+            }
         }
+
         T* data = RawData();
         new (&data[size_]) T(static_cast<T&&>(value));
         size_++;
         return true;
     }
 
-    // Returns the new element, or nullptr when the allocator refuses memory.
+    // Returns the new element, or nullptr when the allocator refuses memory. When the vector is full, the element is
+    // built before the buffer is grown, because an argument may refer into the buffer that growing frees.
     template<typename... Args>
     T* EmplaceBack(Args&&... args) {
-        if (size_ >= capacity_ && !Grow(size_ + 1)) {
-            return nullptr;
+        if (size_ >= capacity_) {
+            T element(static_cast<Args&&>(args)...);
+            if (!PushBack(static_cast<T&&>(element))) {
+                return nullptr;
+            }
+            return RawData() + size_ - 1;
         }
+
         T* data = RawData();
         T* ptr = new (&data[size_]) T(static_cast<Args&&>(args)...);
         size_++;
@@ -222,10 +237,39 @@ public:
     T& operator[](std::size_t i) { return RawData()[i]; }
     const T& operator[](std::size_t i) const { return RawData()[i]; }
 
-    T& Front() { return RawData()[0]; }
-    const T& Front() const { return RawData()[0]; }
-    T& Back() { return RawData()[size_ - 1]; }
-    const T& Back() const { return RawData()[size_ - 1]; }
+
+    // Pointer to the first or last element, or nullptr when the vector is empty. operator[] does not check the index.
+    T* Front() {
+        if (size_ == 0) {
+            return nullptr;
+        }
+        return RawData();
+    }
+
+
+    const T* Front() const {
+        if (size_ == 0) {
+            return nullptr;
+        }
+        return RawData();
+    }
+
+
+    T* Back() {
+        if (size_ == 0) {
+            return nullptr;
+        }
+        return RawData() + size_ - 1;
+    }
+
+
+    const T* Back() const {
+        if (size_ == 0) {
+            return nullptr;
+        }
+        return RawData() + size_ - 1;
+    }
+
 
     T* Data() { return RawData(); }
     const T* Data() const { return RawData(); }
@@ -277,8 +321,21 @@ public:
     ConstIterator end() const { return RawData() + size_; }
 
 private:
+    // The most elements a buffer can hold without its byte count overflowing size_t.
+    static constexpr std::size_t kMaxCapacity = static_cast<std::size_t>(-1) / sizeof(T);
+
+    // The allocator of the buffer. A vector with a buffer always has one, and a vector without a buffer uses the
+    // default heap when it needs one. Returns nullptr when neither is set.
     IAllocator* GetAlloc() const {
         return allocator_ ? allocator_ : GetDefaultHeap();
+    }
+
+    // Frees the buffer to the allocator that holds it. Callers destroy the elements first.
+    void ReleaseBuffer() {
+        if (handle_.IsValid() && allocator_ != nullptr) {
+            allocator_->Deallocate(handle_);
+        }
+        handle_ = Handle{};
     }
 
     T* RawData() const {
@@ -286,16 +343,39 @@ private:
         return static_cast<T*>(handle_.Data());
     }
 
+    // True when p points into the buffer, so that growing the vector frees the memory p points to.
+    bool InOwnBuffer(const T* p) const {
+        if (!handle_.IsValid()) {
+            return false;
+        }
+        std::uintptr_t address = reinterpret_cast<std::uintptr_t>(p);
+        std::uintptr_t first = reinterpret_cast<std::uintptr_t>(RawData());
+        return address >= first && address < first + capacity_ * sizeof(T);
+    }
+
     // On failure the old buffer stays as it was, so the caller keeps its elements and capacity.
     bool Grow(std::size_t minCapacity) {
-        std::size_t newCap = capacity_ == 0 ? 4 : capacity_ * 2;
-        if (newCap < minCapacity) newCap = minCapacity;
+        if (minCapacity > kMaxCapacity) {
+            return false;
+        }
 
-        auto* alloc = GetAlloc();
+        std::size_t newCap = capacity_ == 0 ? 4 : (capacity_ > kMaxCapacity / 2 ? kMaxCapacity : capacity_ * 2);
+        if (newCap < minCapacity) {
+            newCap = minCapacity;
+        }
+
+        IAllocator* alloc = GetAlloc();
+        if (alloc == nullptr) {
+            return false;
+        }
+
         Handle newHandle = alloc->Reallocate(handle_, newCap * sizeof(T));
-        if (!newHandle.IsValid()) return false;
+        if (!newHandle.IsValid()) {
+            return false;
+        }
 
         handle_ = newHandle;
+        allocator_ = alloc;
         capacity_ = newCap;
         return true;
     }
