@@ -194,8 +194,8 @@ public:
 	};
 
 
-	// Packet memory below the buffer table is not available to buffers; the table has one entry per hardware endpoint.
-	static constexpr uint32 BufferTableSize = static_cast<uint32>(Family::HardwareEndpointCount) * USBFsdevBuffer::EntrySize;
+	// Packet memory below the buffer table is not available to buffers. The table has an entry for each endpoint number up to the
+	// highest one in use (SetHighestEndpointNumber()), and for every hardware number when that is not set (BufferTableSize()).
 	static constexpr uint32 BufferAlignment = 4;
 	// The K state of a remote wakeup is 1 to 15 ms (USB 2.0 section 7.1.7.7); the ESOF interrupt ticks every millisecond while it
 	// runs. 10 ms sits in the middle of that window, away from both limits, so the host sees a valid resume whatever the exact
@@ -211,12 +211,34 @@ private:
 	bool pendingAddressValid = false;
 	uint8 pendingAddress = 0;
 	uint8 resumeTicksLeft = 0;
+	// Endpoint numbers the buffer table has an entry for, 0 to endpointNumbers - 1. Set from highestEndpointNumber by Initialization().
+	uint8 endpointNumbers = Family::HardwareEndpointCount;
+	// The highest endpoint number SetHighestEndpointNumber() asked for. The whole hardware table until the call.
+	uint8 highestEndpointNumber = static_cast<uint8>(Family::HardwareEndpointCount - 1);
 	EndpointState endpoints[Family::HardwareEndpointCount];
 
 
 public:
 	explicit USBFsdev(uintptr_t peripheralBase)
 		: registerBase(peripheralBase) {
+	}
+
+
+	// Sets the highest endpoint number the buffer table covers, eight bytes for each number from 0 up, so the endpoints above it take no table
+	// space. The table is sized by the next SetParameters(), which places endpoint 0 above it, so the call does not move buffers already placed.
+	// busy while connected, or while an endpoint other than 0 is open, and invalidParameter for a number the hardware does not have. The device core
+	// calls it before SetParameters(). OpenEndpoint() refuses a number above the table.
+	ResultStatus SetHighestEndpointNumber(uint8 number) override {
+		if (IsConnected() || AnyEndpointOpen()) {
+			return ResultStatus::busy;
+		}
+
+		if (number >= Family::HardwareEndpointCount) {
+			return ResultStatus::invalidParameter;
+		}
+
+		highestEndpointNumber = number;
+		return ResultStatus::ok;
 	}
 
 
@@ -285,7 +307,7 @@ public:
 
 		uint8 number = USBEndpoint::Number(config.address);
 		bool isIn = USBEndpoint::IsIn(config.address);
-		if (number == 0 || number >= parameters.endpointCount) {
+		if (number == 0 || number >= parameters.endpointCount || number >= endpointNumbers) {
 			return ResultStatus::invalidParameter;
 		}
 
@@ -328,7 +350,7 @@ public:
 			return ResultStatus::invalidParameter;
 		}
 
-		uint16 size = PmaBlockSize(config.maxPacketSize);
+		uint16 size = isIn ? PmaInBlockSize(config.maxPacketSize) : PmaOutBlockSize(config.maxPacketSize);
 		// A double-buffered endpoint holds both blocks, so reopening it in either direction releases both.
 		bool replacesTx = isIn || twoBuffers || ep.doubleBuffer;
 		bool replacesRx = !isIn || twoBuffers || ep.doubleBuffer;
@@ -397,7 +419,8 @@ public:
 			ep.rxStalled = false;
 		}
 
-		uint16 receiveCount = EncodeReceiveCount(size);
+		// COUNT_RX of an OUT buffer. An IN buffer has no receive count, and its block is only its byte length.
+		uint16 receiveCount = isIn ? static_cast<uint16>(0) : EncodeReceiveCount(size);
 		if (isIn) {
 			WriteBd(number, USBFsdevBuffer::AddrTx, ep.pmaTx);
 			WriteBd(number, USBFsdevBuffer::CountTx, 0);
@@ -859,6 +882,8 @@ protected:
 		WriteReg(USBFsdevRegister::Cntr, 0);
 		WriteReg(USBFsdevRegister::Istr, 0);
 		WriteReg(USBFsdevRegister::Btable, static_cast<uint16>(USBFsdevBuffer::Table));
+		// The table takes the highest number the call set, and endpoint 0 is placed above it below.
+		endpointNumbers = static_cast<uint8>(highestEndpointNumber + 1);
 		for (uint32 number = 0; number < Family::HardwareEndpointCount; ++number) {
 			// The first write clears the kind bit, so the status reads below are not masked as buffer-conflict reads. Then STAT
 			// and DTOG go to DISABLED and DATA0 whatever a previous session left, and the status copies follow the write.
@@ -1039,10 +1064,29 @@ protected:
 	}
 
 
+	// True while an endpoint other than 0 is open in either direction. Endpoint 0 is not counted: SetParameters() places and closes it,
+	// and the core's Stop() leaves it open, so a count of it would refuse the call at every restart.
+	bool AnyEndpointOpen() const {
+		for (uint32 number = 1; number < Family::HardwareEndpointCount; ++number) {
+			if (endpoints[number].txOpen || endpoints[number].rxOpen) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+
+	// The buffer table in bytes: eight per endpoint number the table has an entry for.
+	uint32 BufferTableSize() const {
+		return static_cast<uint32>(endpointNumbers) * USBFsdevBuffer::EntrySize;
+	}
+
+
 	// Returns the first aligned block of size bytes that is free in the packet memory above the buffer table. The
 	// reserved block is taken as used, so the second block of a double-buffered endpoint cannot overlap the first.
 	bool FindPmaBlock(uint16 size, uint16 reservedAddress, uint16 reservedSize, uint16& address) const {
-		uint32 candidate = BufferTableSize;
+		uint32 candidate = BufferTableSize();
 		while (candidate + size <= Family::PmaSize) {
 			uint32 conflictEnd = 0;
 			if (reservedSize != 0) {
@@ -1122,14 +1166,21 @@ protected:
 	}
 
 
-	// The packet memory block of a packet size, in bytes. The block is a whole number of 16-bit elements, so an odd size takes one more
-	// byte. A block above 62 bytes is counted in 32-byte blocks (COUNT_RX BL_SIZE, see EncodeReceiveCount()), so it is rounded up to 32:
-	// that count is the only one the field can state. Sizes up to 64 are unchanged, and so are bulk and interrupt endpoints.
-	static uint16 PmaBlockSize(uint16 maxPacketSize) {
+	// The packet memory block of an OUT buffer, in bytes. Its COUNT_RX holds the block size (BL_SIZE and NUM_BLOCK, see EncodeReceiveCount()),
+	// so a block above 62 bytes is counted in 32-byte blocks and is rounded up to 32: that count is the only one the field can state. Up to
+	// 62 bytes the block is a whole number of 16-bit elements, so an odd size takes one more byte.
+	static uint16 PmaOutBlockSize(uint16 maxPacketSize) {
 		if (maxPacketSize > 62) {
 			return static_cast<uint16>((maxPacketSize + 31U) & ~31U);
 		}
 
+		return static_cast<uint16>((maxPacketSize + 1U) & ~1U);
+	}
+
+
+	// The packet memory block of an IN buffer, in bytes: its byte length, rounded up to the 16-bit element the port writes. An IN buffer has no
+	// COUNT_RX, so the 32-byte rounding of OUT is not needed. Bulk and interrupt blocks are unchanged, because they are at most 64 bytes.
+	static uint16 PmaInBlockSize(uint16 maxPacketSize) {
 		return static_cast<uint16>((maxPacketSize + 1U) & ~1U);
 	}
 

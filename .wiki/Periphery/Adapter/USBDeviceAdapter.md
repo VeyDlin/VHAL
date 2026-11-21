@@ -84,6 +84,7 @@ When `onTransferComplete` runs, the transfer is no longer in flight. The callbac
 
 | Method | Return | Context | Description |
 |--------|--------|---------|-------------|
+| `SetHighestEndpointNumber(uint8)` | `ResultStatus` | Thread | Optional. Called by the device core in `Start()`, before `SetParameters()`, with the highest endpoint number the configuration descriptor names (0 to 15). A port with a buffer table per endpoint number sizes the table from it at the next `SetParameters()`, so endpoint 0's buffers go above a table of the numbers in use. The default returns `ok` and keeps the port's full table. See the note below |
 | `SetParameters(Parameters)` | `ResultStatus` | Thread | Stores the parameters and initializes the controller. `busy` while connected |
 | `GetParameters()` | `const Parameters&` | Either | Current parameters |
 | `Connect()` | `ResultStatus` | Thread | Sets the D+ pull-up. `notReady` before `SetParameters()` succeeded. `notSupported` when the board has no software pull-up (it is attached from power-up). The core treats `notSupported` as success |
@@ -107,7 +108,7 @@ When `onTransferComplete` runs, the transfer is no longer in flight. The callbac
 | Result | Cause |
 |--------|-------|
 | `ok` | Opened |
-| `invalidParameter` | Address is not a number the `endpointCount` allows, or the type, packet size or `doubleBuffer` does not fit. On a port that shares a number's register between its directions (fsdev), also a type mismatch with the other direction, or a single-buffered request beside a double-buffered other direction |
+| `invalidParameter` | Address is not a number the `endpointCount` allows, or the type, packet size or `doubleBuffer` does not fit. On a port that sized its table from `SetHighestEndpointNumber()`, also a number above that value. On a port that shares a number's register between its directions (fsdev), also a type mismatch with the other direction, or a single-buffered request beside a double-buffered other direction |
 | `busy` | A transfer is in flight on the address |
 | `notSupported` | `doubleBuffer` is asked for and the port cannot give it, for example fsdev with the other direction of the number open. An isochronous endpoint has two buffers too, so an isochronous IN and OUT on one number are `notSupported` as well |
 | `outOfMemory` | Packet memory (fsdev) or FIFO space (dwc2) does not fit the request, for example an isochronous packet size the port cannot place |
@@ -179,11 +180,16 @@ A rejected request is answered with `Stall(0x80)`. That halts both endpoint 0 di
 ## Lifecycle
 
 1. Clock and interrupt in the BSP (see the port page).
-2. `SetParameters()`: initializes the controller. Returns `notReady` if the USB clock is off.
-3. Assign the events.
-4. `Connect()`: the host sees the device.
-5. Each bus reset opens endpoint 0 again.
-6. `Disconnect()` detaches. The core closes the endpoints.
+2. `SetHighestEndpointNumber()`: optional, and called by the device core before step 3. Sizes the buffer table of a port that has one. A port with a fixed table ignores it.
+3. `SetParameters()`: initializes the controller. Returns `notReady` if the USB clock is off.
+4. Assign the events.
+5. `Connect()`: the host sees the device.
+6. Each bus reset opens endpoint 0 again.
+7. `Disconnect()` detaches. The core closes the endpoints.
+
+### Highest endpoint number
+
+The device core takes the highest endpoint number from the endpoint descriptors of its configuration, over every interface and alternate setting, and passes it on in `Start()`. An application that calls `SetParameters()` itself, without the core, can call `SetHighestEndpointNumber()` before it, or leave the call out. A port that has a fixed table keeps it. A port that sizes its table refuses to open a number above the value with `invalidParameter`. It refuses the call with `busy` while connected or while an endpoint is open. The table takes the value at the next `SetParameters()`, so a call between two `SetParameters()` calls does not change the table that is already in place. When the port refuses the value (a number it does not have), `Start()` returns `invalidParameter`. On the G4 port that is an endpoint number of 8 to 15 named by the descriptor, which the port could never open.
 
 ## Isochronous Endpoints
 
@@ -218,7 +224,7 @@ Not measured yet: the zero-length packet that the first token sends after a defe
 
 Sizes and limits:
 
-- A port that cannot place a packet size refuses it with `outOfMemory`. On fsdev, the G4 port takes 416 bytes at most beside endpoint 0 (see the [G4 port](Port/STM32/G4/USBDeviceAdapterG4.md#packet-memory-cost)).
+- A port that cannot place a packet size refuses it with `outOfMemory`. On fsdev, the G4 port takes 416 bytes at most beside endpoint 0 for an OUT endpoint, and 416 for an IN endpoint with the full table or 436 with the table of numbers 0 to 2 (see the [G4 port](Port/STM32/G4/USBDeviceAdapterG4.md#packet-memory-cost)).
 - An endpoint number holds one isochronous direction. An IN and an OUT on the same number are `notSupported`.
 
 ## Ports

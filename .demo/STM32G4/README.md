@@ -370,10 +370,11 @@ PC sees a recording device and a playback device, with no driver and no configur
 - Volumes are in 1/256 dB, 0 dB (unity) to -60 dB (-15360). The gains are computed by the compiler (`Audio/AudioSignal.h`), with no
   floating-point work at run time. The tone is a 48-sample table, one period of 1 kHz at 48 kHz.
 - Only one sampling rate, so the endpoints have no sampling frequency control, and a SET_CUR to another rate is stalled.
-- Packet memory (the G4 port, 832 bytes after the buffer table and endpoint 0): the microphone's 98-byte packet takes a 128-byte block,
-  so its double-buffered endpoint costs 256 bytes; the speaker's 196-byte packet takes a 224-byte block, costing 448 bytes. Together
-  704 bytes of 832. A stereo microphone would need 896 bytes and fails with `outOfMemory`, which is why the microphone is mono.
-- RAM 5648 B of 22 KB (25.07 %), and FLASH 81200 B of 128 KB (61.95 %), from the linker of the RelSpeed build with
+- Packet memory (the G4 port): the buffer table takes 24 bytes, because the endpoints are 0x81 and 0x02 (numbers 0 to 2), and endpoint 0
+  takes 128, which leaves 872 bytes. The microphone's 98-byte packet takes two 98-byte IN blocks, 196 bytes; the speaker's 196-byte packet
+  takes two 224-byte OUT blocks, 448 bytes. Together 644 of 872 bytes, 796 of 1024 in all. A stereo microphone's 196-byte IN blocks would
+  take 392 bytes, and 840 of 872 beside this speaker, so it fits too.
+- RAM 5648 B of 22 KB (25.07 %), and FLASH 81996 B of 128 KB (62.56 %), from the linker of the RelSpeed build with
   `VHAL_DEMO=USBAudio` (`cmake --preset RelSpeed -B <dir> -DVHAL_DEMO=USBAudio`). Of the RAM, the audio function keeps two rings (192
   microphone samples and 384 speaker samples, 1152 B) and its packet buffers, about 0.8 KB.
 - The status line, once a second: `t` (ms), `usb` (the USB state), `mic` and `spk` (`active` while the host has selected the

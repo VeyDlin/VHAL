@@ -176,7 +176,7 @@ Put these at file scope, or in `main()` where they live until the program ends.
 
 ### 6. Start, Process and Stop
 
-`Start()` checks the descriptor set and the functions. It applies the adapter parameters, subscribes to the events and connects the pull-up. After it returns `ok`, the host can see the device. `Process()` runs the deferred work of each function. Call it from the main loop. The set here reserves the serial number (`SerialNumberAtRuntime()`), so the string is given with `SetSerialNumber()` before the first `Start()`; see [Serial Number](Device/README.md#serial-number):
+`Start()` checks the descriptor set and the functions. It gives the adapter the highest endpoint number of the configuration (`SetHighestEndpointNumber()`), applies the adapter parameters, subscribes to the events and connects the pull-up. After it returns `ok`, the host can see the device. It returns `invalidParameter` when the adapter refuses that highest number. On a port with a buffer table sized from it, that is an endpoint number of 8 to 15 named by any interface or alternate setting, which the port could never open. `Process()` runs the deferred work of each function. Call it from the main loop. The set here reserves the serial number (`SerialNumberAtRuntime()`), so the string is given with `SetSerialNumber()` before the first `Start()`; see [Serial Number](Device/README.md#serial-number):
 
 ```cpp
 int main() {
@@ -224,7 +224,7 @@ System::CriticalSection(false);
 | Speed | Full speed only |
 | Configurations | One. `bNumConfigurations` must be 1 |
 | Endpoint numbers | `Parameters::endpointCount` (default 4). At most 8 on the G4 port, endpoint 0 included |
-| Packet memory (G4) | 1024 bytes, shared by all endpoints. Endpoint 0 takes 128 bytes |
+| Packet memory (G4) | 1024 bytes, shared by all endpoints. Endpoint 0 takes 128 bytes, and the buffer table 8 bytes for each endpoint number up to the highest in the descriptors (64 bytes when none is set) |
 | Bulk packet size | 8, 16, 32 or 64 bytes. The vendor function uses 64 |
 | Interrupt packet size | 1 to 64 bytes |
 | Isochronous packet size | 1 to 1023 bytes, one packet per frame, `bInterval` 1. On the G4 two packet buffers of the rounded size per endpoint (see the [G4 port](../../../../Periphery/Adapter/Port/STM32/G4/USBDeviceAdapterG4.md#packet-memory-cost)), so only a small one fits beside the others |

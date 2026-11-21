@@ -17,8 +17,8 @@
 // device role is the only one. A dual-role port owns the controller and sends its interrupt to the active part; settings
 // of one role belong to that role's adapter, not to this one.
 //
-// Lifecycle: SetParameters(), assign the events, Connect(). Each bus reset opens endpoint 0 again. Disconnect() detaches
-// from the bus and abandons transfers in flight without events.
+// Lifecycle: SetHighestEndpointNumber() (optional), SetParameters(), assign the events, Connect(). Each bus reset opens
+// endpoint 0 again. Disconnect() detaches from the bus and abandons transfers in flight without events.
 //
 // Endpoint 0 and control stages:
 //   - The adapter opens control endpoint 0 (IN and OUT, ControlMaxPacketSize) itself on every bus reset and sets the
@@ -174,6 +174,15 @@ public:
 	}
 
 
+	// Optional. The device core calls it in Start(), before SetParameters(), with the highest endpoint number the configuration
+	// descriptor names (0 to 15, endpoint 0 included). A port whose buffer table has an entry per endpoint number takes the value
+	// at the next SetParameters(), so endpoint 0's buffers go above a table of the numbers in use. The port then refuses to open a
+	// number above the value (invalidParameter). The default ignores the call and keeps the port's full table. Thread context.
+	virtual ResultStatus SetHighestEndpointNumber(uint8) {
+		return ResultStatus::ok;
+	}
+
+
 	// Sets the D+ pull-up, which makes the host see the device. Thread context, never from an interrupt. Returns notReady
 	// before SetParameters() succeeded, and notSupported when the hardware has no software pull-up (the board then has a
 	// fixed resistor and the device is attached from power-up). The core's Start treats notSupported as success.
@@ -202,7 +211,8 @@ public:
 	// while a transfer is in flight on it. Endpoint 0 is refused with invalidParameter. Callable from thread context and
 	// from interrupt context (the core calls it from SET_CONFIGURATION). Returns:
 	//   ok               opened
-	//   invalidParameter address is not a direction and number the configured endpointCount allows, or the type, maximum
+	//   invalidParameter address is not a direction and number the configured endpointCount allows, or a port that sized its table
+	//                    from SetHighestEndpointNumber() has no entry for the number, or the type, maximum
 	//                    packet size or doubleBuffer do not fit (an isochronous endpoint with doubleBuffer set does not fit)
 	//   busy             a transfer is in flight on the address
 	//   notSupported     doubleBuffer is asked for and the port cannot give it

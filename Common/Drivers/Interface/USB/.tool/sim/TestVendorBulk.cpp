@@ -101,10 +101,10 @@ struct FixtureOf {
 	USBDevice device;
 
 
-	explicit FixtureOf(std::span<const uint8> endpoints = Endpoints)
+	explicit FixtureOf(std::span<const uint8> endpoints = Endpoints, const USBDescriptorSet& descriptors = SimDescriptors::SimpleSet)
 		: function(Interfaces, endpoints),
 		  functions{ &function },
-		  device(sim, SimDescriptors::SimpleSet, functions) {
+		  device(sim, descriptors, functions) {
 	}
 
 
@@ -389,11 +389,11 @@ void TestEndpointPair(std::span<const uint8> endpoints, uint8 outAddress, bool d
 }
 
 
-// The 0x81 and 0x02 pair gets double buffering on a port that supports it. The descriptor set (SimDescriptors::SimpleSet) advertises
-// OUT 0x01 only, so no OUT transfer is driven on 0x02 here: the host would read a descriptor that does not match that endpoint.
-// IN on 0x81 is descriptor-backed and is driven. A full check of 0x02 needs a descriptor set that advertises it (Descriptors.h).
+// The 0x81 and 0x02 pair gets double buffering on a port that supports it. The descriptor set (SimDescriptors::SeparateNumberSet) advertises
+// 0x81 and 0x02, so the core sizes the buffer table for both numbers, and the function's OUT on 0x02 is allowed. The OUT itself is not driven
+// here: IN on 0x81 is the transfer this test checks.
 void TestSeparateNumberPairBuffering() {
-	VendorFixture fixture(SeparateNumberEndpoints);
+	VendorFixture fixture(SeparateNumberEndpoints, SimDescriptors::SeparateNumberSet);
 	fixture.Configure();
 	SIM_EXPECT_EQ(fixture.sim.IsDoubleBuffered(0x81), true);
 	SIM_EXPECT_EQ(fixture.sim.IsDoubleBuffered(0x02), true);

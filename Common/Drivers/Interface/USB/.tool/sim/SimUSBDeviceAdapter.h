@@ -18,10 +18,9 @@ class SimUSBDeviceAdapter : public USBDeviceAdapter {
 public:
 	static constexpr uint8 HardwareEndpointCount = 8;
 	static constexpr uint32 PacketMemorySize = 1024;
-	// The port takes the buffer table (8 bytes per endpoint register, 64 bytes on G4) out of packet memory when it is initialized, and
-	// endpoint 0 takes two 64-byte blocks above it. The endpoints the core opens are placed above those, block by block, as the port places
-	// them (FindBlock()).
-	static constexpr uint32 BufferTableSize = 64;
+	// The port takes the buffer table (8 bytes per endpoint number) out of packet memory when it is initialized, and endpoint 0 takes two 64-byte
+	// blocks above it. The table has an entry for the numbers 0 to the highest one set by SetHighestEndpointNumber(), or for all eight when none
+	// is set, so it is 64 bytes by default. The endpoints the core opens are placed above those, block by block, as the port places them (FindBlock()).
 	static constexpr uint16 FullSpeedMaxPacketSize = 64;
 	static constexpr uint16 MaxIsochronousPacketSize = 1023;
 
@@ -69,6 +68,10 @@ private:
 
 	// Index is number * 2 + (IN ? 1 : 0), so endpoint 0 is index 0 (OUT) and index 1 (IN).
 	std::array<Slot, HardwareEndpointCount * 2> slots;
+	// Endpoint numbers the buffer table has an entry for, 0 to endpointNumbers - 1. Set from highestEndpointNumber by Initialization().
+	uint8 endpointNumbers = HardwareEndpointCount;
+	// The highest endpoint number SetHighestEndpointNumber() asked for. All eight until the call.
+	uint8 highestEndpointNumber = HardwareEndpointCount - 1;
 	bool initialized = false;
 	bool connected = false;
 	bool suspended = false;
@@ -502,6 +505,22 @@ public:
 	}
 
 
+	// Sets the highest endpoint number the buffer table covers, as the port does: the next SetParameters() sizes the table. busy while connected,
+	// or while an endpoint other than 0 is open, and invalidParameter for a number the hardware does not have.
+	ResultStatus SetHighestEndpointNumber(uint8 number) override {
+		if (connected || AnyEndpointOpen()) {
+			return ResultStatus::busy;
+		}
+
+		if (number >= HardwareEndpointCount) {
+			return ResultStatus::invalidParameter;
+		}
+
+		highestEndpointNumber = number;
+		return ResultStatus::ok;
+	}
+
+
 	ResultStatus OpenEndpoint(const EndpointConfig& config) override {
 		if (!initialized) {
 			return ResultStatus::notReady;
@@ -511,7 +530,7 @@ public:
 			return ResultStatus::invalidParameter;
 		}
 
-		if (USBEndpoint::Number(config.address) >= parameters.endpointCount) {
+		if (USBEndpoint::Number(config.address) >= parameters.endpointCount || USBEndpoint::Number(config.address) >= endpointNumbers) {
 			return ResultStatus::invalidParameter;
 		}
 
@@ -566,7 +585,7 @@ public:
 
 		// The blocks are looked for before the slot gives up its old ones, and the slot is skipped while they are, as the port zeroes its sizes
 		// first. A refused call changes nothing.
-		uint32 blockSize = BlockSizeOf(config.maxPacketSize);
+		uint32 blockSize = USBEndpoint::IsIn(config.address) ? InBlockSizeOf(config.maxPacketSize) : OutBlockSizeOf(config.maxPacketSize);
 		uint32 blockCount = HasTwoBuffers(config) ? 2U : 1U;
 		uint32 first = 0;
 		uint32 second = 0;
@@ -765,6 +784,8 @@ public:
 protected:
 	ResultStatus Initialization() override {
 		initialized = false;
+		// The table takes the highest number the call set, before endpoint 0 is placed above it.
+		endpointNumbers = static_cast<uint8>(highestEndpointNumber + 1);
 		ReserveControlBlocks();
 
 		ResultStatus status = BeforeInitialization();
@@ -806,11 +827,39 @@ private:
 	}
 
 
-	// The size of one packet memory block, as the port's PmaBlockSize() gives it (USBFsdev.h): the packet size rounded up to an even size, or to
-	// 32 bytes above 62 bytes, so a 200-byte packet takes blocks of 224. Every endpoint type is rounded the same way.
-	static uint32 BlockSizeOf(uint16 maxPacketSize) {
+	// The size of one OUT packet memory block, as the port's PmaOutBlockSize() gives it (USBFsdev.h): the packet size rounded up to an even size, or
+	// to 32 bytes above 62 bytes, so a 196-byte packet takes a block of 224. COUNT_RX can state only those sizes.
+	static uint32 OutBlockSizeOf(uint16 maxPacketSize) {
 		uint32 size = maxPacketSize;
 		return size > 62 ? (size + 31U) & ~31U : (size + 1U) & ~1U;
+	}
+
+
+	// The size of one IN packet memory block, as the port's PmaInBlockSize() gives it: the packet size rounded up to an even size. An IN
+	// buffer has no COUNT_RX, so a 196-byte packet takes a block of 196.
+	static uint32 InBlockSizeOf(uint16 maxPacketSize) {
+		uint32 size = maxPacketSize;
+		return (size + 1U) & ~1U;
+	}
+
+
+	// True while an endpoint other than 0 is open in either direction. Endpoint 0 is not counted: SetParameters() places it again, and the core's
+	// Stop() leaves it open, so a count of it would refuse the call at every restart.
+	bool AnyEndpointOpen() const {
+		// Slots 0 and 1 are endpoint 0.
+		for (std::size_t index = 2; index < slots.size(); index++) {
+			if (slots[index].open) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+
+	// The buffer table in bytes: eight per endpoint number the table has an entry for.
+	uint32 BufferTableSize() const {
+		return static_cast<uint32>(endpointNumbers) * 8U;
 	}
 
 
@@ -819,7 +868,7 @@ private:
 	// caller has found already (the first of a two-block endpoint), which counts as held. The slot being opened is skipped, because the port
 	// zeroes its sizes before it looks.
 	bool FindBlock(uint32 size, uint32 reservedAddress, uint32 reservedSize, const Slot& skip, uint32& address) const {
-		uint32 candidate = BufferTableSize;
+		uint32 candidate = BufferTableSize();
 		while (candidate + size <= PacketMemorySize) {
 			uint32 conflictEnd = 0;
 			if (reservedSize != 0) {
@@ -900,11 +949,11 @@ private:
 	// second. The slots keep them whether or not the control pipe is open.
 	void ReserveControlBlocks() {
 		Slot& in = slots[SlotIndex(USBEndpoint::ControlIn)];
-		in.blockAddress[0] = BufferTableSize;
+		in.blockAddress[0] = BufferTableSize();
 		in.blockSize = ControlMaxPacketSize;
 		in.blockCount = 1;
 		Slot& out = slots[SlotIndex(USBEndpoint::ControlOut)];
-		out.blockAddress[0] = BufferTableSize + ControlMaxPacketSize;
+		out.blockAddress[0] = BufferTableSize() + ControlMaxPacketSize;
 		out.blockSize = ControlMaxPacketSize;
 		out.blockCount = 1;
 	}

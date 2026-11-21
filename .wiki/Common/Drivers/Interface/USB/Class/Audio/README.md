@@ -210,30 +210,30 @@ Asynchronous packet sizing for the microphone, and an asynchronous speaker that 
 
 With the rings of the example (192 and 128 samples), the function takes about 1.5 KB of RAM.
 
-On the STM32G4 port, each isochronous endpoint takes two packet memory blocks, as the adapter's page gives them. For this device:
+On the STM32G4 port, each isochronous endpoint takes two packet memory blocks, as the adapter's page gives them: an IN block is the packet size, and an OUT block is rounded up to 32 bytes above 62 bytes. The device core sets the buffer table from the endpoint numbers in the descriptors, so this device, which uses `0x81` and `0x02`, has a table of numbers 0 to 2 (24 bytes). For this device:
 
 | Endpoint | Packet | Block | Cost |
 |----------|--------|-------|------|
-| Microphone IN | 98 | 128 | 256 |
+| Microphone IN | 98 | 98 | 196 |
 | Speaker OUT | 196 | 224 | 448 |
-| Total | | | 704 of the 832 bytes after the buffer table and endpoint 0 |
+| Total | | | 644 of the 872 bytes after the buffer table and endpoint 0 (796 of 1024 in all) |
 
-The rest, 128 bytes, is enough for one double-buffered bulk endpoint of 64 bytes, and nothing more. A device that adds bulk or interrupt endpoints must budget its packet memory against this. The microphone and the speaker must use different endpoint numbers (`0x81` and `0x02` in the example), since the two directions of a number share one register and the port refuses an isochronous IN beside an isochronous OUT of the same number.
+The rest, 228 bytes, is enough for one double-buffered bulk endpoint of 64 bytes (128 bytes), and not for two. A device that adds bulk or interrupt endpoints must budget its packet memory against this. Each endpoint number above 2 also adds 8 bytes to the table. The microphone and the speaker must use different endpoint numbers (`0x81` and `0x02` in the example), since the two directions of a number share one register and the port refuses an isochronous IN beside an isochronous OUT of the same number.
 
 ### Packet Memory Budget
 
-The G431 has 1024 bytes of packet memory. The fixed part is 192 bytes: the buffer table (64 bytes, whatever endpoints are open) and endpoint 0 (128 bytes). Each open isochronous endpoint takes two blocks of its packet size, and the port rounds a block up to 32 bytes above 62 bytes for both directions (see the [G4 page](../../../../../../Periphery/Adapter/Port/STM32/G4/USBDeviceAdapterG4.md#packet-memory-cost)). The packet of a path is sized by its highest listed rate, as the descriptor table above shows.
+The G431 has 1024 bytes of packet memory. The fixed part is endpoint 0 (128 bytes) and the buffer table: 8 bytes for each endpoint number up to the highest one in use, so 24 bytes for numbers 0 to 2, or 64 bytes when the table covers all eight numbers. Each open isochronous endpoint takes two blocks of its packet size: an IN block is the packet size, and an OUT block is rounded up to 32 bytes above 62 bytes (see the [G4 page](../../../../../../Periphery/Adapter/Port/STM32/G4/USBDeviceAdapterG4.md#packet-memory-cost)). The packet of a path is sized by its highest listed rate, as the descriptor table above shows.
 
-| Layout | Microphone: packet, block, cost | Speaker: packet, block, cost | Total | Fits 1024 |
-|--------|----------------------------------|------------------------------|-------|-----------|
-| USBAudio demo: mono microphone, stereo speaker, 48 kHz | 98, 128, 256 | 196, 224, 448 | 896 | Yes, 128 left |
-| `BasicUsb` and `NamedUsb` (test devices): the same paths | 98, 128, 256 | 196, 224, 448 | 896 | Yes |
-| `MultiRateUsb`: mono microphone listing 16, 32 and 48 kHz, stereo speaker listing 48 and 16 kHz | 98, 128, 256 | 196, 224, 448 | 896 | Yes |
-| `StereoMicUsb`: stereo microphone, mono speaker, 48 kHz | 196, 224, 448 | 98, 128, 256 | 896 | Yes |
-| Stereo microphone and stereo speaker, 16 kHz | 68, 96, 192 | 68, 96, 192 | 576 | Yes |
-| `StereoPairUsb`: stereo microphone and stereo speaker, 48 kHz | 196, 224, 448 | 196, 224, 448 | 1088 | No |
+| Layout | Microphone (IN): packet, block, cost | Speaker (OUT): packet, block, cost | Total, table of 0 to 2 | Total, full table | Fits 1024 with the core's table |
+|--------|--------------------------------------|------------------------------------|------------------------|-------------------|---------------------------------|
+| USBAudio demo: mono microphone, stereo speaker, 48 kHz | 98, 98, 196 | 196, 224, 448 | 796 | 836 | Yes, 228 left |
+| `BasicUsb` and `NamedUsb` (test devices): the same paths | 98, 98, 196 | 196, 224, 448 | 796 | 836 | Yes |
+| `MultiRateUsb`: mono microphone listing 16, 32 and 48 kHz, stereo speaker listing 48 and 16 kHz | 98, 98, 196 | 196, 224, 448 | 796 | 836 | Yes |
+| `StereoMicUsb`: stereo microphone, mono speaker, 48 kHz | 196, 196, 392 | 98, 128, 256 | 800 | 840 | Yes, 224 left |
+| Stereo microphone and stereo speaker, 16 kHz | 68, 68, 136 | 68, 96, 192 | 480 | 520 | Yes |
+| `StereoPairUsb`: stereo microphone and stereo speaker, 48 kHz | 196, 196, 392 | 196, 224, 448 | 992 | 1032 | Yes, 32 left; with the full table, No |
 
-The limit is two stereo paths at 48 kHz. Their packets are 196 bytes, so each endpoint takes 448 bytes, and the pair needs 1088 bytes. The second `SET_INTERFACE` is then refused: the port answers `outOfMemory`, and the core stalls the request, so that stream stays off while the other one streams. The builder accepts the layout, because it does not place packet memory. Any other layout in the table fits. `TestAudioStreaming.cpp` (`TestStereoPairRunsOutOfPacketMemory`, `TestStereoPairSpeakerFirstRefusesMicrophone`) and `TestFsdevPort.cpp` (`TestIsoStereoPairOutOfMemory`) pin the refusal.
+The pair fits with the table the core sets for numbers 0 to 2. Its packets are 196 bytes, so the microphone takes 392 bytes of IN blocks and the speaker 448 of OUT blocks, and with the 64-byte table the pair needs 1032 bytes. The second `SET_INTERFACE` is then refused: the port answers `outOfMemory`, and the core stalls the request, so that stream stays off while the other one streams. The builder accepts the layout, because it does not place packet memory. `TestAudioStreaming.cpp` (`TestStereoPairOpensBothStreams`, `TestStereoPairSpeakerFirstOpensBothStreams`, `TestStereoPairTableFollowsDescriptor`) and `TestFsdevPort.cpp` (`TestIsoStereoPairOutOfMemory`, `TestIsoStereoPairFitsSmallTable`, `TestIsoStereoPairLeavesNoRoomForThird`) pin both sides.
 
 ## Host Support
 
@@ -260,7 +260,7 @@ The descriptors are checked against the specification in the host tests. Windows
 | Alternate settings | 0 and 1 per stream |
 | Packet size | Fixed by the highest rate of the path, 98 or 196 bytes |
 | Listed rates | Each must fit the endpoint's wMaxPacketSize: the microphone's rate / 1000 frames of samples, the speaker's one frame more. A descriptor that lists a rate its endpoint cannot carry is refused at configuration (`invalidParameter`) |
-| Packet memory | Two stereo paths at 48 kHz need 1088 bytes of the G431's 1024. See the packet memory budget |
+| Packet memory | Two stereo paths at 48 kHz need 992 bytes of the G431's 1024, with the buffer table of numbers 0 to 2 (1032 with the full table). See the packet memory budget |
 | Speed | Full |
 
 ## Tests

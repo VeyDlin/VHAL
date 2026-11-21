@@ -1007,11 +1007,10 @@ void TestNoStreamCountsNothing() {
 }
 
 
-// A stereo 48 kHz microphone and a stereo 48 kHz speaker at once. Each packet is 196 bytes, which the port rounds to a 224-byte block, and an
-// isochronous endpoint holds two blocks. The table and endpoint 0 take 192 bytes and the microphone's two blocks take 448 more, which leaves 384.
-// The speaker needs 448, so its SET_INTERFACE is refused: the port answers outOfMemory, the core stalls the request, and the speaker stays off.
-// The microphone keeps streaming. The packet memory of the two paths is 1088 bytes against the 1024 of the G431.
-void TestStereoPairRunsOutOfPacketMemory() {
+// A stereo 48 kHz microphone and a stereo 48 kHz speaker at once. The device core sets the buffer table from the descriptors (the highest number is
+// 2), so the table is 24 bytes. The microphone's IN blocks are 196 bytes each, the speaker's OUT blocks 224, and the pair takes 24 + 128 + 392 + 448
+// = 992 of the 1024 bytes. Both SET_INTERFACE requests succeed and both streams run.
+void TestStereoPairOpensBothStreams() {
 	AudioTest::AudioFixture<AudioTest::StereoPairUsb> fx;
 	fx.Start();
 	SIM_EXPECT_EQ(fx.SetInterface(MicInterface, 1), ResultStatus::ok);
@@ -1021,30 +1020,50 @@ void TestStereoPairRunsOutOfPacketMemory() {
 		SIM_EXPECT_EQ(mic->maxPacketSize, 196);
 	}
 
-	SIM_EXPECT_EQ(fx.SetInterface(SpkInterface, 1), ResultStatus::accessError);
-	SIM_EXPECT(fx.sim.FindEndpoint(SpkAddress) == nullptr);
-	SIM_EXPECT(!fx.audio.IsStreaming(USBAudioStream::Speaker));
+	SIM_EXPECT_EQ(fx.SetInterface(SpkInterface, 1), ResultStatus::ok);
+	const USBDeviceAdapter::EndpointConfig* spk = fx.sim.FindEndpoint(SpkAddress);
+	SIM_EXPECT(spk != nullptr);
+	if (spk != nullptr) {
+		SIM_EXPECT_EQ(spk->maxPacketSize, 196);
+	}
+
 	SIM_EXPECT(fx.audio.IsStreaming(USBAudioStream::Microphone));
+	SIM_EXPECT(fx.audio.IsStreaming(USBAudioStream::Speaker));
 	SIM_EXPECT(fx.sim.HasArmedTransfer(MicAddress));
-	SIM_EXPECT_EQ(fx.recorder.streams.count, 1U);
+	SIM_EXPECT(fx.sim.HasArmedTransfer(SpkAddress));
+	SIM_EXPECT_EQ(fx.recorder.streams.count, 2U);
 }
 
 
-// The other order: the speaker is opened first and fits, and the microphone's SET_INTERFACE is then refused in the same way. The pair does not
-// fit in either order, and the endpoint that was opened first keeps its packet armed.
-void TestStereoPairSpeakerFirstRefusesMicrophone() {
+// The other order: the speaker is opened first, then the microphone. The pair fits in either order, and the endpoint opened first keeps its
+// packet armed while the second one opens.
+void TestStereoPairSpeakerFirstOpensBothStreams() {
 	AudioTest::AudioFixture<AudioTest::StereoPairUsb> fx;
 	fx.Start();
 	SIM_EXPECT_EQ(fx.SetInterface(SpkInterface, 1), ResultStatus::ok);
 	SIM_EXPECT(fx.sim.FindEndpoint(SpkAddress) != nullptr);
 	SIM_EXPECT(fx.sim.HasArmedTransfer(SpkAddress));
 
-	SIM_EXPECT_EQ(fx.SetInterface(MicInterface, 1), ResultStatus::accessError);
-	SIM_EXPECT(fx.sim.FindEndpoint(MicAddress) == nullptr);
-	SIM_EXPECT(!fx.audio.IsStreaming(USBAudioStream::Microphone));
+	SIM_EXPECT_EQ(fx.SetInterface(MicInterface, 1), ResultStatus::ok);
+	SIM_EXPECT(fx.sim.FindEndpoint(MicAddress) != nullptr);
+	SIM_EXPECT(fx.audio.IsStreaming(USBAudioStream::Microphone));
 	SIM_EXPECT(fx.audio.IsStreaming(USBAudioStream::Speaker));
 	SIM_EXPECT(fx.sim.HasArmedTransfer(SpkAddress));
-	SIM_EXPECT_EQ(fx.recorder.streams.count, 1U);
+	SIM_EXPECT(fx.sim.HasArmedTransfer(MicAddress));
+	SIM_EXPECT_EQ(fx.recorder.streams.count, 2U);
+}
+
+
+// The device core passes the highest endpoint number of its descriptors (2, from 0x81 and 0x02), so the table is 24 bytes and endpoint 0 ends at
+// 152. A 436-byte isochronous IN endpoint then fits in the simulator, which the 64-byte table would refuse.
+void TestStereoPairTableFollowsDescriptor() {
+	AudioTest::AudioFixture<AudioTest::StereoPairUsb> fx;
+	fx.Start();
+	USBDeviceAdapter::EndpointConfig wide;
+	wide.address = MicAddress;
+	wide.type = USBEndpointType::Isochronous;
+	wide.maxPacketSize = 436;
+	SIM_EXPECT_EQ(fx.sim.OpenEndpoint(wide), ResultStatus::ok);
 }
 
 
@@ -1071,7 +1090,8 @@ int main() {
 	TestRepeatedSamplingRateKeepsRing();
 	TestRingNotWholeFramesIsRefused();
 	TestNoStreamCountsNothing();
-	TestStereoPairRunsOutOfPacketMemory();
-	TestStereoPairSpeakerFirstRefusesMicrophone();
+	TestStereoPairOpensBothStreams();
+	TestStereoPairSpeakerFirstOpensBothStreams();
+	TestStereoPairTableFollowsDescriptor();
 	return SimTest::Finish("TestAudioStreaming");
 }

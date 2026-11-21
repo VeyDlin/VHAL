@@ -172,6 +172,28 @@ inline constexpr USBDescriptorSet RemoteWakeupSet = {
 };
 
 
+// The same configuration with the OUT on 0x02 instead of 0x01, so the endpoint numbers are 1 and 2 (TestVendorBulk's separate-number pair).
+inline constexpr uint8 SeparateNumberConfiguration[] = {
+	0x09, 0x02, 0x20, 0x00, 0x01, 0x01, 0x00, 0x80, 0x32,	// configuration: 32 bytes, 1 interface, value 1, bus powered, 100 mA
+	0x09, 0x04, 0x00, 0x00, 0x02, 0xFF, 0x00, 0x00, 0x00,	// interface 0: vendor class, 2 endpoints
+	0x07, 0x05, 0x81, 0x02, 0x40, 0x00, 0x00,				// endpoint 0x81: bulk IN, 64 bytes
+	0x07, 0x05, 0x02, 0x02, 0x40, 0x00, 0x00				// endpoint 0x02: bulk OUT, 64 bytes
+};
+
+
+static_assert(sizeof(SeparateNumberConfiguration) == 32, "configuration is 32 bytes");
+
+
+// The simple set with the separate-number configuration. Its endpoints are the ones the vendor function opens on 0x81 and 0x02.
+inline constexpr USBDescriptorSet SeparateNumberSet = {
+	DeviceDescriptor,
+	SeparateNumberConfiguration,
+	StringTable,
+	BosDescriptor,
+	VendorRequests
+};
+
+
 // The composite configuration with the same device and strings and no BOS or vendor requests.
 inline constexpr USBDescriptorSet CompositeSet = {
 	DeviceDescriptor,

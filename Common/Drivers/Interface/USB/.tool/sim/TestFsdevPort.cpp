@@ -1572,7 +1572,7 @@ void TestIsoStallRefusedClearStallAcknowledged() {
 
 
 // The open rules of an isochronous endpoint: the packet size range, the refused doubleBuffer flag, the sharing of the number's register with
-// the other direction, and the packet memory (two blocks of the packet size, rounded to 32 bytes above 62).
+// the other direction, and the packet memory (two blocks of the packet size; an OUT block is rounded to 32 bytes above 62).
 void TestIsoOpenRules() {
 	TestFsdevPort port;
 	StartPort(port);
@@ -1591,8 +1591,8 @@ void TestIsoOpenRules() {
 
 
 // The largest isochronous packet beside endpoint 0. The buffer table takes 64 bytes and endpoint 0 takes 128, which leaves 832. Two blocks of
-// 416 bytes fill them exactly: the first at 192, the second at 608, ending at 1024. A 417-byte packet rounds to a 448 block, and two of those
-// need 896, so the port refuses it with outOfMemory and keeps the 416-byte endpoint as it was.
+// 416 bytes fill them exactly: the first at 192, the second at 608, ending at 1024. A 417-byte IN packet takes two 418-byte blocks, 836 bytes,
+// which the 832 do not hold, so the port refuses it with outOfMemory and the 416-byte endpoint keeps its blocks.
 void TestIsoLargestPacketBesideEndpointZero() {
 	TestFsdevPort port;
 	StartPort(port);
@@ -1618,15 +1618,23 @@ void TestIsoLargestPacketBesideEndpointZero() {
 }
 
 
-// Packet memory of an isochronous endpoint is two blocks of its packet size, rounded to 32 bytes above 62 (300 bytes take 2 * 320). Closing
-// an endpoint gives its blocks back for the next one.
+// Packet memory of an isochronous endpoint is two blocks: an IN block is its packet size, and an OUT block is rounded to 32 bytes above 62. An IN
+// of 300 bytes takes 2 * 300 and an OUT takes 2 * 320. Closing an endpoint gives its blocks back for the next one.
 void TestIsoPacketMemoryAndClose() {
 	TestFsdevPort port;
 	StartPort(port);
 	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, IsoPacketSize, false)) == ResultStatus::ok);
+	SIM_EXPECT_EQ(port.Address(1, false), 192U);
+	SIM_EXPECT_EQ(port.Address(1, true), 492U);
 	SIM_EXPECT(port.OpenEndpoint(Config(0x82, USBEndpointType::Isochronous, IsoPacketSize, false)) == ResultStatus::outOfMemory);
 	SIM_EXPECT(port.CloseEndpoint(0x81) == ResultStatus::ok);
 	SIM_EXPECT(port.OpenEndpoint(Config(0x82, USBEndpointType::Isochronous, IsoPacketSize, false)) == ResultStatus::ok);
+	SIM_EXPECT_EQ(port.Address(2, false), 192U);
+	SIM_EXPECT_EQ(port.Address(2, true), 492U);
+	SIM_EXPECT(port.CloseEndpoint(0x82) == ResultStatus::ok);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x02, USBEndpointType::Isochronous, IsoPacketSize, false)) == ResultStatus::ok);
+	SIM_EXPECT_EQ(port.Address(2, false), 192U);
+	SIM_EXPECT_EQ(port.Address(2, true), 512U);
 }
 
 
@@ -2076,24 +2084,199 @@ void TestIsoOutStaleCompletionBeforeReopenAsIn() {
 }
 
 
-// Two stereo 48 kHz isochronous endpoints of 196 bytes. A block is 224 bytes, the packet rounded up to 32 above 62 bytes, and an isochronous
-// endpoint holds two blocks whichever direction it is. The buffer table takes 64 bytes and endpoint 0 takes 128, so the IN takes the blocks at
-// 192 and 416, and the OUT finds 640 and 864 as its first and second. The second needs 864 + 224 = 1088, over the 1024 of the packet memory, so
-// the OUT is refused with outOfMemory and the IN keeps its blocks. Closing the IN frees them, and then the OUT fits at 192 and 416.
+// Two stereo 48 kHz isochronous endpoints of 196 bytes on the full table of 64 bytes (eight numbers). An IN block is its byte length, 196, and an
+// OUT block is 224 (rounded to 32 above 62 bytes). The IN takes the blocks at 192 and 388. The OUT finds 584 and 808 as its first and second, and
+// the second needs 808 + 224 = 1032, over the 1024 of the packet memory. So the OUT is refused with outOfMemory and the IN keeps its blocks. Closing
+// the IN frees them, and then the OUT fits at 192 and 416. With the table of the numbers 0 to 2 the pair fits (TestIsoStereoPairFitsSmallTable).
 void TestIsoStereoPairOutOfMemory() {
 	TestFsdevPort port;
 	StartPort(port);
 	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 196, false)) == ResultStatus::ok);
 	SIM_EXPECT_EQ(port.Address(1, false), 192U);
-	SIM_EXPECT_EQ(port.Address(1, true), 416U);
+	SIM_EXPECT_EQ(port.Address(1, true), 388U);
 	SIM_EXPECT(port.OpenEndpoint(Config(0x02, USBEndpointType::Isochronous, 196, false)) == ResultStatus::outOfMemory);
 	SIM_EXPECT_EQ(port.Address(1, false), 192U);
-	SIM_EXPECT_EQ(port.Address(1, true), 416U);
+	SIM_EXPECT_EQ(port.Address(1, true), 388U);
 
 	SIM_EXPECT(port.CloseEndpoint(0x81) == ResultStatus::ok);
 	SIM_EXPECT(port.OpenEndpoint(Config(0x02, USBEndpointType::Isochronous, 196, false)) == ResultStatus::ok);
 	SIM_EXPECT_EQ(port.Address(2, false), 192U);
 	SIM_EXPECT_EQ(port.Address(2, true), 416U);
+}
+
+
+// Serves a bus reset, which writes the buffer descriptors of endpoint 0 (HandleBusReset()). Initialization does not write them.
+void BusReset(TestFsdevPort& port) {
+	simFsdev.RaiseIstrFlags(USBFsdevIstr::Reset);
+	port.IrqHandler();
+}
+
+
+// Starts a port whose buffer table has entries for the endpoint numbers 0 to highest. Without the call the table is the full one.
+void StartPortWithHighest(TestFsdevPort& port, uint8 highest) {
+	SIM_EXPECT(port.SetHighestEndpointNumber(highest) == ResultStatus::ok);
+	StartPort(port);
+}
+
+
+// The buffer table has eight bytes for each endpoint number it covers, and endpoint 0's IN buffer is placed right above it, its OUT buffer 64
+// bytes further on. Without a call the table covers all eight numbers (64 bytes). The highest number 0 is one endpoint (8 bytes), 2 is three
+// endpoints (24 bytes) and 7 is eight endpoints (64 bytes again). The bus reset writes the buffer descriptors of endpoint 0, so it is served
+// before the addresses are read.
+void TestTableSizeFollowsHighestEndpoint() {
+	TestFsdevPort fullTable;
+	StartPort(fullTable);
+	BusReset(fullTable);
+	SIM_EXPECT_EQ(fullTable.Address(0, false), 64U);
+	SIM_EXPECT_EQ(fullTable.Address(0, true), 128U);
+
+	TestFsdevPort oneEndpoint;
+	StartPortWithHighest(oneEndpoint, 0);
+	BusReset(oneEndpoint);
+	SIM_EXPECT_EQ(oneEndpoint.Address(0, false), 8U);
+	SIM_EXPECT_EQ(oneEndpoint.Address(0, true), 72U);
+
+	TestFsdevPort threeEndpoints;
+	StartPortWithHighest(threeEndpoints, 2);
+	BusReset(threeEndpoints);
+	SIM_EXPECT_EQ(threeEndpoints.Address(0, false), 24U);
+	SIM_EXPECT_EQ(threeEndpoints.Address(0, true), 88U);
+
+	TestFsdevPort eightEndpoints;
+	StartPortWithHighest(eightEndpoints, 7);
+	BusReset(eightEndpoints);
+	SIM_EXPECT_EQ(eightEndpoints.Address(0, false), 64U);
+	SIM_EXPECT_EQ(eightEndpoints.Address(0, true), 128U);
+}
+
+
+// The call is refused for a number the hardware does not have, while the device is connected, and while an endpoint is open even when the
+// device is detached. An endpoint above the table is refused with invalidParameter, and the endpoints inside it still open.
+void TestHighestEndpointCallRules() {
+	TestFsdevPort tooHigh;
+	SIM_EXPECT(tooHigh.SetHighestEndpointNumber(8) == ResultStatus::invalidParameter);
+
+	TestFsdevPort started;
+	StartPortWithHighest(started, 2);
+	SIM_EXPECT(started.SetHighestEndpointNumber(7) == ResultStatus::busy);
+	SIM_EXPECT(started.OpenEndpoint(Config(0x83, USBEndpointType::Bulk, 64, false)) == ResultStatus::invalidParameter);
+	SIM_EXPECT(started.OpenEndpoint(Config(0x82, USBEndpointType::Bulk, 64, false)) == ResultStatus::ok);
+
+	// Detached, but endpoint 5 is still open: a table that shrank under it would put a later buffer over its descriptor.
+	TestFsdevPort detached;
+	StartPort(detached);
+	SIM_EXPECT(detached.OpenEndpoint(Config(0x85, USBEndpointType::Bulk, 64, false)) == ResultStatus::ok);
+	SIM_EXPECT(detached.Disconnect() == ResultStatus::ok);
+	SIM_EXPECT(detached.SetHighestEndpointNumber(2) == ResultStatus::busy);
+}
+
+
+// The table is sized when SetParameters() places endpoint 0, so a call after that waits for the next SetParameters(). Here the call asks for 7
+// once endpoint 0 sits above a table of the numbers 0 to 2: endpoint 3 is still refused, and the table does not grow under the placed buffers.
+// The next SetParameters() applies 7, and endpoint 3 opens.
+void TestHighestEndpointAppliesAtSetParameters() {
+	TestFsdevPort port;
+	SIM_EXPECT(port.SetHighestEndpointNumber(2) == ResultStatus::ok);
+	simFsdev.Reset();
+	USBDeviceAdapter::Parameters parameters;
+	parameters.endpointCount = SimFsdevController::EndpointCount;
+	SIM_EXPECT(port.SetParameters(parameters) == ResultStatus::ok);
+	SIM_EXPECT(port.SetHighestEndpointNumber(7) == ResultStatus::ok);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x83, USBEndpointType::Bulk, 64, false)) == ResultStatus::invalidParameter);
+
+	SIM_EXPECT(port.SetParameters(parameters) == ResultStatus::ok);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x83, USBEndpointType::Bulk, 64, false)) == ResultStatus::ok);
+}
+
+
+// An IN buffer's block is its byte length. Two isochronous IN endpoints of 196 bytes take two blocks of 196 each: the first at 192 and 388, the
+// second at 584 and 780, ending at 976. A third one needs 392 more, and only 48 bytes are left. With 224-byte blocks the second endpoint would
+// end at 1088, so an IN block is its byte length and is not rounded to 32.
+void TestIsoInBlocksTakeTheirByteLength() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 196, false)) == ResultStatus::ok);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x83, USBEndpointType::Isochronous, 196, false)) == ResultStatus::ok);
+	SIM_EXPECT_EQ(port.Address(3, false), 584U);
+	SIM_EXPECT_EQ(port.Address(3, true), 780U);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x85, USBEndpointType::Isochronous, 196, false)) == ResultStatus::outOfMemory);
+}
+
+
+// An IN buffer of 100 bytes takes a 100-byte block, so the second one is 100 bytes after the first.
+void TestIsoInBlockIsNotRoundedTo32() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 100, false)) == ResultStatus::ok);
+	SIM_EXPECT_EQ(port.Address(1, false), 192U);
+	SIM_EXPECT_EQ(port.Address(1, true), 292U);
+}
+
+
+// An OUT buffer's block is rounded to 32 bytes above 62, because COUNT_RX names only those sizes. A 100-byte OUT endpoint takes 128-byte blocks.
+void TestIsoOutBlockIsRoundedTo32() {
+	TestFsdevPort port;
+	StartPort(port);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x02, USBEndpointType::Isochronous, 100, false)) == ResultStatus::ok);
+	SIM_EXPECT_EQ(port.Address(2, false), 192U);
+	SIM_EXPECT_EQ(port.Address(2, true), 320U);
+}
+
+
+// With the table of the numbers 0 to 2 (24 bytes), endpoint 0 ends at 152 and 872 bytes are left. Two 436-byte IN blocks fill them exactly, at 152
+// and 588. The full table leaves 832 bytes, so the same endpoint is refused there.
+void TestIsoInExactSizeFillsSmallTable() {
+	TestFsdevPort small;
+	StartPortWithHighest(small, 2);
+	SIM_EXPECT(small.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 436, false)) == ResultStatus::ok);
+	SIM_EXPECT_EQ(small.Address(1, false), 152U);
+	SIM_EXPECT_EQ(small.Address(1, true), 588U);
+
+	TestFsdevPort full;
+	StartPort(full);
+	SIM_EXPECT(full.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 436, false)) == ResultStatus::outOfMemory);
+}
+
+
+// The OUT block of 417 bytes is 448, and two of them (896) do not fit the 872 bytes left beside the small table. An IN block of 417 is 418, and two
+// of them (836) do fit: at 152 and 572.
+void TestIsoBlockRoundingWithSmallTable() {
+	TestFsdevPort out;
+	StartPortWithHighest(out, 2);
+	SIM_EXPECT(out.OpenEndpoint(Config(0x02, USBEndpointType::Isochronous, 417, false)) == ResultStatus::outOfMemory);
+
+	TestFsdevPort in;
+	StartPortWithHighest(in, 2);
+	SIM_EXPECT(in.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 417, false)) == ResultStatus::ok);
+	SIM_EXPECT_EQ(in.Address(1, false), 152U);
+	SIM_EXPECT_EQ(in.Address(1, true), 572U);
+}
+
+
+// The stereo pair of the audio tests: a 196-byte isochronous microphone on 0x81 and a 196-byte speaker on 0x02, with the table of the numbers 0 to 2.
+// Endpoint 0 ends at 152. The microphone's blocks are at 152 and 348. The speaker's 224-byte blocks are at 544 and 768, and end at 992.
+void TestIsoStereoPairFitsSmallTable() {
+	TestFsdevPort port;
+	StartPortWithHighest(port, 2);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 196, false)) == ResultStatus::ok);
+	SIM_EXPECT_EQ(port.Address(1, false), 152U);
+	SIM_EXPECT_EQ(port.Address(1, true), 348U);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x02, USBEndpointType::Isochronous, 196, false)) == ResultStatus::ok);
+	SIM_EXPECT_EQ(port.Address(2, false), 544U);
+	SIM_EXPECT_EQ(port.Address(2, true), 768U);
+}
+
+
+// The 1 KB limit still holds with a table that has room for a fourth number. With the table of 0 to 3 (32 bytes), endpoint 0 takes 32 to 160, and the
+// pair's blocks end at 1000. The 24 bytes left are not a 196-byte block, so a third 196-byte endpoint is outOfMemory.
+void TestIsoStereoPairLeavesNoRoomForThird() {
+	TestFsdevPort port;
+	StartPortWithHighest(port, 3);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x81, USBEndpointType::Isochronous, 196, false)) == ResultStatus::ok);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x02, USBEndpointType::Isochronous, 196, false)) == ResultStatus::ok);
+	SIM_EXPECT_EQ(port.Address(2, false), 552U);
+	SIM_EXPECT_EQ(port.Address(2, true), 776U);
+	SIM_EXPECT(port.OpenEndpoint(Config(0x83, USBEndpointType::Isochronous, 196, false)) == ResultStatus::outOfMemory);
 }
 }
 
@@ -2160,5 +2343,15 @@ int main() {
 	TestIsoInStaleCompletionBeforeReopenAsOut();
 	TestIsoOutStaleCompletionBeforeReopenAsIn();
 	TestIsoStereoPairOutOfMemory();
+	TestTableSizeFollowsHighestEndpoint();
+	TestHighestEndpointCallRules();
+	TestHighestEndpointAppliesAtSetParameters();
+	TestIsoInBlocksTakeTheirByteLength();
+	TestIsoInBlockIsNotRoundedTo32();
+	TestIsoOutBlockIsRoundedTo32();
+	TestIsoInExactSizeFillsSmallTable();
+	TestIsoBlockRoundingWithSmallTable();
+	TestIsoStereoPairFitsSmallTable();
+	TestIsoStereoPairLeavesNoRoomForThird();
 	return SimTest::Finish("TestFsdevPort");
 }

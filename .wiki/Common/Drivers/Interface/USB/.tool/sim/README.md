@@ -74,4 +74,5 @@ non-zero when a test fails to build or any check fails. It works in Git Bash on 
 - `HostIn()` copies into a caller buffer and returns the byte count through an out parameter. A buffer too small for the
   transfer returns `invalidParameter` and leaves the transfer armed.
 - The controller models the G431 fsdev limits: 8 endpoint numbers, 1 KB of packet memory (endpoint 0 takes 128 bytes of
-  it), and one halt shared by both endpoint 0 directions.
+  it, and the buffer table 8 bytes for each number up to the highest one set by `SetHighestEndpointNumber()`), and one halt
+  shared by both endpoint 0 directions. An IN block is its packet size rounded up to an even size, and an OUT block is rounded as the port rounds it.

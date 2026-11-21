@@ -23,8 +23,8 @@
 //               starting at 48 kHz with mute only.
 // NamedUsb: BasicUsb with names on the control interface and on both streams.
 // StereoMicUsb: a stereo 48 kHz microphone and a mono 48 kHz speaker, for the ring check on the microphone's channels.
-// StereoPairUsb: a stereo 48 kHz microphone and a stereo 48 kHz speaker. Their two 196-byte packets take 224-byte blocks, two per endpoint, and
-//               the pair does not fit the 1 KB of packet memory beside the buffer table and endpoint 0.
+// StereoPairUsb: a stereo 48 kHz microphone and a stereo 48 kHz speaker. Their 196-byte packets take 196-byte IN blocks and 224-byte OUT blocks, two
+//               per endpoint. With the buffer table of the numbers 0 to 2 (24 bytes) the pair takes 992 of the 1 KB of packet memory.
 namespace AudioTest {
 
 

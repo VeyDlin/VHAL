@@ -290,10 +290,10 @@ void TestPacketMemory() {
 }
 
 
-// The isochronous packet memory beside the buffer table and endpoint 0. An isochronous endpoint takes two blocks of its packet size, rounded to
-// 32 bytes above 62, so 416 bytes take 2 * 416 = 832, which is the whole budget: the port places them at 192 and 608. A 417-byte packet needs
-// two blocks of 448, and the port refuses it with outOfMemory (TestIsoLargestPacketBesideEndpointZero() in TestFsdevPort.cpp). The adapter
-// contract is the same on both.
+// The isochronous packet memory beside the buffer table and endpoint 0. An isochronous endpoint takes two blocks of its packet size, so 416 bytes
+// take 2 * 416 = 832 for an IN endpoint, which is the whole budget: the port places them at 192 and 608. An OUT block is rounded to 32 bytes above
+// 62, so a 417-byte OUT packet needs two blocks of 448, and the port refuses it with outOfMemory (TestIsoLargestPacketBesideEndpointZero() in
+// TestFsdevPort.cpp). The adapter contract is the same on both.
 void TestIsochronousPacketMemoryLimit() {
 	SimUSBDeviceAdapter sim;
 	USBDeviceAdapter::Parameters parameters;
@@ -350,6 +350,117 @@ void TestIsochronousBlockAlignmentLimit() {
 	SIM_EXPECT_EQ(sim.CloseEndpoint(0x86), ResultStatus::ok);
 	SIM_EXPECT_EQ(sim.OpenEndpoint(fortyFour), ResultStatus::ok);
 	SIM_EXPECT(sim.FindEndpoint(0x87) != nullptr);
+}
+
+
+USBDeviceAdapter::EndpointConfig IsoEndpoint(uint8 address, uint16 maxPacketSize) {
+	USBDeviceAdapter::EndpointConfig config;
+	config.address = address;
+	config.type = USBEndpointType::Isochronous;
+	config.maxPacketSize = maxPacketSize;
+	return config;
+}
+
+
+// A connected, reset simulator. With useHighest the highest endpoint number is set first, as the device core does before SetParameters().
+void StartSim(SimUSBDeviceAdapter& sim, bool useHighest, uint8 highest) {
+	if (useHighest) {
+		SIM_EXPECT_EQ(sim.SetHighestEndpointNumber(highest), ResultStatus::ok);
+	}
+
+	USBDeviceAdapter::Parameters parameters;
+	parameters.endpointCount = SimUSBDeviceAdapter::HardwareEndpointCount;
+	SIM_EXPECT_EQ(sim.SetParameters(parameters), ResultStatus::ok);
+	SIM_EXPECT_EQ(sim.Connect(), ResultStatus::ok);
+	sim.InjectBusReset();
+}
+
+
+// The buffer table covers the numbers 0 to the highest one set. With the numbers 0 to 2 (24 bytes), endpoint 0 ends at 152, and two 436-byte IN
+// blocks fit, at 152 and 588. With the full table (64 bytes) endpoint 0 ends at 192, and the second block would end at 1064.
+void TestHighestEndpointSizesTable() {
+	SimUSBDeviceAdapter small;
+	StartSim(small, true, 2);
+	SIM_EXPECT_EQ(small.OpenEndpoint(IsoEndpoint(0x81, 436)), ResultStatus::ok);
+
+	SimUSBDeviceAdapter full;
+	StartSim(full, false, 0);
+	SIM_EXPECT_EQ(full.OpenEndpoint(IsoEndpoint(0x81, 436)), ResultStatus::outOfMemory);
+	SIM_EXPECT(full.FindEndpoint(0x81) == nullptr);
+}
+
+
+// The call is refused for a number the hardware does not have, while connected, and while an endpoint is open even when detached. An endpoint
+// above the highest number is invalidParameter.
+void TestHighestEndpointCallRules() {
+	SimUSBDeviceAdapter tooHigh;
+	SIM_EXPECT_EQ(tooHigh.SetHighestEndpointNumber(8), ResultStatus::invalidParameter);
+
+	SimUSBDeviceAdapter started;
+	StartSim(started, true, 2);
+	SIM_EXPECT_EQ(started.SetHighestEndpointNumber(7), ResultStatus::busy);
+	SIM_EXPECT_EQ(started.OpenEndpoint(Bulk(0x83, 64)), ResultStatus::invalidParameter);
+	SIM_EXPECT_EQ(started.OpenEndpoint(Bulk(0x82, 64)), ResultStatus::ok);
+
+	SimUSBDeviceAdapter detached;
+	StartSim(detached, false, 0);
+	SIM_EXPECT_EQ(detached.OpenEndpoint(Bulk(0x85, 64)), ResultStatus::ok);
+	SIM_EXPECT_EQ(detached.Disconnect(), ResultStatus::ok);
+	SIM_EXPECT_EQ(detached.SetHighestEndpointNumber(2), ResultStatus::busy);
+}
+
+
+// The table is sized when SetParameters() places endpoint 0, so a call after that waits for the next SetParameters(). Here the call asks for 7
+// once endpoint 0 sits above a table of the numbers 0 to 2: endpoint 3 is still refused. The next SetParameters() applies 7, and endpoint 3 opens.
+void TestHighestEndpointAppliesAtSetParameters() {
+	SimUSBDeviceAdapter sim;
+	SIM_EXPECT_EQ(sim.SetHighestEndpointNumber(2), ResultStatus::ok);
+	USBDeviceAdapter::Parameters parameters;
+	parameters.endpointCount = SimUSBDeviceAdapter::HardwareEndpointCount;
+	SIM_EXPECT_EQ(sim.SetParameters(parameters), ResultStatus::ok);
+	SIM_EXPECT_EQ(sim.SetHighestEndpointNumber(7), ResultStatus::ok);
+	SIM_EXPECT_EQ(sim.OpenEndpoint(Bulk(0x83, 64)), ResultStatus::invalidParameter);
+
+	SIM_EXPECT_EQ(sim.SetParameters(parameters), ResultStatus::ok);
+	SIM_EXPECT_EQ(sim.OpenEndpoint(Bulk(0x83, 64)), ResultStatus::ok);
+}
+
+
+// The IN blocks are their byte lengths: two 196-byte IN endpoints take 2 * 196 each, at 192 to 584 and 584 to 976. A third one does not fit.
+void TestIsochronousInBlocksAreExact() {
+	SimUSBDeviceAdapter sim;
+	StartSim(sim, false, 0);
+	SIM_EXPECT_EQ(sim.OpenEndpoint(IsoEndpoint(0x81, 196)), ResultStatus::ok);
+	SIM_EXPECT_EQ(sim.OpenEndpoint(IsoEndpoint(0x83, 196)), ResultStatus::ok);
+	SIM_EXPECT_EQ(sim.OpenEndpoint(IsoEndpoint(0x85, 196)), ResultStatus::outOfMemory);
+	SIM_EXPECT(sim.FindEndpoint(0x85) == nullptr);
+}
+
+
+// An OUT block is 224 bytes for a 196-byte packet, so an OUT endpoint of 196 bytes takes 2 * 224 = 448. Two of them, 896 bytes, do not fit beside
+// the full table and endpoint 0.
+// A 100-byte OUT endpoint takes 128-byte blocks, and it does fit after the first.
+void TestIsochronousOutBlocksAreRounded() {
+	SimUSBDeviceAdapter sim;
+	StartSim(sim, false, 0);
+	SIM_EXPECT_EQ(sim.OpenEndpoint(IsoEndpoint(0x02, 196)), ResultStatus::ok);
+	SIM_EXPECT_EQ(sim.OpenEndpoint(IsoEndpoint(0x04, 196)), ResultStatus::outOfMemory);
+	SIM_EXPECT_EQ(sim.OpenEndpoint(IsoEndpoint(0x04, 100)), ResultStatus::ok);
+}
+
+
+// The stereo pair, a 196-byte microphone and a 196-byte speaker, needs 24 + 128 + 392 + 448 = 992 bytes. The full table makes it 1032, so the
+// speaker is refused there, and the table of the numbers 0 to 2 makes the pair fit.
+void TestStereoPairFitsWithSmallTable() {
+	SimUSBDeviceAdapter small;
+	StartSim(small, true, 2);
+	SIM_EXPECT_EQ(small.OpenEndpoint(IsoEndpoint(0x81, 196)), ResultStatus::ok);
+	SIM_EXPECT_EQ(small.OpenEndpoint(IsoEndpoint(0x02, 196)), ResultStatus::ok);
+
+	SimUSBDeviceAdapter full;
+	StartSim(full, false, 0);
+	SIM_EXPECT_EQ(full.OpenEndpoint(IsoEndpoint(0x81, 196)), ResultStatus::ok);
+	SIM_EXPECT_EQ(full.OpenEndpoint(IsoEndpoint(0x02, 196)), ResultStatus::outOfMemory);
 }
 
 
@@ -742,6 +853,12 @@ int main() {
 	TestPacketMemory();
 	TestIsochronousPacketMemoryLimit();
 	TestIsochronousBlockAlignmentLimit();
+	TestHighestEndpointSizesTable();
+	TestHighestEndpointCallRules();
+	TestHighestEndpointAppliesAtSetParameters();
+	TestIsochronousInBlocksAreExact();
+	TestIsochronousOutBlocksAreRounded();
+	TestStereoPairFitsWithSmallTable();
 	TestTransferRules();
 	TestZeroLengthPacketRule();
 	TestOverrunDropsWholePacket();

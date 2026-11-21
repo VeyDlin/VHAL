@@ -61,14 +61,16 @@ Notes:
 
 ## Initialization
 
+`SetHighestEndpointNumber()` sets the size of the buffer table. The device core calls it in `Start()`, before `SetParameters()`, with the highest endpoint number its configuration descriptor names. The table takes that number at the next `SetParameters()`, which places endpoint 0 above it, so a later call does not move the buffers already placed. It returns `busy` while connected or while an endpoint other than 0 is open, and `invalidParameter` for a number above 7. Without the call the table covers all eight numbers (64 bytes). The table is 8 bytes for each number it covers, so a table of numbers 0 to 2 is 24 bytes.
+
 `SetParameters()` stores the parameters and calls `Initialization()`:
 
 1. Check the USB clock. `notReady` if off.
 2. Check `endpointCount`. `invalidParameter` if 0 or above 8.
 3. Call the `beforePeripheryInit` hook, if set.
 4. Reset the peripheral: `FRes` for about 10 µs, then clear the control and interrupt registers.
-5. Set the buffer table, clear every endpoint register.
-6. Give endpoint 0 a 64-byte transmit buffer and a 64-byte receive buffer in packet memory.
+5. Set the buffer table, clear every endpoint register. The table has the size that `SetHighestEndpointNumber()` gave, before endpoint 0 is placed.
+6. Give endpoint 0 a 64-byte transmit buffer and a 64-byte receive buffer in packet memory, above the table.
 7. Enable the interrupts: correct transfer, reset, suspend, wakeup, error and packet memory overrun. Start-of-frame too when `startOfFrameEvents` is set.
 8. Enable the function (`EF`). The pull-up stays off.
 9. Call the `afterPeripheryInit` hook, if set.
@@ -168,31 +170,33 @@ Not measured yet: the zero-length packet that the first token sends after a defe
 
 ### Packet Memory Cost
 
-An isochronous endpoint takes two packet memory blocks of its direction, one per buffer. A block is the packet size rounded up to an even number of bytes, and to a multiple of 32 bytes above 62 bytes (the `COUNT_RX` block count can express only that):
+An isochronous endpoint takes two packet memory blocks of its direction, one per buffer. An OUT block is the packet size rounded up to an even number of bytes, and to a multiple of 32 bytes above 62 bytes, because the `COUNT_RX` block count can express only those sizes. An IN block is its byte length, rounded up to an even number of bytes (the 16-bit element the port writes). An IN buffer has no `COUNT_RX`, so it takes no 32-byte rounding.
 
-| Packet size | Block | Endpoint cost |
-|-------------|-------|---------------|
-| 64 | 64 | 128 |
-| 128 | 128 | 256 |
-| 192 | 192 | 384 |
-| 200 | 224 | 448 |
-| 300 | 320 | 640 |
-| 416 | 416 | 832 (the largest that fits beside endpoint 0) |
-| 417 | 448 | 896 (does not fit: `outOfMemory`) |
-| 1023 | 1024 | 2048 (does not fit: `outOfMemory`) |
+| Packet size | OUT block | OUT endpoint cost | IN block | IN endpoint cost |
+|-------------|-----------|-------------------|----------|------------------|
+| 64 | 64 | 128 | 64 | 128 |
+| 100 | 128 | 256 | 100 | 200 |
+| 196 | 224 | 448 | 196 | 392 |
+| 300 | 320 | 640 | 300 | 600 |
+| 416 | 416 | 832 (the largest that fits beside endpoint 0 with the full table) | 416 | 832 |
+| 417 | 448 | 896 (does not fit: `outOfMemory`) | 418 | 836 (does not fit with the full table: `outOfMemory`; fits beside the table of numbers 0 to 2) |
+| 436 | 448 | 896 (does not fit: `outOfMemory`) | 436 | 872 (fits beside the table of numbers 0 to 2 only) |
+| 1023 | 1024 | 2048 (does not fit: `outOfMemory`) | 1024 | 2048 (does not fit: `outOfMemory`) |
 
-The 1 KB of packet memory holds the buffer table (64 bytes: eight entries of eight bytes, `BufferTableSize`) and endpoint 0 (128 bytes: 64 transmit and 64 receive), which leaves 832 bytes. Two blocks of 416 bytes take exactly those 832, so 416 is the largest isochronous packet the port can place beside endpoint 0. The first block lands at 192 and the second at 608, ending at 1024. A 417-byte packet rounds to a 448 block, and two of those need 896, which does not fit. One 300-byte isochronous endpoint (640 bytes) fits, and a second one does not. Two 128-byte ones (256 bytes each) fit. Every block starts on a 4-byte boundary, so a block that is not a multiple of four leaves a gap: six 62-byte isochronous endpoints end at 958, and a 44-byte one beside them does not fit, although the sizes add up to 832. The simulator places blocks in the same way. The cost comes out of the same pool as the bulk and interrupt endpoints, so every isochronous endpoint reduces what the others can get.
+The 1 KB of packet memory holds the buffer table and endpoint 0 (128 bytes: 64 transmit and 64 receive). The table takes eight bytes for each endpoint number up to the highest one in use (see `SetHighestEndpointNumber()` in the Initialization section): 24 bytes for numbers 0 to 2, and 64 bytes for all eight when no call is made. So 872 bytes remain for the endpoints with the table of numbers 0 to 2, and 832 with the full table.
 
-The table is 64 bytes whatever endpoints are open, because it has an entry for each of the eight endpoint numbers. The 32-byte rounding is applied to IN blocks too, although only an OUT buffer's `COUNT_RX` needs it, so an IN block is up to 28 bytes larger than its packet. Example layouts of the audio class, in bytes of packet memory (the Audio README has the full table):
+With the full table, two blocks of 416 bytes take exactly 832, so 416 is the largest isochronous packet beside endpoint 0, in either direction. The first block lands at 192 and the second at 608, ending at 1024. With the table of numbers 0 to 2, an IN endpoint takes 436 bytes (two blocks at 152 and 588, ending at 1024), and an OUT endpoint still takes 416. A 417-byte OUT packet rounds to a 448 block, and two of those do not fit. Every block starts on a 4-byte boundary, so a block that is not a multiple of four leaves a gap. With the full table, six 62-byte IN endpoints take twelve blocks of 64 bytes each (128 bytes per endpoint), the last block ends at 958, and a 44-byte IN endpoint beside them does not fit, although the sizes add up to 832. The simulator places blocks in the same way. The cost comes out of the same pool as the bulk and interrupt endpoints, so every isochronous endpoint reduces what the others can get.
 
-| Layout | Blocks | Total | Fits 1024 |
-|--------|--------|-------|-----------|
-| Mono 48 kHz microphone (98) and stereo 48 kHz speaker (196) | 128 and 224, two each | 896 | Yes |
-| Stereo 48 kHz microphone (196) and mono 48 kHz speaker (98) | 224 and 128, two each | 896 | Yes |
-| Stereo 16 kHz microphone (68) and stereo 16 kHz speaker (68) | 96 and 96, two each | 576 | Yes |
-| Stereo 48 kHz microphone and stereo 48 kHz speaker | 224 and 224, two each | 1088 | No: the second open is `outOfMemory` |
+The device core sets the table from the numbers its configuration descriptor names, so a device that uses numbers 0 to 2 has the 24-byte table. Example layouts of the audio class, in bytes of packet memory including the table and endpoint 0 (the Audio README has the full table). The microphone is an IN endpoint and the speaker an OUT endpoint:
 
-Two stereo 48 kHz isochronous endpoints do not fit, whichever opens first. The second is refused and the first keeps its blocks. Closing the IN frees its 448 bytes, and the OUT then fits at 192 and 416 (`TestIsoStereoPairOutOfMemory` in `TestFsdevPort.cpp`).
+| Layout | Blocks | Total, table of numbers 0 to 2 | Total, full table | Fits 1024 with the core's table |
+|--------|--------|--------------------------------|-------------------|---------------------------------|
+| Mono 48 kHz microphone (98) and stereo 48 kHz speaker (196) | 98 IN and 224 OUT, two each | 796 | 836 | Yes, 228 left |
+| Stereo 48 kHz microphone (196) and mono 48 kHz speaker (98) | 196 IN and 128 OUT, two each | 800 | 840 | Yes, 224 left |
+| Stereo 16 kHz microphone (68) and stereo 16 kHz speaker (68) | 68 IN and 96 OUT, two each | 480 | 520 | Yes |
+| Stereo 48 kHz microphone and stereo 48 kHz speaker | 196 IN and 224 OUT, two each | 992 | 1032 | Yes, 32 left; the full table is `outOfMemory` |
+
+With the full table, two stereo 48 kHz isochronous endpoints do not fit, whichever opens first. The second is refused and the first keeps its blocks. Closing the IN frees its blocks, and the OUT then fits at 192 and 416 (`TestIsoStereoPairOutOfMemory` in `TestFsdevPort.cpp`). With the table of numbers 0 to 2 the pair fits: the IN is at 152 and 348, the OUT at 544 and 768 (`TestIsoStereoPairFitsSmallTable`).
 
 An isochronous endpoint and the other direction of its number share one register. The other direction must also be isochronous, or `OpenEndpoint()` returns `invalidParameter`. An isochronous OUT beside an open IN of the same number is `notSupported`, because the register cannot hold the second pair of buffers next to it. So an isochronous IN and OUT must use different numbers, such as `0x81` and `0x02`.
 
@@ -206,11 +210,12 @@ An isochronous endpoint and the other direction of its number share one register
 
 | Item | Value |
 |------|-------|
-| Endpoint numbers | 1 to 7 can be opened (`endpointCount` up to 8, endpoint 0 included) |
+| Endpoint numbers | 1 to 7 can be opened (`endpointCount` up to 8, endpoint 0 included). A number above the highest one set by `SetHighestEndpointNumber()` is `invalidParameter` |
 | Default `endpointCount` | 4 |
 | Packet memory | 1024 bytes, shared |
 | Endpoint 0 packet memory | 128 bytes |
+| Buffer table | 8 bytes per endpoint number up to the highest one in use: 64 bytes by default, 24 bytes for numbers 0 to 2 |
 | Bulk packet size | 8, 16, 32, 64 |
 | Interrupt packet size | 1 to 64 |
-| Isochronous packet size | 1 to 1023 accepted. 416 is the largest that fits beside endpoint 0; a larger one is `outOfMemory` |
+| Isochronous packet size | 1 to 1023 accepted. An OUT endpoint takes 416 bytes at most beside endpoint 0; an IN endpoint takes 416 with the full table and 436 with the table of numbers 0 to 2. A larger one is `outOfMemory` |
 | Speed | Full |

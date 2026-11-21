@@ -108,8 +108,10 @@ public:
 	}
 
 
-	// Validates the descriptor set and the functions, applies the parameters, subscribes to the adapter events and
-	// connects. A board with a fixed pull-up reports notSupported from Connect(), which is success here.
+	// Validates the descriptor set and the functions, gives the adapter the highest endpoint number of the configuration, applies the
+	// parameters, subscribes to the adapter events and connects. A board with a fixed pull-up reports notSupported from Connect(), which is
+	// success here. invalidParameter also comes back when the adapter refuses that highest number, as a port with a buffer table sized from
+	// it does for a number it does not have (8 to 15).
 	ResultStatus Start(const USBDeviceAdapter::Parameters& parameters) {
 		if (started) {
 			return ResultStatus::busy;
@@ -119,7 +121,14 @@ public:
 			return ResultStatus::invalidParameter;
 		}
 
-		ResultStatus status = adapter.SetParameters(parameters);
+		// The highest endpoint number goes first, so a port that sizes its buffer table from it has the table in place when SetParameters()
+		// places endpoint 0.
+		ResultStatus status = adapter.SetHighestEndpointNumber(HighestEndpointNumber(descriptorSet.configuration));
+		if (status != ResultStatus::ok) {
+			return status;
+		}
+
+		status = adapter.SetParameters(parameters);
 		if (status != ResultStatus::ok) {
 			return status;
 		}
@@ -1242,6 +1251,31 @@ private:
 	// Reads a little-endian 16-bit field. The caller checks that both bytes exist.
 	static uint16 ReadUInt16(std::span<const uint8> bytes, std::size_t offset) {
 		return static_cast<uint16>(bytes[offset] | (bytes[offset + 1] << 8));
+	}
+
+
+	// The highest endpoint number the configuration descriptor names, over every interface and alternate setting. It is 0 when only endpoint 0
+	// is named. The walk stops at a length below 2 or past the end, so it never reads outside the configuration.
+	static uint8 HighestEndpointNumber(std::span<const uint8> configuration) {
+		uint8 highest = 0;
+		std::size_t offset = ConfigurationHeaderSize;
+		while (offset + 2 <= configuration.size()) {
+			std::size_t length = configuration[offset];
+			if (length < 2 || offset + length > configuration.size()) {
+				break;
+			}
+
+			if (configuration[offset + 1] == static_cast<uint8>(USBDescriptorType::Endpoint) && length >= 3) {
+				uint8 number = static_cast<uint8>(configuration[offset + 2] & 0x0F);
+				if (number > highest) {
+					highest = number;
+				}
+			}
+
+			offset += length;
+		}
+
+		return highest;
 	}
 
 
