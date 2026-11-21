@@ -91,7 +91,7 @@ public:
     enum class SendStatus {
         Success,
         BufferFull,
-        Busy              // Предыдущая передача не завершена
+        Busy              // Previous transfer not finished yet
     };
 
     struct SendOptions {
@@ -151,17 +151,17 @@ public:
             return {SendStatus::Success, 0, 0};
         }
         
-        // Сохраняем ссылку на данные и начинаем streaming
+        // Keep a reference to the data and start streaming
         currentDataSpan = data;
         currentSentBytes = 0;
         currentStreamIdSending = currentStreamId++;
         isBusy = true;
         waitingForAck = false;
         
-        // Вычисляем количество фрагментов
+        // Compute the number of fragments
         size_t totalFragments = (data.size() + MAX_PAYLOAD_SIZE - 1) / MAX_PAYLOAD_SIZE;
         
-        // Отправляем первый пакет сразу, не ждем Process()
+        // Send the first packet now, without waiting for Process()
         SendNextStreamPacket();
         
         return {SendStatus::Success, currentStreamIdSending, static_cast<uint16>(totalFragments)};
@@ -169,9 +169,9 @@ public:
 
 
     // Send without acknowledgment (single packets only)
-    // NOTE: В новой streaming архитектуре не используется
+    // NOTE: not used in the new streaming architecture
     SendResult SendNoAck(std::span<const uint8> data) {
-        return {SendStatus::BufferFull, 0, 0}; // Не поддерживается в streaming режиме
+        return {SendStatus::BufferFull, 0, 0}; // Not supported in streaming mode
     }
 
 
@@ -179,7 +179,7 @@ public:
     void Process() {
         processCounter++;
         
-        // Обрабатываем streaming отправку
+        // Handle streaming send
         if (isBusy && !waitingForAck) {
             SendNextStreamPacket();
         }
@@ -203,13 +203,13 @@ public:
         System::console << Console::debug << "[STREAM] Resetting protocol state" << Console::endl;
         
         // Clear receive state
-        lastReceivedPacketNumber = 0xFFFF;  // Невозможное значение, чтобы первый пакет не был дубликатом
+        lastReceivedPacketNumber = 0xFFFF;  // Impossible value, so the first packet is not treated as a duplicate
         receiveBuffer.Clear();
         
         // Clear send state
         currentPacketNumber = 0;
         hasCurrentPendingPacket = false;
-        isBusy = false;  // ВАЖНО: сбрасываем флаг занятости!
+        isBusy = false;  // IMPORTANT: clear the busy flag!
         
         // Clear active streams
         for (auto& stream : activeStreams) {
@@ -227,8 +227,8 @@ public:
 private:
     struct PendingPacket {
         PacketHeader header;
-        std::span<const uint8> dataSpan;  // Ссылка на внешние данные
-        size_t sentBytes;                 // Сколько байт уже отправлено из span
+        std::span<const uint8> dataSpan;  // Reference to external data
+        size_t sentBytes;                 // How many bytes have already been sent from the span
         uint32 createdAt;
         uint8 retryCount;
         bool requiresAck;
@@ -263,12 +263,12 @@ private:
     uint32 processCounter = 0;
     
     // Streaming state
-    bool isBusy = false;              // Идет ли передача данных
-    bool waitingForAck = false;       // Ждем ли ACK для текущего пакета
-    std::span<const uint8> currentDataSpan;  // Данные текущей передачи
-    size_t currentSentBytes = 0;      // Сколько байт уже отправлено
-    uint32 currentStreamIdSending = 0; // ID текущего потока отправки
-    uint32 lastPacketTime = 0;        // Время отправки последнего пакета
+    bool isBusy = false;              // Whether data is being sent
+    bool waitingForAck = false;       // Whether we are waiting for the ACK of the current packet
+    std::span<const uint8> currentDataSpan;  // Data of the current transfer
+    size_t currentSentBytes = 0;      // How many bytes have been sent
+    uint32 currentStreamIdSending = 0; // ID of the current send stream
+    uint32 lastPacketTime = 0;        // Time the last packet was sent
 
     // Active incoming streams
     static constexpr size_t MAX_ACTIVE_STREAMS = 4;
@@ -281,7 +281,7 @@ private:
                        << " total=" << currentDataSpan.size() << Console::endl;
         
         if (currentSentBytes >= currentDataSpan.size()) {
-            // Всё отправлено
+            // All sent
             System::console << Console::debug << "[STREAM] All data sent, clearing isBusy" << Console::endl;
             isBusy = false;
             onCompleteCallback(currentStreamIdSending, StreamResult::Success);
@@ -293,22 +293,22 @@ private:
         
         auto packetData = currentDataSpan.subspan(currentSentBytes, packetSize);
         
-        // Определяем тип пакета
+        // Determine the packet type
         PacketType packetType;
         uint16 fragmentIndex = 0;
         uint16 totalFragments = 1;
         
         if (currentDataSpan.size() > MAX_PAYLOAD_SIZE) {
-            // Фрагментированная передача
+            // Fragmented transfer
             packetType = PacketType::FragmentData;
             totalFragments = static_cast<uint16>((currentDataSpan.size() + MAX_PAYLOAD_SIZE - 1) / MAX_PAYLOAD_SIZE);
             fragmentIndex = static_cast<uint16>(currentSentBytes / MAX_PAYLOAD_SIZE);
         } else {
-            // Одиночный пакет
+            // Single packet
             packetType = PacketType::SingleData;
         }
         
-        // Создаем и отправляем пакет
+        // Create and send the packet
         if (SendCurrentPacket(packetType, packetData, fragmentIndex, totalFragments)) {
             waitingForAck = true;
             lastPacketTime = processCounter;
@@ -318,7 +318,7 @@ private:
 
     // Send current packet with given parameters
     bool SendCurrentPacket(PacketType type, std::span<const uint8> data, uint16 fragmentIndex, uint16 totalFragments) {
-        // Создаем заголовок
+        // Create the header
         PacketHeader header;
         header.packetNumber = currentPacketNumber++;
         header.type = type;
@@ -327,40 +327,40 @@ private:
         header.totalFragments = totalFragments;
         header.fragmentIndex = fragmentIndex;
         
-        // Собираем пакет
+        // Assemble the packet
         std::array<uint8, MaxPacketSize> packetBuffer;
         size_t offset = 0;
         
-        // Копируем заголовок
+        // Copy the header
         std::memcpy(packetBuffer.data(), &header, sizeof(PacketHeader));
         offset += sizeof(PacketHeader);
         
-        // Копируем данные
+        // Copy the data
         if (data.size() > 0) {
             std::memcpy(packetBuffer.data() + offset, data.data(), data.size());
             offset += data.size();
         }
         
-        // Добавляем CRC
+        // Append the CRC
         uint16 crc = CalculateCRC16(std::span<const uint8>(packetBuffer.data(), offset));
         std::memcpy(packetBuffer.data() + offset, &crc, sizeof(uint16));
         offset += sizeof(uint16);
         
-        // Отправляем через callback
+        // Send via callback
         return transmitCallback(std::span<const uint8>(packetBuffer.data(), offset));
     }
 
 
-    // Старые методы отключены в streaming архитектуре
+    // Old methods are disabled in the streaming architecture
 private:
     // Send single packet (deprecated in streaming mode)
     SendResult SendSingle(std::span<const uint8> data, PacketType type, const SendOptions& options) {
-        return {SendStatus::BufferFull, 0, 0}; // Не используется
+        return {SendStatus::BufferFull, 0, 0}; // Not used
     }
 
     // Send fragment stream (deprecated - replaced by streaming Send())
     SendResult SendStream(std::span<const uint8> data, const SendOptions& options) {
-        return {SendStatus::BufferFull, 0, 0}; // Не используется
+        return {SendStatus::BufferFull, 0, 0}; // Not used
     }
 
 
@@ -385,7 +385,7 @@ private:
         packet.requiresAck = true;
         packet.options = options;
 
-        // Старый метод больше не используется в streaming архитектуре
+        // The old method is no longer used in the streaming architecture
         packet.dataSpan = data;
         packet.sentBytes = 0;
 
@@ -417,7 +417,7 @@ private:
         packet.requiresAck = requiresAck;
         packet.options = options;
 
-        // Старый метод больше не используется в streaming архитектуре
+        // The old method is no longer used in the streaming architecture
         packet.dataSpan = data;
         packet.sentBytes = 0;
 
@@ -699,25 +699,25 @@ private:
 
 
     void HandleAckNack(const PacketHeader& header, std::span<const uint8> payload) {
-        // Обрабатываем ACK/NACK для streaming отправки
+        // Handle ACK/NACK for streaming sends
         if (isBusy && waitingForAck) {
             if (header.type == PacketType::Ack) {
-                // ACK получен - продвигаем streaming
+                // ACK received - advance the stream
                 size_t packetSize = std::min(static_cast<size_t>(MAX_PAYLOAD_SIZE), 
                                            currentDataSpan.size() - currentSentBytes);
                 currentSentBytes += packetSize;
                 waitingForAck = false;
                 
-                // Следующий пакет будет отправлен в следующем Process()
+                // The next packet is sent in the next Process()
             } else if (header.type == PacketType::Nack) {
-                // NACK - повторяем текущий пакет
+                // NACK - resend the current packet
                 waitingForAck = false;
-                // Не увеличиваем currentSentBytes - повторим тот же пакет
+                // Do not advance currentSentBytes - the same packet is resent
             }
             return;
         }
         
-        // Обрабатываем ACK/NACK для старых одиночных пакетов
+        // Handle ACK/NACK for old single packets
         RingBuffer<PendingPacket, 16> tempQueue;
         bool found = false;
 
@@ -751,10 +751,10 @@ private:
 
 
     void SendAck(uint16 originalPacketNumber) {
-        // ACK должен использовать номер исходного пакета, НЕ увеличивать счетчик!
+        // ACK must use the original packet number, NOT increment the counter!
         SendOptions defaultOptions;
         SendSinglePacket(
-            originalPacketNumber,  // Используем оригинальный номер пакета
+            originalPacketNumber,  // Use the original packet number
             PacketType::Ack,
             {},
             false,
@@ -764,10 +764,10 @@ private:
 
 
     void SendNack(uint16 originalPacketNumber) {
-        // NACK также должен использовать номер исходного пакета
+        // NACK must also use the original packet number
         SendOptions defaultOptions;
         SendSinglePacket(
-            originalPacketNumber,  // Используем оригинальный номер пакета
+            originalPacketNumber,  // Use the original packet number
             PacketType::Nack,
             {},
             false,

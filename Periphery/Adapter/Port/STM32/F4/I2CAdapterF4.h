@@ -67,62 +67,62 @@ public:
 		uint32_t I2C_Time;
 		bool Tmp1, Tmp2;
 
-		// Ждём сброса флага BUSY
+		// Wait for the BUSY flag to clear
 		I2C_Time = System::GetTick();
 		if (_isBusyFlag(SET) != ResultStatus::ok) return ResultStatus::busy;
 
-		// Включаем передатчик
+		// Enable the transmitter
 		if ((i2cHandle->CR1 & I2C_CR1_PE) != I2C_CR1_PE) i2cHandle->CR1 |= I2C_CR1_PE;
 
-		// Отключаем POS
+		// Disable POS
 		i2cHandle->CR1 &= ~I2C_CR1_POS;
 
 		do {
-			// Стартуем
+			// Start
 			i2cHandle->CR1 |= I2C_CR1_START;
 
 			I2C_Time = System::GetTick();
 			if (_isSB_Flag(RESET) != ResultStatus::ok) return ResultStatus::error;
 
-			// Выплёвываем адрес со сброшенным битом RD
+			// Send the address with the RD bit cleared
 			i2cHandle->DR = (uint8_t) (device << 1) & ~1U;
 
 			I2C_Time = System::GetTick();
 			Tmp1 = i2cHandle->SR1 & I2C_SR1_ADDR;
 			Tmp2 = i2cHandle->SR1 & I2C_SR1_AF;
 
-			// Пока нет флагов, ждём
+			// No flags yet, keep waiting
 			while ((Tmp1 == 0) && (Tmp2 == 0)) {
 				if (System::GetTick() > (I2C_Time + timeout)) break;
 				Tmp1 = i2cHandle->SR1 & I2C_SR1_ADDR;
 				Tmp2 = i2cHandle->SR1 & I2C_SR1_AF;
 			}
 
-			// Если флаг ADDR всё таки был
+			// If the ADDR flag was set after all
 			if (i2cHandle->SR1 & I2C_SR1_ADDR) {
-				// Посылаем STOP
+				// Send STOP
 				i2cHandle->CR1 |= I2C_CR1_STOP;
 
-				// Чистим флаги
+				// Clear the flags
 				(void) i2cHandle->SR1;
 				(void) i2cHandle->SR2;
 
 				I2C_Time = System::GetTick();
 				while (i2cHandle->SR2 & I2C_SR2_BUSY) {
-					// Если флаг BUSY установлен, а время вышло, это ошибка
+					// If BUSY is still set and the time is up, this is an error
 					if (System::GetTick() > (I2C_Time + timeout)) return ResultStatus::busy;
 				}
 				return ResultStatus::ok;
 			} else {
-				// Флага ADDR не было, посылаем STOP
+				// The ADDR flag was not set, send STOP
 				i2cHandle->CR1 |= I2C_CR1_STOP;
 
-				// Сбрасываем флаг AF
+				// Clear the AF flag
 				i2cHandle->SR1 &= ~I2C_SR1_AF;
 
 				I2C_Time = System::GetTick();
 				while (i2cHandle->SR2 & I2C_SR2_BUSY) {
-					// Если флаг BUSY установлен, а время вышло, это ошибка
+					// If BUSY is still set and the time is up, this is an error
 					if (System::GetTick() > (I2C_Time + timeout)) return ResultStatus::busy;
 				}
 			}
@@ -413,7 +413,7 @@ public:
 					readData++;
 					dataSize--;
 					Count--;
-				} else { // Три байта
+				} else { // Three bytes
 					if (_isBTF_Flag(RESET) != ResultStatus::ok) return ResultStatus::error;
 					i2cHandle->CR1 &= ~I2C_CR1_ACK;
 					*readData = (uint8_t) i2cHandle->DR;

@@ -217,7 +217,7 @@ Notes on the example:
 
 - `ReadBody()` reads the chunked body; `Feed()` sees the SSE bytes as they arrive, so each token is printed when its packet arrives.
 - `data == "[DONE]"` is the end marker; the last `ReadBody()` status is `ok` when the server finished the chunked body.
-- The JSON calls are the nested-access functions of [JSON](../../../../Utilities/Serialization/JSON/JSON.md#nested-access-getraw-and-getarrayelement): `GetRaw()` for `choices` and `delta`, `GetArrayElement()` for index 0, `GetString()` for `content`. `"Привет"` is the UTF-8 bytes of the Cyrillic text and arrives unchanged.
+- The JSON calls are the nested-access functions of [JSON](../../../../Utilities/Serialization/JSON/JSON.md#nested-access-getraw-and-getarrayelement): `GetRaw()` for `choices` and `delta`, `GetArrayElement()` for index 0, `GetString()` for `content`. `"Grüße"` is UTF-8 text with multi-byte characters and arrives unchanged.
 - The `static` heap here is only for the example. The application chooses its own heap; the one-time heap of this example is 8 KiB, large enough for a header block and the event buffers of this stream.
 - For a stream with a longer event, raise the `ServerSentEvents` limit (here 4096) or the drop shows up as an `outOfRange` from `Feed()`.
 

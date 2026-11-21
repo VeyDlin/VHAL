@@ -20,9 +20,9 @@ public:
 
 
 	virtual void AbortReceive() override {
-		LL_USART_DisableIT_RXNE(uartHandle); 	// Прерывание по факту приема данных
-		LL_USART_DisableIT_PE(uartHandle); 		// Прерывание по факту ошибки четности
-		LL_USART_DisableIT_ERROR(uartHandle); 	// Прерывание по факту ошибки (Frame error, noise error, overrun error)
+		LL_USART_DisableIT_RXNE(uartHandle); 	// receive data interrupt
+		LL_USART_DisableIT_PE(uartHandle); 		// parity error interrupt
+		LL_USART_DisableIT_ERROR(uartHandle); 	// error interrupt (Frame error, noise error, overrun error)
 
 		continuousAsyncRxMode = false;
 		rxDataCounter = 0;
@@ -36,8 +36,8 @@ public:
 
 
 	virtual void AbortTransmit() override {
-		LL_USART_DisableIT_TXE(uartHandle);		// Прерывание по опустошению регистра передачи
-		LL_USART_DisableIT_TC(uartHandle);		// Прерывание по окончанию передачи
+		LL_USART_DisableIT_TXE(uartHandle);		// transmit register empty interrupt
+		LL_USART_DisableIT_TC(uartHandle);		// transmission complete interrupt
 
 		txDataCounter = 0;
 		txDataNeed = 0;
@@ -169,7 +169,7 @@ protected:
 		txDataNeed = size;
 		txDataCounter = 0;
 
-		LL_USART_EnableIT_TXE(uartHandle);	// Прерывание по опустошению регистра передачи
+		LL_USART_EnableIT_TXE(uartHandle);	// transmit register empty interrupt
 
 		return ResultStatus::ok;
 	}
@@ -188,9 +188,9 @@ protected:
 		rxDataNeed = size;
 		rxDataCounter = 0;
 
-		LL_USART_EnableIT_PE(uartHandle);		// Прерывание по факту ошибки четности
-		LL_USART_EnableIT_RXNE(uartHandle);		// Прерывание по факту приема данных
-		LL_USART_EnableIT_ERROR(uartHandle);	// Прерывание по факту ошибки (Frame error, noise error, overrun error)
+		LL_USART_EnableIT_PE(uartHandle);		// parity error interrupt
+		LL_USART_EnableIT_RXNE(uartHandle);		// receive data interrupt
+		LL_USART_EnableIT_ERROR(uartHandle);	// error interrupt (Frame error, noise error, overrun error)
 
 		return ResultStatus::ok;
 	}
@@ -210,9 +210,9 @@ protected:
 
 		rxState = ResultStatus::busy;
 
-		LL_USART_EnableIT_PE(uartHandle);		// Прерывание по факту ошибки четности
-		LL_USART_EnableIT_RXNE(uartHandle);		// Прерывание по факту приема данных
-		LL_USART_EnableIT_ERROR(uartHandle);	// Прерывание по факту ошибки (Frame error, noise error, overrun error)
+		LL_USART_EnableIT_PE(uartHandle);		// parity error interrupt
+		LL_USART_EnableIT_RXNE(uartHandle);		// receive data interrupt
+		LL_USART_EnableIT_ERROR(uartHandle);	// error interrupt (Frame error, noise error, overrun error)
 
 		return ResultStatus::ok;
 	}
@@ -226,9 +226,9 @@ protected:
 			return ResultStatus::notAvailable;
 		}
 
-		LL_USART_DisableIT_PE(uartHandle); 		// Прерывание по факту ошибки четности
-		LL_USART_DisableIT_RXNE(uartHandle); 	// Прерывание по факту приема данных
-		LL_USART_DisableIT_ERROR(uartHandle); 	// Прерывание по факту ошибки (Frame error, noise error, overrun error)
+		LL_USART_DisableIT_PE(uartHandle); 		// parity error interrupt
+		LL_USART_DisableIT_RXNE(uartHandle); 	// receive data interrupt
+		LL_USART_DisableIT_ERROR(uartHandle); 	// error interrupt (Frame error, noise error, overrun error)
 		rxState = ResultStatus::ready;
 
 		return ResultStatus::ok;
@@ -280,9 +280,9 @@ private:
 			return;
 		}
 
-		LL_USART_DisableIT_PE(uartHandle); 		// Прерывание по факту ошибки четности
-		LL_USART_DisableIT_RXNE(uartHandle); 	// Прерывание по факту приема данных
-		LL_USART_DisableIT_ERROR(uartHandle); 	// Прерывание по факту ошибки (Frame error, noise error, overrun error)
+		LL_USART_DisableIT_PE(uartHandle); 		// parity error interrupt
+		LL_USART_DisableIT_RXNE(uartHandle); 	// receive data interrupt
+		LL_USART_DisableIT_ERROR(uartHandle); 	// error interrupt (Frame error, noise error, overrun error)
 
 		rxState = ResultStatus::ready;
 
@@ -309,8 +309,8 @@ private:
 			return;
 		}
 
-		LL_USART_DisableIT_TXE(uartHandle); 	// Прерывание по опустошению регистра передачи
-		LL_USART_EnableIT_TC(uartHandle); 		// Прерывание по окончанию передачи
+		LL_USART_DisableIT_TXE(uartHandle); 	// transmit register empty interrupt
+		LL_USART_EnableIT_TC(uartHandle); 		// transmission complete interrupt
 	}
 
 
@@ -322,8 +322,8 @@ private:
 			return;
 		}
 
-		LL_USART_ClearFlag_TC(uartHandle); 		// Прерывание по окончанию передачи
-		LL_USART_DisableIT_TC(uartHandle);		// Прерывание по окончанию передачи
+		LL_USART_ClearFlag_TC(uartHandle); 		// transmission complete interrupt
+		LL_USART_DisableIT_TC(uartHandle);		// transmission complete interrupt
 
 		txState = ResultStatus::ready;
 

@@ -76,7 +76,7 @@ public:
 
 public:
 	virtual ResultStatus StartSlaveListen() {
-		LL_I2C_SetOwnAddress1(i2cHandle, parameters.slaveAddress, LL_I2C_OWNADDRESS1_7BIT); // TODO: Добавить LL_I2C_OWNADDRESS1_7BIT
+		LL_I2C_SetOwnAddress1(i2cHandle, parameters.slaveAddress, LL_I2C_OWNADDRESS1_7BIT); // TODO: make the own address size (7 or 10 bits) a parameter; 7 bits is fixed here
 		LL_I2C_EnableOwnAddress1(i2cHandle);
 		LL_I2C_EnableIT_ADDR(i2cHandle);
 		LL_I2C_EnableIT_NACK(i2cHandle);
@@ -203,12 +203,12 @@ protected:
 
 		LL_I2C_InitTypeDef init = {
 			.PeripheralMode = LL_I2C_MODE_I2C,
-			.Timing = 0x10B00000, // TODO: Добавить расчет с I2C_Timing_Configuration_V1.0.1
-			.AnalogFilter = LL_I2C_ANALOGFILTER_ENABLE, // TODO: Добавить
-			.DigitalFilter = parameters.digitalFilter, // TODO: Добавить проверку
+			.Timing = 0x10B00000, // TODO: compute this with I2C_Timing_Configuration_V1.0.1
+			.AnalogFilter = LL_I2C_ANALOGFILTER_ENABLE, // TODO: make the analog filter a parameter; it is always on here
+			.DigitalFilter = parameters.digitalFilter, // TODO: add a check of the digital filter value
 			.OwnAddress1 = parameters.slaveAddress,
 			.TypeAcknowledge = LL_I2C_ACK,
-			.OwnAddrSize = LL_I2C_OWNADDRESS1_7BIT // TODO: Добавить
+			.OwnAddrSize = LL_I2C_OWNADDRESS1_7BIT // TODO: make the own address size a parameter (StartSlaveListen() fixes 7 bits too)
 		};
 
 		LL_I2C_Init(i2cHandle, &init);

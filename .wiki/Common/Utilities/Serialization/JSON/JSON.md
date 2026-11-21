@@ -127,7 +127,7 @@ w.StartObject()
 | anything else, including UTF-8 multi-byte sequences | unchanged |
 
 ```cpp
-w.String("Привет");                  // "Привет"
+w.String("Grüße");                   // "Grüße"
 w.String("a\"b\\c\n");               // "a\"b\\c\n"
 ```
 
@@ -345,7 +345,7 @@ The xAI streaming chat chunk shows the pattern. The content of the first choice 
 ```cpp
 // data: {"id":"94dbec57-...","object":"chat.completion.chunk","created":1794956456,
 //        "model":"grok-4.20-0309-non-reasoning",
-//        "choices":[{"index":0,"delta":{"content":"Привет"}}]}
+//        "choices":[{"index":0,"delta":{"content":"Grüße"}}]}
 std::string_view chunk = /* one SSE data payload */;
 
 std::string_view choice = JSON::GetArrayElement(JSON::GetRaw(chunk, "choices"), 0);
@@ -354,16 +354,16 @@ std::string_view delta = JSON::GetRaw(choice, "delta");
 std::array<char, 32> text{};
 size_t textLength = 0;
 if (JSON::GetString(delta, "content", std::span(text), textLength)) {
-    // text[0..textLength) == "Привет" (UTF-8)
+    // text[0..textLength) == "Grüße" (UTF-8)
 }
 ```
 
 A transcript event works the same way. Top-level keys are read with the same calls, and array elements by index:
 
 ```cpp
-// {"type":"transcript.partial","text":"Привет, сколько сейчас времени в Токио?",
-//  "words":[{"text":"Привет,","start":0.021,"end":0.442},{"text":"сколько","start":0.784,"end":1.105}],
-//  "is_final":true,"speech_final":false,"start":0.001,"duration":2.549,"language":"ru"}
+// {"type":"transcript.partial","text":"Hello, what time is it in Tokyo?",
+//  "words":[{"text":"Hello,","start":0.021,"end":0.442},{"text":"what","start":0.784,"end":1.105}],
+//  "is_final":true,"speech_final":false,"start":0.001,"duration":2.549,"language":"en"}
 bool speechFinal = true;
 JSON::GetBool(json, "speech_final", speechFinal);  // false
 
