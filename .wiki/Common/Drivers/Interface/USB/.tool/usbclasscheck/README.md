@@ -19,9 +19,11 @@ tool, before the review fixes of round five, gave these results:
 
 The round-five fixes are not yet run on a board: the process runner checks its deadline on every pass, the vendor round trip ends a
 request that does not complete with a bounded wait and a cancel (and keeps the memory of a request that still does not end), the dfu
-upload file has a random name and is deleted only when it was free before the run, the volume label is compared as UTF-8, and the
-microphone drain stops at its deadline. The audio changes of the same round were run on a board with the current build: audio passed, with raw streams on the microphone and the speaker, and both recordings had the start flag on the first packet after Start and no other discontinuity. Run the checks again before relying on these, and treat a first failure as a question about the
-check as well as about the board.
+upload file is made in a folder of its own, created for the run, and only the file dfu-util creates there is deleted, the volume
+label is compared as UTF-8, and the microphone drain stops at its deadline. The audio changes of the same round were run on a board
+with the current build: audio passed, with raw streams on the microphone and the speaker, and both recordings had the start flag on
+the first packet after Start and no other discontinuity. Run the checks again before relying on these, and treat a first failure
+as a question about the check as well as about the board.
 
 ## Build
 
@@ -148,11 +150,15 @@ file's.
 - Changes on the board: the download writes the DFU region, the top 32 KB of flash (`0x08018000` to `0x0801FFFF`). The region's
   old contents are lost. The demo image is not touched, because the image ends below the region. The upload does not change
   the board.
-- Changes on the PC: two files are named in the Windows temp folder, `usbclasscheck-dfu-<process ID>-<tick count>-<random number>-download.bin`
-  and `usbclasscheck-dfu-<process ID>-<tick count>-<random number>-upload.bin`. The random number comes from the system's random device. The download file is created by the check, new, so a file that already
-  exists is never overwritten. The upload file is not created by the check: dfu-util 0.11 opens its upload file exclusively and refuses
-  one that exists. So the check first confirms that the upload path is free (a path that is taken is an `upload` error, and no upload
-  runs), lets dfu-util create the file, and deletes it after the run if it exists then. Only the files this run created are deleted.
+- Changes on the PC: one file and one folder in the Windows temp folder:
+  - the file `usbclasscheck-dfu-<process ID>-<tick count>-<random number>-download.bin`;
+  - the folder `usbclasscheck-dfu-<process ID>-<tick count>-<random number>`, which holds `upload.bin`.
+
+  The random number comes from the system's random device. The check creates the download file as a new file, so a file
+  that already exists is never overwritten. The folder is created new as well (`CreateDirectoryW` refuses one that exists),
+  so no other process is likely to have a file in it. The check does not create the upload file: dfu-util 0.11 opens its
+  upload file exclusively and refuses one that exists, so dfu-util creates it. After the run the check deletes the upload
+  file if it exists, then removes the empty folder. Only the files and folders this run created are deleted.
 - The temp folder is found with the wide API, so a Windows user folder with characters outside ASCII gives a working path.
 - dfu-util must be installed, and WinUSB is bound to the board by the demo's MS OS 2.0 descriptors, so no Zadig step is needed.
   The version used so far is 0.11. A board that is not in DFU mode is reported as a device problem (exit 1).

@@ -34,6 +34,10 @@ Parameters:
 - `prior` — thread priority (default: `ThreadPriority::normal`)
 - `pName` — debug name visible in FreeRTOS-aware debuggers (default: `NULL`)
 
+A `ThreadStatic<N>` needs `configSUPPORT_STATIC_ALLOCATION` set to 1 in `FreeRTOSConfig.h`. With 0, `CreateThread(thread)` for a `ThreadStatic` does not compile: the wrapper's static branch has a `static_assert` that names the setting. A `Thread<N>` needs `configSUPPORT_DYNAMIC_ALLOCATION` (the default) instead.
+
+With `configSUPPORT_STATIC_ALLOCATION` set to 1, FreeRTOS takes the memory of the idle task from the application, and of the timer task when `configUSE_TIMERS` is 1. Define `vApplicationGetIdleTaskMemory()` and, with `configUSE_TIMERS` at 1, `vApplicationGetTimerTaskMemory()`, with the signatures in the kernel's `task.h` and `timers.h`, as the STM32G0 demo does in `Application/Application.cpp`. The link fails without them.
+
 ## Priority Levels
 
 Priorities are numeric values. Higher number = higher priority = runs first when multiple threads are ready.

@@ -233,7 +233,8 @@ void CheckFeatureReports() {
 	// The get delegate fills the report, ID byte included: 4 bytes for feature 2.
 	Answer feature = In(unsetSim, ReportRequest(true, GetReport, TypeFeature, 2, 4));
 	SIM_EXPECT_EQ(feature.status, ResultStatus::ok);
-	SIM_EXPECT_BYTES(feature.data, Bytes({ 0x02, 0xA1, 0xA2, 0xA3 }));
+	constexpr std::array<uint8, 4> FeatureReport = { 0x02, 0xA1, 0xA2, 0xA3 };
+	SIM_EXPECT_BYTES(feature.data, FeatureReport);
 	SIM_EXPECT_EQ(record.featureGets, 1);
 
 	std::array<uint8, 4> set = { 0x02, 0x07, 0x08, 0x09 };

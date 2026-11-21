@@ -27,10 +27,46 @@ struct EventLog {
 	uint32 resumes = 0;
 	uint32 frames = 0;
 	uint16 lastFrame = 0;
+	SimUSBDeviceAdapter* sim = nullptr;
 
 
 	bool AnyOverflow() const {
 		return completionAddresses.overflowed || completionCounts.overflowed || errors.overflowed || order.overflowed;
+	}
+
+
+	void OnBusReset(USBSpeed) {
+		busResets++;
+	}
+
+
+	void OnSetup(const USBSetupBytes&) {
+		setups++;
+	}
+
+
+	void OnTransferComplete(uint8 address, uint32 byteCount) {
+		completionAddresses.Push(address);
+		completionCounts.Push(byteCount);
+		order.Push('C');
+		addressAtCompletion = sim->GetAddress();
+	}
+
+
+	void OnError(SimUSBDeviceAdapter::Error error) {
+		errors.Push(error);
+		order.Push('E');
+	}
+
+
+	void OnResume() {
+		resumes++;
+	}
+
+
+	void OnStartOfFrame(uint16 frameNumber) {
+		frames++;
+		lastFrame = frameNumber;
 	}
 };
 
@@ -41,34 +77,13 @@ bool OrderIs(const EventLog& log, std::string_view expected) {
 
 
 void Attach(SimUSBDeviceAdapter& sim, EventLog& log) {
-	sim.onBusReset = [&log](USBSpeed) {
-		log.busResets++;
-	};
-
-	sim.onSetup = [&log](const USBSetupBytes&) {
-		log.setups++;
-	};
-
-	sim.onTransferComplete = [&sim, &log](uint8 address, uint32 byteCount) {
-		log.completionAddresses.Push(address);
-		log.completionCounts.Push(byteCount);
-		log.order.Push('C');
-		log.addressAtCompletion = sim.GetAddress();
-	};
-
-	sim.onError = [&log](SimUSBDeviceAdapter::Error error) {
-		log.errors.Push(error);
-		log.order.Push('E');
-	};
-
-	sim.onResume = [&log]() {
-		log.resumes++;
-	};
-
-	sim.onStartOfFrame = [&log](uint16 frameNumber) {
-		log.frames++;
-		log.lastFrame = frameNumber;
-	};
+	log.sim = &sim;
+	sim.onBusReset = VSTD::Delegate<void(USBSpeed)>::Bind<EventLog, &EventLog::OnBusReset>(&log);
+	sim.onSetup = VSTD::Delegate<void(const USBSetupBytes&)>::Bind<EventLog, &EventLog::OnSetup>(&log);
+	sim.onTransferComplete = VSTD::Delegate<void(uint8, uint32)>::Bind<EventLog, &EventLog::OnTransferComplete>(&log);
+	sim.onError = VSTD::Delegate<void(SimUSBDeviceAdapter::Error)>::Bind<EventLog, &EventLog::OnError>(&log);
+	sim.onResume = VSTD::Delegate<void()>::Bind<EventLog, &EventLog::OnResume>(&log);
+	sim.onStartOfFrame = VSTD::Delegate<void(uint16)>::Bind<EventLog, &EventLog::OnStartOfFrame>(&log);
 }
 
 

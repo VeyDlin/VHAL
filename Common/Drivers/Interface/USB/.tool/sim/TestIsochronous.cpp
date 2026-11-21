@@ -55,22 +55,29 @@ struct IsoEvents {
 	FixedList<uint32, 32> completionCounts;
 	FixedList<SimUSBDeviceAdapter::Error, 8> errors;
 	FixedList<uint16, 32> frames;
+
+
+	void OnTransferComplete(uint8 address, uint32 byteCount) {
+		completionAddresses.Push(address);
+		completionCounts.Push(byteCount);
+	}
+
+
+	void OnError(SimUSBDeviceAdapter::Error error) {
+		errors.Push(error);
+	}
+
+
+	void OnStartOfFrame(uint16 frameNumber) {
+		frames.Push(frameNumber);
+	}
 };
 
 
 void Attach(SimUSBDeviceAdapter& sim, IsoEvents& events) {
-	sim.onTransferComplete = [&events](uint8 address, uint32 byteCount) {
-		events.completionAddresses.Push(address);
-		events.completionCounts.Push(byteCount);
-	};
-
-	sim.onError = [&events](SimUSBDeviceAdapter::Error error) {
-		events.errors.Push(error);
-	};
-
-	sim.onStartOfFrame = [&events](uint16 frameNumber) {
-		events.frames.Push(frameNumber);
-	};
+	sim.onTransferComplete = VSTD::Delegate<void(uint8, uint32)>::Bind<IsoEvents, &IsoEvents::OnTransferComplete>(&events);
+	sim.onError = VSTD::Delegate<void(SimUSBDeviceAdapter::Error)>::Bind<IsoEvents, &IsoEvents::OnError>(&events);
+	sim.onStartOfFrame = VSTD::Delegate<void(uint16)>::Bind<IsoEvents, &IsoEvents::OnStartOfFrame>(&events);
 }
 
 
@@ -106,23 +113,31 @@ struct IsoStream {
 	std::array<std::array<uint8, PacketSize>, 3> hostOut{};
 	std::size_t nextIn = 0;
 	std::size_t nextOut = 0;
+	SimUSBDeviceAdapter* sim = nullptr;
+	IsoEvents* events = nullptr;
+
+
+	// The completion records the event, then arms the next packet of the stream in the same direction.
+	void OnTransferComplete(uint8 address, uint32 byteCount) {
+		events->completionAddresses.Push(address);
+		events->completionCounts.Push(byteCount);
+		if (address == InAddress && nextIn < packets.size()) {
+			sim->StartInTransfer(InAddress, packets[nextIn], false);
+			nextIn++;
+		}
+
+		if (address == OutAddress && nextOut < sinks.size()) {
+			sim->StartOutTransfer(OutAddress, sinks[nextOut]);
+			nextOut++;
+		}
+	}
 };
 
 
 void AttachStream(SimUSBDeviceAdapter& sim, IsoEvents& events, IsoStream& stream) {
-	sim.onTransferComplete = [&sim, &events, &stream](uint8 address, uint32 byteCount) {
-		events.completionAddresses.Push(address);
-		events.completionCounts.Push(byteCount);
-		if (address == InAddress && stream.nextIn < stream.packets.size()) {
-			sim.StartInTransfer(InAddress, stream.packets[stream.nextIn], false);
-			stream.nextIn++;
-		}
-
-		if (address == OutAddress && stream.nextOut < stream.sinks.size()) {
-			sim.StartOutTransfer(OutAddress, stream.sinks[stream.nextOut]);
-			stream.nextOut++;
-		}
-	};
+	stream.sim = &sim;
+	stream.events = &events;
+	sim.onTransferComplete = VSTD::Delegate<void(uint8, uint32)>::Bind<IsoStream, &IsoStream::OnTransferComplete>(&stream);
 }
 
 

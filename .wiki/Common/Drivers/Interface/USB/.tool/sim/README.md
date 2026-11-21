@@ -17,7 +17,9 @@ non-zero when a test fails to build or any check fails. It works in Git Bash on 
 
 - `SimUSBDeviceAdapter.h`: the simulated controller. Injections (bus reset, SETUP, suspend, resume, errors) and host
   transactions (`HostIn`, `HostOut`) run the events they cause before they return.
-- `shim/VHAL.h`: the PC stand-in for the VHAL umbrella header. It defines the `System` functions the tests reach.
+- `shim/VHAL.h`: the PC stand-in for the VHAL umbrella header. It defines the `System` functions the tests reach. The tick is
+  the port's unit: a 64-bit count of milliseconds (`msPerTick` 1), read from the wall clock here, since the shim has no SysTick.
+  The port assumes the application calls `TickHandler()` once per millisecond; the shim's unit assumes the same. Each read also sets the low 32 bits that `GetTick32()` returns.
 - `SimAssert.h`: `SIM_EXPECT` and `SIM_EXPECT_EQ`, with `SimTest::Finish()` for the exit code.
 - `FixedList.h`: a fixed-capacity list for the records the tests keep. The callbacks run in interrupt context, so the
   tests never allocate; a list that is full sets its overflow flag.
@@ -33,6 +35,13 @@ non-zero when a test fails to build or any check fails. It works in Git Bash on 
 - `TestConfiguration.cpp`: SET_CONFIGURATION (0, repeated, unknown, a failing `OnConfigured`), GET_CONFIGURATION,
   GET_INTERFACE and SET_INTERFACE.
 - `TestPowerState.cpp`: suspend, resume and remote wakeup, enabled and not enabled, and a bus reset clearing the flag.
+- `TestSetFeatureRequest.cpp`: SET_FEATURE and CLEAR_FEATURE with the wrong shape, and the status stage of an accepted request:
+  a zero-length IN on 0x80 with no OUT armed, the remote wakeup flag set once it has started, and the endpoint halt in place
+  before the host takes it.
+- `TestBenchModes.cpp`: the bench's IN modes (Source, SourceAndSink, Loopback) against a bus reset at each point of the commit
+  of a completed stage: inside the claim after the host's read, before the commit, and after it. The completed stage is
+  counted once and never sent again, and the new session starts at the first unsent byte (Source) or from an empty loopback
+  ring (Loopback).
 - `TestRouting.cpp`: class and vendor requests and bulk completions routed to the owning function.
 - `TestVendorBulk.cpp`: the vendor bulk function's buffered FIFOs at their limits: a full OUT FIFO that NAKs the rest, an
   empty IN FIFO, a wrap-around, a transfer ending on a 64-byte boundary, and a zero-length packet.

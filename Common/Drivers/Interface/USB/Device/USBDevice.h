@@ -99,12 +99,12 @@ public:
 	// object. Stop() must have run and the USB interrupt must be disabled before the object is destroyed: the destructor
 	// does not touch the hardware and cannot enter a critical section.
 	~USBDevice() {
-		adapter.onBusReset = nullptr;
-		adapter.onSetup = nullptr;
-		adapter.onTransferComplete = nullptr;
-		adapter.onSuspend = nullptr;
-		adapter.onResume = nullptr;
-		adapter.onError = nullptr;
+		adapter.onBusReset.Reset();
+		adapter.onSetup.Reset();
+		adapter.onTransferComplete.Reset();
+		adapter.onSuspend.Reset();
+		adapter.onResume.Reset();
+		adapter.onError.Reset();
 	}
 
 
@@ -363,36 +363,20 @@ private:
 
 
 	// Subscribes the six events the core owns, once, before the first Connect(). They are assigned here and never replaced
-	// while the device is alive, because a std::function the interrupt may be running must not be replaced. Only the
-	// destructor clears them, under the precondition stated there. The handlers ignore events while the device is stopped.
+	// while the device is alive, because a delegate the interrupt may be calling must not be replaced. Only the destructor
+	// clears them, under the precondition stated there. The handlers ignore events while the device is stopped.
 	void SubscribeEvents() {
-		adapter.onBusReset = [this](USBSpeed) {
-			HandleBusReset();
-		};
-
-		adapter.onSetup = [this](const USBSetupBytes& setup) {
-			HandleSetup(setup);
-		};
-
-		adapter.onTransferComplete = [this](uint8 endpointAddress, uint32 byteCount) {
-			HandleTransferComplete(endpointAddress, byteCount);
-		};
-
-		adapter.onSuspend = [this]() {
-			HandleSuspend();
-		};
-
-		adapter.onResume = [this]() {
-			HandleResume();
-		};
-
-		adapter.onError = [this](USBDeviceAdapter::Error error) {
-			HandleError(error);
-		};
+		adapter.onBusReset = VSTD::Delegate<void(USBSpeed)>::Bind<USBDevice, &USBDevice::HandleBusReset>(this);
+		adapter.onSetup = VSTD::Delegate<void(const USBSetupBytes&)>::Bind<USBDevice, &USBDevice::HandleSetup>(this);
+		adapter.onTransferComplete = VSTD::Delegate<void(uint8, uint32)>::Bind<USBDevice, &USBDevice::HandleTransferComplete>(this);
+		adapter.onSuspend = VSTD::Delegate<void()>::Bind<USBDevice, &USBDevice::HandleSuspend>(this);
+		adapter.onResume = VSTD::Delegate<void()>::Bind<USBDevice, &USBDevice::HandleResume>(this);
+		adapter.onError = VSTD::Delegate<void(USBDeviceAdapter::Error)>::Bind<USBDevice, &USBDevice::HandleError>(this);
 	}
 
 
-	void HandleBusReset() {
+	// The speed comes with the event. The core does not use it, so the handler leaves it unnamed.
+	void HandleBusReset(USBSpeed) {
 		if (!started) {
 			return;
 		}

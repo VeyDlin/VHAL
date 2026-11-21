@@ -1232,6 +1232,8 @@ private:
 	// Reads the medium's presence and write protection while the function is idle. Only a CBW that arrives in the idle stage reads the
 	// cache, and a data stage does not need the medium's state again, so the calls are skipped during a command. IsPresent() may block,
 	// so the calls run outside every section. An eject during them makes the sample stale, and the sample is dropped.
+	// The cost: an idle Process() makes one IsPresent() and one IsReadOnly() call. A read at most once per interval would delay a medium
+	// change that the next Process() must see, so the reads stay on every idle Process().
 	void RefreshMedium() {
 		System::CriticalSection(true);
 		bool idle = stage == Stage::Idle;

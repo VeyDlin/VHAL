@@ -34,7 +34,7 @@ public:
 
 
 	// Counts one section out. Only the outermost leave unmasks, and only when the outermost enter found the interrupts enabled.
-	// A leave with no open section unmasks, as the ports always have.
+	// A leave with no open section unmasks and leaves the depth at zero.
 	static void Leave() {
 		if (depth == 0) {
 			TInterrupts::Enable();

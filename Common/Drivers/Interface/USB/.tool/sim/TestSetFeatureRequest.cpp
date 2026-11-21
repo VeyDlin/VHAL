@@ -121,6 +121,46 @@ void CheckEndpointWLengthRefused() {
 }
 
 
+// The status stage of an accepted SET_FEATURE is a zero-length IN on endpoint 0 and nothing else: no data stage, so no OUT is armed.
+// The device form sets the flag once that stage has started, and the endpoint form halts the endpoint before it. The request ends
+// only when the host takes the zero-length packet, and the completion reports 0x80 with no bytes.
+void CheckStatusStage() {
+	Fixture fixture;
+	fixture.Configure();
+
+	uint32 completionsBefore = fixture.sim.GetControlCompletionCount();
+	fixture.sim.InjectSetup(SimHost::MakeSetup(0x00, 3, 1, 0x0000, 0));
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(USBEndpoint::ControlIn));
+	SIM_EXPECT(!fixture.sim.HasArmedTransfer(USBEndpoint::ControlOut));
+	SIM_EXPECT(fixture.device.IsRemoteWakeupEnabled());
+	SIM_EXPECT_EQ(fixture.sim.GetControlCompletionCount(), completionsBefore);
+
+	uint32 received = 0;
+	SIM_EXPECT_EQ(fixture.sim.HostIn(USBEndpoint::ControlIn, std::span<uint8>(), received), ResultStatus::ok);
+	SIM_EXPECT_EQ(received, 0);
+	SIM_EXPECT_EQ(fixture.sim.GetControlCompletionCount(), completionsBefore + 1);
+	SimUSBDeviceAdapter::ControlCompletion deviceForm = fixture.sim.GetLastControlCompletion();
+	SIM_EXPECT_EQ(deviceForm.address, USBEndpoint::ControlIn);
+	SIM_EXPECT_EQ(deviceForm.byteCount, 0);
+
+	// The endpoint form: the halt is on before the status stage is armed, and the status completes with the host's read.
+	completionsBefore = fixture.sim.GetControlCompletionCount();
+	fixture.sim.InjectSetup(SimHost::MakeSetup(0x02, 3, 0, 0x0081, 0));
+	SIM_EXPECT(fixture.sim.IsStalled(0x81));
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(USBEndpoint::ControlIn));
+	SIM_EXPECT(!fixture.sim.HasArmedTransfer(USBEndpoint::ControlOut));
+	SIM_EXPECT_EQ(fixture.sim.GetControlCompletionCount(), completionsBefore);
+
+	SIM_EXPECT_EQ(fixture.sim.HostIn(USBEndpoint::ControlIn, std::span<uint8>(), received), ResultStatus::ok);
+	SIM_EXPECT_EQ(fixture.sim.GetControlCompletionCount(), completionsBefore + 1);
+	SimUSBDeviceAdapter::ControlCompletion endpoint = fixture.sim.GetLastControlCompletion();
+	SIM_EXPECT_EQ(endpoint.address, USBEndpoint::ControlIn);
+	SIM_EXPECT_EQ(endpoint.byteCount, 0);
+	SIM_EXPECT(fixture.sim.IsStalled(0x81));
+	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
+}
+
+
 }
 
 
@@ -128,5 +168,6 @@ int main() {
 	CheckDeviceWIndexRefused();
 	CheckDeviceWLengthRefused();
 	CheckEndpointWLengthRefused();
+	CheckStatusStage();
 	return SimTest::Finish("TestSetFeatureRequest");
 }

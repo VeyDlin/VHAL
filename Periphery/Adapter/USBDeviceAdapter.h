@@ -1,7 +1,7 @@
 #pragma once
 #include "IAdapter.h"
 #include <Adapter/Utilities/USBTypes.h>
-#include <functional>
+#include <Utilities/VSTD/utility/Delegate.h>
 #include <span>
 
 #define VHAL_USB_DEVICE_ADAPTER
@@ -128,29 +128,30 @@ public:
 
 
 	// Events. Assign them before Connect(). They run in interrupt context, so a handler must be short and must not block
-	// or allocate. A null function is skipped.
-	std::function<void(USBSpeed speed)> onBusReset;
+	// or allocate. A delegate is a function pointer with a context, made with VSTD::Delegate::Bind() on a member function; a
+	// lambda with captures does not fit. An empty delegate is skipped.
+	VSTD::Delegate<void(USBSpeed speed)> onBusReset;
 
 
-	std::function<void(const USBSetupBytes& setup)> onSetup;
+	VSTD::Delegate<void(const USBSetupBytes& setup)> onSetup;
 
 
 	// A transfer finished: byteCount is the bytes moved (sent for IN, stored for OUT, 0 for a zero-length packet). It fires
 	// after the hardware has finished the transfer, so the transfer is no longer in flight inside the callback, and the
 	// callback may arm the next transfer in the same direction. onError for the same transfer fires before it.
-	std::function<void(uint8 address, uint32 byteCount)> onTransferComplete;
+	VSTD::Delegate<void(uint8 address, uint32 byteCount)> onTransferComplete;
 
 
-	std::function<void()> onSuspend;
+	VSTD::Delegate<void()> onSuspend;
 
 
-	std::function<void()> onResume;
+	VSTD::Delegate<void()> onResume;
 
 
-	std::function<void(uint16 frameNumber)> onStartOfFrame;
+	VSTD::Delegate<void(uint16 frameNumber)> onStartOfFrame;
 
 
-	std::function<void(Error error)> onError;
+	VSTD::Delegate<void(Error error)> onError;
 
 
 protected:
@@ -226,7 +227,8 @@ public:
 	virtual ResultStatus OpenEndpoint(const EndpointConfig& config) = 0;
 
 
-	// Closes an endpoint and frees its memory. A transfer in flight is abandoned without a completion event. Returns
+	// Closes an endpoint and releases its transfer buffer: the packet memory that OpenEndpoint() reserved for it. The port keeps
+	// no use of that memory after the call. A transfer in flight is abandoned without a completion event. Returns
 	// invalidParameter for endpoint 0 and notExist for an endpoint that is not open. Callable from both contexts.
 	virtual ResultStatus CloseEndpoint(uint8 address) = 0;
 
@@ -327,49 +329,49 @@ protected:
 
 
 	virtual inline void CallBusReset(USBSpeed speed) {
-		if (onBusReset != nullptr) {
+		if (onBusReset) {
 			onBusReset(speed);
 		}
 	}
 
 
 	virtual inline void CallSetup(const USBSetupBytes& setup) {
-		if (onSetup != nullptr) {
+		if (onSetup) {
 			onSetup(setup);
 		}
 	}
 
 
 	virtual inline void CallTransferComplete(uint8 address, uint32 byteCount) {
-		if (onTransferComplete != nullptr) {
+		if (onTransferComplete) {
 			onTransferComplete(address, byteCount);
 		}
 	}
 
 
 	virtual inline void CallSuspend() {
-		if (onSuspend != nullptr) {
+		if (onSuspend) {
 			onSuspend();
 		}
 	}
 
 
 	virtual inline void CallResume() {
-		if (onResume != nullptr) {
+		if (onResume) {
 			onResume();
 		}
 	}
 
 
 	virtual inline void CallStartOfFrame(uint16 frameNumber) {
-		if (onStartOfFrame != nullptr) {
+		if (onStartOfFrame) {
 			onStartOfFrame(frameNumber);
 		}
 	}
 
 
 	virtual inline void CallError(Error error) {
-		if (onError != nullptr) {
+		if (onError) {
 			onError(error);
 		}
 	}

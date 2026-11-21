@@ -73,6 +73,7 @@ extern "C" void app_main() {
 - The VHAL system tick (`System::TickHandler()`) comes from a 1 ms `esp_timer` in `BSP::InitSystemTick()`.
 - `System::Init()` already installs `System::rtosDelayMsHandle` on ESP32, so `Application::InitSystemHandle()` sets only `criticalErrorHandle`.
 - Task stacks are in bytes under ESP-IDF, so `ThreadStatic` sizes are larger than in the STM32 demo.
+- `ThreadStatic` needs static allocation in FreeRTOS. ESP-IDF 5 always enables it (`configSUPPORT_STATIC_ALLOCATION` is 1, and `CONFIG_FREERTOS_SUPPORT_STATIC_ALLOCATION` is a hidden option that is always `y`), so nothing needs setting. On a FreeRTOS without it, the build fails at the `static_assert` in `Periphery/OS/Port/FreeRTOS/Wrapper.h`.
 - `AIWDG` is the ESP-IDF task watchdog (TWDT). `Start()` subscribes the calling task, so `Reset()` must be called from that task.
 - FreeRTOS comes from ESP-IDF. Do not compile VHAL's FreeRTOS kernel; `main/CMakeLists.txt` adds the ESP-IDF FreeRTOS include paths that VHAL expects.
 - The ESP-IDF console is off (`CONFIG_ESP_CONSOLE_NONE`), so `AUART` owns UART0.

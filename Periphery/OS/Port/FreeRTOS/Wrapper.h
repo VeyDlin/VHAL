@@ -81,7 +81,7 @@ namespace OS {
 				);
 			}
 #else
-			static_assert("configSUPPORT_STATIC_ALLOCATION == 0");
+			static_assert(sizeof(T) == 0, "static threads need configSUPPORT_STATIC_ALLOCATION == 1");
 #endif
 		}
 

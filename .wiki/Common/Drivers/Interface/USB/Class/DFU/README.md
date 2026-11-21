@@ -175,6 +175,13 @@ Offsets count from the first block of a transfer, not from the block number, bec
 
 The flash is unlocked only while `Write()` and `Manifest()` program it, and locked again when they return. An upload, an abort or an error leaves it locked.
 
+Alternate setting 0 is the region the flash target serves. A device with one region has no other alternate, so the host only ever starts a transfer on 0. The target checks the alternate in `Begin()` and nowhere else:
+
+- `Begin(0)` checks the region (page size, whole pages and units) and starts the transfer.
+- `Begin(n)` for any other `n` returns `errTARGET`. The function stalls the DNLOAD or UPLOAD request, moves to dfuERROR with `errTARGET`, and the host reads that code with DFU_GETSTATUS.
+- `Read()` does not look at the alternate, and the target's `Read()` needs no `Begin()`. The function always calls `Begin()` before `Read()`, so the same check applies to an upload.
+- A bus reset, a deconfiguration and a configuration return the selection to alternate 0 (see Memory regions), so the target's next `Begin()` gets 0 unless the host selects another alternate again.
+
 ## Using dfu-util 0.11
 
 dfu-util is installed on the development PC. The examples use the example IDs of the snippets above (`1209:0003` run time, `1209:0002` mode); replace them with the device's own.

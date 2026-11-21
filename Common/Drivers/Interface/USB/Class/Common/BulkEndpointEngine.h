@@ -132,7 +132,11 @@ public:
 	// clears it: nothing reads it while the engine is not configured. The owner's endpoints are closed by the core after this.
 	void EndSession() {
 		configured = false;
-		ForgetIn();
+		// Under the claim the queue is left to LeaveClaim(), as in ResetIn(): a completion the interrupt already reported is committed.
+		if (!threadClaimed) {
+			ForgetIn();
+		}
+
 		outArmed = false;
 		sessionGeneration++;
 	}
@@ -362,12 +366,13 @@ private:
 	// starts, so a stage that starts with nothing behind it keeps its zero-length packet even if bytes arrive later.
 	// The answer may be stale in one direction only: bytes that arrive after the check make the zero-length packet unneeded, and
 	// are sent in the next transfer anyway. A zero-length packet sent too early costs one packet; a missing one holds the host.
+	// A stage starts only when no other stage is filled behind it, so HasMoreIn() is the only thing that can be queued behind it.
 	bool NeedsZeroLengthPacket(size_t count) const {
 		if (count % PacketSize != 0 || !EndsIdleRunsWithZeroLengthPacket()) {
 			return false;
 		}
 
-		return inFilled <= 1 && !HasMoreIn();
+		return !HasMoreIn();
 	}
 
 
@@ -407,15 +412,18 @@ private:
 	}
 
 
-	// Interrupt side: a session start or a bus reset starts a new session. The stages go back to the owner first, so it gets
-	// its bytes back before ResetData() clears them. While the claim is held, the rollback is left to Pump(), whose LeaveClaim()
-	// sees the new session, calls RollbackIn() once and then releases the claim. ForgetIn() clears the flags, so no stale commit
-	// follows.
+	// Interrupt side: a session start or a bus reset starts a new session. Without the claim, the stages go back to the owner
+	// first, so it gets its bytes back before ResetData() clears them, and the queue is forgotten. With the claim held, this only
+	// changes the session generation. LeaveClaim() then sees the new session: it commits a stage that completed before the reset,
+	// because its bytes went out, forgets the queue and rolls back the rest. The queue and the pending flags are left alone under
+	// the claim, so a completion the interrupt already reported is not lost.
 	void ResetIn() {
-		if (!threadClaimed) {
-			RollbackIn();
+		if (threadClaimed) {
+			sessionGeneration++;
+			return;
 		}
 
+		RollbackIn();
 		ForgetIn();
 	}
 
@@ -499,9 +507,10 @@ private:
 			inDonePending = false;
 			inAbandonPending = false;
 
-			// The session ended under the claim. ForgetIn() has cleared the queue, so only the fill's marks are left to return. That
-			// is done once, outside the section, and the claim is then checked again before it is released.
+			// The session ended under the claim. The queue is forgotten in this section, so only the fill's marks are left to return.
+			// That is done once, outside the section, and the claim is then checked again before it is released.
 			if (!done && !abandon && !sameSession && !sessionRolledBack) {
+				ForgetIn();
 				System::CriticalSection(false);
 				RollbackIn();
 				sessionRolledBack = true;
@@ -547,6 +556,8 @@ private:
 			// A completed transfer's bytes were sent, so they are committed before anything is rolled back. The owner's commit runs
 			// outside the section, as the claim allows. The queue advances only in a section of its own, and only when the session
 			// is still the claim's: an interrupt that reset the session during the commit has already cleared the queue.
+			// When the session changed before the commit, the interrupt has cleared the owner's data already, so CommitIn() gets a count
+			// for bytes that are gone. The owner must reject it: a buffered owner's RingBuffer::MarkRead() checks the size and refuses.
 			if (done) {
 				CommitIn(headCount);
 				System::CriticalSection(true);

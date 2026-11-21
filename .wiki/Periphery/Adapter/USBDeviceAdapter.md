@@ -65,7 +65,7 @@ The core counts every error. It acts on `DataOverrun` only.
 
 ## Events
 
-Assign them before `Connect()`. They run in interrupt context, so a handler must be short. It must not block or allocate. A null function is skipped.
+Assign them before `Connect()`. They run in interrupt context, so a handler must be short. It must not block or allocate. Each event is a `VSTD::Delegate` (the same type the USB classes use), a function pointer with a context made by `Bind()` on a member function. A lambda with captures does not fit it. An empty delegate is skipped.
 
 | Event | Arguments | When |
 |-------|-----------|------|
@@ -92,7 +92,7 @@ When `onTransferComplete` runs, the transfer is no longer in flight. The callbac
 | `IsConnected()` | `bool` | Either | Pull-up is on |
 | `SetAddress(uint8)` | `ResultStatus` | Either | Stores the address as pending. `invalidParameter` above 127. Takes effect at the status stage, see below |
 | `OpenEndpoint(config)` | `ResultStatus` | Either | Opens or reconfigures an endpoint. See the table below |
-| `CloseEndpoint(address)` | `ResultStatus` | Either | Closes and frees the endpoint. `invalidParameter` for endpoint 0. `notExist` if not open |
+| `CloseEndpoint(address)` | `ResultStatus` | Either | Closes the endpoint and releases its transfer buffer, the packet memory `OpenEndpoint()` reserved for it. `invalidParameter` for endpoint 0. `notExist` if not open |
 | `CloseAllEndpoints()` | `void` | Either | Closes all endpoints except 0. Used on bus reset and on configuration 0 |
 | `StartInTransfer(address, data, zeroLengthPacket)` | `ResultStatus` | Either | Sends `data` on an IN endpoint, see below |
 | `StartOutTransfer(address, buffer)` | `ResultStatus` | Either | Arms reception into `buffer` on an OUT endpoint, see below |

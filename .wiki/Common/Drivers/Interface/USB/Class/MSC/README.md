@@ -113,6 +113,8 @@ Media access runs only in `Process()`, from the application's loop. The interrup
 
 The presence is read by the constructor, and again by each `Process()` while the function is idle. A configuration arms no CBW until the next `Process()` has read the presence after it, so the first TEST UNIT READY of a configuration is answered from a fresh read, also when the medium was ejected before and the application makes it present again in its `OnConfigured()`. A sample that an eject or a configuration overtakes is dropped. An eject makes the function report the medium absent at once and calls the eject delegate from the interrupt. The delegate should make the block device's `IsPresent()` return `notExist`, so the next `Process()` agrees with the function.
 
+The cost of the polling: every idle `Process()` calls the block device's `IsPresent()` and `IsReadOnly()` once each. A block device whose presence check is slow, such as an SD card over SPI, pays that per call. The reads are not throttled: a medium inserted or removed while idle is seen at the next `Process()`, and a throttle would delay that. A slow device should answer `IsPresent()` from a pin or a cached flag.
+
 | Code | Context | Rule |
 |------|---------|------|
 | Endpoint callbacks, `OnControlRequest`, `OnConfigured`, `OnDeconfigured`, `OnBusReset` | Interrupt | Short. No medium access, no blocking call. Only the state and the endpoint calls |

@@ -134,10 +134,12 @@ using BenchFixture = BenchFixtureOf<DemoUSBBench::BenchFunction>;
 
 // The function with hooks for the window that LeaveClaim() leaves open. afterProduce runs after the thread's fill, inside the claim.
 // beforeCommit runs at the start of the commit that LeaveClaim() makes outside any section, after the claim's completion is seen.
+// afterCommit runs when that commit has returned, before LeaveClaim() moves the queue on.
 class HookedBenchFunction : public DemoUSBBench::BenchFunction {
 public:
 	std::function<void()> afterProduce;
 	std::function<void()> beforeCommit;
+	std::function<void()> afterCommit;
 
 
 	explicit HookedBenchFunction(const USBFunctionLayout& layout)
@@ -166,6 +168,11 @@ protected:
 		}
 
 		BenchFunction::CommitIn(count);
+		if (afterCommit != nullptr) {
+			std::function<void()> hook = afterCommit;
+			afterCommit = nullptr;
+			hook();
+		}
 	}
 };
 
@@ -355,6 +362,154 @@ void TestBusResetInsideCommitKeepsUnsentStage() {
 }
 
 
+// The points of the commit that LeaveClaim() makes for a completed stage where a bus reset can land. AfterProduce resets inside the claim,
+// after the host has read the completed stage and before LeaveClaim() reads its flags. BeforeCommit and AfterCommit reset around the
+// commit itself, after the flags are read.
+enum class CommitResetPoint {
+	AfterProduce,
+	BeforeCommit,
+	AfterCommit
+};
+
+
+// One bus reset at one point of the commit, in one IN mode. The host reads the first stage during the thread's fill of the second,
+// so its completion is pending when the claim ends. That stage was sent before the reset, so the bench counts it once and never sends
+// it again. Source modes: the new session starts at the first unsent byte, 2048. Loopback: the reset empties the ring, so the new
+// session returns nothing until the host writes again.
+void RunBusResetAtCommitPoint(BenchProtocol::Mode mode, CommitResetPoint point) {
+	BenchFixtureOf<HookedBenchFunction> fixture;
+	fixture.Configure();
+	fixture.SetMode(mode);
+	bool loopback = mode == BenchProtocol::Mode::Loopback;
+	if (loopback) {
+		fixture.SendPackets(std::span<const uint8>(Pattern()).first(256));
+	}
+
+	fixture.device.Process();
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x81));
+
+	std::size_t firstLength = loopback ? 256 : 2048;
+	std::array<uint8, 2048> in = {};
+	uint32 received = 0;
+	bool hostRead = false;
+	bool reset = false;
+	fixture.function.afterProduce = [&fixture, &in, &received, &hostRead, &reset, point]() {
+		SIM_EXPECT_EQ(fixture.sim.HostIn(0x81, in, received), ResultStatus::ok);
+		hostRead = true;
+		if (point == CommitResetPoint::AfterProduce) {
+			fixture.Enumerate();
+			reset = true;
+		}
+	};
+
+	if (point == CommitResetPoint::BeforeCommit) {
+		fixture.function.beforeCommit = [&fixture, &reset]() {
+			fixture.Enumerate();
+			reset = true;
+		};
+	} else if (point == CommitResetPoint::AfterCommit) {
+		fixture.function.afterCommit = [&fixture, &reset]() {
+			fixture.Enumerate();
+			reset = true;
+		};
+	}
+
+	fixture.device.Process();
+	SIM_EXPECT(hostRead);
+	SIM_EXPECT(reset);
+	SIM_EXPECT_EQ(received, firstLength);
+	SIM_EXPECT(SimHost::SameBytes(std::span<const uint8>(in).first(firstLength), std::span<const uint8>(Pattern()).first(firstLength)));
+	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
+
+	fixture.device.Process();
+	if (loopback) {
+		SIM_EXPECT(!fixture.sim.HasArmedTransfer(0x81));
+		fixture.SendPackets(std::span<const uint8>(Pattern()).subspan(256, 128));
+		fixture.device.Process();
+		SIM_EXPECT(fixture.sim.HasArmedTransfer(0x81));
+		SIM_EXPECT_EQ(fixture.sim.HostIn(0x81, in, received), ResultStatus::ok);
+		SIM_EXPECT_EQ(received, 128);
+		SIM_EXPECT(SimHost::SameBytes(std::span<const uint8>(in).first(128), std::span<const uint8>(Pattern()).subspan(256, 128)));
+	} else {
+		SIM_EXPECT(fixture.sim.HasArmedTransfer(0x81));
+		SIM_EXPECT_EQ(fixture.sim.HostIn(0x81, in, received), ResultStatus::ok);
+		SIM_EXPECT_EQ(received, 2048);
+		SIM_EXPECT(SimHost::SameBytes(in, std::span<const uint8>(Pattern()).subspan(2048, 2048)));
+	}
+
+	BenchProtocol::Counters counters = fixture.ReadCounters();
+	SIM_EXPECT_EQ(counters.bytesSent, loopback ? 384 : 4096);
+	SIM_EXPECT_EQ(counters.busResets, 1);
+	SIM_EXPECT_EQ(counters.receiveErrors, 0);
+	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
+}
+
+
+// A bus reset at each point of the commit, in the modes that send IN stages: Source, SourceAndSink and Loopback. Sink sends no
+// stage, so it has no commit to reset.
+void TestBusResetAtEveryCommitPoint() {
+	const BenchProtocol::Mode modes[] = {
+		BenchProtocol::Mode::Source,
+		BenchProtocol::Mode::SourceAndSink,
+		BenchProtocol::Mode::Loopback
+	};
+
+	const CommitResetPoint points[] = {
+		CommitResetPoint::AfterProduce,
+		CommitResetPoint::BeforeCommit,
+		CommitResetPoint::AfterCommit
+	};
+
+	for (BenchProtocol::Mode mode : modes) {
+		for (CommitResetPoint point : points) {
+			RunBusResetAtCommitPoint(mode, point);
+		}
+	}
+}
+
+
+// The host reads the completed head stage inside the claim, and SET_CONFIGURATION(0) then runs from the interrupt, before the thread
+// leaves the claim. The completion was reported, so LeaveClaim() must commit it: the next session starts at the byte after it, 2048.
+// Before the fix the end of the session forgot the queue under the claim, and the completed stage was rolled back and sent again.
+void TestDeconfigureInsideClaimKeepsCompletedStage() {
+	BenchFixtureOf<HookedBenchFunction> fixture;
+	fixture.Configure();
+	fixture.SetMode(BenchProtocol::Mode::Source);
+	fixture.device.Process();
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x81));
+
+	std::array<uint8, 2048> in = {};
+	uint32 received = 0;
+	bool hostRead = false;
+	bool deconfigured = false;
+	fixture.function.afterProduce = [&fixture, &in, &received, &hostRead, &deconfigured]() {
+		SIM_EXPECT_EQ(fixture.sim.HostIn(0x81, in, received), ResultStatus::ok);
+		hostRead = true;
+		SIM_EXPECT_EQ(SimHost::Control(fixture.sim, SimHost::MakeSetup(0x00, 9, 0, 0x0000, 0)), ResultStatus::ok);
+		deconfigured = true;
+	};
+
+	fixture.device.Process();
+	SIM_EXPECT(hostRead);
+	SIM_EXPECT(deconfigured);
+	SIM_EXPECT_EQ(received, 2048);
+	SIM_EXPECT(SimHost::SameBytes(in, std::span<const uint8>(Pattern()).first(2048)));
+	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
+
+	SIM_EXPECT_EQ(SimHost::Control(fixture.sim, SimHost::MakeSetup(0x00, 9, 1, 0x0000, 0)), ResultStatus::ok);
+	fixture.device.Process();
+	SIM_EXPECT(fixture.sim.HasArmedTransfer(0x81));
+	SIM_EXPECT_EQ(fixture.sim.HostIn(0x81, in, received), ResultStatus::ok);
+	SIM_EXPECT_EQ(received, 2048);
+	SIM_EXPECT(SimHost::SameBytes(in, std::span<const uint8>(Pattern()).subspan(2048, 2048)));
+
+	BenchProtocol::Counters counters = fixture.ReadCounters();
+	SIM_EXPECT_EQ(counters.bytesSent, 4096);
+	SIM_EXPECT_EQ(counters.receiveErrors, 0);
+	SIM_EXPECT_EQ(fixture.device.GetErrorCount(), 0);
+}
+
+
 }
 
 
@@ -365,5 +520,7 @@ int main() {
 	TestSourceAndSinkBothWays();
 	TestLoopbackReturnsBytes();
 	TestBusResetInsideCommitKeepsUnsentStage();
+	TestBusResetAtEveryCommitPoint();
+	TestDeconfigureInsideClaimKeepsCompletedStage();
 	return SimTest::Finish("TestBenchModes");
 }

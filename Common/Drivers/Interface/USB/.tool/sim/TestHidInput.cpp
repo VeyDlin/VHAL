@@ -588,8 +588,8 @@ void CheckMouseIdleIsStill() {
 	uint32 received = 0;
 	ResultStatus status = SimHost::Control(sim, SimHost::MakeSetup(0xA1, 0x01, 0x0100, 0, 4), std::span<const uint8>(), answer, received);
 	SIM_EXPECT_EQ(status, ResultStatus::ok);
-	std::vector<uint8> got(answer.begin(), answer.begin() + received);
-	SIM_EXPECT_BYTES(got, Bytes({ 0x01, 0x00, 0x00, 0x00 }));
+	constexpr std::array<uint8, 4> IdleReport = { 0x01, 0x00, 0x00, 0x00 };
+	SIM_EXPECT_BYTES(std::span<const uint8>(answer).first(received), IdleReport);
 }
 
 

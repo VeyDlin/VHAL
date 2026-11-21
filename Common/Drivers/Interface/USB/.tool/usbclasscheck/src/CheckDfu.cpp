@@ -74,11 +74,36 @@ bool TempPath(const std::string& name, std::string& path, std::string& error) {
 }
 
 
-// The files this run created. RemoveAll deletes them, and the destructor deletes what is left, so a run that ends early leaves none
-// behind. A file that this run did not create is never added, so it is never deleted.
+// Makes a folder that does not exist yet. CreateDirectoryW refuses a folder that is there, so this run never uses another one.
+bool CreateOwnFolder(const std::string& path, std::string& error) {
+	std::wstring widePath = WidenUtf8(path);
+	if (!CreateDirectoryW(widePath.c_str(), nullptr)) {
+		error = "cannot create " + path + ": " + FormatWindowsError(GetLastError());
+		return false;
+	}
+
+	return true;
+}
+
+
+// Removes a folder that this run made. It only removes an empty folder, so a file put there by someone else keeps the folder.
+bool RemoveOwnFolder(const std::string& path, std::string& error) {
+	std::wstring widePath = WidenUtf8(path);
+	if (!RemoveDirectoryW(widePath.c_str())) {
+		error = "cannot delete " + path + ": " + FormatWindowsError(GetLastError());
+		return false;
+	}
+
+	return true;
+}
+
+
+// The files and folders this run created. RemoveAll deletes them, and the destructor deletes what is left, so a run that ends early
+// leaves none behind. A file or folder that this run did not create is never added, so it is never deleted.
 class CreatedFiles {
 private:
 	std::vector<std::string> paths;
+	std::vector<std::string> folders;
 
 
 public:
@@ -100,7 +125,14 @@ public:
 	}
 
 
-	// Deletes the files this run created. False with the first error when one could not be deleted; the others are deleted anyway.
+	// A folder must be empty when RemoveAll runs, so files are added to the list above and the folders are removed after them.
+	void AddFolder(const std::string& path) {
+		folders.push_back(path);
+	}
+
+
+	// Deletes the files, then the folders, that this run created. False with the first error when one could not be deleted; the others
+	// are deleted anyway.
 	bool RemoveAll(std::string& error) {
 		bool ok = true;
 		for (const std::string& path : paths) {
@@ -114,7 +146,19 @@ public:
 			}
 		}
 
+		for (const std::string& path : folders) {
+			std::string folderError;
+			if (!RemoveOwnFolder(path, folderError)) {
+				if (ok) {
+					error = folderError;
+				}
+
+				ok = false;
+			}
+		}
+
 		paths.clear();
+		folders.clear();
 		return ok;
 	}
 };
@@ -262,19 +306,29 @@ void RunDfuCheck(const BoardInfo& board, const std::string& dfuUtilPath, const s
 	}
 
 	// The names carry this process's ID, the tick count and a random number, so another process is unlikely to pick the same names. CreateNewFile
-	// refuses a file that does exist, and only the files this run creates are deleted at the end.
+	// refuses a file that does exist, and only the files and folders this run creates are deleted at the end.
 	std::random_device entropy;
 	std::uint32_t nonce = entropy();
 	std::string stem = "usbclasscheck-dfu-" + std::to_string(GetCurrentProcessId()) + "-" + std::to_string(GetTickCount64()) + "-"
 		+ std::to_string(nonce);
 	std::string downloadPath;
-	std::string uploadPath;
-	if (!TempPath(stem + "-download.bin", downloadPath, error) || !TempPath(stem + "-upload.bin", uploadPath, error)) {
+	std::string uploadFolder;
+	if (!TempPath(stem + "-download.bin", downloadPath, error) || !TempPath(stem, uploadFolder, error)) {
 		report.AddStep("temporary files", StepStatus::Error, error);
 		return;
 	}
 
+	// The upload goes into a folder that this run makes. dfu-util refuses a file that exists, so the upload's name must be free, and a free
+	// name in a shared folder can be taken by another process between a check and dfu-util's create. In a folder made here, no other process
+	// is likely to have a name in it.
 	CreatedFiles created;
+	if (!CreateOwnFolder(uploadFolder, error)) {
+		report.AddStep("temporary files", StepStatus::Error, error);
+		return;
+	}
+
+	created.AddFolder(uploadFolder);
+	std::string uploadPath = uploadFolder + "\\upload.bin";
 	std::vector<std::uint8_t> sent(DemoProducts::DfuRegionSize);
 	FillPattern(sent, nonce);
 	if (!CreateNewFile(downloadPath, sent, error)) {
@@ -301,15 +355,14 @@ void RunDfuCheck(const BoardInfo& board, const std::string& dfuUtilPath, const s
 	}
 
 	// The upload runs only after a completed download. dfu-util creates the upload file itself, and dfu-util 0.11 refuses a file that
-	// exists, so the path must be free before the run and the file is not created here. The path is registered for deletion only when it
-	// was free before the run: a file that was already there is someone else's, and is never deleted.
+	// exists, so the file is not created here. The folder is empty when this run makes it, so the file is not there before the run, and a
+	// file that exists after the run was created by dfu-util. Only that file is registered for deletion.
 	StepStatus upload = StepStatus::Error;
 	if (download == StepStatus::Pass) {
 		if (PathExists(uploadPath)) {
 			report.AddStep("upload", StepStatus::Error, "the upload file " + uploadPath + " already exists, so dfu-util would refuse it");
 		} else {
 			upload = Transfer(program, serial, DfuDirection::Upload, uploadPath, "upload", report);
-			// The path was free before the run, so a file that exists now was created by dfu-util in this run.
 			if (PathExists(uploadPath)) {
 				created.Add(uploadPath);
 			}

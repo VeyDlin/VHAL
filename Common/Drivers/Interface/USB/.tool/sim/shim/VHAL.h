@@ -52,15 +52,24 @@ inline void SimAssertNoCriticalSection() {
 }
 
 
-inline uint64 System::GetMs() {
-	static const std::chrono::steady_clock::time_point startTime = std::chrono::steady_clock::now();
-	std::chrono::steady_clock::duration elapsed = std::chrono::steady_clock::now() - startTime;
-	return static_cast<uint64>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
-}
+// The port's tick is a 64-bit count of milliseconds from the start: TickHandler adds one per call, the application calls it once per
+// millisecond (an assumption of the port, not checked here), and msPerTick is 1 on every port. The shim has no SysTick, so the count is the wall clock in the same unit, from the first read. Each
+// read also sets the low 32 bits that GetTick32() returns, so the two agree after any read.
+inline volatile uint32 System::tickLow = 0;
 
 
 inline uint64 System::GetTick() {
-	return GetMs();
+	static const std::chrono::steady_clock::time_point startTime = std::chrono::steady_clock::now();
+	std::chrono::steady_clock::duration elapsed = std::chrono::steady_clock::now() - startTime;
+	uint64 tick = static_cast<uint64>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
+	tickLow = static_cast<uint32>(tick);
+	return tick;
+}
+
+
+// The port computes GetMs() as the tick times msPerTick, which is 1, so it returns the tick itself.
+inline uint64 System::GetMs() {
+	return GetTick();
 }
 
 
