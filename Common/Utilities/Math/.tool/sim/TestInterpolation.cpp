@@ -65,9 +65,10 @@ void IQ16Cases() {
 	ExpectRaw(MathUtilities::Interpolation<Q16>(Q16(10), Q16(0), Q16(100), Q16(200), Q16(55)).raw, 6553600, __LINE__);
 	ExpectRaw(MathUtilities::Extrapolation<Q16>(Q16(10), Q16(0), Q16(100), Q16(200), Q16(55)).raw, 6553600, __LINE__);
 
-	// Battery: the raw inputs are 3.6 -> 235929, 3.7 -> 242483, 3.65 -> 239206, and the outputs are 10 -> 655360, 25 -> 1638400.
-	// dx = 3277, dd = 6554, dy = 983040, so dx * dy / dd = 491520 exactly. The result is 655360 + 491520 = 1146880 = 17.5.
-	ExpectRaw(MathUtilities::Interpolation<Q16>(Q16(3.6), Q16(10), Q16(3.7), Q16(25), Q16(3.65)).raw, 1146880, __LINE__);
+	// Battery: the raw inputs are 3.6 -> 235930 (3.6 * 65536 = 235929.6, rounded to nearest), 3.7 -> 242483 and
+	// 3.65 -> 239206, and the outputs are 10 -> 655360, 25 -> 1638400. dx = 239206 - 235930 = 3276, dd = 242483 - 235930
+	// = 6553, dy = 983040. dx * dy / dd = 491444.99, which rounds to 491445. The result is 655360 + 491445 = 1146805.
+	ExpectRaw(MathUtilities::Interpolation<Q16>(Q16(3.6), Q16(10), Q16(3.7), Q16(25), Q16(3.65)).raw, 1146805, __LINE__);
 
 	// 1 / 3 = 21845.33 in raw units, so the result is 21845. The remainder 65536 is less than half of 196608.
 	ExpectRaw(MathUtilities::Interpolation<Q16>(Q16::FromRaw(0), Q16::FromRaw(0), Q16::FromRaw(196608),

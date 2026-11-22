@@ -2,6 +2,7 @@
 #include <Utilities/DataTypes.h>
 #include <concepts>
 #include <limits>
+#include <type_traits>
 
 
 namespace IQDetail {
@@ -19,18 +20,30 @@ namespace IQDetail {
 		return static_cast<int32>(value);
 	}
 
-	// Converts a real value already scaled by 2^Q. NaN becomes 0, out-of-range values saturate.
-	constexpr int32 RealToRaw(double scaled) {
+	// Converts a real value already scaled by 2^Q to the nearest raw value, ties away from zero. NaN becomes 0, and
+	// out-of-range values saturate. The arithmetic stays in T, so a float input is rounded with single-precision
+	// operations, which a Cortex-M4 has in hardware.
+	template<std::floating_point T>
+	constexpr int32 RealToRaw(T scaled) {
 		if (scaled != scaled) {
 			return 0;
 		}
-		if (scaled >= 2147483647.0) {
+		if (scaled >= static_cast<T>(2147483647.0)) {
 			return maxRaw;
 		}
-		if (scaled <= -2147483648.0) {
+		if (scaled <= static_cast<T>(-2147483648.0)) {
 			return minRaw;
 		}
-		return static_cast<int32>(scaled);
+		// The cast truncates toward zero and stays within int32, since |scaled| < 2^31. The fraction left over has no
+		// more bits than scaled, so the subtraction is exact.
+		int32 whole = static_cast<int32>(scaled);
+		T fraction = scaled - static_cast<T>(whole);
+		if (fraction >= static_cast<T>(0.5)) {
+			whole++;
+		} else if (fraction <= static_cast<T>(-0.5)) {
+			whole--;
+		}
+		return whole;
 	}
 
 	// Negation that saturates to the maximum instead of overflowing for the most negative raw value.
@@ -41,7 +54,8 @@ namespace IQDetail {
 		return -value;
 	}
 
-	// Divides raw values; a zero divisor saturates by the sign of the numerator, and 0/0 gives 0.
+	// Divides integers and rounds the quotient to the nearest integer, ties away from zero. A zero divisor saturates by the
+	// sign of the numerator, and 0/0 gives 0.
 	constexpr int32 DivideRaw(int64 numerator, int64 divisor) {
 		if (divisor == 0) {
 			if (numerator > 0) {
@@ -52,7 +66,49 @@ namespace IQDetail {
 			}
 			return 0;
 		}
-		return SaturateRaw(numerator / divisor);
+		int64 quotient = numerator / divisor;
+		int64 remainder = numerator % divisor;
+		// Magnitudes in unsigned arithmetic, so the comparison cannot overflow. |remainder| is below |divisor|.
+		uint64 absRemainder = remainder < 0 ? 0 - static_cast<uint64>(remainder) : static_cast<uint64>(remainder);
+		uint64 absDivisor = divisor < 0 ? 0 - static_cast<uint64>(divisor) : static_cast<uint64>(divisor);
+		// The fraction is at least one half when |remainder| >= |divisor| - |remainder|; the step goes away from zero.
+		if (absRemainder >= absDivisor - absRemainder) {
+			bool negative = (numerator < 0) != (divisor < 0);
+			quotient += negative ? -1 : 1;
+		}
+		return SaturateRaw(quotient);
+	}
+
+	// Float scalars are rejected by the IQ operators that take one. The assertion depends on F, so it fires at the call.
+	template<typename F>
+	constexpr void RejectFloatScalar() {
+		static_assert(std::is_integral_v<F>, "IQ arithmetic takes an integer scalar. Convert a float explicitly, for example IQ(value) * x.");
+	}
+
+	// An integer scalar as int64. An unsigned value above INT64_MAX becomes INT64_MAX.
+	template<std::integral S>
+	constexpr int64 IntegerToInt64(S value) {
+		if constexpr (std::is_unsigned_v<S>) {
+			if (static_cast<uint64>(value) > static_cast<uint64>(std::numeric_limits<int64>::max())) {
+				return std::numeric_limits<int64>::max();
+			}
+		}
+		return static_cast<int64>(value);
+	}
+
+	// An integer scalar clamped to +-2^31. The clamp does not change a saturated result: beyond 2^31 the scalar already
+	// moves the sum or the product outside the int32 range, and a product of two 32-bit values fits in 64 bits.
+	template<std::integral S>
+	constexpr int64 ScalarForSaturation(S value) {
+		constexpr int64 limit = int64(1) << 31;
+		int64 wide = IntegerToInt64(value);
+		if (wide > limit) {
+			return limit;
+		}
+		if (wide < -limit) {
+			return -limit;
+		}
+		return wide;
 	}
 
 	// Clamps an integer value to the range of Target (the minimum of an unsigned type is 0).
@@ -85,9 +141,12 @@ public:
 
 	constexpr IQ() = default;
 
-	constexpr IQ(float v) : raw(IQDetail::RealToRaw(static_cast<double>(v) * one)) {}
+	// The scale by 2^Q is exact in float, so the product is the exact scaled value (or overflows to infinity, which saturates).
+	constexpr IQ(float v) : raw(IQDetail::RealToRaw(v * static_cast<float>(one))) {}
 	constexpr IQ(double v) : raw(IQDetail::RealToRaw(v * one)) {}
-	constexpr IQ(int v) : raw(IQDetail::SaturateRaw(static_cast<int64>(v) * one)) {}
+	// Every integral type converts exactly. One template covers them all, so int32 on ARM (long) is not ambiguous.
+	template<std::integral S>
+	constexpr IQ(S v) : raw(IQDetail::SaturateRaw(IQDetail::ScalarForSaturation(v) * one)) {}
 
 	static constexpr IQ FromRaw(int32 r) {
 		IQ result;
@@ -127,9 +186,10 @@ public:
 	constexpr IQ operator-(IQ b) const { return FromRaw(IQDetail::SaturateRaw(static_cast<int64>(raw) - b.raw)); }
 	constexpr IQ operator-() const { return FromRaw(IQDetail::NegateSaturated(raw)); }
 
+	// Rounds to nearest; a tie (exactly half an LSB) goes toward +infinity, which costs one add before the shift.
 	constexpr IQ operator*(IQ b) const {
-		int64 tmp = static_cast<int64>(raw) * b.raw;
-		return FromRaw(IQDetail::SaturateRaw(tmp >> Q));
+		int64 product = static_cast<int64>(raw) * b.raw;
+		return FromRaw(IQDetail::SaturateRaw((product + (int64(1) << (Q - 1))) >> Q));
 	}
 
 	constexpr IQ operator/(IQ b) const {
@@ -143,15 +203,67 @@ public:
 	constexpr IQ& operator/=(IQ b) { *this = *this / b; return *this; }
 
 
-	// Arithmetic IQ <-> scalar
-	constexpr IQ operator+(int32 s) const { return *this + IQ(s); }
-	constexpr IQ operator-(int32 s) const { return *this - IQ(s); }
-	constexpr IQ operator*(int32 s) const { return FromRaw(IQDetail::SaturateRaw(static_cast<int64>(raw) * s)); }
-	constexpr IQ operator/(int32 s) const { return FromRaw(IQDetail::DivideRaw(raw, s)); }
+	// Arithmetic IQ <-> integer scalar. An integer scalar is exact. A float or double scalar does not compile: convert it
+	// first with IQ(value).
+	template<std::integral S>
+	constexpr IQ operator+(S s) const { return FromRaw(IQDetail::SaturateRaw(static_cast<int64>(raw) + IQDetail::ScalarForSaturation(s) * one)); }
+	template<std::integral S>
+	constexpr IQ operator-(S s) const { return FromRaw(IQDetail::SaturateRaw(static_cast<int64>(raw) - IQDetail::ScalarForSaturation(s) * one)); }
+	template<std::integral S>
+	constexpr IQ operator*(S s) const { return FromRaw(IQDetail::SaturateRaw(static_cast<int64>(raw) * IQDetail::ScalarForSaturation(s))); }
+	template<std::integral S>
+	constexpr IQ operator/(S s) const { return FromRaw(IQDetail::DivideRaw(raw, IQDetail::IntegerToInt64(s))); }
 
-	friend constexpr IQ operator+(int32 s, IQ a) { return IQ(s) + a; }
-	friend constexpr IQ operator-(int32 s, IQ a) { return IQ(s) - a; }
-	friend constexpr IQ operator*(int32 s, IQ a) { return FromRaw(IQDetail::SaturateRaw(static_cast<int64>(a.raw) * s)); }
+	template<std::integral S>
+	friend constexpr IQ operator+(S s, IQ a) { return a + s; }
+	template<std::integral S>
+	friend constexpr IQ operator-(S s, IQ a) { return FromRaw(IQDetail::SaturateRaw(IQDetail::ScalarForSaturation(s) * one - static_cast<int64>(a.raw))); }
+	template<std::integral S>
+	friend constexpr IQ operator*(S s, IQ a) { return a * s; }
+
+	template<std::integral S>
+	constexpr IQ& operator+=(S s) { *this = *this + s; return *this; }
+	template<std::integral S>
+	constexpr IQ& operator-=(S s) { *this = *this - s; return *this; }
+	template<std::integral S>
+	constexpr IQ& operator*=(S s) { *this = *this * s; return *this; }
+	template<std::integral S>
+	constexpr IQ& operator/=(S s) { *this = *this / s; return *this; }
+
+
+	// Float and double scalars: each overload exists only to reject the operand at compile time.
+	template<std::floating_point F>
+	constexpr IQ operator+(F) const { IQDetail::RejectFloatScalar<F>(); return *this; }
+
+	template<std::floating_point F>
+	constexpr IQ operator-(F) const { IQDetail::RejectFloatScalar<F>(); return *this; }
+
+	template<std::floating_point F>
+	constexpr IQ operator*(F) const { IQDetail::RejectFloatScalar<F>(); return *this; }
+
+	template<std::floating_point F>
+	constexpr IQ operator/(F) const { IQDetail::RejectFloatScalar<F>(); return *this; }
+
+	template<std::floating_point F>
+	friend constexpr IQ operator+(F, IQ a) { IQDetail::RejectFloatScalar<F>(); return a; }
+
+	template<std::floating_point F>
+	friend constexpr IQ operator-(F, IQ a) { IQDetail::RejectFloatScalar<F>(); return a; }
+
+	template<std::floating_point F>
+	friend constexpr IQ operator*(F, IQ a) { IQDetail::RejectFloatScalar<F>(); return a; }
+
+	template<std::floating_point F>
+	constexpr IQ& operator+=(F) { IQDetail::RejectFloatScalar<F>(); return *this; }
+
+	template<std::floating_point F>
+	constexpr IQ& operator-=(F) { IQDetail::RejectFloatScalar<F>(); return *this; }
+
+	template<std::floating_point F>
+	constexpr IQ& operator*=(F) { IQDetail::RejectFloatScalar<F>(); return *this; }
+
+	template<std::floating_point F>
+	constexpr IQ& operator/=(F) { IQDetail::RejectFloatScalar<F>(); return *this; }
 
 
 	// Comparison

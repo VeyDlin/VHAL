@@ -12,10 +12,11 @@ A fixed-point arithmetic library in the style of TI IQmath. All values are store
   - [sin / cos](#sin--cos)
   - [sqrt](#sqrt)
   - [atan2](#atan2)
-  - [exp](#exp)
+  - [exp and expm1](#exp-and-expm1)
   - [abs / fabs / min / max / clamp / floor / ceil / round / copysign](#abs--fabs--min--max--clamp--floor--ceil--round--copysign)
 - [Conversion Between IQ Formats](#conversion-between-iq-formats)
 - [Concepts IQType / RealType](#concepts-iqtype--realtype)
+- [Number Range](#number-range)
 - [LUT Configuration](#lut-configuration)
 - [Usage with Template Classes (ADL)](#usage-with-template-classes-adl)
 - [Examples](#examples)
@@ -89,11 +90,13 @@ uint32 u  = static_cast<uint32>(a);
 int16  s  = static_cast<int16>(a);
 ```
 
+Converting a float or double rounds to the nearest LSB, ties away from zero: `IQ<16>(1.5 / 65536.0)` is 2 LSB and `IQ<16>(-1.5 / 65536.0)` is -2 LSB. Out-of-range values saturate, and NaN converts to 0.
+
 Conversion to an integer type drops the fraction (rounding toward negative infinity) and saturates to the limits of the target type, so `static_cast<uint8>(iq16(300.0f))` is 255 and `static_cast<uint32>(iq16(-1.0f))` is 0. `ToInt()` returns the integer part as `int32`; it cannot overflow.
 
 ## Arithmetic
 
-All standard operations; multiplication via `int64` — no loss of precision:
+All standard operations. Multiplication goes through an `int64` intermediate and rounds to nearest:
 
 ```cpp
 iq24 a(10.0f);
@@ -124,11 +127,29 @@ if (a == b) { ... }
 if (a <= b) { ... }
 ```
 
-Addition, subtraction and multiplication saturate: a result outside the raw `int32` range becomes the maximum or minimum of the type instead of wrapping. This covers `IQ` with `IQ`, `IQ` with an `int32` scalar (in either order), and the compound forms `+=`, `-=` and `*=`. The integer constructor saturates the same way, so `iq24(200)` is the maximum of `iq24`, about 128.
+Addition, subtraction and multiplication saturate: a result outside the raw `int32` range becomes the maximum or minimum of the type instead of wrapping. This covers `IQ` with `IQ`, `IQ` with an integer scalar (in either order), and the compound forms `+=`, `-=`, `*=` and `/=`. The integer constructor saturates the same way, so `iq24(200)` is the maximum of `iq24`, about 128.
 
 Division by zero does not trap: `x / 0` saturates to the maximum for positive `x` and to the minimum for negative `x`; `0 / 0` returns 0. Division results that do not fit the type also saturate.
 
 Negating or taking `abs` of the most negative raw value saturates to the maximum.
+
+Multiplication and division round to the nearest LSB:
+
+- `IQ * IQ` adds half an LSB before the shift, so a tie (exactly half an LSB) goes toward +infinity. A raw product of -1.5 LSB gives -1 LSB, and +1.5 LSB gives 2 LSB.
+- `IQ / IQ` and `IQ / integer` round to nearest with ties away from zero. `IQ<16>(1) / IQ<16>(3)` is 21845 LSB (21845.33), and 2.5 LSB divided by 2 is 3 LSB.
+
+### Scalars are integers
+
+An integer scalar (`int`, `uint8`, `int64` and the other integral types) works with `+`, `-`, `*`, `/` and the compound forms. The scalar itself is exact, and `+`, `-` and `*` are exact unless the result saturates. `/` rounds to nearest, as `IQ / IQ` does (`IQ<16>(1) / 3` is 21845 LSB). An unsigned 64-bit value above `INT64_MAX` is treated as `INT64_MAX`.
+
+A `float` or `double` scalar does not compile. The operators would have to cut it to an integer, so `2.7 * IQ(2)` would give 4.0. Convert the constant explicitly, with `IQ(value)`:
+
+```cpp
+iq16 x(4);
+
+// iq16 bad = 2.7f * x;         // compile error: IQ arithmetic takes an integer scalar
+iq16 good = iq16(2.7f) * x;     // about 10.8: the constant is rounded to IQ first
+```
 
 ## Math Functions
 
@@ -172,16 +193,36 @@ iq24 angle = atan2(y, x);  // ≈ pi/4 = 0.7854
 
 Correctly handles all four quadrants and special cases (x=0, y=0).
 
-### exp
+### exp and expm1
 
-5th-order Taylor + range reduction via 2^k:
+`exp(x)` and `expm1(x) = exp(x) - 1` split `x = k ln 2 + r` with `|r|` at most about 0.35, evaluate the series for `exp(r) - 1` in 30 fraction bits, and shift by `k`. `expm1` is accurate for small arguments, so `1 - exp(-x)` keeps its precision:
 
 ```cpp
 iq16 val(1.0f);
 iq16 e = exp(val);  // ≈ 2.7183
 ```
 
-For `exp`, `IQ<16>` is recommended — the range of ±32 768 allows storing results for arguments up to ~10.4. With `IQ<24>`, the range is ±128, which limits `exp` to arguments up to ~4.8.
+```cpp
+iq16 x(-0.001f);       // raw -66 LSB
+iq16 a = 1 - exp(x);   // 0.001: raw 66 LSB
+iq16 b = expm1(x);     // -0.001: raw -66 LSB
+```
+
+The range limits the results: `IQ<16>` saturates for arguments above about 10.4, and `IQ<24>` (range ±128) above about 4.85. The result is 0 once `exp(x)` is below half an LSB, so `exp` returns 0 and `expm1` returns -1 for arguments below about -(Q + 1) ln 2 (about -11.8 at `IQ<16>`).
+
+Measured against `std::exp` and `std::expm1` in double. For each Q, every raw value from the underflow limit to the overflow limit of the format was measured (every raw value, not a sample), and the worst errors are:
+
+| Q | exp, worst error (LSB) | expm1, worst error (LSB) | expm1 for \|x\| < 0.5, worst error (LSB) |
+|---|---|---|---|
+| 8 | 1.11 | 1.11 | 0.50 |
+| 12 | 1.46 | 1.46 | 0.50 |
+| 16 | 1.81 | 1.81 | 0.50 |
+| 20 | 2.15 | 2.15 | 0.50 |
+| 24 | 1.92 | 1.92 | 0.52 |
+| 28 | 1.70 | 1.70 | 0.85 |
+| 30 | 1.58 | 3.28 | 1.58 |
+
+The test `.tool/sim/TestExp.cpp` sets each bound to the worst error above plus 0.25 LSB, rounded up to 0.01. The bounds are 1.37, 1.71, 2.06, 2.40, 2.17, 1.96 and 3.54 LSB for exp and expm1 over the whole range, and 0.75, 0.75, 0.76, 0.76, 0.78, 1.11 and 1.83 LSB for expm1 with `|x| < 0.5`, for Q8, Q12, Q16, Q20, Q24, Q28 and Q30. The test runs Q8, Q12, Q16 and Q20 on every raw value. It samples Q24, Q28 and Q30 with steps 64, 512 and 640 to keep the test fast, so it finds an error above a bound only when a sampled value reaches it. The errors include the final rounding to Q bits (up to 0.5 LSB). The error grows with the value, because the series keeps 30 fraction bits and `2^k` scales its error. At Q30, expm1 is worst at x = 1.04, where the result is 2 times the series.
 
 ### abs / fabs / min / max / clamp / floor / ceil / round / copysign
 
@@ -243,6 +284,27 @@ class PidController {
 PidController pid;           // float
 PidController<iq24> pid;     // IQ<24>
 ```
+
+## Number Range
+
+`NumberRange<T>::maxAbs` is the largest magnitude a number type holds, as a `double`: the largest finite value for `float` and `double`, and `2^31 / 2^Q` for `IQ<Q>` (32768 for `IQ<16>`, 128 for `IQ<24>`). It is declared in `Common/Utilities/Math/NumberRange.h`.
+
+A class that needs a range states it with the concept `RangeAtLeast<T, Need>`:
+
+```cpp
+#include <Utilities/Math/NumberRange.h>
+
+template<typename T>
+requires RangeAtLeast<T, 40000.0>
+class SpeedPeriod {
+    // ...
+};
+
+SpeedPeriod<float> ok;     // float holds about 3.4e38
+SpeedPeriod<iq16> bad;     // error: constraints not satisfied (IQ<16> holds up to 32768)
+```
+
+`HasRange<T>` is false for types without a range, such as integers. The trait does not change any class by itself: a class adopts it through its own `requires` clause.
 
 ## LUT Configuration
 
