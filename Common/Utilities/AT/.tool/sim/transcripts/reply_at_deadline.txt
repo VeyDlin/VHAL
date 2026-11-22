@@ -1,0 +1,9 @@
+# The time reaches the 100 ms deadline before the reply. The request times out, the drain sends AT, and the late info line is dropped.
+# The OK after the info line is the first final during the drain, so it only moves the drain on. The drain ends at its own timeout
+# (200 ms), and the request ends as a timeout then. The handler is not called before that.
+> AT+TEMP?
+@ 100
+> AT
+< +TEMP: 5
+< OK
+@ 200

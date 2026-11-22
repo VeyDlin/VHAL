@@ -1,0 +1,8 @@
+# AT+SCAN has three info lines and a URC between two of them. A run form has no info line in stage 1, so the info lines are unknown
+# lines and are ignored. The empty line before OK is ignored too.
+> AT+SCAN
+< +SCAN: 1
+< WIFI GOT IP
+< +SCAN: 2
+<
+< OK

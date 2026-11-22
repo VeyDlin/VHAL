@@ -1,0 +1,10 @@
+# A declared failure final (FAIL) ends AT+DIAL as an error. A declared final (SEND OK) and a declared failure (SEND FAIL) end AT+SEND.
+# An OK still ends AT+DIAL as a success.
+> AT+DIAL
+< FAIL
+> AT+SEND
+< SEND OK
+> AT+SEND
+< SEND FAIL
+> AT+DIAL
+< OK

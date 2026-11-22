@@ -1,0 +1,8 @@
+# The module never answers. AT+TEMP? times out at 100 ms, the drain's AT gets no answer, and the drain ends at its own timeout (200 ms).
+# The queued AT+RUN is sent then, and its OK ends it.
+> AT+TEMP?
+@ 100
+> AT
+@ 200
+> AT+RUN
+< OK

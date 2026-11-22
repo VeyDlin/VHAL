@@ -1,0 +1,10 @@
+# AT+TEMP? times out at 100 ms and is drained: the drain sends AT. The module then answers the late request with OK, and the drain's AT
+# with its own OK. A late OK is the same line as the drain's OK, so the drain waits for the second OK. AT+RUN is sent after that, and
+# its ERROR is its own status, not the drain's OK.
+> AT+TEMP?
+@ 100
+> AT
+< OK
+< OK
+> AT+RUN
+< ERROR

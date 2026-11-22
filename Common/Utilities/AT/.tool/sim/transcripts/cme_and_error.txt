@@ -1,0 +1,7 @@
+# +CME ERROR with a number, a plain ERROR, and +CME ERROR with the verbose text of the set's dialect (code 3).
+> AT+TEMP?
+< +CME ERROR: 3
+> AT+TEMP?
+< ERROR
+> AT+LED=1
+< +CME ERROR: operation not allowed

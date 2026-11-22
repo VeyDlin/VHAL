@@ -1,0 +1,6 @@
+# A URC between the info line of a read and its final line. The URC is handled at once and does not end the reply.
+# Records: "> " is a line the client writes, "< " is a line the module sends, "@ " moves the time to that many milliseconds.
+> AT+TEMP?
+< +TEMP: 23
+< WIFI GOT IP
+< OK

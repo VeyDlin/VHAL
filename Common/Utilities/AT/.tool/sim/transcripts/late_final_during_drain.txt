@@ -1,0 +1,11 @@
+# AT+TEMP? times out at 100 ms and is drained: the drain sends AT. The late info line and the late +CME ERROR and ERROR are dropped.
+# The drain's OK ends the drain, and the queued AT+RUN goes out after it.
+> AT+TEMP?
+@ 100
+> AT
+< +TEMP: 9
+< +CME ERROR: 3
+< ERROR
+< OK
+> AT+RUN
+< OK

@@ -1,0 +1,13 @@
+# An info line that does not parse gives invalidData at the final line. Unknown lines and empty lines are ignored. A read's info line
+# after one blank is read. A test form's info line is not parsed.
+> AT+TEMP?
+< +TEMP: x
+< OK
+> AT+CWMODE?
+< garbage line
+< +CWMODE: 1
+<
+< OK
+> AT+CWMODE=?
+< +CWMODE: (0-1)
+< OK

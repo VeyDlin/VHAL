@@ -1,0 +1,5 @@
+# The reply arrives at 99 ms, one millisecond before the 100 ms deadline, and is read.
+> AT+TEMP?
+@ 99
+< +TEMP: 5
+< OK

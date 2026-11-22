@@ -1,0 +1,10 @@
+# The module echoes each request (ATE1), which the echo module drops. A URC with three arguments comes between an info line and its
+# final line. The string argument holds a comma, which is text inside the quotes.
+> AT+TEMP?
+< AT+TEMP?
+< +TEMP: 4
+< +IPD,4,"a,b",1
+< OK
+> AT+LED=0
+< AT+LED=0
+< OK
