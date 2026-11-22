@@ -1,11 +1,13 @@
 #include <DemoUSBComposite/CommandLine/CompositeCommandLine.h>
-#include <DemoProducts.h>
 #include <DemoUSBComposite/Status/CompositeStatus.h>
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <iterator>
 
-
 namespace DemoUSBComposite {
+
+
 	// A key of the key command: its name and its key code on the Keyboard page of the HID Usage Tables.
 	struct KeyName {
 		std::string_view name;
@@ -40,11 +42,6 @@ namespace DemoUSBComposite {
 	};
 
 
-	// The largest absolute value of a move or wheel argument. A larger value is refused, so one command cannot queue an unbounded amount
-	// of movement.
-	static constexpr int32 MaxAxisValue = 32767;
-
-
 	// The parity and stop bit names of the status line, indexed by the codes of USBCdcLineCoding.
 	static constexpr const char* ParityNames[] = { "none", "odd", "even", "mark", "space" };
 	static constexpr const char* StopBitNames[] = { "1", "1.5", "2" };
@@ -53,67 +50,13 @@ namespace DemoUSBComposite {
 	static constexpr const char* HelpLines[] = {
 		"commands:",
 		"  help                       this list",
-		"  type <text>                types the text on a US keyboard, printable ASCII only",
+		"  type <text>                types the text on a US keyboard, printable ASCII only; put it in double quotes when it has spaces",
 		"  key <name>                 presses and releases one key: enter esc backspace tab space up down left right f13..f24",
 		"  move <dx> <dy>             moves the mouse by dx and dy counts, negative for left and up",
 		"  click [left|right|middle]  clicks a mouse button, left by default",
 		"  wheel <n>                  scrolls n steps, positive away from you",
 		"  status                     USB state, keyboard LEDs, line coding, DTR and the vendor loop count",
 	};
-
-
-	// Takes the next word of text: the characters up to the next space, after any spaces before it. text keeps what follows the word.
-	static std::string_view TakeWord(std::string_view& text) {
-		while (!text.empty() && text.front() == ' ') {
-			text.remove_prefix(1);
-		}
-
-		std::size_t end = text.find(' ');
-		std::string_view word = text.substr(0, end);
-		text.remove_prefix(word.size());
-		return word;
-	}
-
-
-	static bool IsBlank(std::string_view text) {
-		for (char character : text) {
-			if (character != ' ') {
-				return false;
-			}
-		}
-
-		return true;
-	}
-
-
-	// Reads a decimal number with an optional sign. It fails for anything else and for a value beyond MaxAxisValue.
-	static bool ParseNumber(std::string_view word, int32& value) {
-		bool negative = false;
-		if (!word.empty() && (word.front() == '-' || word.front() == '+')) {
-			negative = word.front() == '-';
-			word.remove_prefix(1);
-		}
-
-		if (word.empty() || word.size() > 5) {
-			return false;
-		}
-
-		int32 result = 0;
-		for (char digit : word) {
-			if (digit < '0' || digit > '9') {
-				return false;
-			}
-
-			result = result * 10 + (digit - '0');
-		}
-
-		if (result > MaxAxisValue) {
-			return false;
-		}
-
-		value = negative ? -result : result;
-		return true;
-	}
 
 
 	static bool FindKey(std::string_view name, uint8& keyCode) {
@@ -124,6 +67,30 @@ namespace DemoUSBComposite {
 			}
 		}
 
+		return false;
+	}
+
+
+	// True when every character is printable ASCII, so each one has a key on the US keyboard.
+	static bool IsPrintableAscii(std::string_view text) {
+		for (char character : text) {
+			USBHidKeyStroke stroke;
+			if (!USBHidAsciiToKey(character, stroke)) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+
+	// Writes the refusal when the device is not configured. False when the command cannot go on.
+	static bool RequireConfigured(Print& out, const USBDevice& device) {
+		if (device.GetState() == USBDeviceState::Configured) {
+			return true;
+		}
+
+		out.WriteLine("error: the USB host has not configured the device yet");
 		return false;
 	}
 
@@ -144,8 +111,8 @@ namespace DemoUSBComposite {
 	}
 
 
-	// The result of a move or a wheel command. busy is not an error: the movement was taken and waits in the mouse until the queue has room,
-	// and the main loop sends it. outOfRange is an error: the movement was not taken, because the pending movement is at its limit.
+	// The result of a move or a wheel command. busy is not an error: the movement is taken and waits in the mouse until the queue has
+	// room, and the main loop sends it. outOfRange is an error: the movement is not taken, because the pending movement is at its limit.
 	static void WriteMotionOutcome(Print& out, ResultStatus status) {
 		if (status == ResultStatus::outOfRange) {
 			out.WriteLine("error: the host has not taken the pending movement yet, try again later");
@@ -161,298 +128,244 @@ namespace DemoUSBComposite {
 	}
 
 
-	void CompositeCommandLine::ReadInput() {
-		std::array<uint8, 32> received{};
-		uint16 count = port.Read(received);
-		for (uint16 index = 0; index < count; index++) {
-			HandleByte(received[index]);
-		}
-	}
-
-
-	void CompositeCommandLine::HandleByte(uint8 value) {
-		if (value == '\r' || value == '\n') {
-			uint8 other = value == '\r' ? '\n' : '\r';
-			// The second half of a CR LF or LF CR pair ends nothing: the first byte already ended the line.
-			if (lastLineEnd == other) {
-				lastLineEnd = 0;
-				return;
-			}
-
-			lastLineEnd = value;
-			EndLine();
-			return;
-		}
-
-		lastLineEnd = 0;
-
-		// BS and DEL both erase the last character. The terminal shows the erase by moving back, blanking the cell and moving back again.
-		if (value == 0x08 || value == 0x7F) {
-			if (lineLength > 0) {
-				lineLength--;
-				out.Write("\b \b");
-			}
-
-			return;
-		}
-
-		// Printable ASCII only. Other bytes, such as a tab, are dropped without an echo.
-		if (value < 0x20 || value > 0x7E) {
-			return;
-		}
-
-		if (lineLength == line.size()) {
-			lineTooLong = true;
-			return;
-		}
-
-		line[lineLength] = static_cast<char>(value);
-		lineLength++;
-		out.Write(&line[lineLength - 1], 1);
-	}
-
-
-	// A line of spaces only is an empty line: it gets a new prompt and no error.
-	void CompositeCommandLine::EndLine() {
-		out.Line();
-		if (lineTooLong) {
-			out.WriteLine("error: the line is longer than 80 characters");
-		} else if (!IsBlank(std::string_view(line.data(), lineLength))) {
-			Execute(std::string_view(line.data(), lineLength));
-		}
-
-		ResetLine();
-		Prompt();
-	}
-
-
-	void CompositeCommandLine::ResetLine() {
-		lineLength = 0;
-		lineTooLong = false;
-	}
-
-
-	void CompositeCommandLine::Prompt() {
-		out.Write("> ");
-	}
-
-
-	void CompositeCommandLine::Execute(std::string_view text) {
-		std::string_view arguments = text;
-		std::string_view word = TakeWord(arguments);
-		// The one space after the command word is not an argument. Any further spaces are kept, so type sends them.
-		if (!arguments.empty()) {
-			arguments.remove_prefix(1);
-		}
-
-		if (word == CompositeCommands::Help) {
-			Help(arguments);
-		} else if (word == CompositeCommands::Type) {
-			Type(arguments);
-		} else if (word == CompositeCommands::Key) {
-			Key(arguments);
-		} else if (word == CompositeCommands::Move) {
-			Move(arguments);
-		} else if (word == CompositeCommands::Click) {
-			Click(arguments);
-		} else if (word == CompositeCommands::Wheel) {
-			Wheel(arguments);
-		} else if (word == CompositeCommands::Status) {
-			Status(arguments);
-		} else {
-			out.Write("error: unknown command '");
-			out.Write(word);
-			out.WriteLine("', try help");
-		}
-	}
-
-
-	// Types the pending text as far as the keyboard queue has room. The text is validated when it is taken, so every character has a key
-	// and the typing never stops on a character it cannot send. Pending text is dropped when the host is not configured, so it does not
-	// type into the next connection.
-	void CompositeCommandLine::FeedTyping() {
-		if (typeLength == 0) {
-			return;
-		}
-
-		if (device.GetState() != USBDeviceState::Configured) {
-			typeLength = 0;
-			typeOffset = 0;
-			return;
-		}
-
-		typeOffset += keyboard.TypeText(typeText.data() + typeOffset);
-		if (typeOffset == typeLength) {
-			typeLength = 0;
-			typeOffset = 0;
-		}
-	}
-
-
-	bool CompositeCommandLine::RequireConfigured() {
-		if (device.GetState() == USBDeviceState::Configured) {
-			return true;
-		}
-
-		out.WriteLine("error: the USB host has not configured the device yet");
-		return false;
-	}
-
-
-	void CompositeCommandLine::Help(std::string_view arguments) {
-		if (!IsBlank(arguments)) {
+	// The text of an argument error. The commands keep their usage texts. A fault without a text of its own gets a generic one.
+	static void WriteArgumentError(Print& out, const CommandEvent& event) {
+		if (event.command == "help") {
 			out.WriteLine("error: help takes no arguments");
 			return;
 		}
 
-		for (const char* text : HelpLines) {
-			out.WriteLine(text);
-		}
-	}
-
-
-	// The text is the rest of the line after the command word and one space, so the spaces inside it are typed as well.
-	void CompositeCommandLine::Type(std::string_view arguments) {
-		if (arguments.empty()) {
-			out.WriteLine("error: type needs text, for example: type hello");
-			return;
-		}
-
-		if (typeLength != 0) {
-			out.WriteLine("error: still typing the earlier text, try again");
-			return;
-		}
-
-		USBHidKeyStroke stroke;
-		for (char character : arguments) {
-			if (!USBHidAsciiToKey(character, stroke)) {
-				out.WriteLine("error: type takes printable ASCII only");
-				return;
-			}
-		}
-
-		if (!RequireConfigured()) {
-			return;
-		}
-
-		std::copy(arguments.begin(), arguments.end(), typeText.begin());
-		typeText[arguments.size()] = '\0';
-		typeLength = arguments.size();
-		typeOffset = 0;
-		out.WriteLine("ok");
-	}
-
-
-	void CompositeCommandLine::Key(std::string_view arguments) {
-		std::string_view name = TakeWord(arguments);
-		if (name.empty() || !IsBlank(arguments)) {
-			out.WriteLine("error: key takes one key name, for example: key enter");
-			return;
-		}
-
-		uint8 keyCode = 0;
-		if (!FindKey(name, keyCode)) {
-			out.Write("error: unknown key '");
-			out.Write(name);
-			out.WriteLine("'");
-			return;
-		}
-
-		if (!RequireConfigured()) {
-			return;
-		}
-
-		WriteOutcome(out, keyboard.Tap(keyCode, 0));
-	}
-
-
-	// A move the queue has no room for stays pending in the mouse and goes out from the main loop, so the answer is ok.
-	void CompositeCommandLine::Move(std::string_view arguments) {
-		int32 dx = 0;
-		int32 dy = 0;
-		std::string_view dxWord = TakeWord(arguments);
-		std::string_view dyWord = TakeWord(arguments);
-		if (!ParseNumber(dxWord, dx) || !ParseNumber(dyWord, dy) || !IsBlank(arguments)) {
-			out.WriteLine("error: move takes two numbers, dx and dy, from -32767 to 32767");
-			return;
-		}
-
-		if (!RequireConfigured()) {
-			return;
-		}
-
-		WriteMotionOutcome(out, mouse.Move(dx, dy));
-	}
-
-
-	void CompositeCommandLine::Click(std::string_view arguments) {
-		std::string_view name = TakeWord(arguments);
-		uint8 button = Mouse::ButtonLeft;
-		if (name == "right") {
-			button = Mouse::ButtonRight;
-		} else if (name == "middle") {
-			button = Mouse::ButtonMiddle;
-		} else if (!name.empty() && name != "left") {
-			out.Write("error: unknown button '");
-			out.Write(name);
-			out.WriteLine("', use left, right or middle");
-			return;
-		}
-
-		if (!IsBlank(arguments)) {
-			out.WriteLine("error: click takes one button name at most");
-			return;
-		}
-
-		if (!RequireConfigured()) {
-			return;
-		}
-
-		WriteOutcome(out, mouse.Click(button));
-	}
-
-
-	void CompositeCommandLine::Wheel(std::string_view arguments) {
-		int32 steps = 0;
-		if (!ParseNumber(TakeWord(arguments), steps) || !IsBlank(arguments)) {
-			out.WriteLine("error: wheel takes one number of steps, from -32767 to 32767");
-			return;
-		}
-
-		if (!RequireConfigured()) {
-			return;
-		}
-
-		WriteMotionOutcome(out, mouse.Scroll(steps));
-	}
-
-
-	void CompositeCommandLine::Status(std::string_view arguments) {
-		if (!IsBlank(arguments)) {
+		if (event.command == "status") {
 			out.WriteLine("error: status takes no arguments");
 			return;
 		}
 
-		WriteUsbState(out, device, keyboard);
-		out.Line();
-		USBCdcLineCoding coding = port.GetLineCoding();
-		out.Write("baud=");
-		out.Write(coding.dteRate);
-		out.Write(" data=");
-		out.Write(static_cast<uint32>(coding.dataBits));
-		out.Write(" parity=");
-		out.Write(ParityNames[std::min<std::size_t>(coding.parity, std::size(ParityNames) - 1)]);
-		out.Write(" stop=");
-		out.Write(StopBitNames[std::min<std::size_t>(coding.stopBits, std::size(StopBitNames) - 1)]);
-		out.Line();
-		out.Write("dtr=");
-		out.Write(port.IsTerminalOpen());
-		out.Write(" looped=");
-		out.Write(loopedBytes);
-		out.Write(" cdcDropped=");
-		out.Write(out.GetDropped());
-		out.Write(" usbErr=");
-		out.Write(device.GetErrorCount());
-		out.Line();
+		if (event.command == "key") {
+			if (event.fault == CommandFault::TooLong) {
+				out.WriteLine("error: key takes a key name of at most 16 characters");
+				return;
+			}
+
+			out.WriteLine("error: key takes one key name, for example: key enter");
+			return;
+		}
+
+		if (event.command == "move") {
+			out.WriteLine("error: move takes two numbers, dx and dy, from -32767 to 32767");
+			return;
+		}
+
+		if (event.command == "wheel") {
+			out.WriteLine("error: wheel takes one number of steps, from -32767 to 32767");
+			return;
+		}
+
+		if (event.command == "click") {
+			if (event.fault == CommandFault::TooLong) {
+				out.WriteLine("error: click takes a button name of at most 16 characters: left, right or middle");
+				return;
+			}
+
+			out.WriteLine("error: click takes one button name at most");
+			return;
+		}
+
+		if (event.command == "type") {
+			if (event.fault == CommandFault::Missing) {
+				out.WriteLine("error: type needs text, for example: type hello");
+				return;
+			}
+
+			if (event.fault == CommandFault::Extra) {
+				out.WriteLine("error: type takes one word, or the text in double quotes, for example: type \"hello world\"");
+				return;
+			}
+
+			if (event.fault == CommandFault::TooLong) {
+				out.WriteLine("error: type takes at most 75 characters, or 73 between double quotes");
+				return;
+			}
+
+			if (event.fault == CommandFault::MissingQuote) {
+				out.WriteLine("error: type text has no closing double quote");
+				return;
+			}
+
+			out.WriteLine("error: type text must end at its closing double quote");
+			return;
+		}
+
+		out.Write("error: ");
+		out.Write(event.command);
+		out.WriteLine(": the argument is not valid");
+	}
+
+
+	ResultStatus CompositeCommandLine::HelpCommand(CommandCall<Context> call) {
+		for (const char* text : HelpLines) {
+			call.out.WriteLine(text);
+		}
+
+		return ResultStatus::ok;
+	}
+
+
+	// The first pass checks the text and sends the answer, and the later passes type the text as the keyboard queue has room. The
+	// text is validated when it is taken, so every character has a key and the typing never stops on a character it cannot send.
+	// Text is dropped when the host has deconfigured the device, so it does not type into the next connection.
+	// The pass that types the last character returns CommandContinue, and the next pass ends the command. The ending pass types nothing,
+	// so the keyboard room of its main loop pass is free for the next command.
+	CommandStep CompositeCommandLine::TypeCommand(CommandLongCall<Context, TypeState> call, String<TypeCapacity> text) {
+		if (call.cancelled) {
+			return ResultStatus::ok;
+		}
+
+		if (!call.state.started) {
+			if (text.length == 0) {
+				call.out.WriteLine("error: type needs text, for example: type hello");
+				return ResultStatus::ok;
+			}
+
+			if (!IsPrintableAscii(text.View())) {
+				call.out.WriteLine("error: type takes printable ASCII only");
+				return ResultStatus::ok;
+			}
+
+			if (!RequireConfigured(call.out, call.app.device)) {
+				return ResultStatus::ok;
+			}
+
+			call.state.started = true;
+			call.out.WriteLine("ok");
+			return CommandContinue;
+		}
+
+		if (call.app.device.GetState() != USBDeviceState::Configured) {
+			return ResultStatus::ok;
+		}
+
+		if (call.state.typed == text.length) {
+			return ResultStatus::ok;
+		}
+
+		// The buffer ends with a NUL after the last character, because the keyboard reads the text up to its NUL.
+		std::array<char, TypeCapacity + 1> buffer{};
+		std::copy(text.characters.begin(), text.characters.begin() + static_cast<std::ptrdiff_t>(text.length), buffer.begin());
+		call.state.typed += call.app.keyboard.TypeText(buffer.data() + call.state.typed);
+		return CommandContinue;
+	}
+
+
+	ResultStatus CompositeCommandLine::KeyCommand(CommandCall<Context> call, String<KeyNameCapacity> name) {
+		uint8 keyCode = 0;
+		if (!FindKey(name.View(), keyCode)) {
+			call.out.Write("error: unknown key '");
+			call.out.Write(name.View());
+			call.out.WriteLine("'");
+			return ResultStatus::ok;
+		}
+
+		if (!RequireConfigured(call.out, call.app.device)) {
+			return ResultStatus::ok;
+		}
+
+		WriteOutcome(call.out, call.app.keyboard.Tap(keyCode, 0));
+		return ResultStatus::ok;
+	}
+
+
+	// A move the queue has no room for stays pending in the mouse and goes out from the main loop, so the answer is ok.
+	ResultStatus CompositeCommandLine::MoveCommand(CommandCall<Context> call, int32 dx, int32 dy) {
+		if (!RequireConfigured(call.out, call.app.device)) {
+			return ResultStatus::ok;
+		}
+
+		WriteMotionOutcome(call.out, call.app.mouse.Move(dx, dy));
+		return ResultStatus::ok;
+	}
+
+
+	ResultStatus CompositeCommandLine::ClickCommand(CommandCall<Context> call, String<ButtonNameCapacity> button) {
+		uint8 code = Mouse::ButtonLeft;
+		if (button.View() == "right") {
+			code = Mouse::ButtonRight;
+		} else if (button.View() == "middle") {
+			code = Mouse::ButtonMiddle;
+		} else if (button.View() != "left") {
+			call.out.Write("error: unknown button '");
+			call.out.Write(button.View());
+			call.out.WriteLine("', use left, right or middle");
+			return ResultStatus::ok;
+		}
+
+		if (!RequireConfigured(call.out, call.app.device)) {
+			return ResultStatus::ok;
+		}
+
+		WriteOutcome(call.out, call.app.mouse.Click(code));
+		return ResultStatus::ok;
+	}
+
+
+	ResultStatus CompositeCommandLine::WheelCommand(CommandCall<Context> call, int32 steps) {
+		if (!RequireConfigured(call.out, call.app.device)) {
+			return ResultStatus::ok;
+		}
+
+		WriteMotionOutcome(call.out, call.app.mouse.Scroll(steps));
+		return ResultStatus::ok;
+	}
+
+
+	ResultStatus CompositeCommandLine::StatusCommand(CommandCall<Context> call) {
+		WriteUsbState(call.out, call.app.device, call.app.keyboard);
+		call.out.Line();
+		USBCdcLineCoding coding = call.app.port.GetLineCoding();
+		call.out.Write("baud=");
+		call.out.Write(coding.dteRate);
+		call.out.Write(" data=");
+		call.out.Write(static_cast<uint32>(coding.dataBits));
+		call.out.Write(" parity=");
+		call.out.Write(ParityNames[std::min<std::size_t>(coding.parity, std::size(ParityNames) - 1)]);
+		call.out.Write(" stop=");
+		call.out.Write(StopBitNames[std::min<std::size_t>(coding.stopBits, std::size(StopBitNames) - 1)]);
+		call.out.Line();
+		call.out.Write("dtr=");
+		call.out.Write(call.app.port.IsTerminalOpen());
+		call.out.Write(" looped=");
+		call.out.Write(call.app.loopedBytes);
+		call.out.Write(" cdcDropped=");
+		call.out.Write(call.app.serialOut.GetDropped());
+		call.out.Write(" usbErr=");
+		call.out.Write(call.app.device.GetErrorCount());
+		call.out.Line();
+		return ResultStatus::ok;
+	}
+
+
+	// The events without a command's own handler. The handler prints the greeting, and the console then prints the prompt.
+	void CompositeCommandLine::OnConsoleEvent(CommandCall<Context> call, const CommandEvent& event) {
+		if (event.kind == CommandEventKind::TerminalOpened) {
+			call.out.WriteLine("USB composite demo. Type help for the commands.");
+		} else if (event.kind == CommandEventKind::UnknownCommand) {
+			call.out.Write("error: unknown command '");
+			call.out.Write(event.text);
+			call.out.WriteLine("', try help");
+		} else if (event.kind == CommandEventKind::ArgumentError) {
+			WriteArgumentError(call.out, event);
+		} else if (event.kind == CommandEventKind::Interrupt) {
+			call.out.WriteLine("^C");
+		} else if (event.kind == CommandEventKind::InputOverflow) {
+			call.out.WriteLine("input lost");
+		}
+	}
+
+
+	void CompositeCommandLine::ReadInput() {
+		std::array<uint8, 32> received{};
+		uint16 count = port.Read(received);
+		for (uint16 index = 0; index < count; index++) {
+			console.Feed(received[index]);
+		}
 	}
 }

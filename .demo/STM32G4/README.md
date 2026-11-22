@@ -155,18 +155,19 @@ Packet memory (PMA), 1024 bytes on the G431: the buffer table takes 64 bytes, en
 are double-buffered (4 x 128 = 512), and the three interrupt endpoints take 8 + 4 + 16 = 28. That is 732 bytes, with 292 bytes
 to spare. This is the adapter's allocation rule worked out, not a measurement on a board.
 
-Build size: RAM 9824 B of 22 KB (44 %), FLASH 91120 B of 128 KB (70 %). The bench is 16040 B RAM and 78364 B FLASH.
+Build size: RAM 10200 B of 22 KB (45 %), FLASH 96484 B of 128 KB (74 %). The bench is 16040 B RAM and 78364 B FLASH.
 `CdcPrint::WriteRaw` is defined in `CdcPrint.cpp`: inlined at every print site at -O3 it made the image about 29 KB larger.
 
 The CDC port is a command line. Echo, backspace (BS or DEL), and a line end ends a line: CR (what a terminal sends for Enter),
 LF, or CR LF, and each of those is one end. The second byte of a CR LF or LF CR pair ends nothing, while two CRs (or two LFs)
-end two lines. A line of spaces only is an empty line and gets a new prompt. A prompt follows each command. Lines longer than
-80 characters are refused. Commands:
+end two lines. A line of spaces only is an empty line and gets a new prompt. A prompt follows each command. Each command's text or name has a
+length limit (`type` 75 characters, or 73 between double quotes; a key name and a button name 16), and a longer one is refused. Ctrl+C cancels the line
+being typed and any typing in progress, and prints `^C`. An escape sequence, such as an arrow key, is ignored, and so is the character right after its ESC. Commands:
 
 - `help`: the list.
-- `type <text>`: types the text on a US keyboard layout, printable ASCII only. The rest of the line after the command word
-  and one space is the text, so spaces inside it are typed too. The text is typed a few characters per pass as the
-  keyboard queue has room.
+- `type <text>`: types the text on a US keyboard layout, printable ASCII only. A text with spaces goes in double quotes, as in
+  `type "hello world"`; inside the quotes `\"` is a double quote and `\\` a backslash. The text is typed a few characters per
+  pass as the keyboard queue has room. The prompt comes after the last character is typed. Input typed meanwhile is kept in a 128-byte ring; the rest is lost, and the console prints `input lost`.
 - `key <name>`: presses and releases one key. Names: `enter`, `esc`, `backspace`, `tab`, `space`, `up`, `down`, `left`,
   `right`, `f13` to `f24`. The function keys are keyboard page usages 0x68 to 0x73, so the host gets them as F13 to F24 (a
   program can bind them; a keyboard shows no keys for them).
