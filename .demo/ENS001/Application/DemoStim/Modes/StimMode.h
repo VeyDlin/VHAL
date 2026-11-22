@@ -26,7 +26,7 @@ struct StimMode {
 	// ISEL current per unit (µA) for each current select setting
 	// I0=33, I1=66, I2=100, I3=133, I4=166, I5=200, I6=233, I7=266
 	static constexpr iq16 CurrentSelectUnitUa(uint8 isel) {
-		return iq16(33.0f * (isel + 1));
+		return iq16(33 * (isel + 1));
 	}
 
 	// Convert target mA to waveform amplitude (0-255) for given ISEL

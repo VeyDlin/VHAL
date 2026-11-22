@@ -120,6 +120,191 @@ void ThirtyTwoBitCases() {
 }
 
 
+// IQ<24> has a range of about +-128, so its targets here are 127 Hz or less. Its raw unit is 2^-24 Hz.
+void Q24Cases() {
+	using Type = IQ<24>;
+
+	// 2.5 Hz at 16 bits: prescaler 195 and period 65305, as in the frequency tests. The pulse at 50 % is 65306 * 50 / 100 = 32653.
+	ATIM adapter(32000000u, ATIM::Bitness::B16, ATIM::ClockDivisionOption::Div1);
+	TIMOutputCompareHelper<Type> pwm(adapter, ATIM::ChannelOption::Ch1);
+	pwm.SetFrequencyInfo({ .frequencyHz = Type(2.5), .duty = Type(50.0) });
+	ExpectEqual(adapter.GetParameters().prescaler, 195, "IQ<24> prescaler at 2.5 Hz", __LINE__);
+	ExpectEqual(adapter.GetParameters().period, 65305, "IQ<24> period at 2.5 Hz", __LINE__);
+	ExpectEqual(adapter.GetOutputCompareParameters(ATIM::ChannelOption::Ch1).compare, 32653, "IQ<24> compare at 50 %", __LINE__);
+
+	// Read back: 32000000 * 2^24 / (196 * 65306) = 41943117 raw units, which is 2.5000046 Hz. The duty is exactly 50 %.
+	ExpectValue(static_cast<double>(pwm.GetFrequencyInfo().frequencyHz), 2.5, "IQ<24> frequency after 2.5 Hz", __LINE__);
+	ExpectValue(static_cast<double>(pwm.GetFrequencyInfo().duty), 50.0, "IQ<24> duty after 2.5 Hz", __LINE__);
+
+	// Raw 2 is 2^-23 Hz. The counts are 32000000 * 2^23, about 2.7e14, far above 2^32, so the period is 0xFFFFFFFF. A duty of
+	// 100 % is 2^32 ticks, clamped to 0xFFFFFFFF. The product (2^32) * (100 << 24), about 7.2e18, is below 2^63.
+	ATIM wide(32000000u, ATIM::Bitness::B32, ATIM::ClockDivisionOption::Div1);
+	TIMOutputCompareHelper<Type> wideFull(wide, ATIM::ChannelOption::Ch1);
+	wideFull.SetFrequencyInfo({ .frequencyHz = Type::FromRaw(2), .duty = Type(100.0) });
+	ExpectEqual(wide.GetParameters().period, 0xFFFFFFFFu, "IQ<24> 32-bit period at raw 2", __LINE__);
+	ExpectEqual(wide.GetOutputCompareParameters(ATIM::ChannelOption::Ch1).compare, 0xFFFFFFFFu, "IQ<24> 32-bit compare at 100 %", __LINE__);
+
+	// The same target at 50 % is 2^32 * 50 / 100 = 2147483648 ticks.
+	ATIM wideHalf(32000000u, ATIM::Bitness::B32, ATIM::ClockDivisionOption::Div1);
+	TIMOutputCompareHelper<Type> wideHalfHelper(wideHalf, ATIM::ChannelOption::Ch1);
+	wideHalfHelper.SetFrequencyInfo({ .frequencyHz = Type::FromRaw(2), .duty = Type(50.0) });
+	ExpectEqual(wideHalf.GetOutputCompareParameters(ATIM::ChannelOption::Ch1).compare, 2147483648u, "IQ<24> 32-bit compare at 50 %", __LINE__);
+}
+
+
+// The duty read back from a compare that does not divide the period exactly. The raw duty is floor(compare * 100 * 2^q / period),
+// so the readback must match that floor to the last raw unit, not only to the 1e-3 tolerance of ExpectValue.
+void NonExactDutyCases() {
+	// Period 2, so 3 ticks per cycle, and compare 1. The duty is 100 / 3 = 33.3333... %. In IQ<16> the raw value is
+	// floor(100 * 65536 / 3) = 2184533, not the 2184500 that truncating the fraction before the multiplication gives.
+	ATIM adapter(32000000u, ATIM::Bitness::B16, ATIM::ClockDivisionOption::Div1);
+	adapter.SetPeriod(2);
+	adapter.SetCompare(ATIM::ChannelOption::Ch1, 1);
+	TIMOutputCompareHelper<IQ<16>> pwm(adapter, ATIM::ChannelOption::Ch1);
+
+	ExpectEqual(static_cast<unsigned long long>(pwm.GetFrequencyInfo().duty.raw), 2184533ull, "IQ<16> duty raw at 1 of 3 ticks", __LINE__);
+}
+
+
+// TuneHalfCompare builds its target as twice the frequency. For an IQ type the target is shifted into raw units in 64 bits,
+// so a target above the range of the type is not saturated before the search.
+template <RealType Type>
+void TuneHalfCompareCases() {
+	// Period 79, so 80 ticks per cycle. The target is 2 * 20000 = 40000 Hz, the counts are 32000000 / (80 * 40000) = 10, and the
+	// register is 9. The compare is 80 / 2 = 40. An iq16 target of 40000 Hz would saturate at 32767.99998 Hz, which gives counts 12
+	// and register 11.
+	ATIM high(32000000u, ATIM::Bitness::B16, ATIM::ClockDivisionOption::Div1);
+	high.SetPeriod(79);
+	TIMOutputCompareHelper<Type> highHelper(high, ATIM::ChannelOption::Ch1);
+	highHelper.TuneHalfCompare(20000);
+	ExpectEqual(high.GetParameters().prescaler, 9, "prescaler after TuneHalfCompare 20 kHz", __LINE__);
+	ExpectEqual(high.GetOutputCompareParameters(ATIM::ChannelOption::Ch1).compare, 40, "compare after TuneHalfCompare 20 kHz", __LINE__);
+
+	// Period 3199, so 3200 ticks per cycle. The target is 2 * 50 = 100 Hz, the counts are 32000000 / (3200 * 100) = 100, and the
+	// register is 99. The compare is 3200 / 2 = 1600.
+	ATIM low(32000000u, ATIM::Bitness::B16, ATIM::ClockDivisionOption::Div1);
+	low.SetPeriod(3199);
+	TIMOutputCompareHelper<Type> lowHelper(low, ATIM::ChannelOption::Ch1);
+	lowHelper.TuneHalfCompare(50);
+	ExpectEqual(low.GetParameters().prescaler, 99, "prescaler after TuneHalfCompare 50 Hz", __LINE__);
+	ExpectEqual(low.GetOutputCompareParameters(ATIM::ChannelOption::Ch1).compare, 1600, "compare after TuneHalfCompare 50 Hz", __LINE__);
+
+	// A zero target has an infinite count in the float path, so the register is the largest value.
+	ATIM zero(32000000u, ATIM::Bitness::B16, ATIM::ClockDivisionOption::Div1);
+	zero.SetPeriod(79);
+	TIMOutputCompareHelper<Type> zeroHelper(zero, ATIM::ChannelOption::Ch1);
+	zeroHelper.TuneHalfCompare(0);
+	ExpectEqual(zero.GetParameters().prescaler, 0xFFFF, "prescaler after TuneHalfCompare 0 Hz", __LINE__);
+}
+
+
+// The edges of the 32-bit range: the half compare of period 0xFFFFFFFF, and a very large TuneHalfCompare target.
+void WrapCases() {
+	// The period 0xFFFFFFFF plus one is 2^32. In uint32 that sum would wrap to 0 and give a compare of 1. The compare is 2^31.
+	ATIM top(32000000u, ATIM::Bitness::B32, ATIM::ClockDivisionOption::Div1);
+	top.SetPeriod(0xFFFFFFFFu);
+	TIMOutputCompareHelper<float> topHelper(top, ATIM::ChannelOption::Ch1);
+	topHelper.SetHalfCompare();
+	ExpectEqual(top.GetOutputCompareParameters(ATIM::ChannelOption::Ch1).compare, 2147483648u, "half compare at period 0xFFFFFFFF", __LINE__);
+
+	// The 16-bit period 0xFFFF gives 65536 / 2 = 32768.
+	ATIM narrow(32000000u, ATIM::Bitness::B16, ATIM::ClockDivisionOption::Div1);
+	narrow.SetPeriod(0xFFFFu);
+	TIMOutputCompareHelper<float> narrowHelper(narrow, ATIM::ChannelOption::Ch1);
+	narrowHelper.SetHalfCompare();
+	ExpectEqual(narrow.GetOutputCompareParameters(ATIM::ChannelOption::Ch1).compare, 32768, "half compare at period 0xFFFF", __LINE__);
+
+	// The target 2 * 4294967295 Hz is about 2^33, and in IQ<30> its raw value is about 2^63, which must not wrap. The counts are
+	// 32000000 / (80 * 8589934590), far below 1, so the register is 0 and the compare is 40.
+	ATIM high(32000000u, ATIM::Bitness::B16, ATIM::ClockDivisionOption::Div1);
+	high.SetPeriod(79);
+	TIMOutputCompareHelper<IQ<30>> highHelper(high, ATIM::ChannelOption::Ch1);
+	highHelper.TuneHalfCompare(4294967295u);
+	ExpectEqual(high.GetParameters().prescaler, 0, "prescaler at the largest TuneHalfCompare target", __LINE__);
+	ExpectEqual(high.GetOutputCompareParameters(ATIM::ChannelOption::Ch1).compare, 40, "compare at the largest TuneHalfCompare target", __LINE__);
+}
+
+
+// Extremes for TunePrescaler, where the period plus one is up to 2^32 and the raw target up to 2^30 in IQ<30>.
+void TunePrescalerCases() {
+	// 32 bits, division 4, clock 2^32 - 1 Hz, period 0xFFFFFFFF, target 1 Hz. The ticks per second at prescaler 0 are
+	// (2^32 - 1) / (4 * 2^32) = 0.25, so the register is 0. The product 4 * 2^32 * 2^30 would be 2^64 and wrap to 0.
+	ATIM wide(4294967295u, ATIM::Bitness::B32, ATIM::ClockDivisionOption::Div4);
+	wide.SetPeriod(0xFFFFFFFFu);
+	TIMOutputCompareHelper<IQ<30>> wideHelper(wide, ATIM::ChannelOption::Ch1);
+	wideHelper.TunePrescaler(IQ<30>::FromRaw(1 << 30));
+	ExpectEqual(wide.GetParameters().prescaler, 0, "prescaler at period 0xFFFFFFFF, division 4, 1 Hz", __LINE__);
+
+	// 16 bits, division 1, clock 2^32 - 1 Hz, period 0xFFFF, target 1 Hz. The ticks per second at prescaler 0 are
+	// (2^32 - 1) / 65536 = 65535.99998, so the register is 65534.
+	ATIM narrow(4294967295u, ATIM::Bitness::B16, ATIM::ClockDivisionOption::Div1);
+	narrow.SetPeriod(0xFFFF);
+	TIMOutputCompareHelper<IQ<30>> narrowHelper(narrow, ATIM::ChannelOption::Ch1);
+	narrowHelper.TunePrescaler(IQ<30>::FromRaw(1 << 30));
+	ExpectEqual(narrow.GetParameters().prescaler, 65534, "prescaler at period 0xFFFF, 1 Hz", __LINE__);
+}
+
+
+// Compares the prescaler, period and channel compare of two adapters.
+void ExpectSameRegisters(ATIM& expected, ATIM& actual, const char* name, int line) {
+	ExpectEqual(actual.GetParameters().prescaler, expected.GetParameters().prescaler, name, line);
+	ExpectEqual(actual.GetParameters().period, expected.GetParameters().period, name, line);
+	ExpectEqual(
+		actual.GetOutputCompareParameters(ATIM::ChannelOption::Ch1).compare,
+		expected.GetOutputCompareParameters(ATIM::ChannelOption::Ch1).compare,
+		name,
+		line
+	);
+}
+
+
+// Targets that are exact in float, iq16 and iq24 must write the same registers. The two IQ types are integer and must always
+// match each other. Float is compared only when the counts at prescaler 0 are below 2^24, where a float period of 64000000 - 1
+// would already be stored as 64000000 above it. The bound is not a proof of float exactness: float can round below 2^24 too,
+// so a float mismatch in this sweep is a float rounding, and the IQ types are the reference.
+void SameRegisterCases() {
+	const uint32 clocks[] = { 32000000u, 65536u, 32u };
+	const ATIM::Bitness bitnesses[] = { ATIM::Bitness::B16, ATIM::Bitness::B32 };
+	const ATIM::ClockDivisionOption divisions[] = { ATIM::ClockDivisionOption::Div1, ATIM::ClockDivisionOption::Div2, ATIM::ClockDivisionOption::Div4 };
+	const double targets[] = { 2.5, 0.5, 64.0, 125.0, 1.0 / 256.0 };
+	const double duties[] = { 25.0, 12.5 };
+	const double exactFloatCounts = 16777216.0;
+
+	for (uint32 clockHz : clocks) {
+		for (ATIM::Bitness bitness : bitnesses) {
+			for (ATIM::ClockDivisionOption division : divisions) {
+				double divisionValue = static_cast<double>(static_cast<int>(division));
+
+				for (double targetHz : targets) {
+					bool floatIsExact = static_cast<double>(clockHz) / (divisionValue * targetHz) < exactFloatCounts;
+
+					for (double dutyPercent : duties) {
+						ATIM floatAdapter(clockHz, bitness, division);
+						ATIM iq16Adapter(clockHz, bitness, division);
+						ATIM iq24Adapter(clockHz, bitness, division);
+
+						TIMOutputCompareHelper<float> floatHelper(floatAdapter, ATIM::ChannelOption::Ch1);
+						TIMOutputCompareHelper<IQ<16>> iq16Helper(iq16Adapter, ATIM::ChannelOption::Ch1);
+						TIMOutputCompareHelper<IQ<24>> iq24Helper(iq24Adapter, ATIM::ChannelOption::Ch1);
+
+						floatHelper.SetFrequencyInfo({ .frequencyHz = static_cast<float>(targetHz), .duty = static_cast<float>(dutyPercent) });
+						iq16Helper.SetFrequencyInfo({ .frequencyHz = IQ<16>(targetHz), .duty = IQ<16>(dutyPercent) });
+						iq24Helper.SetFrequencyInfo({ .frequencyHz = IQ<24>(targetHz), .duty = IQ<24>(dutyPercent) });
+
+						ExpectSameRegisters(iq16Adapter, iq24Adapter, "iq16 and iq24 registers", __LINE__);
+
+						if (floatIsExact) {
+							ExpectSameRegisters(floatAdapter, iq16Adapter, "float and iq16 registers", __LINE__);
+							ExpectSameRegisters(floatAdapter, iq24Adapter, "float and iq24 registers", __LINE__);
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+
 }
 
 
@@ -127,6 +312,14 @@ int main() {
 	SixteenBitCases<float>();
 	SixteenBitCases<IQ<16>>();
 	ThirtyTwoBitCases();
+	Q24Cases();
+	NonExactDutyCases();
+	TuneHalfCompareCases<float>();
+	TuneHalfCompareCases<IQ<16>>();
+	TuneHalfCompareCases<IQ<24>>();
+	WrapCases();
+	TunePrescalerCases();
+	SameRegisterCases();
 
 	if (failureCount != 0) {
 		std::fprintf(stderr, "%d check(s) failed\n", failureCount);
