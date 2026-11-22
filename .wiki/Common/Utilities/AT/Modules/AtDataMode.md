@@ -57,7 +57,7 @@ The request goes through the queue like any other. Its steps:
 4. After the prompt, the declared finals and failures end the request, with `ERROR` and `+CME ERROR` too. A declared final such as `SEND OK` is the success.
 5. Unknown lines, such as `Recv 5 bytes`, and URCs are handled as usual.
 
-The command timeout covers the whole exchange, from the request line to the final line. A timeout drains the request as any other timeout does (see [AtClient](AtClient.md#timing-queue-and-drain)). A prompt command must declare a final line, such as `SEND OK`, because without one the request could never end after its data.
+The command timeout covers the whole exchange, from the request line to the final line. A timeout drains the request as any other timeout does (see [AtClient](../AtClient.md#timing-queue-and-drain)). A prompt command must declare a final line, such as `SEND OK`, because without one the request could never end after its data.
 
 ---
 
@@ -128,5 +128,5 @@ Each rule is a compile error with its message. The snippets for each one are in 
 
 - `TestAtTranscript.cpp` with the transcripts `send_data_urc_between_prompt_and_ok.txt`, `send_data_fail.txt`, `send_error_before_prompt.txt`, `send_timeout_during_prompt_wait.txt`, `ipd_cr_lf_in_data.txt`, `ipd_length_zero.txt`, `ipd_back_to_back.txt`, `ipd_between_info_lines.txt`, `ipd_chunks_of_32.txt`, `ipd_length_overflow.txt` and `gt_outside_prompt.txt`. Each one is fed whole, cut at every byte, and one byte at a time. A raw run is written in the transcript as `= ` followed by hex, and the client's data as `> = `.
 - `TestAtData.cpp`: the prompt path (the data after the prompt and no earlier, the prompt only at a line start, the second request waiting for the first), `busy` when the queue is full, a zero-length request, the chunks of a 70-byte run with CR and LF inside, a length-zero run, the refused overflow, a run during a read, and the server's `ERROR` for a prompt command with its queued URC after it.
-- `TestAtEspAt.cpp` with `espat_cipsend.txt` (the prompt, five bytes, `Recv 5 bytes` and `SEND OK`) and `espat_cipsend_ipd.txt` (a `+IPD` with three bytes between the data and `SEND OK`). The ESP-AT description has `AtDataMode` and a prompt command, see [EspAt](Descriptions/EspAt.md).
+- `TestAtEspAt.cpp` with `espat_cipsend.txt` (the prompt, five bytes, `Recv 5 bytes` and `SEND OK`) and `espat_cipsend_ipd.txt` (a `+IPD` with three bytes between the data and `SEND OK`). The ESP-AT description has `AtDataMode` and a prompt command, see [EspAt](../Descriptions/EspAt.md).
 - The builder snippets listed above.

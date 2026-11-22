@@ -201,5 +201,5 @@ After a reply prefix that ends in `:`, one blank is written and one blank is ski
 - A set with no record and no row has no field, row or row-writer code. The server's and the client's code for a value reply is the same as before the rows.
 - A row costs its field readers and writers: one instantiation for each field type of each row, and the row table in flash (Open, Close, and one range for each field).
 - A client with `AtRows<N>` has N times the largest row size of RAM, and a rows reply uses no other request memory.
-- Measured on the ESP-AT client (see [EspAt](Descriptions/EspAt.md#sizes)): the client with `AtRows<8>` and `AtEcho` is 1686 bytes of text larger than the plain client. Its object is 592 bytes larger, which is the 8-row storage and its two counts. The row type there is `EspAtAccessPoint`.
+- Measured on the ESP-AT client (see [EspAt](../Descriptions/EspAt.md#sizes)): the client with `AtRows<8>` and `AtEcho` is 1686 bytes of text larger than the plain client. Its object is 592 bytes larger, which is the 8-row storage and its two counts. The row type there is `EspAtAccessPoint`.
 - Each `Rows` or `ReadRows` reply type costs its own text: the ESP-AT set has one row type, so it has one set of row readers and writers.

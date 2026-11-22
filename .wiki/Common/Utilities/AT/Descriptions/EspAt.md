@@ -121,7 +121,7 @@ Notes:
 | `CLOSED` | none | `void H()` |
 | `+IPD` | `length` uint16, then `Data()` | `void H(uint16 length, uint16 offset, std::span<const uint8> chunk, bool last)` |
 
-- The `+IPD` line is `+IPD,<length>:<data>` with `CIPMUX=0`. The data is raw, so CR and LF in it are data, and the chunks come in order (see [AtDataMode](../AtDataMode.md)).
+- The `+IPD` line is `+IPD,<length>:<data>` with `CIPMUX=0`. The data is raw, so CR and LF in it are data, and the chunks come in order (see [AtDataMode](../Modules/AtDataMode.md)).
 - `WIFI GOT IPv6 LL` and `WIFI GOT IPv6 GL` are not declared. Their prefix does not end at `IP`, so they are not `WIFI GOT IP` lines.
 - The server queues the URCs without `Data()`, for example `server.Urc<"WIFI GOT IP">()`. A server cannot queue `+IPD`.
 

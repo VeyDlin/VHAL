@@ -63,7 +63,7 @@ sensor.Process(nowMs);              // main loop
 | Call | Declares |
 |---|---|
 | `.Defaults(AtDefaults().TimeoutMs(n))` | the timeout of every command that does not give its own |
-| `.Modules(tag)` | a set-level module. `AtDataMode` adds the `.Prompt()` form and the `Data()` URCs, see [AtDataMode](AtDataMode.md) |
+| `.Modules(tag)` | a set-level module. `AtDataMode` adds the `.Prompt()` form and the `Data()` URCs, see [AtDataMode](Modules/AtDataMode.md) |
 | `.Dialect(AtDialect()...)` | the server's dialect options, see [AtDialect](AtDialect.md) |
 | `.Command<"+X">()` | a command, with the forms and options that follow it |
 | `.Basic<"X">()` | a basic command: one letter, whose value follows it with no `=`, as in `ATE0` |
@@ -117,7 +117,7 @@ A reply is what a module sends back: a value, a record, or rows. Each one is dec
 | `.Read(row)`, `.Run(row)` | one record of fields | `void(Result<S, AtStatus>)` | `Result<S, AtStatus>` |
 | `.ReadRows(row)`, `.Rows(row)` | one info line for each row | `void(const Result<AtRowList<S, N>, AtStatus>&)` | `AtStatus(AtCall, AtRowWriter<S>&)` |
 
-- A record is one info line of fields, declared with `AtRow<S>(AtField<&S::member>("name")...)`. The fields, the Open and Close texts, and the rows are in [AtRows](AtRows.md).
+- A record is one info line of fields, declared with `AtRow<S>(AtField<&S::member>("name")...)`. The fields, the Open and Close texts, and the rows are in [AtRows](Modules/AtRows.md).
 - The rows of a list need the client module `AtRows<N>`, which holds N rows. Rows past N are counted and not stored.
 
 ### Raw Text
@@ -147,7 +147,7 @@ The server writes the separator of its prefix. The client skips one comma, when 
 
 ## Rules Checked at Compile Time
 
-Each rule is a compile error with its message, as in the other VHAL builders. The snippets that check each one are in `Common/Utilities/AT/.tool/sim/BuilderErrors/`. The list covers the names (a command starts with `+` and has no space, a basic command is one letter, a name is declared once), the URC prefixes (no colon or comma, not a prefix of a command name or a reply prefix, declared once), the forms (once each per command, the value form only on a basic command), the arguments (an argument is an integer, `bool` or `String<N>` with no default, a required argument does not follow an optional one, no two names are the same, a string has a capacity above zero, a range has its low at most its high and both bounds fit the type), the options (a timeout above zero, `Defaults()` and `Dialect()` given once, a module is a module tag, a failure code prefix that is not empty, given once for a command, and neither a URC prefix nor a final line), the rows (see [AtRows](AtRows.md#rules-checked-at-compile-time)), the handlers (the signature of each server and client handler, and the name each one is bound to), and the client's modules (`AtRows` for `Rows` and `ReadRows`, and no `AtRows` with a capacity of 0).
+Each rule is a compile error with its message, as in the other VHAL builders. The snippets that check each one are in `Common/Utilities/AT/.tool/sim/BuilderErrors/`. The list covers the names (a command starts with `+` and has no space, a basic command is one letter, a name is declared once), the URC prefixes (no colon or comma, not a prefix of a command name or a reply prefix, declared once), the forms (once each per command, the value form only on a basic command), the arguments (an argument is an integer, `bool` or `String<N>` with no default, a required argument does not follow an optional one, no two names are the same, a string has a capacity above zero, a range has its low at most its high and both bounds fit the type), the options (a timeout above zero, `Defaults()` and `Dialect()` given once, a module is a module tag, a failure code prefix that is not empty, given once for a command, and neither a URC prefix nor a final line), the rows (see [AtRows](Modules/AtRows.md#rules-checked-at-compile-time)), the handlers (the signature of each server and client handler, and the name each one is bound to), and the client's modules (`AtRows` for `Rows` and `ReadRows`, and no `AtRows` with a capacity of 0).
 
 A name the description does not declare is an error at the call: `client.Read<"+TMEP", &OnTemp>()` fails with "AT command name is not in the description".
 
@@ -170,17 +170,17 @@ A name the description does not declare is an error at the call: `client.Read<"+
 | `AtCommandSet.h` | `AtCommandSet`, `AtCommandSetBuilder`, the rules of the description | this page |
 | `AtForms.h`, `AtArgument.h`, `AtOptions.h` | forms, options, `Optional`, the `AtArgument` each declared argument becomes, `AtDefaults` | this page |
 | `AtValue.h` | the value grammar: readers and writers of every type, `RawString` | this page |
-| `AtRow.h` | `AtField`, `AtRow`, the record and row declarations, and the server's `AtRowWriter` | [AtRows](AtRows.md) |
+| `AtRow.h` | `AtField`, `AtRow`, the record and row declarations, and the server's `AtRowWriter` | [AtRows](Modules/AtRows.md) |
 | `AtBinding.h` | `AtServerBinding`, `AtClientBinding`, `AtOn`, `AtUrcOn` | [AtServer](AtServer.md), [AtClient](AtClient.md) |
 | `AtServer.h` | `AtServer` | [AtServer](AtServer.md) |
 | `AtClient.h` | `AtClient`, `AtQueue` | [AtClient](AtClient.md) |
 | `AtDialect.h` | `AtDialect`, `AtCmeMode` | [AtDialect](AtDialect.md) |
 | `AtError.h` | `AtStatus`, `AtCmeError`, the error messages | [AtClient](AtClient.md) |
-| `Modules/AtEcho.h` | the client's echo module | [AtEcho](AtEcho.md) |
+| `Modules/AtEcho.h` | the client's echo module | [AtEcho](Modules/AtEcho.md) |
 | `Descriptions/EspAt.h` | the ESP-AT description and its two structs, `EspAtAccessPoint` and `EspAtJoinedNetwork` | [EspAt](Descriptions/EspAt.md) |
-| `Modules/AtRows.h` | the client's row module `AtRows<N>` and the list `AtRowList` | [AtRows](AtRows.md) |
-| `Modules/AtDataMode.h` | the data-mode module: `.Prompt()`, `Data()`, `SendData` and the chunk size | [AtDataMode](AtDataMode.md) |
-| `Modules/AtAwait.h` | the client's await module: `AwaitRead`, `AwaitRun`, `AwaitWrite`, `AwaitValue`, `AwaitRows`, `AwaitReadRows` and `AwaitSendData` | [AtAwait](AtAwait.md) |
+| `Modules/AtRows.h` | the client's row module `AtRows<N>` and the list `AtRowList` | [AtRows](Modules/AtRows.md) |
+| `Modules/AtDataMode.h` | the data-mode module: `.Prompt()`, `Data()`, `SendData` and the chunk size | [AtDataMode](Modules/AtDataMode.md) |
+| `Modules/AtAwait.h` | the client's await module: `AwaitRead`, `AwaitRun`, `AwaitWrite`, `AwaitValue`, `AwaitRows`, `AwaitReadRows` and `AwaitSendData` | [AtAwait](Modules/AtAwait.md) |
 
 The argument declaration (`CommandArgument.h`), the name tree (`CommandNameTree.h`), the input ring (`CommandRing.h`) and the `String` type are shared with `Common/Utilities/CommandLine/`, which is not changed. The numbers are read and written with `Common/Utilities/TextNumber/`.
 
@@ -205,11 +205,11 @@ A module is a type in the set's list or the client's list. A module that is not 
 
 | Module | Listed in | Adds | Costs when not listed | Page |
 |---|---|---|---|---|
-| `AtDataMode` | the set, `.Modules(AtDataMode)` | the `.Prompt()` form and `SendData`, `Data()` URCs, declared finals such as `SEND OK`, a 32-byte chunk buffer | nothing. A prompt command or a `Data()` URC without it is a compile error | [AtDataMode](AtDataMode.md) |
+| `AtDataMode` | the set, `.Modules(AtDataMode)` | the `.Prompt()` form and `SendData`, `Data()` URCs, declared finals such as `SEND OK`, a 32-byte chunk buffer | nothing. A prompt command or a `Data()` URC without it is a compile error | [AtDataMode](Modules/AtDataMode.md) |
 | `AtQueue<N>` | the client | the queue depth N. Each queued request holds its text and its reply | depth 2, the default | [AtClient](AtClient.md) |
-| `AtRows<N>` | the client | one list of N rows, for `Rows` and `ReadRows` | nothing without a `Rows` or `ReadRows` call. Such a call without the module is a compile error | [AtRows](AtRows.md) |
-| `AtAwait` | the client | the `Await` calls | nothing: no code, and no reference to `WaitCondition` or to the RTOS handle | [AtAwait](AtAwait.md) |
-| `AtEcho` | the client | dropping the echo of a request | the flag is set only when the module is listed, so the compare never runs without it. Its code stays in the client (see [AtEcho](AtEcho.md#costs)) | [AtEcho](AtEcho.md) |
+| `AtRows<N>` | the client | one list of N rows, for `Rows` and `ReadRows` | nothing without a `Rows` or `ReadRows` call. Such a call without the module is a compile error | [AtRows](Modules/AtRows.md) |
+| `AtAwait` | the client | the `Await` calls | nothing: no code, and no reference to `WaitCondition` or to the RTOS handle | [AtAwait](Modules/AtAwait.md) |
+| `AtEcho` | the client | dropping the echo of a request | the flag is set only when the module is listed, so the compare never runs without it. Its code stays in the client (see [AtEcho](Modules/AtEcho.md#costs)) | [AtEcho](Modules/AtEcho.md) |
 
 ---
 
@@ -242,7 +242,7 @@ The extension points are marked in the code: the `AtIsClientModule` specializati
 - `TestAtReplies.cpp`: the reply forms on a loopback: a record read with an optional field, a record run with raw text, `Run<String<N>>` with its comma prefix, `Run<RawString<N>>` with its blank prefix, `Rows` of eight rows into a list of five (three skipped), `RowsVisit` of the same, `ReadRows` and `ReadRowsVisit`, a quoted `)` and `,` in a field, one byte per chunk and random chunks.
 - `TestAtTranscript.cpp` and `transcripts/*.txt`: hand-written modem sessions, fed whole, cut at every byte, and one byte at a time. The format is `> ` for a line the client writes, `< ` for a line the module sends, `@ ` for the time in milliseconds, and `# ` for a comment. The `failure_code_*.txt` sessions cover a code line with and without a blank, an OK after it, a line with no integer, 256 and 255, a URC between the code line and ERROR, and a read form that takes the line as its value.
 - `TestAtReplyTranscript.cpp` and `transcripts/cifsr_stap.txt`, `cifsr_ipv6.txt`, `gmr_raw.txt`, `rows_urc_between.txt`, `rows_bad_row.txt`: the reply transcripts, in the same three ways. A URC between two rows, the STAIP line among other address lines and before its IPv6 lines, a raw version with its SDK lines, the extra and quoted fields of a row, rows past the capacity of two, and a row without a required field.
-- `TestAtAwait.cpp`: the Await calls with a scripted module that runs on the RTOS handle: each form's value and status, a request queued behind another, `busy` when full, a module timeout across the 32-bit wrap, the safety limit with and without a sent request, and `AwaitPing`. See [AtAwait](AtAwait.md#tests).
-- `TestAtData.cpp`: the data mode, with a client and a server of one set: the prompt and its data, a request that waits for the first, `busy`, the chunks of a `Data()` run, and the server's `ERROR` for a prompt command. The transcripts `send_data_*.txt`, `ipd_*.txt` and `gt_outside_prompt.txt` are in `TestAtTranscript.cpp`, see [AtDataMode](AtDataMode.md#tests).
+- `TestAtAwait.cpp`: the Await calls with a scripted module that runs on the RTOS handle: each form's value and status, a request queued behind another, `busy` when full, a module timeout across the 32-bit wrap, the safety limit with and without a sent request, and `AwaitPing`. See [AtAwait](Modules/AtAwait.md#tests).
+- `TestAtData.cpp`: the data mode, with a client and a server of one set: the prompt and its data, a request that waits for the first, `busy`, the chunks of a `Data()` run, and the server's `ERROR` for a prompt command. The transcripts `send_data_*.txt`, `ipd_*.txt` and `gt_outside_prompt.txt` are in `TestAtTranscript.cpp`, see [AtDataMode](Modules/AtDataMode.md#tests).
 - `TestAtEspAt.cpp` and `transcripts/espat_*.txt`: the ESP-AT description. A client with `AtEcho`, `AtRows<8>` and `AtAwait`, and a server bound to every form except the prompt, both compile. Eighteen hand-written ESP-AT sessions, written from the reference, are fed whole, cut at every byte, and one byte at a time. See [EspAt](Descriptions/EspAt.md#tests).
 - `SizeEspAtRows.cpp`, `SizeEspAtAwait.cpp` and `SizeEspAtPlain.cpp`: the three ESP-AT client objects that `run.sh` measures for the sizes above.

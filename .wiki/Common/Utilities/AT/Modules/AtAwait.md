@@ -169,7 +169,7 @@ The snippets are in `Common/Utilities/AT/.tool/sim/BuilderErrors/await_*.cpp`.
 - With `AtAwait`, each queued request has an abandonment flag and two row counts, about 12 bytes on a 32-bit MCU.
 - With `AtAwait` and `AtRows<N>`, every queue entry holds the whole row storage, N rows of the set's largest row type, since an awaited rows reply is copied into its entry. A client with `AtQueue<1>` pays for one entry only.
 - The `Await` calls add code for each form they are used with. A form that is not called costs nothing.
-- Measured on the ESP-AT client (see [EspAt](Descriptions/EspAt.md#sizes)): `AtAwait` adds 1742 bytes of text to the client with `AtEcho` and `AtRows<8>`, which is 12979 bytes in all. The client object is 2792 bytes, since `AtQueue<2>` holds the row storage in each of its two entries.
+- Measured on the ESP-AT client (see [EspAt](../Descriptions/EspAt.md#sizes)): `AtAwait` adds 1742 bytes of text to the client with `AtEcho` and `AtRows<8>`, which is 12979 bytes in all. The client object is 2792 bytes, since `AtQueue<2>` holds the row storage in each of its two entries.
 
 ---
 

@@ -50,7 +50,7 @@ A handler is a static function or a captureless lambda (`+[]`). Its signature sa
 | `Value` (basic) | `AtStatus Name(AtCall<App> call, arg)` |
 | `Test()` | none: the text comes from the argument ranges |
 
-A string argument arrives as `std::string_view`, and an optional one as `std::optional<...>`. An integer arrives only inside its range. A name can have one handler for each of its forms, and the signature chooses. A command form with no handler is a compile error, except the write form of a `.Prompt()` command: that one has no handler, and its line is answered with `ERROR`. A handler bound to a prompt command is a compile error (see [AtDataMode](AtDataMode.md#the-server)).
+A string argument arrives as `std::string_view`, and an optional one as `std::optional<...>`. An integer arrives only inside its range. A name can have one handler for each of its forms, and the signature chooses. A command form with no handler is a compile error, except the write form of a `.Prompt()` command: that one has no handler, and its line is answered with `ERROR`. A handler bound to a prompt command is a compile error (see [AtDataMode](Modules/AtDataMode.md#the-server)).
 
 A handler that returns an error status fails the line:
 
@@ -66,7 +66,7 @@ AtStatus Bad(AtCall<App> call) {
 }
 ```
 
-A reply form (`Read<T>`, `Run<T>`, `Read(row)`, `Run(row)`) writes its info line when its handler returns a value. A handler that returns an error writes no info line, and the line ends with the error. The rows forms write their lines as the handler adds them, through [AtRowWriter](AtRows.md#the-server-side).
+A reply form (`Read<T>`, `Run<T>`, `Read(row)`, `Run(row)`) writes its info line when its handler returns a value. A handler that returns an error writes no info line, and the line ends with the error. The rows forms write their lines as the handler adds them, through [AtRowWriter](Modules/AtRows.md#the-server-side).
 
 ---
 
@@ -155,13 +155,13 @@ server.Urc<"WIFI GOT IP">();                              // a URC with no argum
 - `Process()` writes a queued URC when no reply is open and no line is partly read. A URC queued while a line is read is written after that line's result.
 - A URC is written as its prefix, then `,` and each argument: `+IPD,4,"ab",1`.
 - Each value must have exactly the type its argument stores: `uint16` for a `uint16` argument, `String<N>` for a string argument. An `int` for a `uint16` argument, or a `string_view`, is a compile error. The check is exact, so a literal needs a cast such as `uint16{4}`.
-- A URC with `Data()` cannot be queued in version 1: `server.Urc<>()` of it is a compile error, since the server writes no raw data (see [AtDataMode](AtDataMode.md#the-server)).
+- A URC with `Data()` cannot be queued in version 1: `server.Urc<>()` of it is a compile error, since the server writes no raw data (see [AtDataMode](Modules/AtDataMode.md#the-server)).
 
 ---
 
 ## Limits
 
-- A prompt command (`.Prompt()`, such as `AT+CIPSEND`) has no handler in version 1. Its line is answered with `ERROR`, and no data is read (see [AtDataMode](AtDataMode.md#the-server)).
+- A prompt command (`.Prompt()`, such as `AT+CIPSEND`) has no handler in version 1. Its line is answered with `ERROR`, and no data is read (see [AtDataMode](Modules/AtDataMode.md#the-server)).
 - A URC with `Data()` cannot be queued: `server.Urc<"+IPD">(...)` with a `Data()` argument is a compile error.
 - With `ATV0` the server writes numeric result codes (`0` and `4`). The client of this library does not read them, so a client of the same description times out (see [AtClient](AtClient.md#limits)).
 - A URC queued while a reply is open is written after that reply's result line. A full queue returns `filled`, and the URC is not written.

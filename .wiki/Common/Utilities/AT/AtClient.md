@@ -37,7 +37,7 @@ AtClient<Sensor, ClientBinding, AtQueue<2>, AtEcho, AtRows<8>> sensor(out);
 - `Modules`:
   - `AtQueue<N>` for the queue depth (default 2, the request on the wire included);
   - `AtEcho` for echo skipping;
-  - `AtRows<N>` for the rows of a `Rows` or `ReadRows` call, with N rows in one list (see [AtRows](AtRows.md)).
+  - `AtRows<N>` for the rows of a `Rows` or `ReadRows` call, with N rows in one list (see [AtRows](Modules/AtRows.md)).
   A module the list does not hold adds no code. A type that is none of these is a compile error.
 - `out`: a `Print&`, where the client writes its requests.
 
@@ -56,7 +56,7 @@ Each call queues one request and returns an `AtStatus`. It never writes.
 | `Test<"+X", &H>()` | `AT+X=?` | `void H(AtStatus)` |
 | `Ping<&H>()` | `AT` | `void H(AtStatus)`, see [Ping](#ping) |
 | `Value<"X", &H>(args...)` | `ATX1` (basic) | `void H(AtStatus)` |
-| `SendData<"+X", &H>(args..., data)` | `AT+X=a,b`, then the data after the prompt | `void H(AtStatus)` (needs `AtDataMode`, see [AtDataMode](AtDataMode.md)) |
+| `SendData<"+X", &H>(args..., data)` | `AT+X=a,b`, then the data after the prompt | `void H(AtStatus)` (needs `AtDataMode`, see [AtDataMode](Modules/AtDataMode.md)) |
 | `ReadRows<"+X", &H>()` | `AT+X?` | `void H(const Result<AtRowList<S, N>, AtStatus>&)` |
 | `Rows<"+X", &H>()` | `AT+X` | `void H(const Result<AtRowList<S, N>, AtStatus>&)` |
 | `ReadRowsVisit<"+X", &OnRow, &OnDone>()` | `AT+X?` | `void OnRow(const S&)`, then `void OnDone(AtStatus)` |
@@ -93,11 +93,11 @@ sensor.RowsVisit<"+CWLAP", &OnRow, &OnRowsDone>();                     // AT+CWL
 sensor.ReadRowsVisit<"+SCAN", &OnRow, &OnRowsDone>();                  // AT+SCAN?, the same for a read form
 ```
 
-With `AtAwait`, each call has an `Await` twin that waits for the reply (see [AtAwait](AtAwait.md#the-calls)).
+With `AtAwait`, each call has an `Await` twin that waits for the reply (see [AtAwait](Modules/AtAwait.md#the-calls)).
 
 ### SendData
 
-`SendData` sends the request of a prompt command (see [AtDataMode](AtDataMode.md#prompt-commands)). Its values are those of the write form, checked as `Write` checks them, and its last value is the data, a `std::span<const uint8>`:
+`SendData` sends the request of a prompt command (see [AtDataMode](Modules/AtDataMode.md#prompt-commands)). Its values are those of the write form, checked as `Write` checks them, and its last value is the data, a `std::span<const uint8>`:
 
 ```cpp
 static constexpr uint8 kPayload[] = {'h', 'e', 'l', 'l', 'o'};
@@ -125,7 +125,7 @@ sensor.Ping<&OnPing>();     // AT
 - The request uses the set's default timeout. A timeout starts the drain, as for any request (see [Timing, Queue and Drain](#timing-queue-and-drain)).
 - It queues like every other call. It returns `busy` when the queue is full, and it waits behind the requests before it.
 - With `AtEcho`, the echo of the `AT` line is dropped.
-- With `AtAwait`, `AwaitPing()` waits for the status and returns it (see [AtAwait](AtAwait.md#the-calls)).
+- With `AtAwait`, `AwaitPing()` waits for the status and returns it (see [AtAwait](Modules/AtAwait.md#the-calls)).
 - A client that never calls `Ping` has no code for it. The drain writes its `AT` through the same code as the request.
 
 ---
@@ -167,7 +167,7 @@ void OnList(const Result<AtRowList<Network, 8>, AtStatus>& result) {
 }
 ```
 
-`RowsVisit` and `ReadRowsVisit` call `OnRow` for each row as it arrives, and `OnDone` at the end. They need no `AtRows`. The row types, the list and the server side are in [AtRows](AtRows.md).
+`RowsVisit` and `ReadRowsVisit` call `OnRow` for each row as it arrives, and `OnDone` at the end. They need no `AtRows`. The row types, the list and the server side are in [AtRows](Modules/AtRows.md).
 
 ---
 
@@ -246,7 +246,7 @@ A request that a final line completes is replaced by the next one in the same pl
 - Nothing else is sent during a drain.
 - A URC is still handled during a drain. Only the first final line and then the next `OK` are read as the drain's; the other lines are dropped.
 - The queue holds the request on the wire and the ones behind it. The handler of a finished request runs after it has left the queue, so a handler may queue another request.
-- With `AtAwait` in the client's modules, a request of an `Await` call is not handed to a handler. Its reply waits in its entry until the calling task copies it out. The wait, the safety limit and the rule that `Await` never runs in `Process()` are in [AtAwait](AtAwait.md).
+- With `AtAwait` in the client's modules, a request of an `Await` call is not handed to a handler. Its reply waits in its entry until the calling task copies it out. The wait, the safety limit and the rule that `Await` never runs in `Process()` are in [AtAwait](Modules/AtAwait.md).
 
 ---
 
@@ -275,7 +275,7 @@ void OnIpd(uint16 length, uint16 offset, std::span<const uint8> chunk, bool last
 }
 ```
 
-The run's bytes never form lines, and a request that is open is not ended by them. The details, and the rules of the length, are in [AtDataMode](AtDataMode.md#data-urcs).
+The run's bytes never form lines, and a request that is open is not ended by them. The details, and the rules of the length, are in [AtDataMode](Modules/AtDataMode.md#data-urcs).
 
 ---
 
