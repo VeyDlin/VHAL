@@ -215,6 +215,11 @@ public:
 	}
 
 
+	const Parameters& GetParameters() const {
+		return parameters;
+	}
+
+
 	void SetTimeout(uint32 val) {
 		timeout = val;
 	}

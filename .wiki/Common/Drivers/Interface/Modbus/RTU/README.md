@@ -1,167 +1,118 @@
 # Modbus RTU
 
-Modbus RTU Master/Slave implementation for embedded systems. Callback-based architecture -- no dependency on a specific UART driver, works with any transport.
+Modbus RTU on a shared RS-485 line. The framer adds the slave address and the CRC-16. The transport waits for the frame gaps, drives
+the direction pin, and hands the client or the server one whole frame at a time. The client and the server are on the [Modbus](../README)
+page, and this page covers the transport and the frame rules.
 
-## Quick Start -- Master
+| Header | What it does | Page |
+|---|---|---|
+| `RTU/RtuFramer.h` | Frame: slave address, PDU, CRC-16 (low byte first). Check: CRC first, then address | this page |
+| `RTU/RtuTiming.h` | Gaps in microseconds for a baud rate (t1.5 and t3.5) | this page |
+| `RTU/RtuTransport.h` | The transport: UART, direction pins, receive ring, `Send` and `Receive` | [RtuTransport](RtuTransport) |
 
-```cpp
-#include <Drivers/Interface/Modbus/RTU/ModbusMaster.h>
+The framer has its own CRC-16 table, built at compile time. The shared `Checksum/CRC/Crc.h` builds its table at run time and keeps 512 bytes
+of RAM for it, so the framer does not use it.
 
-ModbusMaster master(1);  // target slave ID
+## Setup
 
-master.SetSendCallback([](std::span<const uint8> data) {
-    uart.SendData(data.data(), data.size());
-});
+The UART is set up by the user: `uart.SetParameters(...)` gives the baud rate and the frame format. Then `link.Begin()` is called once.
+`Begin` reads the baud rate for the gaps, turns on the per-byte receive, and replaces the adapter's receive and error callbacks. A callback
+the user installed before `Begin` is replaced; when the adapter refuses the receive mode, the callbacks are left as they were. It also
+checks the clock. It returns `error` when the clock does not advance, and `invalidParameter` when the baud rate is 0. Every gap check
+depends on the clock, so a dead clock fails at setup.
 
-master.SetReceiveCallback([](std::span<uint8> buffer) -> size_t {
-    return uart.ReceiveData(buffer.data(), buffer.size());
-});
-
-// Read 10 holding registers starting at address 200
-std::array<uint16, 10> registers{};
-auto err = master.ReadHoldingRegisters(200, std::span(registers));
-if (err == ModbusMaster::ModbusError::Success) {
-    // registers[] now contains data from slave
-}
-```
-
-## Quick Start -- Slave
+The clock is a function that returns microseconds since start, as `uint32`. `Clock<&Fn>()` in the builder names it.
 
 ```cpp
-#include <Drivers/Interface/Modbus/RTU/ModbusSlave.h>
+uint32 MicrosecondClock();                  // the port's free-running microsecond counter
 
-ModbusSlave slave(1);  // this device's address
+using Link = RtuTransport<UARTAdapterG4, GPIOAdapterG4, +[] {
+	return RtuBuilder()
+		.Turnaround(2)
+		.Clock<&MicrosecondClock>();
+}>;
 
-slave.SetSendCallback([](std::span<const uint8> data) {
-    uart.SendData(data.data(), data.size());
-});
+UARTAdapterG4 uart(USART2);
+GPIOAdapterG4 dePin(GPIOA, 1);
+Link link(uart, &dePin);
 
-// Map data arrays
-std::array<uint16, 200> holdingRegs{};
-std::array<uint16, 100> inputRegs{};
-slave.SetHoldingRegisterData(std::span(holdingRegs));
-slave.SetInputRegisterData(std::span(inputRegs));
-
-// Process incoming requests (call from UART RX handler)
-void OnDataReceived(std::span<const uint8> data) {
-    slave.ProcessRequest(data);
-}
+uart.SetParameters({ .baudRate = 9600 });
+link.Begin();
 ```
 
-## Supported Functions
+A transport with no pin does no direction control. Use that on a full duplex line, or with a transceiver that switches direction by
+itself: `Link link(uart);`.
 
-| Code | Function | Master | Slave |
-|------|----------|--------|-------|
-| 0x01 | Read Coils | `ReadCoils()` | auto |
-| 0x02 | Read Discrete Inputs | `ReadDiscreteInputs()` | auto |
-| 0x03 | Read Holding Registers | `ReadHoldingRegisters()` | auto |
-| 0x04 | Read Input Registers | `ReadInputRegisters()` | auto |
-| 0x05 | Write Single Coil | `WriteSingleCoil()` | auto |
-| 0x06 | Write Single Register | `WriteSingleRegister()` | auto |
-| 0x0F | Write Multiple Coils | `WriteMultipleCoils()` | auto |
-| 0x10 | Write Multiple Registers | `WriteMultipleRegisters()` | auto |
+## Frame gaps
 
-## Error Handling
+A character is 11 bits on the wire, whatever the port is set to, so parity and stop bits do not change the gaps.
 
-Master methods return `ModbusError`:
+| Gap | Meaning | 9600 baud | 115200 baud |
+|---|---|---|---|
+| t1.5 | A gap above it inside a frame breaks the frame | 1718 us | 750 us |
+| t3.5 | Silence this long ends a frame | 4010 us | 1750 us |
+
+Above 19200 baud the two gaps are fixed at 750 us and 1750 us, as the Modbus over Serial Line specification gives them.
+
+Each received byte has its time, so silence is measured from the last byte. A frame ends when t3.5 has passed with no byte, or when the
+next byte starts a new frame. A frame that broke gives `invalidData`.
+
+## Direction and echo
+
+With a direction pin, `Send` does this: it waits for t3.5 of silence since the last byte, clears the receive ring, raises the pin, writes
+the bytes, and waits for the last byte to leave the line. It then holds the turnaround (in character times, 0 to 3), drops the pin and
+clears the ring again. The second clear drops the echo of the frame when the receiver was on.
+
+With a receiver pin (RE), the receiver is off from the start of the send to the end of the hold, so no echo arrives.
+
+`Turnaround` under 3.5 character times is enforced at compile time. The hold must end before a reply can start.
+
+## Lenient frames
+
+Some devices send a gap above t1.5 inside a frame. `Lenient()` in the builder accepts such a gap. A gap of t3.5 still ends the frame.
 
 ```cpp
-auto result = master.ReadHoldingRegisters(100, std::span(data));
-
-switch (result) {
-    case ModbusError::Success:           break;  // OK
-    case ModbusError::Timeout:           break;  // no response within timeout
-    case ModbusError::CrcError:          break;  // CRC mismatch
-    case ModbusError::ExceptionResponse: break;  // slave returned exception
-    case ModbusError::InvalidResponse:   break;  // malformed response
-    case ModbusError::BufferTooSmall:    break;  // request exceeds protocol limits
-}
+using Link = RtuTransport<UARTAdapterG4, GPIOAdapterG4, +[] {
+	return RtuBuilder()
+		.Lenient()
+		.Clock<&MicrosecondClock>();
+}>;
 ```
 
-Slave sends standard Modbus exception responses automatically:
+## Receive ring
 
-| Exception | Meaning |
-|-----------|---------|
-| `IllegalFunction` | Unknown function code |
-| `IllegalDataAddress` | Address out of range or rejected by validator |
-| `IllegalDataValue` | Invalid quantity or byte count |
-| `SlaveDeviceFailure` | Write callback returned `false` |
+Each received byte goes into a ring with its frame flags. The ring holds 256 entries by default, which is the largest frame, and the fourth
+template argument changes that. A byte that does not fit breaks the frame, and so does a receive error event (frame, noise, parity or
+overrun). A ring smaller than 256 is a compile error.
 
-## Data Model
+Each entry is 2 bytes (the byte and its frame flags), so the default ring costs 512 bytes of RAM per transport. A frame of 256 bytes
+needs 256 entries, and a single byte per entry cannot keep the flags. The transport object with the default ring is 572 B of bss on
+Cortex-M4. The `RtuTransport` row of `Common/Drivers/Interface/Modbus/.tool/size/size.sh` measures it (text 1122 B, data 4 B), and the
+ring is 512 B of that.
 
-The slave maps four data areas via `std::span`:
+## Interrupts
 
-| Area | Type | Access | Method |
-|------|------|--------|--------|
-| Coils | `bool` | Read/Write | `SetCoilData()` |
-| Discrete Inputs | `bool` | Read only | `SetDiscreteInputData()` |
-| Holding Registers | `uint16` | Read/Write | `SetHoldingRegisterData()` |
-| Input Registers | `uint16` | Read only | `SetInputRegisterData()` |
+The receive interrupt stores one byte and its frame flags, and nothing else. There is no idle interrupt. The main loop (the client's calls
+and the server's `Process`) takes the frames. The user owns the UART and its vector: the vector calls the port's handler as usual.
 
-Direct access helpers: `SetCoil()`, `GetCoil()`, `SetRegister()`, `GetRegister()`.
+The gap checks need each byte's arrival time. On the STM32 G4 port the receive interrupt runs once per byte, so the time is the arrival
+time.
 
-## Write Callbacks
+On the ESP32 port the per-byte callback runs in a FreeRTOS task, not in the interrupt, so each byte is stamped when the task reads it.
+The t1.5 check cannot be trusted there, because the stamp can lag the arrival by more than t1.5 (1718 us at 9600 baud). Use `Lenient()`
+on ESP32. A frame that is valid on the wire can still be reported as broken, or end early, because of the lag.
 
-Intercept writes for validation or side effects:
+Bytes also arrive in bursts. The driver's FIFO threshold and RX timeout set the bursts, so the end of a frame is detected late by up to
+that RX timeout. A frame longer than the FIFO threshold can be split if the task lags. A hardware RX-timeout path is a follow-up.
 
-```cpp
-slave.SetCoilWriteCallback([](uint16 address, bool value) -> bool {
-    if (address == 100) {
-        SetOutputPin(value);
-        return true;   // accept
-    }
-    return false;  // reject → SlaveDeviceFailure exception
-});
+RTU on ESP32 has not been checked on hardware.
 
-slave.SetRegisterWriteCallback([](uint16 address, uint16 value) -> bool {
-    if (address >= 200 && address < 210) {
-        SetParameter(address - 200, value);
-        return true;
-    }
-    return false;
-});
-```
+## Errors
 
-Without callbacks, writes go directly to the mapped data arrays.
-
-## Address Validation
-
-```cpp
-slave.SetAddressValidator([](uint16 address, uint16 quantity, DataType type) -> bool {
-    if (type == DataType::HoldingRegisters) {
-        return address >= 100 && (address + quantity) <= 500;
-    }
-    return true;  // allow all other types
-});
-```
-
-Returning `false` sends `IllegalDataAddress` exception.
-
-## Configuration
-
-**Master:**
-
-```cpp
-master.SetTimeout(2000);        // response timeout in ms (default: 1000)
-master.SetSlaveId(5);           // change target slave
-master.SetTickCallback([]() {   // custom time source (default: System::GetTick())
-    return HAL_GetTick();
-});
-```
-
-**Slave:**
-
-```cpp
-slave.SetExceptionCallback([](ModbusException ex, uint16 addr) {
-    Log("Exception %d at %d", (int)ex, addr);
-});
-```
-
-## Protocol Limits
-
-| Parameter | Limit |
-|-----------|-------|
-| Max frame size | 256 bytes |
-| Coils per read/write | 2000 / 1968 |
-| Registers per read | 125 |
-| Registers per write | 123 |
+| Status | Cause |
+|---|---|
+| `invalidData` | The frame broke on the line, or a receive error or a full ring broke it |
+| `timeout` | No complete frame is ready (from `Receive` with timeout 0, or after the timeout) |
+| `writeError` | The transmit failed, including an adapter timeout after the bytes were handed over. The frame may be on the line, so it is not sent again |
+| `noInit` | `Send` or `Receive` before `Begin` |
+| `invalidParameter` | `Begin` with a baud rate of 0, or `Send` with an empty frame |

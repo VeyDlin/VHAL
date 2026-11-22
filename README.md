@@ -65,30 +65,25 @@ For eased transitions, use [Animation](https://veydlin.github.io/VHAL/docs/Commo
 
 ### Register-backed commands
 
-Register entries must be attached through the public `RegisterData(...)` method. `LinkRegisterData(...)` is an internal, protected hook. A map update must contain the full payload for the selected register; receiving one UART byte is not a complete register-write operation.
+A register is described once with `RegisterDescriptor`. `Read`, `Write` and `Modify` run it over an I2C, SPI or Modbus register bus. Rules such as read-only registers, bit field widths and value types are compile-time errors. A Modbus server serves its own `RegisterView`, which points at the application's variables. See the [RegisterMap](https://veydlin.github.io/VHAL/docs/Common/Utilities/Data/RegisterMap/) page for the rules and the Modbus layers.
 
 ```cpp
-#include <Utilities/Data/RegisterMap/RegisterMap.h>
+#include <Utilities/Data/RegisterMap/BitField.h>
+#include <Utilities/Data/RegisterMap/RegisterAccess.h>
+#include <Drivers/Interface/RegisterBus/I2CRegisterBus.h>
 
 
-RegisterMap<uint8, 8, 64> registers;
-RegisterData<0x02, uint16> brightnessReg;
+// A charger over I2C at 0x09. The register is one byte; bit 3 disables charging.
+constexpr auto ChargeControl = RegisterDescriptor<uint8>(0x09, 0x01).ReadWrite();
+constexpr auto ChargeDisable = BitField<1>(ChargeControl, 3);
 
 
-void InitRegisters() {
-    brightnessReg.SetEvents([](const uint16& value) -> bool {
-        return value <= 4095;
-    });
-    registers.RegisterData(brightnessReg);
-}
-
-
-bool SetBrightness(uint16 value) {
-    return brightnessReg.Set(value);
+void DisableCharging(I2CRegisterBus<I2CAdapterG4>& bus) {
+    Modify<ChargeDisable>(bus, true);   // one read, bit 3 set, one write
 }
 ```
 
-Call `InitRegisters()` once before accessing the entry. UART framing, byte-order conversion, and scheduling belong to the application or a protocol driver; they are intentionally omitted here. For a framed transport, see [ReliableProtocolCOBS](https://veydlin.github.io/VHAL/docs/Common/Drivers/Interface/User/ProtocolCOBS/). Register callbacks run in the caller's context and must synchronize any shared application state.
+Each access is one bus transaction. UART framing, byte-order conversion beyond the descriptor's byte order, and scheduling belong to the application or a protocol driver. For a framed transport, see [ReliableProtocolCOBS](https://veydlin.github.io/VHAL/docs/Common/Drivers/Interface/User/ProtocolCOBS/).
 
 ## Architecture
 

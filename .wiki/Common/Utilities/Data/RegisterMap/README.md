@@ -1,345 +1,79 @@
 # RegisterMap
 
-A C++ header-only library for managing typed, address-mapped register banks with access control, read/write event hooks, and compile-time validation. Designed for embedded systems (VHAL framework).
+Typed register descriptors for I2C, SPI and Modbus. A descriptor is a constant with the register's address, value type,
+byte order and access rule. It owns no storage, so an unused register costs nothing in flash or RAM. Drivers read and write
+through the free templates in `RegisterAccess.h`, and a Modbus server serves user variables through a `RegisterView`.
 
----
+Every mistake the compiler can see is a compile error with a message: a write to a read-only register, a bit field outside
+its register, two registers at one address, a view block past Modbus address 0xFFFF.
 
-## Table of Contents
+## Headers
 
-- [Quick Start](#quick-start)
-- [IRegisterData](#iregisterdata)
-- [IRegisterMap](#iregistermap)
-- [RegisterData](#registerdata)
-- [RegisterDataMutator](#registerdatamutator)
-- [RegisterDataFloat](#registerdatafloat)
-- [RegisterMap](#registermap-class)
-- [RegisterMapChecker](#registermapchecker)
-- [API Reference](#api-reference)
-
----
-
-## Quick Start
-
-```cpp
-#include <Utilities/Data/RegisterMap/RegisterMap.h>
-#include <Utilities/Data/RegisterMap/Checker/RegisterMapChecker.h>
-
-// Define register addresses (enum or constants)
-enum Reg : uint32 {
-    REG_STATUS  = 0x00,
-    REG_COMMAND = 0x01,
-    REG_VALUE   = 0x02,
-};
-
-// Declare individual registers with <Address, DataType>
-RegisterData<REG_STATUS,  uint8>  regStatus;
-RegisterData<REG_COMMAND, uint8>  regCommand;
-RegisterData<REG_VALUE,   uint16> regValue;
-
-// Create the map: <AddressType, MapSize (bytes), BufferSize (bytes)>
-RegisterMap<uint8, 4, 2> myMap;
-
-// Compile-time validation
-using MyMapChecker = RegisterMapChecker<
-    decltype(myMap),
-    decltype(regStatus), decltype(regCommand), decltype(regValue)
->;
-
-void Init() {
-    // Link registers to the map
-    myMap.RegisterData(regStatus, regCommand, regValue);
-
-    // Configure access
-    regStatus.ReadOnly();
-
-    // Set write event callback
-    regCommand.SetEvents([](const uint8& cmd) -> bool {
-        // Return false to reject the write
-        return cmd < 10;
-    });
-}
-
-void Usage() {
-    // Write using Set() or operator=
-    regValue.Set(1234);
-    regValue = 5678;
-
-    // Read using Get() or implicit conversion
-    uint16 v = regValue.Get();
-    uint16 v2 = regValue; // implicit cast
-}
-```
-
----
-
-## IRegisterData
-
-Abstract base class for all register entries. Provides the interface that `RegisterMap` uses internally.
-
-| Member | Description |
-|---|---|
-| `bool write` | Write access flag (default `true`) |
-| `bool read` | Read access flag (default `true`) |
-| `void LinkToMap(IRegisterMap&)` | Binds this register to a map instance |
-| `virtual size_t DataTypeSize() const` | Size of the stored data type in bytes |
-| `virtual uint32 Addres() const` | Returns the register address |
-| `virtual bool WriteEvent(const uint8* buffer)` | Called before a write is committed; return `false` to reject |
-| `virtual bool CanOnWrite() const` | Whether an `onWrite` callback is set |
-| `virtual bool CanOnRead() const` | Whether an `onRead` callback is set |
-| `virtual size_t GetUnsafe(uint8* outData) const` | Copies register data to the output buffer |
-
----
-
-## IRegisterMap
-
-Abstract base class for the map container. Exposes registration of data entries and memory read/write.
-
-```cpp
-// Register multiple entries at once (variadic, fold-expression)
-myMap.RegisterData(reg1, reg2, reg3);
-```
-
-All arguments must derive from `IRegisterData` (enforced via `static_assert`).
-
-| Member | Description |
-|---|---|
-| `virtual size_t GetUnsafe(uint32 address, uint8* outData) const` | Read raw bytes from a register by address |
-| `virtual bool UpdateMemory(uint32 address, const uint8* buffer, size_t length)` | Write raw bytes to a register by address |
-| `void RegisterData(Args&... args)` | Link one or more `IRegisterData` instances to this map |
-
----
-
-## RegisterData
-
-```cpp
-template <uint32 Address, typename RawDataType>
-class RegisterData : public IRegisterData;
-```
-
-A typed register at a fixed address. This is the primary class you interact with.
-
-### Access Control
-
-```cpp
-RegisterData<0x00, uint16> reg;
-
-reg.SetAccess(true, true);  // write=true, read=true
-reg.ReadOnly();              // write=false, read=true
-reg.WriteOnly();             // write=true, read=false
-```
-
-All setters return `*this` for chaining.
-
-### Event Callbacks
-
-```cpp
-reg.SetEvents(
-    // onWrite: called before write commits. Return false to reject.
-    [](const uint16& newValue) -> bool {
-        return newValue <= 1000; // reject values > 1000
-    },
-    // onRead: transform data before it is returned to the reader.
-    [](const uint16& storedValue) -> uint16 {
-        return storedValue * 2; // double on read
-    }
-);
-```
-
-Both callbacks are optional (pass `nullptr` to skip).
-
-The `onWrite` callback runs before the map enters its critical section to copy the accepted value. The map does not serialize calls to this callback; protect shared callback state if writes can come from multiple execution contexts. The memory copy itself is protected by a critical section.
-
-### Read / Write
-
-```cpp
-reg.Set(42);          // write value
-reg = 42;             // same via operator=
-
-uint16 val = reg.Get();  // read value
-uint16 val2 = reg;       // same via implicit conversion
-```
-
-### Compile-Time Queries
-
-```cpp
-constexpr size_t size = RegisterData<0x00, uint16>::GetDataTypeSize(); // 2
-constexpr uint32 addr = RegisterData<0x00, uint16>::GetAddress();      // 0x00
-```
-
----
-
-## RegisterDataMutator
-
-```cpp
-template <uint32 Address, typename DataType, typename RawDataType>
-class RegisterDataMutator : public RegisterData<Address, RawDataType>;
-```
-
-Adds a conversion layer between a user-facing `DataType` and the underlying `RawDataType` stored in memory. Useful when the stored format differs from the API type.
-
-```cpp
-// Store as int16, expose as float via custom mutators
-RegisterDataMutator<0x00, float, int16_t> reg(
-    // readMutator: int16 -> float
-    [](const int16_t& raw) -> float {
-        return static_cast<float>(raw) / 100.0f;
-    },
-    // writeMutator: float -> int16
-    [](const float& val) -> int16_t {
-        return static_cast<int16_t>(val * 100.0f);
-    }
-);
-
-reg = 3.14f;          // stored as 314 (int16)
-float v = reg.Get();  // returns 3.14f
-```
-
-The optional third constructor argument is the write hook, `std::function<bool(const RawDataType&)>`, called with the raw value before the write commits; return `false` to reject it.
-
----
-
-## RegisterDataFloat
-
-```cpp
-template <uint32 Address, typename DataType = int16_t, uint32 Accuracy = 100>
-class RegisterDataFloat : public RegisterDataMutator<Address, float, DataType>;
-```
-
-A convenience specialization of `RegisterDataMutator` that stores a float as a fixed-point integer. The `Accuracy` template parameter defines the scaling factor. A write multiplies by `Accuracy` in `float`, rounds to the nearest raw value (half away from zero), and saturates to the range of `DataType`.
-
-The optional constructor argument is the write hook of `RegisterData`: `std::function<bool(const DataType&)>`, called with the raw value; return `false` to reject the write.
-
-The write hook of `RegisterDataFloat` receives the **raw** value that is about to be stored, not the float: the value after scaling by `Accuracy`, rounding, and saturation to the range of `DataType`. For example, `temperature = 0.29f` with `Accuracy` 100 calls the hook with `29`. Validate the raw value in the hook.
-
-A NaN value has no raw representation, so `Set` (and `operator=`) rejects it: `Set` returns `false` and the stored value is unchanged. `+Inf` and `-Inf` saturate to the range of `DataType` like any other out-of-range value.
-
-```cpp
-// Store temperature as int16, scaled by 100 (2 decimal digits)
-RegisterDataFloat<0x00, int16_t, 100> temperature;
-
-temperature = 23.45f;        // stored as 2345
-float t = temperature.Get(); // returns 23.45f
-
-// Higher precision: scale by 1000
-RegisterDataFloat<0x02, int16_t, 1000> precise;
-precise = 1.234f;            // stored as 1234
-```
-
----
-
-## RegisterMap Class
-
-```cpp
-template <typename AddressType, size_t MapSize, size_t BufferSize>
-class RegisterMap : public IRegisterMap;
-```
-
-The concrete map implementation. Holds a flat byte array of `MapSize` bytes. Registers are laid out sequentially in the order they are linked.
-
-| Template Parameter | Description |
-|---|---|
-| `AddressType` | Type used for addressing (e.g., `uint8`, `uint16`) |
-| `MapSize` | Total size of the internal memory array in bytes |
-| `BufferSize` | Size of the auxiliary buffer (for future partial updates) |
-
-### Reading and Writing by Address
-
-```cpp
-RegisterMap<uint8, 8, 4> myMap;
-
-// Raw read
-uint8 buf[2];
-size_t bytesRead = myMap.GetUnsafe(REG_VALUE, buf);
-
-// Raw write
-uint16 val = 0x1234;
-bool ok = myMap.UpdateMemory(REG_VALUE, reinterpret_cast<const uint8*>(&val), sizeof(val));
-```
-
-`UpdateMemory` enforces access control, triggers `WriteEvent`, and copies data inside a critical section.
-
-### Static Queries
-
-```cpp
-constexpr size_t addrSize = decltype(myMap)::GetAddressSize(); // sizeof(uint8)
-constexpr size_t mapSize  = decltype(myMap)::GetMapSize();     // 8
-constexpr size_t bufSize  = decltype(myMap)::GetBufferSize();  // 4
-```
-
----
-
-## RegisterMapChecker
-
-Compile-time validators that catch configuration errors via `static_assert`. Located in `Checker/RegisterMapChecker.h`.
-
-### RegisterMapOverlapChecker
-
-Ensures no two registers occupy overlapping address ranges.
-
-```cpp
-// Fails at compile time if regA and regB overlap
-using Check = RegisterMapOverlapChecker<
-    decltype(myMap),
-    decltype(regA), decltype(regB)
->;
-```
-
-### RegisterMapChecker
-
-Extends `RegisterMapOverlapChecker` with additional checks:
-
-- Total size of all registers does not exceed `MapSize`.
-- No single register exceeds `BufferSize`.
-- No register extends past the end of the map.
-
-```cpp
-using Check = RegisterMapChecker<
-    decltype(myMap),
-    decltype(reg1), decltype(reg2), decltype(reg3)
->;
-```
-
-### RegisterMapCheckerStrong
-
-Extends `RegisterMapChecker` with strict equality constraints:
-
-- Total register size must exactly equal `MapSize`.
-- Every register's size must exactly equal `BufferSize`.
-
-```cpp
-// Strict: all registers must be same size, map fully packed
-using Check = RegisterMapCheckerStrong<
-    decltype(myMap),
-    decltype(reg1), decltype(reg2)
->;
-```
-
----
-
-## API Reference
-
-### RegisterData&lt;Address, RawDataType&gt;
-
-| Method | Return | Description |
+| Header | What it gives | Page |
 |---|---|---|
-| `Get()` | `RawDataType` | Read the current value |
-| `Set(const RawDataType&)` | `bool` | Write a value; returns `false` on failure |
-| `operator=(const RawDataType&)` | `RegisterData&` | Write via assignment |
-| `operator RawDataType()` | `RawDataType` | Implicit read conversion |
-| `SetEvents(onWrite, onRead)` | `RegisterData&` | Set write/read callbacks |
-| `SetAccess(write, read)` | `RegisterData&` | Set access flags |
-| `ReadOnly()` | `RegisterData&` | Shortcut for write=false, read=true |
-| `WriteOnly()` | `RegisterData&` | Shortcut for write=true, read=false |
-| `static GetDataTypeSize()` | `size_t` | `sizeof(RawDataType)` (constexpr) |
-| `static GetAddress()` | `uint32` | Template address (constexpr) |
+| `RegisterDescriptor.h` | `RegisterDescriptor<T>`, the byte order and access enums, `RegisterToBytes`, `RegisterFromBytes` | [RegisterDescriptor](RegisterDescriptor) |
+| `BitField.h` | `BitField<Width>(register, shift)`, a part of a register | [BitField](BitField) |
+| `RegisterAccess.h` | `Read`, `Write`, `Modify` over a bus | [RegisterAccess](RegisterAccess) |
+| `RegisterSet.h` | `RegisterSet<...>`, a list of registers with the duplicate check | [RegisterSet](RegisterSet) |
+| `RegisterView.h` | `RegisterViewBuilder`, `Variable`, `Computed`, `RegisterView<Make>`: the entries a Modbus server serves | [RegisterView](RegisterView) |
+| `RegisterBus.h` | `RegisterTable`, `RegisterRef`, the `RegisterBus` concept a bus implements | [RegisterBus](RegisterBus) |
 
-### RegisterMap&lt;AddressType, MapSize, BufferSize&gt;
+The bus implementations are in `Common/Drivers/Interface/RegisterBus/`: `I2CRegisterBus.h` and `SpiRegisterBus.h`
+([register bus pages](../../../Drivers/Interface/RegisterBus/README)).
 
-| Method | Return | Description |
-|---|---|---|
-| `RegisterData(args...)` | `void` | Link register entries to this map |
-| `GetUnsafe(address, outData)` | `size_t` | Read raw register data by address |
-| `UpdateMemory(address, buffer, length)` | `bool` | Write raw data by address |
-| `static GetAddressSize()` | `size_t` | `sizeof(AddressType)` (constexpr) |
-| `static GetMapSize()` | `size_t` | Map memory size (constexpr) |
-| `static GetBufferSize()` | `size_t` | Buffer size (constexpr) |
+## Example
+
+```cpp
+#include <Utilities/Data/RegisterMap/BitField.h>
+#include <Utilities/Data/RegisterMap/RegisterAccess.h>
+#include <Drivers/Interface/RegisterBus/I2CRegisterBus.h>
+
+// A charger over I2C at 0x09. The register is one byte; bit 3 disables charging.
+constexpr auto ChargeControl = RegisterDescriptor<uint8>(0x09, 0x01).ReadWrite();
+constexpr auto ChargeDisable = BitField<1>(ChargeControl, 3);
+constexpr auto Measured = RegisterDescriptor<uint16>(0x68, 0x3B).ReadOnly();
+
+I2CRegisterBus<I2CAdapterG4> bus(i2c);
+
+Result<uint8> value = Read<ChargeControl>(bus);   // one read
+Write<ChargeControl>(bus, 0x00);                  // one write
+Modify<ChargeDisable>(bus, true);                 // one read, bit 3 set, one write
+Result<uint16> adc = Read<Measured>(bus);         // big-endian by default
+```
+
+## Compile-time rules
+
+Each row is a compile error. The message is the one the compiler prints.
+
+| Rule | Message |
+|---|---|
+| Write to a read-only register | `register is read-only: Write<Reg>() needs Write or ReadWrite access` |
+| Read from a write-only register | `register is write-only: Read<Reg>() needs Read or ReadWrite access` |
+| Modify on a register without read and write | `Modify<Field>() needs ReadWrite access` |
+| Bit field outside its register | `bit field is outside the register width` |
+| Device address above 7 bits | `device address must be 7 bits` |
+| Address width other than 1 or 2 bytes | `address width must be 1 or 2 bytes` |
+| Two registers at one table, device and address (in a `RegisterSet`) | `two registers share a table, device and address` |
+| Two view entries of one table at one address | `two view entries overlap in the same table at one Modbus address` |
+| A view block past Modbus address 0xFFFF | `a block runs past Modbus address 0xFFFF` |
+| A holding or input value of the wrong size | `a register value is an integer of 2, 4 or 8 bytes, or an array of 16-bit integers` |
+| A coil or discrete value that is not bool | `a coil or discrete input is a bool or an array of bool` |
+| A set function on an input or discrete entry | `input registers and discrete inputs cannot take a set function` |
+
+## Checks run when the view is instantiated
+
+A `RegisterView` is checked when the class is instantiated, not when an alias names it. Use the view, or name one of its
+static members, so the checks run:
+
+```cpp
+using Table = RegisterView<+[] { return RegisterViewBuilder().HoldingRegisters(0x0000, Variable(&setpoint)); }>;
+
+static_assert(Table::checked);   // runs the overlap check; the alias alone does not
+```
+
+## Sizes and time
+
+- No heap, no `std::function`, no virtual function, no exceptions, no RTTI.
+- A descriptor, a bit field and a view entry are constants in flash. A register that nothing names leaves no symbol at `-Os`.
+- Each `Read`, `Write` and `Modify` is one bus transaction, or two for `Modify`.
+- Each function template is instantiated only for the descriptor it is given.
