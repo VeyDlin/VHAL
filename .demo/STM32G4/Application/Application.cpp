@@ -12,6 +12,8 @@
 #include <DemoUSBNetwork/DemoUSBNetwork.h>
 #elif defined(VHAL_DEMO_USBAudio)
 #include <DemoUSBAudio/DemoUSBAudio.h>
+#elif defined(VHAL_DEMO_Regex)
+#include <DemoRegex/DemoRegex.h>
 #else
 #error "No demo is selected: set VHAL_DEMO to a demo folder under Application/, and add its branch to Application/Application.cpp"
 #endif
@@ -30,5 +32,7 @@ void Application::Run(ResultStatus consoleStatus) {
 	DemoUSBNetwork::Run(consoleStatus);
 #elif defined(VHAL_DEMO_USBAudio)
 	DemoUSBAudio::Run(consoleStatus);
+#elif defined(VHAL_DEMO_Regex)
+	DemoRegex::Run(consoleStatus);
 #endif
 }

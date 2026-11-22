@@ -1,8 +1,8 @@
 # STM32G4 demo (STM32G431)
 
 A demo project for the STM32G4 family on VHAL, next to `.demo/STM32G0`. It holds USB device demos for the firmware of the
-USB device stack (`Common/Drivers/Interface/USB`). One demo is built at a time, chosen with the CMake cache variable
-`VHAL_DEMO`:
+USB device stack (`Common/Drivers/Interface/USB`), and the regex board check (`Common/Utilities/Regex`). One demo is built at a
+time, chosen with the CMake cache variable `VHAL_DEMO`:
 
 - `USBBench` (default): the USB benchmark. It enumerates as pid.codes `1209:0001` with one WinUSB vendor interface and
   two bulk endpoints, and answers the vendor requests of `Common/Drivers/Interface/USB/.tool/common/BenchProtocol.h`. That
@@ -15,6 +15,9 @@ USB device stack (`Common/Drivers/Interface/USB`). One demo is built at a time, 
   to the PC. Plug it in and ping it, with no driver and no configuration.
 - `USBAudio`: a USB Audio 1.0 device (`1209:0006`) with a microphone that sends a 1 kHz tone, and a speaker whose audio the
   microphone sends back (a loopback), both at 48 kHz.
+- `Regex`: the regex board check. It is not a USB demo. It runs the fixtures of `Application/DemoRegex` against the matcher,
+  prints one line per failed check and the stack the matching used over USART1 (`System::console`), and then stays in a loop.
+  Build it with `VHAL_REGEX_FIND` in `CMAKE_CXX_FLAGS_RELEASE` (see below) to check `Find` and its stack too.
 
 The demo identities (PIDs, GUIDs, vendor codes and the composite's endpoint map) are in
 `Common/Drivers/Interface/USB/.tool/common/DemoProducts.h`, which the PC tools share too. The IDs are pid.codes test values
@@ -84,6 +87,19 @@ cmake --build build/RelSpeed-USBAudio
 ```
 
 Its outputs are `build/RelSpeed-USBAudio/USBAudioG431.elf` and `.bin`.
+
+The regex board check is built the same way. It has two variants: the default checks `Matches` and `Contains`, and the one
+with `VHAL_REGEX_FIND` also checks `Find` and its captures. `vhal.cmake` forces `CMAKE_CXX_FLAGS`, so the define goes in
+`CMAKE_CXX_FLAGS_RELEASE`, which the RelSpeed preset uses:
+
+```sh
+cmake --preset RelSpeed -B build/RelSpeed-Regex -DVHAL_DEMO=Regex
+cmake --build build/RelSpeed-Regex
+cmake --preset RelSpeed -B build/RelSpeed-RegexFind -DVHAL_DEMO=Regex -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG -DVHAL_REGEX_FIND"
+cmake --build build/RelSpeed-RegexFind
+```
+
+Its outputs are `build/RelSpeed-Regex/RegexG431.elf` and `.bin`, and the same names in `build/RelSpeed-RegexFind`.
 
 Only the chosen demo folder is compiled and linked (`Application/Application.cpp` and `Application/Application.h` are always
 compiled). An unknown `VHAL_DEMO` stops the configure step with the list of demos. The list is the list of
