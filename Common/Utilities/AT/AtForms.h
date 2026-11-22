@@ -1,6 +1,7 @@
 #pragma once
 #include "AtArgument.h"
 #include "AtError.h"
+#include "Modules/AtDataMode.h"
 #include <Utilities/CommandLine/CommandPack.h>
 #include <Utilities/DataTypes.h>
 #include <array>
@@ -10,8 +11,13 @@
 #include <type_traits>
 
 
-// The forms of a command and the items of a set. A form is a type that names its kind, and its values (a read name, an argument list)
-// are plain values, so the set keeps both the types and the declared values. A command item is a name, its forms and its options.
+// The forms of a command and the items of a set. A form is a type that names its kind, and its values (a read name, an argument list, a
+// row declaration) are plain values, so the set keeps both the types and the declared values. A command item is a name, its forms and its
+// options.
+//
+// A reply form is a read form or a run form whose info lines carry a reply: one value (AtReadForm, AtRunValueForm), one record of fields
+// (AtReadRecordForm, AtRunRecordForm), or a list of rows (AtReadRowsForm, AtRunRowsForm). A command has at most one read form and at most
+// one run form, so its reply shape is known from its type.
 
 
 // The kinds of form. Test, Read, Write and Run are the forms of a command, and Value is the form of a basic command.
@@ -29,6 +35,14 @@ inline constexpr std::size_t AtFormKindCount = 5;
 static_assert(AtFormKindCount == static_cast<std::size_t>(AtFormKind::value) + 1, "AtFormKindCount is out of step with AtFormKind");
 
 
+// The shape of the info lines of a reply form: one value, one record (one info line with fields), or rows (one info line for each row).
+enum class AtReplyShape : uint8 {
+	value,
+	record,
+	rows
+};
+
+
 // AT+X=?
 struct AtTestForm {
 	static constexpr AtFormKind kind = AtFormKind::test;
@@ -40,6 +54,7 @@ template<typename T>
 struct AtReadForm {
 	using Type = T;
 	static constexpr AtFormKind kind = AtFormKind::read;
+	static constexpr AtReplyShape shape = AtReplyShape::value;
 	std::string_view name{};
 };
 
@@ -55,6 +70,60 @@ struct AtWriteForm {
 // AT+X
 struct AtRunForm {
 	static constexpr AtFormKind kind = AtFormKind::run;
+};
+
+
+// AT+X, with one value of type T in its info line, such as +CIFSR:STAIP,"...".
+template<typename T>
+struct AtRunValueForm {
+	using Type = T;
+	static constexpr AtFormKind kind = AtFormKind::run;
+	static constexpr AtReplyShape shape = AtReplyShape::value;
+	std::string_view name{};
+};
+
+
+// AT+X?, with one info line whose fields are the fields of the row declaration RowDecl (AtRow in AtRow.h).
+template<typename RowDecl>
+struct AtReadRecordForm {
+	using Decl = RowDecl;
+	using Type = typename RowDecl::RowType;
+	static constexpr AtFormKind kind = AtFormKind::read;
+	static constexpr AtReplyShape shape = AtReplyShape::record;
+	RowDecl decl{};
+};
+
+
+// AT+X, with one info line whose fields are the fields of the row declaration RowDecl.
+template<typename RowDecl>
+struct AtRunRecordForm {
+	using Decl = RowDecl;
+	using Type = typename RowDecl::RowType;
+	static constexpr AtFormKind kind = AtFormKind::run;
+	static constexpr AtReplyShape shape = AtReplyShape::record;
+	RowDecl decl{};
+};
+
+
+// AT+X?, with one info line for each row of the declaration RowDecl.
+template<typename RowDecl>
+struct AtReadRowsForm {
+	using Decl = RowDecl;
+	using Type = typename RowDecl::RowType;
+	static constexpr AtFormKind kind = AtFormKind::read;
+	static constexpr AtReplyShape shape = AtReplyShape::rows;
+	RowDecl decl{};
+};
+
+
+// AT+X, with one info line for each row of the declaration RowDecl.
+template<typename RowDecl>
+struct AtRunRowsForm {
+	using Decl = RowDecl;
+	using Type = typename RowDecl::RowType;
+	static constexpr AtFormKind kind = AtFormKind::run;
+	static constexpr AtReplyShape shape = AtReplyShape::rows;
+	RowDecl decl{};
 };
 
 
@@ -81,22 +150,115 @@ struct AtCommandOptions {
 };
 
 
-// The reply value of a read form in a list, or void when the list has none.
-template<typename... Forms>
-struct AtReadValueOf {
+// True for a form whose info lines carry a reply: a read or run form with a value, a record or rows.
+template<typename Form>
+inline constexpr bool AtIsInfoForm = false;
+
+
+template<typename T>
+inline constexpr bool AtIsInfoForm<AtReadForm<T>> = true;
+
+
+template<typename T>
+inline constexpr bool AtIsInfoForm<AtRunValueForm<T>> = true;
+
+
+template<typename RowDecl>
+inline constexpr bool AtIsInfoForm<AtReadRecordForm<RowDecl>> = true;
+
+
+template<typename RowDecl>
+inline constexpr bool AtIsInfoForm<AtRunRecordForm<RowDecl>> = true;
+
+
+template<typename RowDecl>
+inline constexpr bool AtIsInfoForm<AtReadRowsForm<RowDecl>> = true;
+
+
+template<typename RowDecl>
+inline constexpr bool AtIsInfoForm<AtRunRowsForm<RowDecl>> = true;
+
+
+// True for a form whose info lines are fields of a row: a record or rows. Such a form has a row declaration with its Open and Close.
+template<typename Form>
+inline constexpr bool AtIsRowForm = false;
+
+
+template<typename RowDecl>
+inline constexpr bool AtIsRowForm<AtReadRecordForm<RowDecl>> = true;
+
+
+template<typename RowDecl>
+inline constexpr bool AtIsRowForm<AtRunRecordForm<RowDecl>> = true;
+
+
+template<typename RowDecl>
+inline constexpr bool AtIsRowForm<AtReadRowsForm<RowDecl>> = true;
+
+
+template<typename RowDecl>
+inline constexpr bool AtIsRowForm<AtRunRowsForm<RowDecl>> = true;
+
+
+// The info form of a kind in a list of forms: the first form of that kind with an info line, or void when there is none.
+template<AtFormKind Kind, typename... Forms>
+struct AtInfoFormOf {
 	using Type = void;
 };
 
 
-template<typename T, typename... Tail>
-struct AtReadValueOf<AtReadForm<T>, Tail...> {
-	using Type = T;
+template<AtFormKind Kind, typename Head, typename... Tail>
+struct AtInfoFormOf<Kind, Head, Tail...> {
+	using Type = std::conditional_t<(Head::kind == Kind && AtIsInfoForm<Head>), Head, typename AtInfoFormOf<Kind, Tail...>::Type>;
 };
 
 
-template<typename Head, typename... Tail>
-struct AtReadValueOf<Head, Tail...> : AtReadValueOf<Tail...> {
+// The type a reply carries: the value type, or the row type of a record or rows form. Void for no form.
+template<typename Form>
+struct AtInfoTypeOf {
+	using Type = typename Form::Type;
 };
+
+
+template<>
+struct AtInfoTypeOf<void> {
+	using Type = void;
+};
+
+
+// The shape of a reply form. A command with no reply form has the value shape, which no call of that form reads.
+template<typename Form>
+struct AtShapeOf {
+	static constexpr AtReplyShape value = Form::shape;
+};
+
+
+template<>
+struct AtShapeOf<void> {
+	static constexpr AtReplyShape value = AtReplyShape::value;
+};
+
+
+// The index of a form kind in a per-kind table.
+constexpr std::size_t AtFormIndex(AtFormKind kind) {
+	return static_cast<std::size_t>(kind);
+}
+
+
+// The number of forms of one kind in a list.
+template<AtFormKind Kind, typename... Forms>
+constexpr std::size_t AtFormCount() {
+	std::array<AtFormKind, sizeof...(Forms)> kinds{Forms::kind...};
+	std::size_t count = 0;
+
+	for (AtFormKind kind : kinds) {
+		if (kind == Kind) {
+			count++;
+		}
+	}
+
+	return count;
+}
 
 
 // The argument types of a write form in a list as a tuple, or an empty tuple when the list has none.
@@ -135,28 +297,6 @@ struct AtValueArgsOf<Head, Tail...> : AtValueArgsOf<Tail...> {
 };
 
 
-// The index of a form kind in a per-kind table.
-constexpr std::size_t AtFormIndex(AtFormKind kind) {
-	return static_cast<std::size_t>(kind);
-}
-
-
-// The number of forms of one kind in a list.
-template<AtFormKind Kind, typename... Forms>
-constexpr std::size_t AtFormCount() {
-	std::array<AtFormKind, sizeof...(Forms)> kinds{Forms::kind...};
-	std::size_t count = 0;
-
-	for (AtFormKind kind : kinds) {
-		if (kind == Kind) {
-			count++;
-		}
-	}
-
-	return count;
-}
-
-
 // A command in the builder, or a closed command in a set. Name is the text of the name, with its plus sign for a command. A name of one
 // letter is a basic command.
 template<AtText Text, typename... Forms>
@@ -165,7 +305,16 @@ struct AtCommandItem {
 	static constexpr bool isCommand = true;
 	static constexpr bool isBasic = Text.View().size() == 1;
 
-	using ReadType = typename AtReadValueOf<Forms...>::Type;
+	// The reply forms: the read form's info, and the run form's info (void when a form is missing). A run form with no info line is
+	// AtRunForm, and it is in hasPlainRun.
+	using ReadInfo = typename AtInfoFormOf<AtFormKind::read, Forms...>::Type;
+	using RunInfo = typename AtInfoFormOf<AtFormKind::run, Forms...>::Type;
+	using ReadType = typename AtInfoTypeOf<ReadInfo>::Type;
+	using RunType = typename AtInfoTypeOf<RunInfo>::Type;
+	static constexpr AtReplyShape readShape = AtShapeOf<ReadInfo>::value;
+	static constexpr AtReplyShape runShape = AtShapeOf<RunInfo>::value;
+	static constexpr bool hasPlainRun = (std::is_same_v<AtRunForm, Forms> || ...);
+
 	using WriteArguments = typename AtWriteArgsOf<Forms...>::Type;
 	using ValueArguments = typename AtValueArgsOf<Forms...>::Type;
 
@@ -177,6 +326,7 @@ struct AtCommandItem {
 
 	CommandPack<Forms...> forms{};
 	AtCommandOptions options{};
+	bool prompt = false;
 
 
 	template<typename Form>
@@ -191,12 +341,17 @@ struct AtCommandItem {
 
 	template<typename Form>
 	constexpr AtCommandItem<Text, Forms..., Form> WithForm(const Form& form) const {
-		return AtCommandItem<Text, Forms..., Form>{CommandPackAppend(forms, form), options};
+		return AtCommandItem<Text, Forms..., Form>{CommandPackAppend(forms, form), options, prompt};
 	}
 
 
 	constexpr AtCommandItem WithOptions(const AtCommandOptions& changed) const {
-		return AtCommandItem{forms, changed};
+		return AtCommandItem{forms, changed, prompt};
+	}
+
+
+	constexpr AtCommandItem WithPrompt() const {
+		return AtCommandItem{forms, options, true};
 	}
 };
 
@@ -207,6 +362,7 @@ struct AtNoCommand {
 	static constexpr bool isBasic = false;
 
 	AtCommandOptions options{};
+	bool prompt = false;
 
 
 	template<typename Form>
@@ -227,16 +383,25 @@ struct AtNoCommand {
 
 
 	constexpr AtNoCommand WithOptions(const AtCommandOptions& changed) const {
-		return AtNoCommand{changed};
+		return AtNoCommand{changed, prompt};
+	}
+
+
+	constexpr AtNoCommand WithPrompt() const {
+		return AtNoCommand{options, true};
 	}
 };
 
 
-// A URC: its prefix and its arguments. The prefix ends at a colon, a comma or the end of the line.
-template<AtText Text, typename... Arguments>
+// A URC: its prefix, its arguments, and its Data(). The arguments are the ones before a Data() last argument, so the length is the last of
+// them, and Data is AtDataLength<T> for a URC with Data() (T is the length's type) or AtNoData. The prefix ends at a colon, a comma or the
+// end of the line.
+template<AtText Text, typename Data, typename... Arguments>
 struct AtUrcItem {
 	static constexpr std::string_view name = Text.View();
+	static constexpr bool hasData = AtIsDataLength<Data>;
 
+	using DataType = Data;
 	using ArgumentTypes = std::tuple<Arguments...>;
 
 	CommandPack<Arguments...> arguments{};
@@ -256,8 +421,8 @@ template<typename Item>
 inline constexpr bool AtIsUrcItem = false;
 
 
-template<AtText Text, typename... Arguments>
-inline constexpr bool AtIsUrcItem<AtUrcItem<Text, Arguments...>> = true;
+template<AtText Text, typename Data, typename... Arguments>
+inline constexpr bool AtIsUrcItem<AtUrcItem<Text, Data, Arguments...>> = true;
 
 
 // True for a form that carries the arguments the server reads from a line: a write form or a value form.

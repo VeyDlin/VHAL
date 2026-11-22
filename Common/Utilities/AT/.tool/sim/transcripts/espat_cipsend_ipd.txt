@@ -1,0 +1,12 @@
+# Written by hand from the ESP-AT command reference extract (source commit b2921f8f), not recorded from a module.
+# A +IPD with three bytes of data comes between the data and SEND OK. Its data is raw and is handled by the URC, so the request goes on.
+> AT+CIPSEND=5
+< AT+CIPSEND=5
+< OK
+= 3e20
+> = 68656c6c6f
+= 2b4950442c333a616263
+= 0d0a
+< Recv 5 bytes
+<
+< SEND OK

@@ -1,0 +1,6 @@
+# A single reply has one value line. A second one makes it invalid, since either value could be the wrong one, so the OK ends the request
+# with invalidData. A reply with several lines is read with Rows.
+> AT+TEMP?
+< +TEMP: 5
+< +TEMP: 6
+< OK

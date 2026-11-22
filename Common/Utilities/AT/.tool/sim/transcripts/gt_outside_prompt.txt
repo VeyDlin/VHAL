@@ -1,0 +1,6 @@
+# A ">" line when no prompt request is open is an ordinary line. It is not a prompt, and no data is written.
+> AT+TEMP?
+< AT+TEMP?
+< >
+< +TEMP: 1
+< OK

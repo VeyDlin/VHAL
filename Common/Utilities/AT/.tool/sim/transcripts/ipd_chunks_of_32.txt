@@ -1,0 +1,7 @@
+# A +IPD of 40 bytes, sent as "0123456789" four times: the handler gets a chunk of 32 bytes at offset 0, and then 8 bytes at offset 32, last.
+= 2b4950442c34303a
+= 30313233343536373839
+= 30313233343536373839
+= 30313233343536373839
+= 30313233343536373839
+<

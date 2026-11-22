@@ -1,0 +1,7 @@
+# Written by hand from the ESP-AT command reference extract (source commit b2921f8f), not recorded from a module.
+# The second row has no rssi, which is a required field, so it is not a row. The reply is invalidData, and no row is given to the handler.
+> AT+CWLAP
+< AT+CWLAP
+< +CWLAP:(3,"home",-40,"aa:bb:cc:dd:ee:01",6,-3,0,4,4,7,1)
+< +CWLAP:(4,"lost")
+< OK

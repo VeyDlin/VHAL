@@ -10,7 +10,9 @@
 - [Handlers](#handlers)
 - [Feed and Process](#feed-and-process)
 - [Lines and Results](#lines-and-results)
+- [Info Lines](#info-lines)
 - [URCs](#urcs)
+- [Limits](#limits)
 - [Dropped Bytes](#dropped-bytes)
 
 ---
@@ -39,13 +41,15 @@ A handler is a static function or a captureless lambda (`+[]`). Its signature sa
 
 | Form | Signature |
 |---|---|
-| `Read<T>` | `Result<T, AtStatus> Name(AtCall<App> call)` |
+| `Read<T>`, `Run<T>` | `Result<T, AtStatus> Name(AtCall<App> call)` |
+| `Read(row)`, `Run(row)` | `Result<S, AtStatus> Name(AtCall<App> call)`, where S is the row's type |
+| `ReadRows(row)`, `Rows(row)` | `AtStatus Name(AtCall<App> call, AtRowWriter<S>& out)` |
 | `Write(args...)` | `AtStatus Name(AtCall<App> call, args...)` |
 | `Run()` | `AtStatus Name(AtCall<App> call)` |
 | `Value` (basic) | `AtStatus Name(AtCall<App> call, arg)` |
 | `Test()` | none: the text comes from the argument ranges |
 
-A string argument arrives as `std::string_view`, and an optional one as `std::optional<...>`. An integer arrives only inside its range. A name can have one handler for each of its forms, and the signature chooses. A command form with no handler is a compile error.
+A string argument arrives as `std::string_view`, and an optional one as `std::optional<...>`. An integer arrives only inside its range. A name can have one handler for each of its forms, and the signature chooses. A command form with no handler is a compile error, except the write form of a `.Prompt()` command: that one has no handler, and its line is answered with `ERROR`. A handler bound to a prompt command is a compile error (see [AtDataMode](AtDataMode.md#the-server)).
 
 A handler that returns an error status fails the line:
 
@@ -61,6 +65,8 @@ AtStatus Bad(AtCall<App> call) {
 }
 ```
 
+A reply form (`Read<T>`, `Run<T>`, `Read(row)`, `Run(row)`) writes its info line when its handler returns a value. A handler that returns an error writes no info line, and the line ends with the error. The rows forms write their lines as the handler adds them, through [AtRowWriter](AtRows.md#the-server-side).
+
 ---
 
 ## Feed and Process
@@ -70,6 +76,16 @@ AtStatus Bad(AtCall<App> call) {
 
 Output is written in `Process()` only, never in `Feed()`.
 
+```cpp
+void OnReceiveInterrupt() {
+	server.Feed(static_cast<uint8>(UartReadByte()));      // from the interrupt: copies one byte, and counts it when the ring is full
+}
+
+void MainLoop() {
+	server.Process();                                     // from the main loop: parses, runs the handlers, writes the replies
+}
+```
+
 ---
 
 ## Lines and Results
@@ -78,7 +94,6 @@ Output is written in `Process()` only, never in `Feed()`.
 - With `.Registers()` in the dialect, a line ends at S3 (see [AtDialect](AtDialect.md#input-line-end)). While S3 is 13, LF also ends a line, and CRLF or LFCR is one end. While S3 is any other value, only S3 ends a line, and a CR or LF that is not S3 is dropped.
 - The forms are `AT+X=?`, `AT+X?`, `AT+X=a,b`, `AT+X`, and `AT` alone (answered with OK). Names and `AT` are case-insensitive. A line without `AT` gives ERROR.
 - `;` runs the commands of a line in turn. The line gives one final result code, and the first error stops the rest of the line.
-- An info line is the reply prefix (the name and a colon, or the command's `.Reply()`), one blank, and the value: `+TEMP: 23`.
 - A result is `OK`, `ERROR`, or `+CME ERROR: n` (or its text). With ATV0 the codes are `0` and `4`, and with ATQ1 no result is written.
 - An info line and a verbose result are written as `S3 S4 text S3 S4`, with S3 and S4 (CR and LF by default). A numeric result (ATV0) is its code and S3 only, such as `0` then S3.
 - A declared command is answered with its handler's status. A test form writes the range of each write argument: the declared range of an integer, which is the range of its type unless `.Range()` sets one, such as `(-128-127)`; `(0,1)` for a bool; `(0-8)` for a string.
@@ -87,21 +102,55 @@ Argument fields are read with the value grammar of [AtClient](AtClient.md). A fi
 
 ---
 
+## Info Lines
+
+An info line is the reply prefix, its separator, and the value:
+
+- With no reply prefix, the prefix is the command's name and a colon, and one blank follows: `+TEMP: 23`.
+- With `.Reply(prefix)`, the prefix is that text. A prefix that ends in a colon is followed by one blank (`AT version: 2.2.0.0`). Any other prefix is followed by a comma (`+CIFSR:STAIP,"192.168.1.9"`).
+- A value is written with the value grammar. A `RawString` is written as it is, up to the first CR or LF.
+- A record or a row is written with its Open and Close texts, as `(4,"net",-72)`.
+
+```cpp
+.Command<"+GMR">().Run<RawString<64>>("version").Reply("AT version:")
+.Command<"+CIFSR">().Run<String<15>>("ip").Reply("+CIFSR:STAIP")
+```
+
+With these, `AT+GMR` writes `AT version: 2.2.0.0(Jul 1 2022)` and `AT+CIFSR` writes `+CIFSR:STAIP,"192.168.1.9"`, each followed by the result line `OK`. Only a set that has a reply prefix of the second kind has code for the comma.
+
+---
+
 ## URCs
 
 `server.Urc<"WIFI GOT IP">()` queues a URC with its arguments, and returns `filled` when the queue is full:
 
 ```cpp
-server.Urc<"+IPD">(uint16{4}, tag, true);   // tag is a String<8> holding ab: +IPD,4,"ab",1
+// The description: .Urc<"+IPD">(Argument<uint16>("length"), Argument<String<8>>("tag"), Optional<bool>("flag"))
+String<8> tagText{};                                      // holds ab
+server.Urc<"+IPD">(uint16{4}, tagText, std::optional<bool>(true));   // writes +IPD,4,"ab",1
+server.Urc<"WIFI GOT IP">();                              // a URC with no arguments
 ```
 
 - The queue runs under `System::CriticalSection`, so it can be called from a task.
 - `Process()` writes a queued URC when no reply is open and no line is partly read. A URC queued while a line is read is written after that line's result.
 - A URC is written as its prefix, then `,` and each argument: `+IPD,4,"ab",1`.
 - Each value must have exactly the type its argument stores: `uint16` for a `uint16` argument, `String<N>` for a string argument. An `int` for a `uint16` argument, or a `string_view`, is a compile error. The check is exact, so a literal needs a cast such as `uint16{4}`.
+- A URC with `Data()` cannot be queued in version 1: `server.Urc<>()` of it is a compile error, since the server writes no raw data (see [AtDataMode](AtDataMode.md#the-server)).
 
 ---
+
+## Limits
+
+- A prompt command (`.Prompt()`, such as `AT+CIPSEND`) has no handler in version 1. Its line is answered with `ERROR`, and no data is read (see [AtDataMode](AtDataMode.md#the-server)).
+- A URC with `Data()` cannot be queued: `server.Urc<"+IPD">(...)` with a `Data()` argument is a compile error.
+- With `ATV0` the server writes numeric result codes (`0` and `4`). The client of this library does not read them, so a client of the same description times out (see [AtClient](AtClient.md#limits)).
+- A URC queued while a reply is open is written after that reply's result line. A full queue returns `filled`, and the URC is not written.
+- The server has no clock, so it has no timeouts. A command that never returns is the application's problem, since the handlers run in `Process()`.
 
 ## Dropped Bytes
 
 `DroppedBytes()` returns the bytes the ring has dropped since the server started. It is counted when it is called, so the number is current when read.
+
+```cpp
+uint32 lost = server.DroppedBytes();    // nonzero when the host sent faster than Process() ran
+```

@@ -1,0 +1,7 @@
+# Written by hand from the ESP-AT command reference extract (source commit b2921f8f), not recorded from a module.
+# AT+CIPSTART in single-connection mode: CONNECT is sent when the TCP connection opens, and it is a URC during the request. Then OK.
+> AT+CIPSTART="TCP","192.0.2.1",8000
+< AT+CIPSTART="TCP","192.0.2.1",8000
+< CONNECT
+<
+< OK

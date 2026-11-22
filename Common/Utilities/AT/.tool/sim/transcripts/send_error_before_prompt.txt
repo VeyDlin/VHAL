@@ -1,0 +1,4 @@
+# ERROR before the prompt ends the request at once. No data is written, and the prompt never comes.
+> AT+CIPSEND=5
+< AT+CIPSEND=5
+< ERROR

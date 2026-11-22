@@ -1,0 +1,6 @@
+# A single reply that got a value line that does not parse stays invalid: the later +TEMP: 5 does not rescue it, and the OK ends the request
+# with invalidData, as the info-line rule says.
+> AT+TEMP?
+< +TEMP: x
+< +TEMP: 5
+< OK

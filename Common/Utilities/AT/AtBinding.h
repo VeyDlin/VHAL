@@ -2,9 +2,13 @@
 #include "AtArgument.h"
 #include "AtError.h"
 #include "AtForms.h"
+#include "AtRow.h"
+#include "Modules/AtDataMode.h"
+#include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
 #include <cstddef>
+#include <span>
 #include <string_view>
 #include <tuple>
 #include <type_traits>
@@ -13,7 +17,9 @@
 // The handler binding of a server. A handler is a static function or a captureless lambda (+[]), bound to a command name:
 //   AtServerBinding<AtOn<"+TEMP", &Temp>, AtOn<"+LED", &Led>>
 // A name can be bound more than once, one handler for each form of the command. The signature of a handler says which form it serves:
-//   Read<T>:          Result<T, AtStatus> Name(AtCall<App>)
+//   Read<T>, Run<T>:  Result<T, AtStatus> Name(AtCall<App>)
+//   Read(row), Run(row): Result<Row, AtStatus> Name(AtCall<App>), which writes one info line
+//   ReadRows, Rows:   AtStatus Name(AtCall<App>, AtRowWriter<Row>&), which adds rows with out.Add(row)
 //   Run:              AtStatus Name(AtCall<App>)
 //   Write, Value:     AtStatus Name(AtCall<App>, args...), where each argument takes the handler type of its declared type
 // A string argument arrives as std::string_view, and an optional one as std::optional. A Test form has no handler: its text comes from
@@ -60,14 +66,21 @@ struct AtClientBinding {
 };
 
 
-// The type of a URC handler for a list of arguments: void(HandlerType...).
-template<typename Arguments>
+// The type of a URC handler for a list of arguments: void(HandlerType...). A URC with Data() takes the arguments before it, then the offset of
+// the chunk (the length's type), the chunk as a span of bytes, and whether the chunk is the last one.
+template<typename Arguments, typename Data = AtNoData>
 struct AtUrcHandler;
 
 
 template<typename... Arguments>
-struct AtUrcHandler<std::tuple<Arguments...>> {
+struct AtUrcHandler<std::tuple<Arguments...>, AtNoData> {
 	using Type = void (*)(typename Arguments::HandlerType...);
+};
+
+
+template<typename Length, typename... Arguments>
+struct AtUrcHandler<std::tuple<Arguments...>, AtDataLength<Length>> {
+	using Type = void (*)(typename Arguments::HandlerType..., Length, std::span<const uint8>, bool);
 };
 
 
@@ -92,6 +105,36 @@ struct AtArgumentsHandler<App, std::tuple<Arguments...>> {
 template<typename App, typename T>
 struct AtFormHandler<App, AtReadForm<T>> {
 	using Type = Result<T, AtStatus> (*)(AtCall<App>);
+};
+
+
+template<typename App, typename T>
+struct AtFormHandler<App, AtRunValueForm<T>> {
+	using Type = Result<T, AtStatus> (*)(AtCall<App>);
+};
+
+
+template<typename App, typename RowDecl>
+struct AtFormHandler<App, AtReadRecordForm<RowDecl>> {
+	using Type = Result<typename RowDecl::RowType, AtStatus> (*)(AtCall<App>);
+};
+
+
+template<typename App, typename RowDecl>
+struct AtFormHandler<App, AtRunRecordForm<RowDecl>> {
+	using Type = Result<typename RowDecl::RowType, AtStatus> (*)(AtCall<App>);
+};
+
+
+template<typename App, typename RowDecl>
+struct AtFormHandler<App, AtReadRowsForm<RowDecl>> {
+	using Type = AtStatus (*)(AtCall<App>, AtRowWriter<typename RowDecl::RowType>&);
+};
+
+
+template<typename App, typename RowDecl>
+struct AtFormHandler<App, AtRunRowsForm<RowDecl>> {
+	using Type = AtStatus (*)(AtCall<App>, AtRowWriter<typename RowDecl::RowType>&);
 };
 
 

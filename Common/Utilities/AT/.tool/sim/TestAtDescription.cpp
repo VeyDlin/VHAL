@@ -41,7 +41,7 @@ void ExpectText(std::string_view actual, std::string_view expected, const char* 
 #define AT_TEXT(actual, expected) ExpectText(actual, expected, #actual, __LINE__)
 
 
-// The description of the design's sensor example, without the Rows and data-mode parts that stage 2 adds.
+// The description of the design's sensor example, without the Rows and data-mode parts.
 using Sensor = AtCommandSet<+[] {
 	return AtCommandSetBuilder()
 		.Defaults(AtDefaults().TimeoutMs(2000))

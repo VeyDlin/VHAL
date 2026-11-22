@@ -1,0 +1,5 @@
+# Written by hand from the ESP-AT command reference extract (source commit b2921f8f), not recorded from a module.
+# ATE0 turns the echo off. The module echoes the request first, and the echo module drops that line. Then the module answers OK.
+> ATE0
+< ATE0
+< OK

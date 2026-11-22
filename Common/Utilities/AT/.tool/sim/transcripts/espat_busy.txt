@@ -1,0 +1,8 @@
+# Written by hand from the ESP-AT command reference extract (source commit b2921f8f), not recorded from a module.
+# The module is busy with an earlier command, so it sends busy p... before the reply. The URC does not end the request.
+> AT+CWMODE?
+< AT+CWMODE?
+< busy p...
+< +CWMODE:1
+<
+< OK

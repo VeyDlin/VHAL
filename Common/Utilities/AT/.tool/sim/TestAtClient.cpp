@@ -344,7 +344,8 @@ void TestReadLinesThatDoNotParse() {
 }
 
 
-void TestFirstValueWins() {
+// A single reply has one value line, so a second one makes it invalid rather than picking one of the two.
+void TestSecondValueIsInvalid() {
 	Reset();
 	CapturePrint out;
 	Client client(out);
@@ -353,7 +354,7 @@ void TestFirstValueWins() {
 	client.Process(0);
 	Feed(client, "+TEMP: 1\r\n+TEMP: 2\r\nOK\r\n");
 	client.Process(0);
-	AT_TEXT(handled, "temp 1\n");
+	AT_TEXT(handled, "temp invalidData\n");
 }
 
 
@@ -878,7 +879,7 @@ int main() {
 	TestReadOk();
 	TestReadIntegerTypes();
 	TestReadLinesThatDoNotParse();
-	TestFirstValueWins();
+	TestSecondValueIsInvalid();
 	TestUnknownAndEmptyLinesIgnored();
 	TestInfoLineTooLongIsInvalid();
 	TestCmeAndErrorFinals();

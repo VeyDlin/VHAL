@@ -1,0 +1,7 @@
+# AT+CWLIST?: a row that lacks a required field is not a row, so the reply is invalidData. The row before it is not handed over.
+> AT+CWLIST?
+< AT+CWLIST?
+< +CWLIST:(3,"home",-40)
+< +CWLIST:(4,"x")
+<
+< OK

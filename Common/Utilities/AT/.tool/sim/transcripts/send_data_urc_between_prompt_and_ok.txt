@@ -1,0 +1,12 @@
+# AT+CIPSEND=5 is answered OK, then the module prompts with "> " (hex 3e20, no line end). The client writes the 5 data bytes after the prompt.
+# Before SEND OK a +IPD of 3 bytes comes as raw bytes: "+IPD,3:" and "abc", then the CRLF of the stream. Then "Recv 5 bytes", and SEND OK.
+> AT+CIPSEND=5
+< AT+CIPSEND=5
+< OK
+= 3e20
+> = 68656c6c6f
+= 2b4950442c333a616263
+<
+< Recv 5 bytes
+<
+< SEND OK

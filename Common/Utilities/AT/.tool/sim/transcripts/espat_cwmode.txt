@@ -1,0 +1,10 @@
+# Written by hand from the ESP-AT command reference extract (source commit b2921f8f), not recorded from a module.
+# AT+CWMODE? gives +CWMODE:<mode>, then AT+CWMODE=1 sets station mode with the auto-connect flag left out.
+> AT+CWMODE?
+< AT+CWMODE?
+< +CWMODE:1
+<
+< OK
+> AT+CWMODE=1
+< AT+CWMODE=1
+< OK

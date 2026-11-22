@@ -1,0 +1,9 @@
+# Written by hand from the ESP-AT command reference extract (source commit b2921f8f), not recorded from a module.
+# AT+CWMODE? gets no reply, so it times out at 2000 ms. The drain sends AT. The module echoes AT and answers OK. That first OK is taken as
+# the final of the late request, and the drain then ends at its own timeout, 2000 ms later. The request gets its timeout status.
+> AT+CWMODE?
+@ 2000
+> AT
+< AT
+< OK
+@ 4000

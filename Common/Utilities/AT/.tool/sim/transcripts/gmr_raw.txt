@@ -1,0 +1,8 @@
+# AT+GMR: the version is raw text after "AT version:", to the end of the line. The SDK and compile lines are not its reply.
+> AT+GMR
+< AT+GMR
+< AT version:2.2.0.0(Jul 1 2022 10:34:36)
+< SDK version:v4.4
+< compile time(a1b2c3d):Jul  1 2022 10:50:00
+<
+< OK

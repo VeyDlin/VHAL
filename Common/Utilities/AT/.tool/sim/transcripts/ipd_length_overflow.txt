@@ -1,0 +1,7 @@
+# "+IPD,70000:" does not fit a uint16 length, so the header is refused: no data is taken, and the line is dropped as a URC line. The read still ends.
+> AT+TEMP?
+< AT+TEMP?
+= 2b4950442c37303030303a616263
+<
+< +TEMP: 9
+< OK

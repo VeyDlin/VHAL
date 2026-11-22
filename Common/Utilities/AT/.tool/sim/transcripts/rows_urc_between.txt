@@ -1,0 +1,10 @@
+# AT+CWLAP as rows: a URC arrives between two rows. The second row has a quoted ")" and "," in its name, and extra fields after its channel,
+# which are skipped to the Close text. The third row is past the capacity of two, so it is counted as skipped and the status stays ok.
+> AT+CWLAP
+< AT+CWLAP
+< +CWLAP:(3,"home",-40)
+< WIFI GOT IP
+< +CWLAP:(4,"a),b",-72,6,0)
+< +CWLAP:(1,"far",-90)
+<
+< OK

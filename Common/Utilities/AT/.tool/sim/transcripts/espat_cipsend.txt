@@ -1,0 +1,11 @@
+# Written by hand from the ESP-AT command reference extract (source commit b2921f8f), not recorded from a module.
+# AT+CIPSEND=5: OK, then the '>' prompt with no line end. The client writes the five data bytes after the prompt. The module then says
+# Recv 5 bytes and SEND OK, which ends the request.
+> AT+CIPSEND=5
+< AT+CIPSEND=5
+< OK
+= 3e20
+> = 68656c6c6f
+< Recv 5 bytes
+<
+< SEND OK

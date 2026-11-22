@@ -1,0 +1,10 @@
+# Written by hand from the ESP-AT command reference extract (source commit b2921f8f), not recorded from a module.
+# AT+CIFSR: the reply prefix is +CIFSR:STAIP, so the other address lines are not its reply. The comma after the prefix is skipped.
+> AT+CIFSR
+< AT+CIFSR
+< +CIFSR:APIP,"192.168.4.1"
+< +CIFSR:APMAC,"12:34:56:78:9a:bc"
+< +CIFSR:STAIP,"192.168.1.9"
+< +CIFSR:STAMAC,"ab:cd:ef:01:23:45"
+<
+< OK

@@ -1,0 +1,10 @@
+# Written by hand from the ESP-AT command reference extract (source commit b2921f8f), not recorded from a module.
+# A successful AT+CWJAP sends WIFI CONNECTED and WIFI GOT IP inside the reply, then a blank line and OK. The line WIFI GOT IPv6 LL is not
+# a URC of the client, since its prefix does not end at the IP, so it is ignored.
+> AT+CWJAP="net","secret"
+< AT+CWJAP="net","secret"
+< WIFI CONNECTED
+< WIFI GOT IP
+< WIFI GOT IPv6 LL
+<
+< OK

@@ -2,9 +2,11 @@
 #include <Utilities/AT/AtClient.h>
 #include <Utilities/AT/AtServer.h>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -15,6 +17,9 @@
 // the whole module stream in chunks of up to 60 bytes (the ring holds 64), with one cut at every byte position, and one byte at a time.
 // Every run must give the handler log and the written bytes that the test writes here from the design. A time record runs the client
 // at the old time, then at the new one, so the bytes before it are read at the time they came.
+//
+// Raw bytes have their own records, as hex with no spaces: "= " is a run the module sends, such as a Data() URC's header and its data, and
+// "> = " is a run the client writes, such as the data of a SendData request. A "<" alone is an empty module line, and it is the CRLF.
 
 
 namespace {
@@ -190,6 +195,28 @@ struct Transcript {
 };
 
 
+// Appends the bytes of a hex text, two digits to a byte. Returns false for a text that is not an even run of hex digits.
+bool AppendHex(std::string& target, const std::string& hex) {
+	if (hex.size() % 2 != 0) {
+		return false;
+	}
+
+	for (std::size_t index = 0; index < hex.size(); index += 2) {
+		std::string pair = hex.substr(index, 2);
+		char* end = nullptr;
+		long value = std::strtol(pair.c_str(), &end, 16);
+
+		if (end == nullptr || *end != '\0' || pair.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) {
+			return false;
+		}
+
+		target += static_cast<char>(value);
+	}
+
+	return true;
+}
+
+
 // Reads a transcript file. A record with another prefix fails the test.
 bool ReadTranscript(const std::string& name, Transcript& transcript) {
 	std::filesystem::path path = std::filesystem::path(__FILE__).parent_path() / "transcripts" / name;
@@ -211,7 +238,17 @@ bool ReadTranscript(const std::string& name, Transcript& transcript) {
 			continue;
 		}
 
-		if (line.compare(0, 2, "> ") == 0) {
+		if (line.compare(0, 4, "> = ") == 0) {
+			if (!AppendHex(transcript.writes, line.substr(4))) {
+				std::fprintf(stderr, "TestAtTranscript.cpp: %s: a raw client record is not hex: %s\n", name.c_str(), line.c_str());
+				return false;
+			}
+		} else if (line.compare(0, 2, "= ") == 0) {
+			if (!AppendHex(transcript.module, line.substr(2))) {
+				std::fprintf(stderr, "TestAtTranscript.cpp: %s: a raw module record is not hex: %s\n", name.c_str(), line.c_str());
+				return false;
+			}
+		} else if (line.compare(0, 2, "> ") == 0) {
 			transcript.writes += line.substr(2) + "\r\n";
 		} else if (line.compare(0, 2, "< ") == 0) {
 			transcript.module += line.substr(2) + "\r\n";
@@ -239,12 +276,12 @@ struct Run {
 
 // Runs the transcript once. cuts lists the byte positions where the client runs before the byte there; the ring is run every 60 bytes
 // as well. A time record runs the client at the old time, then at the new one.
-template<typename Setup>
+template<typename ClientType, typename Setup>
 Run RunTranscript(const Transcript& transcript, Setup setup, const std::vector<std::size_t>& cuts) {
 	handled.clear();
 
 	Wire wire;
-	Client client(wire);
+	ClientType client(wire);
 	setup(client);
 
 	uint32 now = 0;
@@ -287,8 +324,8 @@ Run RunTranscript(const Transcript& transcript, Setup setup, const std::vector<s
 
 
 // Runs a transcript whole, cut at every byte position, and one byte at a time, and checks each run against the expected log and writes.
-template<typename Setup>
-void CheckTranscript(const char* name, Setup setup, const std::string& expectedLog) {
+template<typename ClientType>
+void CheckTranscript(const char* name, void (*setup)(ClientType&), const std::string& expectedLog) {
 	Transcript transcript;
 
 	if (!ReadTranscript(name, transcript)) {
@@ -297,12 +334,12 @@ void CheckTranscript(const char* name, Setup setup, const std::string& expectedL
 		return;
 	}
 
-	Run whole = RunTranscript(transcript, setup, {});
+	Run whole = RunTranscript<ClientType>(transcript, setup, {});
 	AT_TEXT(whole.log, expectedLog);
 	AT_TEXT(whole.writes, transcript.writes);
 
 	for (std::size_t position = 1; position < transcript.module.size(); position++) {
-		Run split = RunTranscript(transcript, setup, {position});
+		Run split = RunTranscript<ClientType>(transcript, setup, {position});
 		AT_TEXT(split.log, whole.log);
 		AT_TEXT(split.writes, whole.writes);
 	}
@@ -313,7 +350,7 @@ void CheckTranscript(const char* name, Setup setup, const std::string& expectedL
 		everyByte.push_back(position);
 	}
 
-	Run oneByte = RunTranscript(transcript, setup, everyByte);
+	Run oneByte = RunTranscript<ClientType>(transcript, setup, everyByte);
 	AT_TEXT(oneByte.log, whole.log);
 	AT_TEXT(oneByte.writes, whole.writes);
 }
@@ -425,14 +462,66 @@ void TestChainFinalIsOneStatus() {
 		client.Write<"+LED", &OnLed>(true);
 	};
 
-	Run whole = RunTranscript(transcript, setup, {});
+	Run whole = RunTranscript<Client>(transcript, setup, {});
 	AT_TEXT(whole.log, "led error cme 3\n");
 	AT_TEXT(whole.writes, transcript.writes);
 
 	for (std::size_t position = 1; position < transcript.module.size(); position++) {
-		Run split = RunTranscript(transcript, setup, {position});
+		Run split = RunTranscript<Client>(transcript, setup, {position});
 		AT_TEXT(split.log, whole.log);
 	}
+}
+
+
+// The data transcripts. The description has one prompt command, AT+CIPSEND, with its final SEND OK and its failure SEND FAIL, one read for
+// a reply that a data URC can interrupt, and the +IPD URC with its length and Data(). The echo is on, as in the other transcripts.
+using DataSet = AtCommandSet<+[] {
+	return AtCommandSetBuilder()
+		.Defaults(AtDefaults().TimeoutMs(100))
+		.Dialect(AtDialect().Echo())
+		.Modules(AtDataMode)
+		.Command<"+TEMP">().Read<int16>("celsius")
+		.Command<"+CIPSEND">().Write(Argument<uint16>("length")).Prompt().Finals("SEND OK").Failures("SEND FAIL")
+		.Urc<"+IPD">(Argument<uint16>("length"), Data());
+}>;
+
+
+// The handler of a Data() URC: the length, then each chunk with its offset, its bytes as text (CR and LF shown), and whether it is last.
+void OnIpdData(uint16 length, uint16 offset, std::span<const uint8> chunk, bool last) {
+	std::string text;
+
+	for (uint8 byte : chunk) {
+		text += static_cast<char>(byte);
+	}
+
+	Note("ipd " + std::to_string(length) + " at " + std::to_string(offset) + " [" + Visible(text) + "]" + (last ? " last" : " more"));
+}
+
+
+using DataBinding = AtClientBinding<
+	AtUrcOn<"+IPD", &OnIpdData>
+>;
+
+
+using DataClient = AtClient<DataSet, DataBinding, AtQueue<2>, AtEcho>;
+
+
+// The five bytes of the SendData tests. They are static, so the span stays valid for the whole run.
+constexpr uint8 kHello[] = {'h', 'e', 'l', 'l', 'o'};
+
+
+void SetupSendHello(DataClient& client) {
+	client.SendData<"+CIPSEND", &OnSend>(uint16{5}, std::span<const uint8>(kHello));
+}
+
+
+void SetupDataTemp(DataClient& client) {
+	client.Read<"+TEMP", &OnTemp>();
+}
+
+
+void SetupNothingData(DataClient& client) {
+	static_cast<void>(client);
 }
 
 
@@ -451,7 +540,25 @@ int main() {
 	CheckTranscript("reply_at_deadline.txt", SetupTemp, "temp timeout\n");
 	CheckTranscript("echo_and_urc_arguments.txt", SetupEchoAndUrc, "ipd 4 a,b true\ntemp 4\nled ok\n");
 	CheckTranscript("invalid_info_and_unknown_lines.txt", SetupInvalidInfo, "temp invalidData\nmode 1\ntest ok\n");
+	CheckTranscript("single_bad_then_good.txt", SetupTemp, "temp invalidData\n");
+	CheckTranscript("single_good_then_bad.txt", SetupTemp, "temp invalidData\n");
+	CheckTranscript("single_two_values.txt", SetupTemp, "temp invalidData\n");
 	TestChainFinalIsOneStatus();
+
+	CheckTranscript("send_data_urc_between_prompt_and_ok.txt", SetupSendHello, "ipd 3 at 0 [abc] last\nsend ok\n");
+	CheckTranscript("send_data_fail.txt", SetupSendHello, "send error\n");
+	CheckTranscript("send_error_before_prompt.txt", SetupSendHello, "send error\n");
+	CheckTranscript("send_timeout_during_prompt_wait.txt", SetupSendHello, "send timeout\n");
+	CheckTranscript("ipd_cr_lf_in_data.txt", SetupSendHello, "ipd 4 at 0 [\\r\\n\\r\\n] last\nsend ok\n");
+	CheckTranscript("ipd_length_zero.txt", SetupNothingData, "ipd 0 at 0 [] last\n");
+	CheckTranscript("ipd_back_to_back.txt", SetupNothingData, "ipd 2 at 0 [ab] last\nipd 1 at 0 [c] last\n");
+	CheckTranscript("ipd_between_info_lines.txt", SetupDataTemp, "ipd 4 at 0 [OK\\r\\n] last\ntemp 23\n");
+	CheckTranscript(
+		"ipd_chunks_of_32.txt",
+		SetupNothingData,
+		"ipd 40 at 0 [01234567890123456789012345678901] more\nipd 40 at 32 [23456789] last\n");
+	CheckTranscript("ipd_length_overflow.txt", SetupDataTemp, "temp 9\n");
+	CheckTranscript("gt_outside_prompt.txt", SetupDataTemp, "temp 1\n");
 
 	if (failureCount != 0) {
 		std::fprintf(stderr, "TestAtTranscript: %d of %d checks failed\n", failureCount, checkCount);

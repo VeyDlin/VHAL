@@ -5,6 +5,7 @@
 #include "AtError.h"
 #include "AtForms.h"
 #include "AtLayout.h"
+#include "AtRow.h"
 #include "AtValue.h"
 #include <Utilities/CommandLine/CommandNameTree.h>
 #include <Utilities/CommandLine/CommandRing.h>
@@ -33,6 +34,12 @@
 // storage, which is started at the first character of the argument, and its value is kept in the value area at the argument's offset.
 // A command runs at its ';' or at the end of the line, and each line gives one final result code. A line ends at CR or LF, and CRLF or
 // LFCR is one end. With the registers a line ends at S3 instead. CR and LF are then ordinary characters, unless S3 is 13.
+//
+// A reply form writes its info lines after the command runs: one value (Read<T>, Run<T>), one record (Read(row), Run(row)), or one line for
+// each row that the handler adds to its AtRowWriter (ReadRows, Rows).
+//
+// A prompt command has no handler: its line is answered with ERROR, since the server takes no data in version 1. A URC with Data() cannot be
+// queued by the server, for the same reason.
 
 
 // The field of one argument, by its command and its position. The server visits a field through a tag with these two numbers, so the
@@ -89,8 +96,10 @@ template<typename Set, typename App, typename Binding>
 struct AtBindingCheck {
 	static constexpr std::size_t index = Set::template Index<Binding::nameText>();
 	static constexpr bool ok = AtFitsForms<App, typename Binding::HandlerType, typename Set::template CommandType<index>::FormTypes>::value;
+	static constexpr bool promptFree = !Set::commands[index].isPrompt;
 
 	static_assert(ok, "an AT handler does not match a form of its command: check its parameters and its return type");
+	static_assert(promptFree, "a prompt command has no server handler: the server answers its line with ERROR");
 };
 
 
@@ -104,13 +113,18 @@ struct AtBindingList<Set, App, AtServerBinding<Bindings...>> {
 };
 
 
-// True when a form has the handler it needs: a test form needs none, and each other form needs exactly one binding.
+// True when a form has the handler it needs: a test form needs none, a write form of a prompt command needs none (the server answers the
+// line with ERROR), and each other form needs exactly one binding.
 template<typename App, typename Form, typename... Bindings>
-constexpr bool AtFormHandled(std::string_view name) {
+constexpr bool AtFormHandled(std::string_view name, bool prompt) {
 	if constexpr (std::is_same_v<Form, AtTestForm>) {
 		static_cast<void>(name);
+		static_cast<void>(prompt);
 		return true;
+	} else if constexpr (Form::kind == AtFormKind::write) {
+		return prompt || AtCountHandlers<typename AtFormHandler<App, Form>::Type, Bindings...>(name) == 1;
 	} else {
+		static_cast<void>(prompt);
 		return AtCountHandlers<typename AtFormHandler<App, Form>::Type, Bindings...>(name) == 1;
 	}
 }
@@ -122,15 +136,15 @@ struct AtFormsHandled;
 
 template<typename App, typename... Forms, typename... Bindings>
 struct AtFormsHandled<App, std::tuple<Forms...>, AtServerBinding<Bindings...>> {
-	static constexpr bool Check(std::string_view name) {
-		return (AtFormHandled<App, Forms, Bindings...>(name) && ...);
+	static constexpr bool Check(std::string_view name, bool prompt) {
+		return (AtFormHandled<App, Forms, Bindings...>(name, prompt) && ...);
 	}
 };
 
 
 template<typename Set, typename App, typename Binding, std::size_t... C>
 constexpr bool AtCommandsHandled(std::index_sequence<C...>) {
-	return (AtFormsHandled<App, typename Set::template CommandType<C>::FormTypes, Binding>::Check(Set::names[C]) && ...);
+	return (AtFormsHandled<App, typename Set::template CommandType<C>::FormTypes, Binding>::Check(Set::names[C], Set::commands[C].isPrompt) && ...);
 }
 
 
@@ -270,6 +284,7 @@ public:
 	AtStatus Urc(Values... values) {
 		constexpr std::size_t urc = Set::template UrcIndex<Name>();
 		using Types = typename Set::template UrcType<urc>::ArgumentTypes;
+		static_assert(!Set::template UrcType<urc>::hasData, "a server URC with Data() is not in v1: the server writes no raw data");
 		static_assert(sizeof...(Values) == std::tuple_size_v<Types>, "a URC is given a different number of arguments than it declares");
 		static_assert(AtUrcValuesExact<Types, Values...>(), "a URC is given values that do not match its arguments");
 
@@ -521,7 +536,8 @@ private:
 	}
 
 
-	// The reply prefix of a command: its own, or the name followed by a colon.
+	// The start of the info line of a command: a line end, then the reply prefix and its separator. The prefix is its own, or the name
+	// followed by a colon.
 	void BeginCommandInfo(std::size_t index) {
 		WriteBreak();
 
@@ -532,7 +548,13 @@ private:
 			out.Write(Set::commands[index].options.replyPrefix);
 		}
 
-		out.Write(std::string_view(" "));
+		if constexpr (Set::HasCommaReplyPrefix) {
+			std::string_view prefix = Set::commands[index].options.replyPrefix;
+			out.Write(std::string_view(!prefix.empty() && prefix.back() != ':' ? "," : " "));
+		} else {
+			out.Write(std::string_view(" "));
+		}
+
 		replyOpen = true;
 	}
 
@@ -1168,14 +1190,34 @@ private:
 	}
 
 
-	template<std::size_t C>
-	void RunRead() {
-		if constexpr (Set::commands[C].hasForm[AtFormIndex(AtFormKind::read)]) {
-			using Value = typename Set::template CommandType<C>::ReadType;
-			using Expected = typename AtFormHandler<App, AtReadForm<Value>>::Type;
+	// A reply form with an info line: a value, a record, or rows. Its handler is picked by its signature. A value or a record is written
+	// as one info line after the handler returns. Rows are written by the handler, one info line for each row it adds to the writer.
+	template<std::size_t C, typename Form>
+	void RunInfoForm() {
+		using Expected = typename AtFormHandler<App, Form>::Type;
+		Expected handler = PickHandler<Expected>(Set::names[C]);
 
-			Expected handler = PickHandler<Expected>(Set::names[C]);
-			Result<Value, AtStatus> result = handler(AtCall<App>{app});
+		if constexpr (Form::shape == AtReplyShape::rows) {
+			using Row = typename Form::Type;
+			constexpr std::size_t slot = Set::template RowInfoIndex<C, Form::kind == AtFormKind::run>();
+
+			replyOpen = true;
+			AtRowWriter<Row> writer(
+				out,
+				S3(),
+				S4(),
+				Set::names[C],
+				Set::commands[C].options.replyPrefix,
+				Set::rowInfos[slot].open,
+				Set::rowInfos[slot].close,
+				&AtWriteRow<typename Form::Decl>);
+			AtStatus status = handler(AtCall<App>{app}, writer);
+
+			if (status.status != ResultStatus::ok) {
+				Fail(status);
+			}
+		} else {
+			Result<typename Form::Type, AtStatus> result = handler(AtCall<App>{app});
 
 			if (result.IsErr()) {
 				Fail(result.Error());
@@ -1183,8 +1225,23 @@ private:
 			}
 
 			BeginCommandInfo(C);
-			AtWriteValue(out, result.Value());
+
+			if constexpr (Form::shape == AtReplyShape::value) {
+				AtWriteValue(out, result.Value());
+			} else {
+				constexpr std::size_t slot = Set::template RowInfoIndex<C, Form::kind == AtFormKind::run>();
+				AtWriteRow<typename Form::Decl>(out, result.Value(), Set::rowInfos[slot].open, Set::rowInfos[slot].close);
+			}
+
 			EndInfo();
+		}
+	}
+
+
+	template<std::size_t C>
+	void RunRead() {
+		if constexpr (!std::is_void_v<typename Set::template CommandType<C>::ReadInfo>) {
+			RunInfoForm<C, typename Set::template CommandType<C>::ReadInfo>();
 		}
 	}
 
@@ -1202,9 +1259,12 @@ private:
 	}
 
 
+	// A run form: a plain one runs its handler, and a run form with an info line runs its handler and writes its info line.
 	template<std::size_t C>
 	void RunRun() {
-		if constexpr (Set::commands[C].hasForm[AtFormIndex(AtFormKind::run)]) {
+		using Command = typename Set::template CommandType<C>;
+
+		if constexpr (Command::hasPlainRun) {
 			using Expected = typename AtFormHandler<App, AtRunForm>::Type;
 
 			Expected handler = PickHandler<Expected>(Set::names[C]);
@@ -1213,6 +1273,8 @@ private:
 			if (status.status != ResultStatus::ok) {
 				Fail(status);
 			}
+		} else if constexpr (!std::is_void_v<typename Command::RunInfo>) {
+			RunInfoForm<C, typename Command::RunInfo>();
 		}
 	}
 
@@ -1222,13 +1284,18 @@ private:
 		using Arguments = typename Set::template CommandType<C>::FieldArguments;
 
 		if constexpr (Set::commands[C].hasForm[AtFormIndex(AtFormKind::write)] || Set::commands[C].hasForm[AtFormIndex(AtFormKind::value)]) {
-			using Expected = typename AtArgumentsHandler<App, Arguments>::Type;
+			if constexpr (Set::commands[C].isPrompt) {
+				// A prompt command has no handler in v1, so its line is answered with ERROR.
+				Fail();
+			} else {
+				using Expected = typename AtArgumentsHandler<App, Arguments>::Type;
 
-			Expected handler = PickHandler<Expected>(Set::names[C]);
-			AtStatus status = CallArguments<C>(handler, std::make_index_sequence<std::tuple_size_v<Arguments>>{});
+				Expected handler = PickHandler<Expected>(Set::names[C]);
+				AtStatus status = CallArguments<C>(handler, std::make_index_sequence<std::tuple_size_v<Arguments>>{});
 
-			if (status.status != ResultStatus::ok) {
-				Fail(status);
+				if (status.status != ResultStatus::ok) {
+					Fail(status);
+				}
 			}
 		}
 	}

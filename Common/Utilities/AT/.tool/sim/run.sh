@@ -105,6 +105,26 @@ if command -v "$armCxx" > /dev/null 2>&1; then
         fi
     done
 
+    # The ESP-AT client of the description, each object with one module set: the echo and row modules, the same with the await module, and
+    # neither module. The calls are the same in each, except that the rows call needs the row module, and the await calls are in the object
+    # with the await module only.
+    for side in SizeEspAtRows SizeEspAtAwait SizeEspAtPlain; do
+        if ! "$armCxx" -std=gnu++20 -fno-rtti -fno-exceptions -Os -mcpu=cortex-m4 -mthumb -Wall -Wextra -Werror -c \
+            -I "$simDir/shim" -I "$vhalRoot/Periphery" -I "$vhalRoot/Common" -I "$simDir" \
+            -o "$buildDir/$side.o" "$simDir/$side.cpp"; then
+            echo "SIZE OBJECT FAILED: target $side"
+            failures=$((failures + 1))
+        fi
+    done
+
+    if [ -f "$buildDir/SizeEspAtRows.o" ] && [ -f "$buildDir/SizeEspAtAwait.o" ] && [ -f "$buildDir/SizeEspAtPlain.o" ]; then
+        echo "ESP-AT client, -Os for Cortex-M4 (text, data, bss): echo and rows; the same with await; neither module:"
+        if ! "$armSize" "$buildDir/SizeEspAtRows.o" "$buildDir/SizeEspAtAwait.o" "$buildDir/SizeEspAtPlain.o"; then
+            echo "SIZE FAILED: $armSize"
+            failures=$((failures + 1))
+        fi
+    fi
+
     if [ -f "$buildDir/SizeServer.o" ] && [ -f "$buildDir/SizeClient.o" ]; then
         echo "server and client of a five-command set, -Os for Cortex-M4 (text, data, bss):"
         if ! "$armSize" "$buildDir/SizeServer.o" "$buildDir/SizeClient.o"; then

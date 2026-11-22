@@ -1,0 +1,4 @@
+# Written by hand from the ESP-AT command reference extract (source commit b2921f8f), not recorded from a module.
+# The module sends ready when it starts. Then a Wi-Fi event comes while the client is idle, and it is handled at once.
+< ready
+< WIFI DISCONNECT

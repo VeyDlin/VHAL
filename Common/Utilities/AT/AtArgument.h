@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <limits>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <tuple>
 #include <type_traits>
@@ -151,10 +152,11 @@ constexpr void AtCheckArguments(const Arguments&... arguments) {
 
 
 // An optional argument of type T. It comes last in its list, and an empty field means absent. For an integer T, Range(low, high) narrows
-// its range.
+// its range. A RawString is a reply value, so it is refused here.
 template<typename T>
 constexpr AtArgument<T, true> Optional(std::string_view name) {
 	AtCheckType<T>();
+	AtRequire<"RawString is a reply value, not an argument">(!AtIsRawString<T>);
 	AtRequire<"an argument has no name">(!name.empty());
 	return AtArgument<T, true>{name, AtLowestOf<T>(), AtHighestOf<T>()};
 }
@@ -251,6 +253,26 @@ constexpr bool AtArgumentsAccept() {
 		return false;
 	} else {
 		return AtAcceptsAll<Arguments, std::tuple<Values...>>(std::make_index_sequence<sizeof...(Values)>{});
+	}
+}
+
+
+// True when the values of a SendData call are the values of the arguments of its write form, and the last value is the data: a
+// std::span<const uint8>. The data is not an argument, so it is checked apart from the others.
+template<typename Arguments, typename... Values>
+constexpr bool AtDataArgumentsAccept() {
+	if constexpr (sizeof...(Values) == 0) {
+		return false;
+	} else {
+		using Tuple = std::tuple<Values...>;
+		constexpr std::size_t count = sizeof...(Values) - 1;
+
+		if constexpr (std::tuple_size_v<Arguments> != count) {
+			return false;
+		} else {
+			return std::is_same_v<std::tuple_element_t<count, Tuple>, std::span<const uint8>> &&
+				AtAcceptsAll<Arguments, Tuple>(std::make_index_sequence<count>{});
+		}
 	}
 }
 

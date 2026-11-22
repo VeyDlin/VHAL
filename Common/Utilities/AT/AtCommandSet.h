@@ -4,6 +4,8 @@
 #include "AtError.h"
 #include "AtForms.h"
 #include "AtOptions.h"
+#include "AtRow.h"
+#include "Modules/AtDataMode.h"
 #include <Utilities/CommandLine/CommandNameTree.h>
 #include <Utilities/CommandLine/CommandPack.h>
 #include <Utilities/DataTypes.h>
@@ -26,13 +28,15 @@
 //           .Command<"+TEMP">().Read<int16>("celsius")
 //           .Command<"+LED">().Write(Argument<bool>("on"))
 //           .Command<"+JOIN">().Write(Argument<String<32>>("ssid"), Optional<String<64>>("password")).TimeoutMs(15000)
+//           .Command<"+CWLAP">().ReadRows(AtRow<Network>(AtField<&Network::ssid>("ssid"))).Open("(").Close(")")
+//           .Command<"+GMR">().Run<RawString<64>>("version").Reply("AT version:")
 //           .Basic<"E">().Value(Argument<uint8>("on"))
 //           .Urc<"WIFI GOT IP">();
 //   }>;
 //
-// The chain is a captureless lambda, as for CommandSet and the FAT12 image. Each call returns a builder type that holds one more
-// item, so the type of the chain carries every form and every argument. A command is open after its Command() call: its forms and
-// options follow it, and the next Command(), Basic(), Urc() or set-level call closes it.
+// The chain is a captureless lambda, as for CommandSet and the FAT12 image. Each call returns a builder type that holds one more item, so the
+// type of the chain carries every form and every argument. A command is open after its Command() call: its forms and options follow it, and
+// the next Command(), Basic(), Urc() or set-level call closes it.
 //
 // Rules, checked at compile time (a violation is an error with its message, see AtError.h):
 //   - a command name starts with + and has A-Z and 0-9 after it, with no space; a basic command is one letter A to Z;
@@ -40,12 +44,18 @@
 //   - the dialect's builtin names (E for ATE, V, Q, S for ATS3 and ATS4, and +CMEE) are names of the set too: a basic E with Echo() is a
 //     duplicate name;
 //   - a URC prefix has no colon and no comma, since the prefix ends there;
-//   - a form is declared once per command, a basic command has only the run and value forms, and the value form is for a basic command;
+//   - a form is declared once per command, so a command has at most one read form and one run form, and a basic command has only the run
+//     and value forms; the value form is for a basic command;
 //   - a write or value form has at least one argument, and no required argument follows an optional one;
 //   - an argument is CommandLine's Argument<T> for an integer, bool or String<N>, or Optional<T>; an Argument with a default, or of
 //     another kind (enum, float, custom), is refused, since the default belongs to Optional<T>;
+//   - a row's fields are checked by AtRow (AtRow.h): a member of the row type, a grammar type, unique names, the optional fields last, and
+//     a RawString last;
 //   - a timeout is above zero, and a string has a capacity above zero;
-//   - Defaults(), Modules() of one tag and Dialect() are given once; Modules() takes a module tag only.
+//   - Defaults(), Modules() of one tag and Dialect() are given once; Modules() takes a module tag only;
+//   - Prompt() is for a write form, given once, and a prompt command has a declared final; a prompt command and a Data() URC need
+//     AtDataMode in the modules (AtDataMode.h);
+//   - Data() is the last argument of a URC, after an unsigned integer length that is required.
 
 
 // The check of a command name: a plus sign, then A-Z and 0-9, with no space.
@@ -151,6 +161,7 @@ constexpr std::array<std::string_view, sizeof...(Items)> AtNamesOf(std::tuple<It
 struct AtCommandInfo {
 	std::string_view name{};
 	bool isBasic = false;
+	bool isPrompt = false;
 	std::size_t fieldCount = 0;
 	std::size_t fieldBase = 0;
 	std::array<bool, AtFormKindCount> hasForm{};
@@ -173,6 +184,7 @@ constexpr std::array<AtCommandInfo, Count> AtCommandInfosOf(const Pack& pack, ui
 			AtCommandInfo info;
 			info.name = ItemType::name;
 			info.isBasic = ItemType::isBasic;
+			info.isPrompt = item.prompt;
 			info.fieldCount = ItemType::FieldCount;
 			info.fieldBase = fieldTotal;
 			fieldTotal += ItemType::FieldCount;
@@ -226,6 +238,115 @@ constexpr std::array<AtFieldRange, Total> AtFieldRangesOf(const Pack& pack) {
 				if constexpr (AtIsArgumentForm<FormType>) {
 					CommandPackForEach(form.arguments, [&]<typename Argument>(const Argument& argument) {
 						ranges[index] = AtFieldRange{argument.minimum, argument.maximum};
+						index++;
+					});
+				}
+			});
+		}
+	});
+
+	return ranges;
+}
+
+
+// The number of record and rows forms in a set: each one has a row table entry.
+template<typename Pack>
+constexpr std::size_t AtRowFormCountOf(const Pack& pack) {
+	std::size_t count = 0;
+
+	CommandPackForEach(pack, [&]<typename Item>(const Item& item) {
+		using ItemType = std::remove_cvref_t<decltype(item)>;
+
+		if constexpr (AtIsCommandItem<ItemType>) {
+			CommandPackForEach(item.forms, [&]<typename Form>(const Form& form) {
+				using FormType = std::remove_cvref_t<decltype(form)>;
+
+				if constexpr (AtIsRowForm<FormType>) {
+					count++;
+				}
+			});
+		}
+	});
+
+	return count;
+}
+
+
+// The number of fields of all record and rows forms together: the size of the set's table of row field ranges.
+template<typename Pack>
+constexpr std::size_t AtReplyFieldTotalOf(const Pack& pack) {
+	std::size_t total = 0;
+
+	CommandPackForEach(pack, [&]<typename Item>(const Item& item) {
+		using ItemType = std::remove_cvref_t<decltype(item)>;
+
+		if constexpr (AtIsCommandItem<ItemType>) {
+			CommandPackForEach(item.forms, [&]<typename Form>(const Form& form) {
+				using FormType = std::remove_cvref_t<decltype(form)>;
+
+				if constexpr (AtIsRowForm<FormType>) {
+					total += FormType::Decl::FieldCount;
+				}
+			});
+		}
+	});
+
+	return total;
+}
+
+
+// The row table of a set: the Open and Close texts of each record and rows form, with its command and its first field range.
+template<std::size_t Count, typename Pack>
+constexpr std::array<AtRowInfo, Count> AtRowInfosOf(const Pack& pack) {
+	std::array<AtRowInfo, Count> infos{};
+	std::size_t index = 0;
+	std::size_t command = 0;
+	std::size_t rangeBase = 0;
+
+	CommandPackForEach(pack, [&]<typename Item>(const Item& item) {
+		using ItemType = std::remove_cvref_t<decltype(item)>;
+
+		if constexpr (AtIsCommandItem<ItemType>) {
+			CommandPackForEach(item.forms, [&]<typename Form>(const Form& form) {
+				using FormType = std::remove_cvref_t<decltype(form)>;
+
+				if constexpr (AtIsRowForm<FormType>) {
+					AtRowInfo info;
+					info.command = command;
+					info.isRun = FormType::kind == AtFormKind::run;
+					info.open = form.decl.open;
+					info.close = form.decl.close;
+					info.rangeBase = rangeBase;
+					infos[index] = info;
+					index++;
+					rangeBase += FormType::Decl::FieldCount;
+				}
+			});
+
+			command++;
+		}
+	});
+
+	return infos;
+}
+
+
+// The range of each field of each record and rows form, in the order of the row table.
+template<std::size_t Total, typename Pack>
+constexpr std::array<AtFieldRange, Total> AtReplyRangesOf(const Pack& pack) {
+	std::array<AtFieldRange, Total> ranges{};
+	std::size_t index = 0;
+
+	CommandPackForEach(pack, [&]<typename Item>(const Item& item) {
+		using ItemType = std::remove_cvref_t<decltype(item)>;
+
+		if constexpr (AtIsCommandItem<ItemType>) {
+			CommandPackForEach(item.forms, [&]<typename Form>(const Form& form) {
+				using FormType = std::remove_cvref_t<decltype(form)>;
+
+				if constexpr (AtIsRowForm<FormType>) {
+					CommandPackForEach(form.decl.fields, [&]<typename Field>(const Field& field) {
+						ranges[index] = AtFieldRange{field.minimum, field.maximum};
 						index++;
 					});
 				}
@@ -452,6 +573,26 @@ constexpr std::size_t AtTreeBound(const std::array<std::string_view, CommandCoun
 }
 
 
+// True when a command's reply prefix does not end in a colon. Such a reply is followed by a comma, as in +CIFSR:STAIP,"...", and a set
+// with none needs no separator code.
+template<std::size_t Count>
+constexpr bool AtHasCommaReplyOf(const std::array<AtCommandInfo, Count>& infos) {
+	for (const AtCommandInfo& info : infos) {
+		if (!info.options.replyPrefix.empty() && info.options.replyPrefix.back() != ':') {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+
+// A letter or a digit: the characters of a word in a reply prefix.
+constexpr bool AtWordCharacter(char character) {
+	return static_cast<unsigned char>((character | 0x20) - 'a') < 26 || static_cast<unsigned char>(character - '0') < 10;
+}
+
+
 // The root of the command names in a set's tree, and the root of the URC prefixes. The builder adds the command root first.
 constexpr uint16 AtCommandRoot = 0;
 constexpr uint16 AtUrcRoot = 1;
@@ -554,6 +695,131 @@ constexpr bool AtCheckUrcs(
 }
 
 
+// A Data() argument is taken as it is: it has no value, so it is not normalized into an AtArgument.
+constexpr AtDataDecl AtNormalize(const AtDataDecl& declaration) {
+	return declaration;
+}
+
+
+// True when the last of a list of declarations is Data(). An empty list has no last declaration.
+template<typename... Declarations>
+struct AtLastIsDataOf {
+	static constexpr bool value = false;
+};
+
+
+template<typename Head>
+struct AtLastIsDataOf<Head> {
+	static constexpr bool value = std::is_same_v<Head, AtDataDecl>;
+};
+
+
+template<typename Head, typename Second, typename... Tail>
+struct AtLastIsDataOf<Head, Second, Tail...> : AtLastIsDataOf<Second, Tail...> {
+};
+
+
+// Data() may only be the last argument of a URC: the number of Data() arguments is zero, or one and it is the last.
+template<typename... Declarations>
+constexpr void AtCheckDataPosition() {
+	constexpr std::size_t total = ((std::is_same_v<Declarations, AtDataDecl> ? std::size_t{1} : std::size_t{0}) + ... + std::size_t{0});
+	constexpr std::size_t last = AtLastIsDataOf<Declarations...>::value ? std::size_t{1} : std::size_t{0};
+
+	AtRequire<"Data() must be the last argument of a URC">(total == last);
+}
+
+
+// The last of a list of normalized arguments. An empty list gives an optional placeholder, which the length check refuses.
+template<typename Tuple>
+struct AtLastArgumentOf {
+	using Type = AtArgument<uint8, true>;
+};
+
+
+template<typename Head, typename... Tail>
+struct AtLastArgumentOf<std::tuple<Head, Tail...>> {
+	using Type = std::conditional_t<(sizeof...(Tail) == 0), Head, typename AtLastArgumentOf<std::tuple<Tail...>>::Type>;
+};
+
+
+// True for the length of a Data() URC: a required argument of type uint8, uint16 or uint32.
+template<typename Argument>
+inline constexpr bool AtIsLengthArgument = false;
+
+
+template<typename T, bool IsOptional>
+inline constexpr bool AtIsLengthArgument<AtArgument<T, IsOptional>> =
+	!IsOptional && (std::is_same_v<T, uint8> || std::is_same_v<T, uint16> || std::is_same_v<T, uint32>);
+
+
+// Checks the arguments of a URC that are kept, which are all of them but a Data() last argument.
+template<typename Normalized, std::size_t... K>
+constexpr void AtCheckUrcArguments(const Normalized& normalized, std::index_sequence<K...>) {
+	static_cast<void>(normalized);
+	AtCheckArguments(std::get<K>(normalized)...);
+}
+
+
+// The URC item of the kept arguments: with Data, the length before it is the last kept argument and sets the type of the chunk offset.
+template<AtText Name, bool HasData, typename Normalized, std::size_t... K>
+constexpr auto AtUrcFrom(const Normalized& normalized, std::index_sequence<K...>) {
+	static_cast<void>(normalized);
+	AtCheckUrcArguments(normalized, std::index_sequence<K...>{});
+
+	if constexpr (HasData) {
+		using Kept = std::tuple<std::tuple_element_t<K, Normalized>...>;
+		using Length = typename AtLastArgumentOf<Kept>::Type;
+
+		AtRequire<"Data() needs a length argument before it">(sizeof...(K) > 0);
+		AtRequire<"the length before Data() must be a required uint8, uint16 or uint32 argument">(AtIsLengthArgument<Length>);
+
+		return AtUrcItem<Name, AtDataLength<typename Length::Type>, std::tuple_element_t<K, Normalized>...>{CommandPackOf(std::get<K>(normalized)...)};
+	} else {
+		return AtUrcItem<Name, AtNoData, std::tuple_element_t<K, Normalized>...>{CommandPackOf(std::get<K>(normalized)...)};
+	}
+}
+
+
+// A URC of a list of arguments. A Data() last argument is taken out of the arguments and kept as the URC's Data.
+template<AtText Name, typename... Arguments>
+constexpr auto AtBuildUrc(const Arguments&... arguments) {
+	AtCheckDataPosition<Arguments...>();
+
+	constexpr bool hasData = AtLastIsDataOf<Arguments...>::value;
+	constexpr std::size_t kept = sizeof...(Arguments) - (hasData ? std::size_t{1} : std::size_t{0});
+	using NormalizedTuple = std::tuple<AtNormalizedOf<Arguments>...>;
+	NormalizedTuple normalized = std::make_tuple(AtNormalize(arguments)...);
+
+	return AtUrcFrom<Name, hasData>(normalized, std::make_index_sequence<kept>{});
+}
+
+
+// True when any URC of the tuple has Data().
+template<typename... Urcs>
+constexpr bool AtAnyUrcHasData(std::tuple<Urcs...>) {
+	return (Urcs::hasData || ... || false);
+}
+
+
+// The data-mode rules of a set: a prompt command needs AtDataMode and a declared final (the line that ends it after its data), and so does a
+// URC with Data().
+template<std::size_t Count>
+constexpr bool AtCheckDataModes(const std::array<AtCommandInfo, Count>& commands, bool anyUrcData, bool listed) {
+	for (const AtCommandInfo& command : commands) {
+		if (command.isPrompt) {
+			AtRequire<"a prompt command needs AtDataMode among the modules of the set">(listed);
+			AtRequire<"a prompt command needs a declared final, such as SEND OK, to end after its data">(command.options.finalCount > 0);
+		}
+	}
+
+	if (anyUrcData) {
+		AtRequire<"Data() in a URC needs AtDataMode among the modules of the set">(listed);
+	}
+
+	return true;
+}
+
+
 // The builder of a command set. Open is the command in progress, or AtNoCommand. Items are the closed items in declaration order: commands,
 // URCs, defaults, modules and dialects. The items and the open command are values, so the chain is a constant expression.
 template<typename Open, typename... Items>
@@ -589,12 +855,11 @@ public:
 	}
 
 
-	// A URC: the prefix and the arguments that follow it on the line.
+	// A URC: the prefix and the arguments that follow it on the line. A Data() last argument takes the raw bytes after the length.
 	template<AtText Name, typename... Arguments>
 	constexpr auto Urc(Arguments... arguments) const {
 		AtCheckUrcName<Name>();
-		AtCheckArguments(AtNormalize(arguments)...);
-		return AddItem(AtUrcItem<Name, AtNormalizedOf<Arguments>...>{CommandPackOf(AtNormalize(arguments)...)});
+		return AddItem(AtBuildUrc<Name>(arguments...));
 	}
 
 
@@ -652,6 +917,30 @@ public:
 	}
 
 
+	// AT+X?, with one info line of the fields of a record. The fields are read into a value of the row type.
+	template<typename RowDecl>
+	requires AtIsRowDecl<RowDecl>
+	constexpr AtCommandSetBuilder<typename Open::template With<AtReadRecordForm<RowDecl>>, Items...> Read(const RowDecl& row) const {
+		RequireForm<AtFormKind::read>();
+		AtRequire<"a basic command has no test, read or write form">(!Open::isBasic);
+		return AtCommandSetBuilder<typename Open::template With<AtReadRecordForm<RowDecl>>, Items...>(
+			items,
+			open.WithForm(AtReadRecordForm<RowDecl>{row}));
+	}
+
+
+	// AT+X?, with one info line for each row. The client gives the rows to a handler, or visits them one at a time.
+	template<typename RowDecl>
+	requires AtIsRowDecl<RowDecl>
+	constexpr AtCommandSetBuilder<typename Open::template With<AtReadRowsForm<RowDecl>>, Items...> ReadRows(const RowDecl& row) const {
+		RequireForm<AtFormKind::read>();
+		AtRequire<"a basic command has no test, read or write form">(!Open::isBasic);
+		return AtCommandSetBuilder<typename Open::template With<AtReadRowsForm<RowDecl>>, Items...>(
+			items,
+			open.WithForm(AtReadRowsForm<RowDecl>{row}));
+	}
+
+
 	// AT+X=a,b. The arguments are CommandLine's Argument<T> objects or Optional<T> results, in any mix.
 	template<typename... Arguments>
 	constexpr AtCommandSetBuilder<typename Open::template With<AtWriteForm<AtNormalizedOf<Arguments>...>>, Items...> Write(Arguments... arguments) const {
@@ -669,6 +958,48 @@ public:
 	constexpr AtCommandSetBuilder<typename Open::template With<AtRunForm>, Items...> Run() const {
 		RequireForm<AtFormKind::run>();
 		return AtCommandSetBuilder<typename Open::template With<AtRunForm>, Items...>(items, open.WithForm(AtRunForm{}));
+	}
+
+
+	// AT+X, with one value of type T named name in its info line, such as +GMR's text or +CIFSR's address.
+	template<typename T>
+	constexpr AtCommandSetBuilder<typename Open::template With<AtRunValueForm<T>>, Items...> Run(std::string_view name) const {
+		AtCheckType<T>();
+		RequireForm<AtFormKind::run>();
+		AtRequire<"a run form has no name">(!name.empty());
+		return AtCommandSetBuilder<typename Open::template With<AtRunValueForm<T>>, Items...>(items, open.WithForm(AtRunValueForm<T>{name}));
+	}
+
+
+	// AT+X, with one info line of the fields of a record, read into a value of the row type.
+	template<typename RowDecl>
+	requires AtIsRowDecl<RowDecl>
+	constexpr AtCommandSetBuilder<typename Open::template With<AtRunRecordForm<RowDecl>>, Items...> Run(const RowDecl& row) const {
+		RequireForm<AtFormKind::run>();
+		return AtCommandSetBuilder<typename Open::template With<AtRunRecordForm<RowDecl>>, Items...>(
+			items,
+			open.WithForm(AtRunRecordForm<RowDecl>{row}));
+	}
+
+
+	// AT+X, with one info line for each row. The client gives the rows to a handler, or visits them one at a time.
+	template<typename RowDecl>
+	requires AtIsRowDecl<RowDecl>
+	constexpr AtCommandSetBuilder<typename Open::template With<AtRunRowsForm<RowDecl>>, Items...> Rows(const RowDecl& row) const {
+		RequireForm<AtFormKind::run>();
+		return AtCommandSetBuilder<typename Open::template With<AtRunRowsForm<RowDecl>>, Items...>(
+			items,
+			open.WithForm(AtRunRowsForm<RowDecl>{row}));
+	}
+
+
+	// The write form of the open command is a prompt: the module answers with '>' after the request, and the client then writes the data of
+	// the request (SendData). It needs AtDataMode in the set's modules, and a declared final that ends the request after the data.
+	constexpr AtCommandSetBuilder<Open, Items...> Prompt() const {
+		RequireOption();
+		AtRequire<"Prompt() is for a write form, which comes before it">(Open::template CountOf<AtFormKind::write>() == 1);
+		AtRequire<"Prompt() is given twice">(!open.prompt);
+		return AtCommandSetBuilder<Open, Items...>(items, open.WithPrompt());
 	}
 
 
@@ -810,12 +1141,19 @@ public:
 	static constexpr std::array<std::string_view, UrcCount> urcNames = AtNamesOf(Urcs{});
 	static constexpr std::array<AtCommandInfo, CommandCount> commands = AtCommandInfosOf<CommandCount>(built.items, DefaultTimeoutMs);
 	static constexpr std::size_t FieldTotal = AtFieldTotalOf(commands);
+	static constexpr bool HasCommaReplyPrefix = AtHasCommaReplyOf(commands);
 
 	// The range of each argument of a command, in the field numbering, and the first range of each URC with the total of the URC arguments.
 	static constexpr std::array<AtFieldRange, FieldTotal> fieldRanges = AtFieldRangesOf<FieldTotal>(built.items);
 	static constexpr std::array<std::size_t, UrcCount> urcFieldBases = AtUrcFieldLayout<Urcs>::bases;
 	static constexpr std::array<AtFieldRange, AtUrcFieldLayout<Urcs>::total> urcFieldRanges =
 		AtUrcRangesOf<AtUrcFieldLayout<Urcs>::total>(built.items);
+
+	// The record and rows forms of the set: one row table entry for each, and the range of each of their fields.
+	static constexpr std::size_t RowFormCount = AtRowFormCountOf(built.items);
+	static constexpr std::array<AtRowInfo, RowFormCount> rowInfos = AtRowInfosOf<RowFormCount>(built.items);
+	static constexpr std::size_t ReplyFieldTotal = AtReplyFieldTotalOf(built.items);
+	static constexpr std::array<AtFieldRange, ReplyFieldTotal> replyRanges = AtReplyRangesOf<ReplyFieldTotal>(built.items);
 
 	static constexpr std::size_t CmeTextCount = AtCmeTextCountOf(built.items);
 	static constexpr std::array<AtCmeTextEntry, CmeTextCount> cmeTexts = AtCmeTextsOf<CmeTextCount>(built.items);
@@ -830,10 +1168,12 @@ public:
 	static constexpr std::size_t TreeCount = AtBuildTree<TreeBound>(treeNames, urcNames).count;
 	static constexpr std::array<CommandTreeNode, TreeCount> tree = AtCopyTree<TreeCount>(AtBuildTree<TreeBound>(treeNames, urcNames));
 	static constexpr bool urcsChecked = AtCheckUrcs(tree, commands, urcNames);
+	static constexpr bool dataChecked = AtCheckDataModes(commands, AtAnyUrcHasData(Urcs{}), AtHasItem<AtDataModeTag, ItemTypes>);
 
 	// The chain and every table are evaluated here, so each rule of the builder is checked when the set is named. A type-only member
 	// does not evaluate the chain, so this line is what makes the value checks run.
 	static_assert(urcsChecked);
+	static_assert(dataChecked);
 
 
 	// The index of a command in the set's tables. A name the description does not declare is a compile error.
@@ -885,6 +1225,20 @@ public:
 	}
 
 
+	// The index in rowInfos of the record or rows form of command C: the run form when Run is true, and the read form otherwise. It is
+	// RowFormCount when the command has no such form.
+	template<std::size_t C, bool Run>
+	static constexpr std::size_t RowInfoIndex() {
+		for (std::size_t index = 0; index < RowFormCount; index++) {
+			if (rowInfos[index].command == C && rowInfos[index].isRun == Run) {
+				return index;
+			}
+		}
+
+		return RowFormCount;
+	}
+
+
 	// The type of the command at a position of the tables, with its forms and options.
 	template<std::size_t Position>
 	using CommandType = std::tuple_element_t<Position, Commands>;
@@ -903,4 +1257,7 @@ public:
 	// True when the set lists the item: a module tag, a dialect entry or a defaults item.
 	template<typename Item>
 	static constexpr bool Has = AtHasItem<Item, ItemTypes>;
+
+	// True when the set lists AtDataMode: its prompt commands and its Data() URCs are then in use.
+	static constexpr bool HasData = Has<AtDataModeTag>;
 };

@@ -1,0 +1,11 @@
+# AT+CIFSR with IPv6: the reply prefix +CIFSR:STAIP ends a word, so the STAIP6LL and STAIP6GL lines after it are not its reply.
+> AT+CIFSR
+< AT+CIFSR
+< +CIFSR:APIP,"192.168.4.1"
+< +CIFSR:APMAC,"12:34:56:78:9a:bc"
+< +CIFSR:STAIP,"192.168.1.9"
+< +CIFSR:STAIP6LL,"fe80::1"
+< +CIFSR:STAIP6GL,"2001:db8::9"
+< +CIFSR:STAMAC,"ab:cd:ef:01:23:45"
+<
+< OK

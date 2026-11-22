@@ -1,0 +1,7 @@
+# A declared failure, SEND FAIL, ends the request after the data as an error.
+> AT+CIPSEND=5
+< AT+CIPSEND=5
+< OK
+= 3e20
+> = 68656c6c6f
+< SEND FAIL

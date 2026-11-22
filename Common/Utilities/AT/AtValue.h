@@ -19,6 +19,7 @@
 //   uint8, uint16, uint32       unsigned decimal
 //   bool                        0 or 1 only, never read as a number
 //   String<N>                   quoted text of at most N characters; \" and \\ are the escapes
+//   RawString<N>                unquoted text of at most N characters, to the end of its field (a reply only)
 // An optional argument has no text when its field is empty. That rule belongs to the field splitter, not to a value.
 //
 // A reader takes a value one character at a time (Push), then gives the value or a status (Finish). Once Push refuses a character,
@@ -26,7 +27,21 @@
 // A writer prints a value with the TextNumber formatter, or with the quoting rule for a string.
 
 
-// The types the grammar carries. A String is supported at any capacity above zero (AtCapacityOf).
+// Unquoted text of at most Capacity characters. As the value of a reply it is the rest of the line; as a row field it is the rest of the
+// row, up to the row's Close text. The server writes it as it is, up to the first CR or LF, since a line ends there.
+template<std::size_t Capacity>
+struct RawString {
+	std::array<char, Capacity> characters{};
+	std::size_t length = 0;
+
+
+	constexpr std::string_view View() const {
+		return std::string_view(characters.data(), length);
+	}
+};
+
+
+// The types the grammar carries. A String and a RawString are supported at any capacity above zero (AtCapacityOf).
 template<typename T>
 inline constexpr bool AtIsSupported = std::is_same_v<T, int8> || std::is_same_v<T, int16> || std::is_same_v<T, int32> ||
 	std::is_same_v<T, int64> || std::is_same_v<T, uint8> || std::is_same_v<T, uint16> || std::is_same_v<T, uint32> ||
@@ -35,6 +50,10 @@ inline constexpr bool AtIsSupported = std::is_same_v<T, int8> || std::is_same_v<
 
 template<std::size_t Capacity>
 inline constexpr bool AtIsSupported<String<Capacity>> = true;
+
+
+template<std::size_t Capacity>
+inline constexpr bool AtIsSupported<RawString<Capacity>> = true;
 
 
 // True for a string type, which has a capacity.
@@ -46,6 +65,15 @@ template<std::size_t Capacity>
 inline constexpr bool AtIsStringType<String<Capacity>> = true;
 
 
+// True for a RawString type, which is a reply value and never an argument.
+template<typename T>
+inline constexpr bool AtIsRawString = false;
+
+
+template<std::size_t Capacity>
+inline constexpr bool AtIsRawString<RawString<Capacity>> = true;
+
+
 // The capacity of a string type, and 1 for any other type, so that a zero capacity is the only string error.
 template<typename T>
 inline constexpr std::size_t AtCapacityOf = 1;
@@ -55,8 +83,12 @@ template<std::size_t Capacity>
 inline constexpr std::size_t AtCapacityOf<String<Capacity>> = Capacity;
 
 
+template<std::size_t Capacity>
+inline constexpr std::size_t AtCapacityOf<RawString<Capacity>> = Capacity;
+
+
 // The most characters a value of type T takes on the wire, without the field separators. A string counts two quotes and an escape for
-// each character.
+// each character. A raw string takes its capacity.
 template<typename T>
 inline constexpr std::size_t AtValueChars = std::numeric_limits<T>::digits10 + 1 + (std::is_signed_v<T> ? 1 : 0);
 
@@ -67,6 +99,10 @@ inline constexpr std::size_t AtValueChars<bool> = 1;
 
 template<std::size_t Capacity>
 inline constexpr std::size_t AtValueChars<String<Capacity>> = 2 + 2 * Capacity;
+
+
+template<std::size_t Capacity>
+inline constexpr std::size_t AtValueChars<RawString<Capacity>> = Capacity;
 
 
 // Reads an integer. The parser's options are the type's own range, with a minus sign for a signed type and no plus sign.
@@ -235,7 +271,45 @@ private:
 };
 
 
-// The reader of a type: the integer reader, except for bool and String.
+// Reads unquoted text. Every character is text, so no separator or quote ends it, and a character past the capacity refuses the value.
+template<std::size_t Capacity>
+class AtRawReader {
+private:
+	RawString<Capacity> text{};
+	bool refused = false;
+
+
+public:
+	constexpr bool Push(char character) {
+		if (refused || text.length >= Capacity) {
+			refused = true;
+			return false;
+		}
+
+		text.characters[text.length] = character;
+		text.length++;
+		return true;
+	}
+
+
+	constexpr ResultStatus Finish(RawString<Capacity>& destination) const {
+		if (refused) {
+			return ResultStatus::invalidData;
+		}
+
+		destination = text;
+		return ResultStatus::ok;
+	}
+
+
+	// Nothing quotes raw text, so a separator never belongs to the text it ends.
+	constexpr bool Quoting() const {
+		return false;
+	}
+};
+
+
+// The reader of a type: the integer reader, except for bool and the strings.
 template<typename T>
 struct AtReaderOf {
 	using Type = AtIntegerReader<T>;
@@ -251,6 +325,12 @@ struct AtReaderOf<bool> {
 template<std::size_t Capacity>
 struct AtReaderOf<String<Capacity>> {
 	using Type = AtStringReader<Capacity>;
+};
+
+
+template<std::size_t Capacity>
+struct AtReaderOf<RawString<Capacity>> {
+	using Type = AtRawReader<Capacity>;
 };
 
 
@@ -300,6 +380,19 @@ std::size_t AtWriteQuoted(Sink& out, std::string_view text) {
 template<typename Sink, std::size_t Capacity>
 std::size_t AtWriteValue(Sink& out, const String<Capacity>& value) {
 	return AtWriteQuoted(out, value.View());
+}
+
+
+// Prints raw text as it is, up to the first CR or LF, since a line ends there.
+template<typename Sink, std::size_t Capacity>
+std::size_t AtWriteValue(Sink& out, const RawString<Capacity>& value) {
+	std::size_t length = 0;
+
+	while (length < value.length && value.characters[length] != '\r' && value.characters[length] != '\n') {
+		length++;
+	}
+
+	return out.Write(std::string_view(value.characters.data(), length));
 }
 
 

@@ -1,0 +1,9 @@
+# The module answers OK but never prompts. The request times out at 100 ms, and the drain sends AT. The drain takes the first OK as the late
+# final, and the second OK ends it. No data is written, since the prompt never came.
+> AT+CIPSEND=5
+< AT+CIPSEND=5
+< OK
+@ 100
+> AT
+< OK
+< OK

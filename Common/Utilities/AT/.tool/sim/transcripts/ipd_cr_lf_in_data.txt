@@ -1,0 +1,9 @@
+# A +IPD whose 4 data bytes are CR LF CR LF. The CR and LF inside the data are data, not line ends, and the request is not ended by them.
+> AT+CIPSEND=5
+< AT+CIPSEND=5
+< OK
+= 3e20
+> = 68656c6c6f
+= 2b4950442c343a0d0a0d0a
+<
+< SEND OK

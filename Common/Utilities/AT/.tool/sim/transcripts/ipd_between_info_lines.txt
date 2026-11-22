@@ -1,0 +1,7 @@
+# A +IPD between the info line and the final line of a read. Its data is "OK" and CRLF, which must not end the read.
+> AT+TEMP?
+< AT+TEMP?
+< +TEMP: 23
+= 2b4950442c343a4f4b0d0a
+<
+< OK

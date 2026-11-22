@@ -1,0 +1,6 @@
+# Written by hand from the ESP-AT command reference extract (source commit b2921f8f), not recorded from a module.
+# AT+CIPCLOSE in single-connection mode: CLOSED is a URC, and OK ends the request.
+> AT+CIPCLOSE
+< AT+CIPCLOSE
+< CLOSED
+< OK

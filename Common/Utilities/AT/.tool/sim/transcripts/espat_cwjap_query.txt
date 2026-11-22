@@ -1,0 +1,7 @@
+# Written by hand from the ESP-AT command reference extract (source commit b2921f8f), not recorded from a module.
+# AT+CWJAP? gives one record. The fields after the RSSI are not declared, so they are skipped to the end of the line.
+> AT+CWJAP?
+< AT+CWJAP?
+< +CWJAP:"net","aa:bb:cc:dd:ee:ff",6,-45,0,1,3,0,1
+<
+< OK
