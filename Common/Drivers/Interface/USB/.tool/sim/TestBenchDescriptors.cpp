@@ -34,7 +34,7 @@ namespace Reference {
 // Only the struct name differs, so the reference can live in this test next to the fluent set.
 
 // Encodes text of a known length as UTF-16LE with a 16-bit NUL after it. The GUID comes as a const char* constant, not as a
-// string literal class parameter, so the USBText builders cannot take it; this does the same work at compile time.
+// string literal class parameter, so the string builders cannot take it; this does the same work at compile time.
 template<std::size_t Size>
 constexpr std::array<uint8, Size> MakeUtf16Terminated(const char* text, std::size_t length) {
 	std::array<uint8, Size> bytes{};
@@ -67,10 +67,10 @@ struct ReferenceBenchDescriptors {
 		1
 	);
 	static constexpr std::array<uint8, 4> LanguageString = MakeUSBLanguageIdDescriptor(0x0409);
-	static constexpr std::array<uint8, 10> ManufacturerString = MakeUSBStringDescriptor<USBText{"VHAL"}>();
-	static constexpr std::array<uint8, 20> ProductString = MakeUSBStringDescriptor<USBText{"USB Bench"}>();
-	static constexpr std::array<uint8, 10> SerialString = MakeUSBStringDescriptor<USBText{"0001"}>();
-	static constexpr std::array<uint8, 24> InterfaceString = MakeUSBStringDescriptor<USBText{"Vendor bulk"}>();
+	static constexpr std::array<uint8, 10> ManufacturerString = MakeUSBStringDescriptor<"VHAL">();
+	static constexpr std::array<uint8, 20> ProductString = MakeUSBStringDescriptor<"USB Bench">();
+	static constexpr std::array<uint8, 10> SerialString = MakeUSBStringDescriptor<"0001">();
+	static constexpr std::array<uint8, 24> InterfaceString = MakeUSBStringDescriptor<"Vendor bulk">();
 	static constexpr std::array<std::span<const uint8>, 5> Strings{
 		std::span<const uint8>(LanguageString),
 		std::span<const uint8>(ManufacturerString),
@@ -125,7 +125,7 @@ struct ReferenceBenchDescriptors {
 		MakeUtf16Terminated<2 * (GuidUnits + 1)>(BenchProtocol::InterfaceGuid, GuidLength);
 	static constexpr std::array<uint8, 2 * (GuidUnits + 1) + 2> InterfaceGuids = MakeMsOs20MultiStringData(InterfaceGuidUtf16);
 	// 10 bytes of header, 42 for the name "DeviceInterfaceGUIDs" (20 characters) with its terminator, then 80 bytes of data.
-	static constexpr std::array<uint8, 132> InterfaceGuidProperty = MakeMsOs20RegistryProperty<USBText{"DeviceInterfaceGUIDs"}>(
+	static constexpr std::array<uint8, 132> InterfaceGuidProperty = MakeMsOs20RegistryProperty<"DeviceInterfaceGUIDs">(
 		USBMsOs20PropertyType::MultiString,
 		InterfaceGuids
 	);

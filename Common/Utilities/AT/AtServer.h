@@ -280,7 +280,7 @@ public:
 
 
 	// Queues a URC with its arguments. Process writes it after the final line of the current command. Returns filled when the queue is full.
-	template<AtText Name, typename... Values>
+	template<TextLiteral Name, typename... Values>
 	AtStatus Urc(Values... values) {
 		constexpr std::size_t urc = Set::template UrcIndex<Name>();
 		using Types = typename Set::template UrcType<urc>::ArgumentTypes;

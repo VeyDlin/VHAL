@@ -51,7 +51,7 @@ private:
 public:
 	// The run-time interface: DFU_DETACH only. The application restarts into its loader on the detach request.
 	constexpr USBDfuBuilder& Runtime() {
-		Require<USBText{"Runtime() and Mode() are given once"}>(!kindSet);
+		Require<"Runtime() and Mode() are given once">(!kindSet);
 		kindSet = true;
 		mode = false;
 		return *this;
@@ -60,7 +60,7 @@ public:
 
 	// The DFU mode interface. Its functions are the download, upload, status and abort requests.
 	constexpr USBDfuBuilder& Mode() {
-		Require<USBText{"Runtime() and Mode() are given once"}>(!kindSet);
+		Require<"Runtime() and Mode() are given once">(!kindSet);
 		kindSet = true;
 		mode = true;
 		return *this;
@@ -107,7 +107,7 @@ public:
 
 	// wTransferSize: the largest DFU_DNLOAD block and DFU_UPLOAD answer, in bytes. Required, 1 to 4096.
 	constexpr USBDfuBuilder& TransferSize(uint16 bytes) {
-		Require<USBText{"wTransferSize is 1 to 4096 bytes"}>(bytes >= 1 && bytes <= DfuMaxTransferSize);
+		Require<"wTransferSize is 1 to 4096 bytes">(bytes >= 1 && bytes <= DfuMaxTransferSize);
 		transferSize = bytes;
 		transferSizeSet = true;
 		return *this;
@@ -126,7 +126,7 @@ public:
 	// host tells the memory apart: dfu-util -a N selects the region N, and the target's Begin() receives N. At most four regions,
 	// the string limit of one function.
 	constexpr USBDfuBuilder& Region(std::string_view text) {
-		Require<USBText{"a DFU mode interface has at most 4 regions"}>(regionCount < USBMaxFunctionStrings);
+		Require<"a DFU mode interface has at most 4 regions">(regionCount < USBMaxFunctionStrings);
 		regions[regionCount] = text;
 		regionCount++;
 		return *this;
@@ -149,12 +149,12 @@ public:
 
 
 	constexpr std::size_t InterfaceCount() const {
-		Require<USBText{"a DFU interface is Runtime() or Mode()"}>(kindSet);
-		Require<USBText{"TransferSize() is required"}>(transferSizeSet);
-		Require<USBText{"a DFU mode interface downloads or uploads: call CanDnload() or CanUpload()"}>(!mode || canDnload || canUpload);
-		Require<USBText{"a device without WillDetach() needs DetachTimeoutMs() of at least 1"}>(mode || willDetach || detachTimeoutMs >= 1);
-		Require<USBText{"Region() is for a DFU mode interface"}>(regionCount == 0 || mode);
-		Require<USBText{"Name() and Region() are not both given"}>(regionCount == 0 || name.empty());
+		Require<"a DFU interface is Runtime() or Mode()">(kindSet);
+		Require<"TransferSize() is required">(transferSizeSet);
+		Require<"a DFU mode interface downloads or uploads: call CanDnload() or CanUpload()">(!mode || canDnload || canUpload);
+		Require<"a device without WillDetach() needs DetachTimeoutMs() of at least 1">(mode || willDetach || detachTimeoutMs >= 1);
+		Require<"Region() is for a DFU mode interface">(regionCount == 0 || mode);
+		Require<"Name() and Region() are not both given">(regionCount == 0 || name.empty());
 		return 1;
 	}
 

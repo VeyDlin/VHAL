@@ -34,8 +34,8 @@ private:
 public:
 	// Address of the notification endpoint, an interrupt IN. Without it the configuration builder assigns the number.
 	constexpr TBuilder& NotificationIn(uint8 address) {
-		Require<USBText{"NotificationIn needs an IN address (bit 7 set)"}>(USBEndpoint::IsIn(address));
-		Require<USBText{"endpoint 0 belongs to the control pipe"}>(USBEndpoint::Number(address) != 0);
+		Require<"NotificationIn needs an IN address (bit 7 set)">(USBEndpoint::IsIn(address));
+		Require<"endpoint 0 belongs to the control pipe">(USBEndpoint::Number(address) != 0);
 		notificationAddress = address;
 		return static_cast<TBuilder&>(*this);
 	}
@@ -43,8 +43,8 @@ public:
 
 	// Address of the bulk IN endpoint, the device to host direction. Without it the configuration builder assigns the number.
 	constexpr TBuilder& BulkIn(uint8 address) {
-		Require<USBText{"BulkIn needs an IN address (bit 7 set)"}>(USBEndpoint::IsIn(address));
-		Require<USBText{"endpoint 0 belongs to the control pipe"}>(USBEndpoint::Number(address) != 0);
+		Require<"BulkIn needs an IN address (bit 7 set)">(USBEndpoint::IsIn(address));
+		Require<"endpoint 0 belongs to the control pipe">(USBEndpoint::Number(address) != 0);
 		bulkInAddress = address;
 		return static_cast<TBuilder&>(*this);
 	}
@@ -52,8 +52,8 @@ public:
 
 	// Address of the bulk OUT endpoint, the host to device direction. Without it the configuration builder assigns the number.
 	constexpr TBuilder& BulkOut(uint8 address) {
-		Require<USBText{"BulkOut needs an OUT address (bit 7 clear)"}>(!USBEndpoint::IsIn(address));
-		Require<USBText{"endpoint 0 belongs to the control pipe"}>(USBEndpoint::Number(address) != 0);
+		Require<"BulkOut needs an OUT address (bit 7 clear)">(!USBEndpoint::IsIn(address));
+		Require<"endpoint 0 belongs to the control pipe">(USBEndpoint::Number(address) != 0);
 		bulkOutAddress = address;
 		return static_cast<TBuilder&>(*this);
 	}
@@ -61,7 +61,7 @@ public:
 
 	// Polling interval of the notification endpoint, in milliseconds. 1 to 255. Default 16.
 	constexpr TBuilder& IntervalMs(uint8 milliseconds) {
-		Require<USBText{"IntervalMs is 1 to 255 ms"}>(milliseconds >= 1);
+		Require<"IntervalMs is 1 to 255 ms">(milliseconds >= 1);
 		intervalMs = milliseconds;
 		return static_cast<TBuilder&>(*this);
 	}

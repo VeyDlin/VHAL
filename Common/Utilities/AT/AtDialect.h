@@ -43,7 +43,7 @@ struct AtCmeErrorsItem {
 
 
 // The verbose text of one CME code.
-template<uint16 Code, AtText Text>
+template<uint16 Code, TextLiteral Text>
 struct AtCmeTextItem {
 	static constexpr uint16 code = Code;
 	static constexpr std::string_view text = Text.View();
@@ -85,7 +85,7 @@ template<typename Item>
 inline constexpr bool AtIsCmeTextItem = false;
 
 
-template<uint16 Code, AtText Text>
+template<uint16 Code, TextLiteral Text>
 inline constexpr bool AtIsCmeTextItem<AtCmeTextItem<Code, Text>> = true;
 
 
@@ -192,7 +192,7 @@ public:
 
 
 	// The verbose text of one CME code, for a set that declares the code.
-	template<uint16 Code, AtText Text>
+	template<uint16 Code, TextLiteral Text>
 	constexpr AtDialectBuilder<Entries..., AtCmeTextItem<Code, Text>> CmeText() const {
 		return Add(AtCmeTextItem<Code, Text>{});
 	}

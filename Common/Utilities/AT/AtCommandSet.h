@@ -60,7 +60,7 @@
 
 
 // The check of a command name: a plus sign, then A-Z and 0-9, with no space.
-template<AtText Name>
+template<TextLiteral Name>
 constexpr void AtCheckCommandName() {
 	constexpr std::string_view text = Name.View();
 
@@ -79,7 +79,7 @@ constexpr void AtCheckCommandName() {
 
 
 // The check of a basic command: one letter A to Z.
-template<AtText Name>
+template<TextLiteral Name>
 constexpr void AtCheckBasicName() {
 	constexpr std::string_view text = Name.View();
 	AtRequire<"a basic command is not one letter A to Z">(text.size() == 1 && text[0] >= 'A' && text[0] <= 'Z');
@@ -87,7 +87,7 @@ constexpr void AtCheckBasicName() {
 
 
 // The check of a URC prefix: not empty, and no colon or comma, which end the prefix.
-template<AtText Name>
+template<TextLiteral Name>
 constexpr void AtCheckUrcName() {
 	constexpr std::string_view text = Name.View();
 
@@ -871,7 +871,7 @@ constexpr void AtCheckUrcArguments(const Normalized& normalized, std::index_sequ
 
 
 // The URC item of the kept arguments: with Data, the length before it is the last kept argument and sets the type of the chunk offset.
-template<AtText Name, bool HasData, typename Normalized, std::size_t... K>
+template<TextLiteral Name, bool HasData, typename Normalized, std::size_t... K>
 constexpr auto AtUrcFrom(const Normalized& normalized, std::index_sequence<K...>) {
 	static_cast<void>(normalized);
 	AtCheckUrcArguments(normalized, std::index_sequence<K...>{});
@@ -891,7 +891,7 @@ constexpr auto AtUrcFrom(const Normalized& normalized, std::index_sequence<K...>
 
 
 // A URC of a list of arguments. A Data() last argument is taken out of the arguments and kept as the URC's Data.
-template<AtText Name, typename... Arguments>
+template<TextLiteral Name, typename... Arguments>
 constexpr auto AtBuildUrc(const Arguments&... arguments) {
 	AtCheckDataPosition<Arguments...>();
 
@@ -950,7 +950,7 @@ public:
 
 
 	// A command. Its forms follow it, and its options follow the forms.
-	template<AtText Name>
+	template<TextLiteral Name>
 	constexpr auto Command() const {
 		AtCheckCommandName<Name>();
 		return OpenAfterClose<AtCommandItem<Name>>();
@@ -958,7 +958,7 @@ public:
 
 
 	// A basic command: one letter, whose value follows it with no equals sign, as in ATE0.
-	template<AtText Name>
+	template<TextLiteral Name>
 	constexpr auto Basic() const {
 		AtCheckBasicName<Name>();
 		return OpenAfterClose<AtCommandItem<Name>>();
@@ -966,7 +966,7 @@ public:
 
 
 	// A URC: the prefix and the arguments that follow it on the line. A Data() last argument takes the raw bytes after the length.
-	template<AtText Name, typename... Arguments>
+	template<TextLiteral Name, typename... Arguments>
 	constexpr auto Urc(Arguments... arguments) const {
 		AtCheckUrcName<Name>();
 		return AddItem(AtBuildUrc<Name>(arguments...));
@@ -1310,7 +1310,7 @@ public:
 
 
 	// The index of a command in the set's tables. A name the description does not declare is a compile error.
-	template<AtText Name>
+	template<TextLiteral Name>
 	static consteval std::size_t Index() {
 		std::string_view text = Name.View();
 
@@ -1327,7 +1327,7 @@ public:
 
 	// The index of a name in the tree: a command, or a builtin of the dialect after the commands. A name the set does not declare is a
 	// compile error.
-	template<AtText Name>
+	template<TextLiteral Name>
 	static consteval std::size_t TreeIndex() {
 		std::string_view text = Name.View();
 
@@ -1343,7 +1343,7 @@ public:
 
 
 	// The index of a URC in the set's URC names. A URC the description does not declare is a compile error.
-	template<AtText Name>
+	template<TextLiteral Name>
 	static consteval std::size_t UrcIndex() {
 		std::string_view text = Name.View();
 
@@ -1383,7 +1383,7 @@ public:
 
 
 	// The type of the command with the given name.
-	template<AtText Name>
+	template<TextLiteral Name>
 	using CommandOf = CommandType<Index<Name>()>;
 
 

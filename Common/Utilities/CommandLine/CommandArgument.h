@@ -189,7 +189,7 @@ public:
 				}
 			}
 
-			CommandRequire<CommandText{"the default is not one of the enum values"}>(found);
+			CommandRequire<"the default is not one of the enum values">(found);
 		}
 	}
 };
@@ -248,8 +248,8 @@ public:
 	template<typename Number>
 	constexpr Argument Range(Number low, Number high) const {
 		static_assert(std::is_integral_v<Number>, "a range takes integers");
-		CommandRequire<CommandText{"a range bound is outside the type of the argument"}>(CommandFitsType<T>(low) && CommandFitsType<T>(high));
-		CommandRequire<CommandText{"a range has its minimum above its maximum"}>(low <= high);
+		CommandRequire<"a range bound is outside the type of the argument">(CommandFitsType<T>(low) && CommandFitsType<T>(high));
+		CommandRequire<"a range has its minimum above its maximum">(low <= high);
 
 		Argument copy = *this;
 		copy.minimum = static_cast<T>(low);
@@ -261,7 +261,7 @@ public:
 	template<typename Number>
 	constexpr Argument Default(Number value) const {
 		static_assert(std::is_integral_v<Number>, "a default takes an integer");
-		CommandRequire<CommandText{"the default is outside the type of the argument"}>(CommandFitsType<T>(value));
+		CommandRequire<"the default is outside the type of the argument">(CommandFitsType<T>(value));
 
 		Argument copy = *this;
 		copy.defaultValue = static_cast<T>(value);
@@ -272,7 +272,7 @@ public:
 
 	// Checked when the command is declared, because Range and Default may come in either order.
 	constexpr void Verify() const {
-		CommandRequire<CommandText{"the default is outside the range of the argument"}>(!hasDefault || (defaultValue >= minimum && defaultValue <= maximum));
+		CommandRequire<"the default is outside the range of the argument">(!hasDefault || (defaultValue >= minimum && defaultValue <= maximum));
 	}
 };
 
@@ -324,7 +324,7 @@ public:
 
 
 	constexpr Argument Default(std::string_view text) const {
-		CommandRequire<CommandText{"the default is longer than the string capacity"}>(text.size() <= Capacity);
+		CommandRequire<"the default is longer than the string capacity">(text.size() <= Capacity);
 
 		Argument copy = *this;
 		for (std::size_t index = 0; index < text.size(); index++) {
@@ -363,10 +363,10 @@ public:
 
 		for (std::size_t index = 0; index < Count; index++) {
 			CommandRequireName(items[index].name);
-			CommandRequire<CommandText{"an enum value name is longer than 32 characters"}>(items[index].name.size() <= CommandMaxNameLength);
+			CommandRequire<"an enum value name is longer than 32 characters">(items[index].name.size() <= CommandMaxNameLength);
 
 			for (std::size_t other = 0; other < index; other++) {
-				CommandRequire<CommandText{"duplicate enum names"}>(items[other].name != items[index].name);
+				CommandRequire<"duplicate enum names">(items[other].name != items[index].name);
 			}
 
 			list[index] = items[index];

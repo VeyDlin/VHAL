@@ -336,9 +336,9 @@ constexpr std::array<uint8, 63> BuiltIadConfiguration = MakeUSBConfigurationDesc
 
 
 constexpr std::array<uint8, 4> BuiltLanguage = MakeUSBLanguageIdDescriptor(0x0409);
-constexpr std::array<uint8, 8> BuiltManufacturer = MakeUSBStringDescriptor<USBText{"Sim"}>();
-constexpr std::array<uint8, 10> BuiltProduct = MakeUSBStringDescriptor<USBText{"Bulk"}>();
-constexpr std::array<uint8, 4> BuiltSerial = MakeUSBStringDescriptor<USBText{"1"}>();
+constexpr std::array<uint8, 8> BuiltManufacturer = MakeUSBStringDescriptor<"Sim">();
+constexpr std::array<uint8, 10> BuiltProduct = MakeUSBStringDescriptor<"Bulk">();
+constexpr std::array<uint8, 4> BuiltSerial = MakeUSBStringDescriptor<"1">();
 
 
 constexpr std::array<std::span<const uint8>, 4> BuiltStringTable = {
@@ -358,7 +358,7 @@ constexpr USBVendorDescriptor BuiltMsOs20Request = MakeMsOs20VendorDescriptor(De
 
 // The compatible ID feature, built from the specification's layout, and the registry property from the specification's Example1.
 constexpr std::array<uint8, 20> BuiltCompatibleId = MakeMsOs20CompatibleId("WINUSB", "");
-constexpr std::array<uint8, 62> BuiltRegistryProperty = MakeMsOs20RegistryProperty<USBText{"SelectiveSuspendEnabled"}>(
+constexpr std::array<uint8, 62> BuiltRegistryProperty = MakeMsOs20RegistryProperty<"SelectiveSuspendEnabled">(
 	USBMsOs20PropertyType::DwordLittleEndian,
 	std::array<uint8, 4>{ 0x01, 0x00, 0x00, 0x00 }
 );
@@ -370,9 +370,9 @@ constexpr std::array<uint8, 36> BuiltConfigurationSubset = MakeMsOs20Configurati
 constexpr std::array<uint8, 46> BuiltCompositeSet = MakeMsOs20DescriptorSet(0x06030000, BuiltConfigurationSubset);
 // The device-level set of Descriptors.h: one compatible ID directly under the set header, for a single-function device.
 constexpr std::array<uint8, 30> BuiltDeviceLevelMsOs20Set = MakeMsOs20DeviceLevelDescriptorSet(0x06030000, BuiltCompatibleId);
-constexpr std::array<uint8, 132> BuiltGuidProperty = MakeMsOs20RegistryProperty<USBText{"DeviceInterfaceGUIDs"}>(
+constexpr std::array<uint8, 132> BuiltGuidProperty = MakeMsOs20RegistryProperty<"DeviceInterfaceGUIDs">(
 	USBMsOs20PropertyType::MultiString,
-	MakeMsOs20MultiStringData(MakeUSBUtf16LENullTerminated<USBText{"{9CFFEE21-8C31-4DD2-ACB1-38A9CEB05DA4}"}>())
+	MakeMsOs20MultiStringData(MakeUSBUtf16LENullTerminated<"{9CFFEE21-8C31-4DD2-ACB1-38A9CEB05DA4}">())
 );
 
 

@@ -6,7 +6,7 @@
 
 | Name | Meaning |
 |---|---|
-| `CommandText<N>` | A message as a template argument. `CommandText{"..."}` deduces the size |
+| `TextLiteral` | The message type, from `Utilities/TextLiteral.h`. A string literal is the template argument: `CommandRequire<"...">(condition)` |
 | `CommandError<Message>()` | Declared, never defined. A call from a constant expression is an error, and the diagnostic prints the message |
 | `CommandRequire<Message>(condition)` | Calls `CommandError<Message>()` when the condition is false |
 

@@ -30,16 +30,16 @@ public:
 	// An explicit address is an endpoint number 1 to 15 with the matching direction. Address 0 means "assigned by the builder",
 	// so an explicit OUT 0x00 would be taken for no address at all and is rejected here.
 	constexpr USBVendorBuilder& BulkIn(uint8 address) {
-		Require<USBText{"BulkIn needs an IN address (bit 7 set)"}>(USBEndpoint::IsIn(address));
-		Require<USBText{"endpoint 0 belongs to the control pipe"}>(USBEndpoint::Number(address) != 0);
+		Require<"BulkIn needs an IN address (bit 7 set)">(USBEndpoint::IsIn(address));
+		Require<"endpoint 0 belongs to the control pipe">(USBEndpoint::Number(address) != 0);
 		bulkInAddress = address;
 		return *this;
 	}
 
 
 	constexpr USBVendorBuilder& BulkOut(uint8 address) {
-		Require<USBText{"BulkOut needs an OUT address (bit 7 clear)"}>(!USBEndpoint::IsIn(address));
-		Require<USBText{"endpoint 0 belongs to the control pipe"}>(USBEndpoint::Number(address) != 0);
+		Require<"BulkOut needs an OUT address (bit 7 clear)">(!USBEndpoint::IsIn(address));
+		Require<"endpoint 0 belongs to the control pipe">(USBEndpoint::Number(address) != 0);
 		bulkOutAddress = address;
 		return *this;
 	}

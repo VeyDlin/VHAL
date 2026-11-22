@@ -201,16 +201,16 @@ ResultStatus VendorIn(
 void CheckDescriptorBytes() {
 	// The builders run in constant expressions only, so each result is a constexpr local.
 	constexpr std::array<uint8, 24> capability = MakeWebUsbPlatformCapability(0x42, 1);
-	constexpr std::array<uint8, 15> httpsUrl = MakeWebUsbUrlDescriptor<USBText{"https://example.com/"}>();
-	constexpr std::array<uint8, 4> httpUrl = MakeWebUsbUrlDescriptor<USBText{"http://a"}>();
-	constexpr std::array<uint8, 7> noSchemeUrl = MakeWebUsbUrlDescriptor<USBText{"vhal"}>();
+	constexpr std::array<uint8, 15> httpsUrl = MakeWebUsbUrlDescriptor<"https://example.com/">();
+	constexpr std::array<uint8, 4> httpUrl = MakeWebUsbUrlDescriptor<"http://a">();
+	constexpr std::array<uint8, 7> noSchemeUrl = MakeWebUsbUrlDescriptor<"vhal">();
 	ExpectBytes("capability bytes", capability, CapabilityBytes);
 	ExpectBytes("https URL", httpsUrl, HttpsUrlBytes);
 	ExpectBytes("http URL", httpUrl, HttpUrlBytes);
 	ExpectBytes("URL without scheme", noSchemeUrl, NoSchemeUrlBytes);
 
 	// The longest URL is accepted: 252 bytes after the prefix, bLength 255, scheme 1.
-	constexpr std::array<uint8, 255> longestUrl = MakeWebUsbUrlDescriptor<USBText{"https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}>();
+	constexpr std::array<uint8, 255> longestUrl = MakeWebUsbUrlDescriptor<"https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">();
 	SIM_EXPECT_EQ(longestUrl[0], 255);
 	SIM_EXPECT_EQ(longestUrl[2], 1);
 	SIM_EXPECT_EQ(longestUrl[254], 0x61);

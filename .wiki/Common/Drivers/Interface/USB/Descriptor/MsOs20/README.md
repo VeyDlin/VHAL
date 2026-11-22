@@ -29,9 +29,9 @@ A device with the component needs:
 | Builder | Result | Description |
 |---------|--------|-------------|
 | `MakeMsOs20CompatibleId("WINUSB", "")` | 20 bytes | A compatible ID feature. The ID and sub-ID are ASCII, at most 8 characters each. `"WINUSB"` selects WinUSB |
-| `MakeUSBUtf16LENullTerminated<USBText{"..."}>()` | Name bytes plus NUL | Used for the names and the values of registry properties |
+| `MakeUSBUtf16LENullTerminated<"...">()` | Name bytes plus NUL | Used for the names and the values of registry properties |
 | `MakeMsOs20MultiStringData(strings...)` | Strings plus a final NUL | REG_MULTI_SZ data. Each string is an `MakeUSBUtf16LENullTerminated` array |
-| `MakeMsOs20RegistryProperty<USBText{"Name"}>(type, data)` | 10 + name + data bytes | A registry property feature. `type` is a `USBMsOs20PropertyType` (String, ExpandString, Binary, DwordLittleEndian or MultiString) |
+| `MakeMsOs20RegistryProperty<"Name">(type, data)` | 10 + name + data bytes | A registry property feature. `type` is a `USBMsOs20PropertyType` (String, ExpandString, Binary, DwordLittleEndian or MultiString) |
 | `MakeMsOs20FunctionSubset(firstInterface, features...)` | 8 bytes plus features | Features for the function whose first interface is `firstInterface`. At least one feature |
 | `MakeMsOs20ConfigurationSubset(value, functions...)` | 8 bytes plus subsets | Groups the function subsets of one configuration. Optional. The stack has one configuration, so the example does not use it |
 | `MakeMsOs20DescriptorSet(windowsVersion, subsets...)` | 10 bytes plus subsets | The set of a composite device. `windowsVersion` is `0x06030000` for Windows 8.1 |
@@ -48,8 +48,8 @@ The MS OS 2.0 part of the example set. The full set, with the device, configurat
 ```cpp
 inline constexpr std::array<uint8, 20> MsOsCompatibleId = MakeMsOs20CompatibleId("WINUSB", "");
 inline constexpr std::array<uint8, 80> MsOsGuids = MakeMsOs20MultiStringData(
-	MakeUSBUtf16LENullTerminated<USBText{"{00000000-0000-0000-0000-000000000000}"}>());
-inline constexpr std::array<uint8, 132> MsOsGuidProperty = MakeMsOs20RegistryProperty<USBText{"DeviceInterfaceGUIDs"}>(USBMsOs20PropertyType::MultiString, MsOsGuids);
+	MakeUSBUtf16LENullTerminated<"{00000000-0000-0000-0000-000000000000}">());
+inline constexpr std::array<uint8, 132> MsOsGuidProperty = MakeMsOs20RegistryProperty<"DeviceInterfaceGUIDs">(USBMsOs20PropertyType::MultiString, MsOsGuids);
 inline constexpr std::array<uint8, 162> MsOsSet = MakeMsOs20DeviceLevelDescriptorSet(0x06030000, MsOsCompatibleId, MsOsGuidProperty);
 inline constexpr std::array<uint8, 28> MsOsPlatform = MakeMsOs20PlatformCapability(MsOsSet, MsOsVendorCode, 0);
 inline constexpr std::array<uint8, 33> Bos = MakeUSBBosDescriptor(MsOsPlatform);

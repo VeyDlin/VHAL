@@ -141,13 +141,13 @@ constexpr void CommandCheckArguments(const Arguments&... arguments) {
 		if (isOptional) {
 			seenOptional = true;
 		} else {
-			CommandRequire<CommandText{"a required argument comes after an optional one"}>(!seenOptional);
+			CommandRequire<"a required argument comes after an optional one">(!seenOptional);
 		}
 	}
 
 	for (std::size_t index = 0; index < names.size(); index++) {
 		for (std::size_t other = 0; other < index; other++) {
-			CommandRequire<CommandText{"two arguments of a command have the same name"}>(names[index] != names[other]);
+			CommandRequire<"two arguments of a command have the same name">(names[index] != names[other]);
 		}
 	}
 
@@ -159,10 +159,10 @@ constexpr void CommandCheckArguments(const Arguments&... arguments) {
 // The handler must take CommandCall<Ctx> first, and its other parameters must be the value types of the arguments, in order.
 template<typename Handler, typename... Arguments>
 constexpr void CommandCheckHandler() {
-	CommandRequire<CommandText{"a command handler returns ResultStatus and takes CommandCall<Ctx> first"}>(CommandHandlerOf<Handler>::Valid);
+	CommandRequire<"a command handler returns ResultStatus and takes CommandCall<Ctx> first">(CommandHandlerOf<Handler>::Valid);
 
 	if constexpr (CommandHandlerOf<Handler>::Valid) {
-		CommandRequire<CommandText{"the handler parameters do not match the arguments"}>((std::is_same_v<typename CommandHandlerOf<Handler>::Values, std::tuple<typename Arguments::Value...>>));
+		CommandRequire<"the handler parameters do not match the arguments">((std::is_same_v<typename CommandHandlerOf<Handler>::Values, std::tuple<typename Arguments::Value...>>));
 	}
 }
 
@@ -189,7 +189,7 @@ public:
 		Arguments... arguments) const
 	{
 		CommandRequireName(name);
-		CommandRequire<CommandText{"a command has no help text"}>(!help.empty());
+		CommandRequire<"a command has no help text">(!help.empty());
 		CommandCheckHandler<Handler, Arguments...>();
 		CommandCheckArguments(arguments...);
 
@@ -203,9 +203,9 @@ public:
 	template<typename Set>
 	constexpr CommandSetBuilder<Items..., GroupItem<Set>> Group(std::string_view name, std::string_view help) const {
 		CommandRequireName(name);
-		CommandRequire<CommandText{"a group has no help text"}>(!help.empty());
-		CommandRequire<CommandText{"an empty group has no commands or groups"}>(Set::EntryCount > 0);
-		CommandRequire<CommandText{"a group has no Default() or OnInterrupt(), the top set handles those"}>(!Set::HasDefault && !Set::HasInterrupt);
+		CommandRequire<"a group has no help text">(!help.empty());
+		CommandRequire<"an empty group has no commands or groups">(Set::EntryCount > 0);
+		CommandRequire<"a group has no Default() or OnInterrupt(), the top set handles those">(!Set::HasDefault && !Set::HasInterrupt);
 
 		GroupItem<Set> item{name, help};
 		return CommandSetBuilder<Items..., GroupItem<Set>>(CommandPackAppend(items, item));
@@ -216,8 +216,8 @@ public:
 	template<typename Handler>
 	constexpr CommandSetBuilder<Items..., InterruptItem<Handler>> OnInterrupt(Handler handler) const {
 		constexpr bool given = (CommandIsInterrupt<Items> || ...);
-		CommandRequire<CommandText{"OnInterrupt() is given twice"}>(!given);
-		CommandRequire<CommandText{"an interrupt handler is void(Ctx&)"}>(CommandInterruptOf<Handler>::Valid);
+		CommandRequire<"OnInterrupt() is given twice">(!given);
+		CommandRequire<"an interrupt handler is void(Ctx&)">(CommandInterruptOf<Handler>::Valid);
 
 		InterruptItem<Handler> item{handler};
 		return CommandSetBuilder<Items..., InterruptItem<Handler>>(CommandPackAppend(items, item));
@@ -228,8 +228,8 @@ public:
 	template<typename Handler>
 	constexpr CommandSetBuilder<Items..., DefaultItem<Handler>> Default(Handler handler) const {
 		constexpr bool given = (CommandIsDefault<Items> || ...);
-		CommandRequire<CommandText{"Default() is given twice"}>(!given);
-		CommandRequire<CommandText{"a default handler is void(CommandCall<Ctx>, const CommandEvent&)"}>(CommandDefaultOf<Handler>::Valid);
+		CommandRequire<"Default() is given twice">(!given);
+		CommandRequire<"a default handler is void(CommandCall<Ctx>, const CommandEvent&)">(CommandDefaultOf<Handler>::Valid);
 
 		DefaultItem<Handler> item{handler};
 		return CommandSetBuilder<Items..., DefaultItem<Handler>>(CommandPackAppend(items, item));

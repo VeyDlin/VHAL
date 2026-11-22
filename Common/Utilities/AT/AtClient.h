@@ -658,7 +658,7 @@ public:
 
 
 	// AT+X?. The handler gets the value or the record of the read form, or the status of the request.
-	template<AtText Name, auto Handler>
+	template<TextLiteral Name, auto Handler>
 	AtStatus Read() {
 		constexpr std::size_t index = Set::template Index<Name>();
 		using Command = typename Set::template CommandOf<Name>;
@@ -676,7 +676,7 @@ public:
 
 
 	// AT+X=a,b. The arguments are the handler types of the write form, and a string is any text of its capacity or less.
-	template<AtText Name, auto Handler, typename... Values>
+	template<TextLiteral Name, auto Handler, typename... Values>
 	AtStatus Write(Values... values) {
 		constexpr std::size_t index = Set::template Index<Name>();
 		using Command = typename Set::template CommandOf<Name>;
@@ -694,7 +694,7 @@ public:
 	// AT+X=a,b, then the data of the request after the module's prompt. The values are those of the write form, checked as Write checks them,
 	// and the last value is the data, a std::span<const uint8>. The data is not copied: it must stay valid until the handler runs. The
 	// handler is called with the final line of the request.
-	template<AtText Name, auto Handler, typename... Values>
+	template<TextLiteral Name, auto Handler, typename... Values>
 	AtStatus SendData(Values... values) {
 		constexpr std::size_t index = Set::template Index<Name>();
 		using Command = typename Set::template CommandOf<Name>;
@@ -721,7 +721,7 @@ public:
 
 
 	// AT+X. A run form with no info line is void(AtStatus). A run form with a value or a record is void(Result<T, AtStatus>).
-	template<AtText Name, auto Handler>
+	template<TextLiteral Name, auto Handler>
 	AtStatus Run() {
 		constexpr std::size_t index = Set::template Index<Name>();
 		using Command = typename Set::template CommandOf<Name>;
@@ -744,7 +744,7 @@ public:
 
 
 	// AT+X=?. The module's answer is only its final line, since a test form has no declared info line.
-	template<AtText Name, auto Handler>
+	template<TextLiteral Name, auto Handler>
 	AtStatus Test() {
 		constexpr std::size_t index = Set::template Index<Name>();
 		using Command = typename Set::template CommandOf<Name>;
@@ -772,7 +772,7 @@ public:
 
 
 	// ATE0: the value of a basic command follows its letter.
-	template<AtText Name, auto Handler, typename... Values>
+	template<TextLiteral Name, auto Handler, typename... Values>
 	AtStatus Value(Values... values) {
 		constexpr std::size_t treeIndex = Set::template TreeIndex<Name>();
 
@@ -793,7 +793,7 @@ public:
 
 
 	// AT+X?, one info line for each row. The handler gets the rows that were stored, and the count of those past the capacity.
-	template<AtText Name, auto Handler>
+	template<TextLiteral Name, auto Handler>
 	AtStatus ReadRows() {
 		static_assert(HasRows, "ReadRows needs the AtRows module in the client modules");
 
@@ -813,7 +813,7 @@ public:
 
 
 	// AT+X, one info line for each row. The handler gets the rows that were stored, and the count of those past the capacity.
-	template<AtText Name, auto Handler>
+	template<TextLiteral Name, auto Handler>
 	AtStatus Rows() {
 		static_assert(HasRows, "Rows needs the AtRows module in the client modules");
 
@@ -832,7 +832,7 @@ public:
 
 
 	// AT+X?, one call of OnRow for each row as it arrives, and one call of OnDone with the status at the end. Nothing is stored.
-	template<AtText Name, auto OnRow, auto OnDone>
+	template<TextLiteral Name, auto OnRow, auto OnDone>
 	AtStatus ReadRowsVisit() {
 		constexpr std::size_t index = Set::template Index<Name>();
 		using Command = typename Set::template CommandOf<Name>;
@@ -850,7 +850,7 @@ public:
 
 
 	// AT+X, one call of OnRow for each row as it arrives, and one call of OnDone with the status at the end. Nothing is stored.
-	template<AtText Name, auto OnRow, auto OnDone>
+	template<TextLiteral Name, auto OnRow, auto OnDone>
 	AtStatus RowsVisit() {
 		constexpr std::size_t index = Set::template Index<Name>();
 		using Command = typename Set::template CommandOf<Name>;
@@ -867,7 +867,7 @@ public:
 
 
 	// AwaitRead: Read, which waits for its reply and returns it, and the value is copied out. Needs AtAwait. Call it in a task, never in Process().
-	template<AtText Name>
+	template<TextLiteral Name>
 	Result<typename Set::template CommandOf<Name>::ReadType, AtStatus> AwaitRead() {
 		static_assert(HasAwait, "AwaitRead needs AtAwait among the client modules");
 
@@ -891,7 +891,7 @@ public:
 
 
 	// AwaitRun: Run, which waits for its reply. A run form with no reply returns AtStatus; one with a value or a record returns its Result.
-	template<AtText Name>
+	template<TextLiteral Name>
 	std::conditional_t<
 		Set::template CommandOf<Name>::hasPlainRun,
 		AtStatus,
@@ -944,7 +944,7 @@ public:
 
 
 	// AwaitWrite: Write, which waits for its final line. Needs AtAwait.
-	template<AtText Name, typename... Values>
+	template<TextLiteral Name, typename... Values>
 	AtStatus AwaitWrite(Values... values) {
 		static_assert(HasAwait, "AwaitWrite needs AtAwait among the client modules");
 
@@ -967,7 +967,7 @@ public:
 
 
 	// AwaitValue: Value, a basic command or a builtin such as E, which waits for its final line. Needs AtAwait.
-	template<AtText Name, typename... Values>
+	template<TextLiteral Name, typename... Values>
 	AtStatus AwaitValue(Values... values) {
 		static_assert(HasAwait, "AwaitValue needs AtAwait among the client modules");
 
@@ -1000,7 +1000,7 @@ public:
 
 
 	// AwaitReadRows: ReadRows, which waits for its rows. The rows are copied out. Needs AtAwait and AtRows.
-	template<AtText Name>
+	template<TextLiteral Name>
 	Result<AtRowCopy<typename Set::template CommandOf<Name>::ReadType, RowsCapacity>, AtStatus> AwaitReadRows() {
 		static_assert(HasAwait, "AwaitReadRows needs AtAwait among the client modules");
 		static_assert(HasRows, "AwaitReadRows needs the AtRows module in the client modules");
@@ -1025,7 +1025,7 @@ public:
 
 
 	// AwaitRows: Rows, which waits for its rows. The rows are copied out. Needs AtAwait and AtRows.
-	template<AtText Name>
+	template<TextLiteral Name>
 	Result<AtRowCopy<typename Set::template CommandOf<Name>::RunType, RowsCapacity>, AtStatus> AwaitRows() {
 		static_assert(HasAwait, "AwaitRows needs AtAwait among the client modules");
 		static_assert(HasRows, "AwaitRows needs the AtRows module in the client modules");
@@ -1049,7 +1049,7 @@ public:
 
 
 	// AwaitSendData: SendData, which waits for the final line of the request. Needs AtAwait and AtDataMode. The data is not copied, as in SendData.
-	template<AtText Name, typename... Values>
+	template<TextLiteral Name, typename... Values>
 	AtStatus AwaitSendData(Values... values) {
 		static_assert(HasAwait, "AwaitSendData needs AtAwait among the client modules");
 		static_assert(HasData, "AwaitSendData needs AtDataMode among the modules of the set");

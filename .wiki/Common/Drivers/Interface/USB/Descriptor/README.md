@@ -291,7 +291,7 @@ using Usb = USBDescriptors<[] {
 GCC 15 reports (the first line of the diagnostic):
 
 ```text
-error: call to non-'constexpr' function 'void DescriptorError() [with USBText<...auto...> Message = USBText<50>{"bMaxPower counts 2 mA steps, so the value is even"}]'
+error: call to non-'constexpr' function 'void DescriptorError() [with TextLiteral<...auto...> Message = TextLiteral<50>{"bMaxPower counts 2 mA steps, so the value is even"}]'
 ```
 
 The lines after it trace the instantiations back to the chain, and point at the `MaxPowerMilliamps(101)` call. The message is the text the rule gives, so the diagnostic names the rule that failed. Other rules give their own message, such as `"VendorId is required"`, `"an endpoint number is above EndpointNumberLimit"` or `"MsOs20VendorCode is required when a function asks for WinUSB"`. Only GCC has been checked this way.
@@ -321,7 +321,7 @@ Each builder is `constexpr`. Its result is an array of bytes, in flash when the 
 
 ### How the Checks Work
 
-- The fluent builder checks each rule with `Require<USBText{"reason"}>(condition)`. The reason is a template argument, so the compiler error line carries it. A false condition calls a function that is declared, never defined, so a constant expression that reaches it does not compile.
+- The fluent builder checks each rule with `Require<"reason">(condition)`. The reason is a template argument, so the compiler error line carries it. A false condition calls a function that is declared, never defined, so a constant expression that reaches it does not compile.
 - The positional builders check with `USBDescriptorRequire(condition, reason)`. A false condition calls `USBDescriptorRejected(reason)`, also declared and never defined. Their reason is printed in a note, not in the error line.
 - A call that is not a constant expression can fail at link time, because the failing branch refers to an undefined function unless the optimiser removes it. Always assign the result to a `constexpr` or `inline constexpr` variable, so the checks run at compile time.
 - The composition checks are `static_assert`s. Each names the rule that failed.
@@ -338,15 +338,15 @@ Each builder is `constexpr`. Its result is an array of bytes, in flash when the 
 | `MakeUSBRawDescriptor<Size>({ ... })` | `Size` bytes | `bLength` equals the size. Size 2 to 255. Not a configuration, interface, endpoint or association. For class-specific bytes |
 | `MakeUSBConfigurationDescriptor(value, iConfiguration, selfPowered, remoteWakeup, maxPower, pieces...)` | 9 bytes plus the pieces | `value` is 1 or more. `maxPower` is 250 or less (units of 2 mA). Computes `wTotalLength`, `bNumInterfaces` and each `bNumEndpoints`. Checks that each endpoint follows its interface and that association and interface numbers agree |
 | `MakeUSBLanguageIdDescriptor(languageId)` | 4 bytes | Not 0. This is string descriptor 0 |
-| `MakeUSBStringDescriptor<USBText{"..."}>()` | `2 + 2 * units` bytes | UTF-8 input, no surrogates, at most 126 UTF-16 code units |
-| `MakeUSBUtf16LE<USBText{"..."}>()` | `2 * units` bytes | Text as UTF-16LE, no terminator |
-| `MakeUSBUtf16LENullTerminated<USBText{"..."}>()` | `2 * (units + 1)` bytes | As above, with a 16-bit NUL. For registry names and REG_SZ values |
+| `MakeUSBStringDescriptor<"...">()` | `2 + 2 * units` bytes | UTF-8 input, no surrogates, at most 126 UTF-16 code units |
+| `MakeUSBUtf16LE<"...">()` | `2 * units` bytes | Text as UTF-16LE, no terminator |
+| `MakeUSBUtf16LENullTerminated<"...">()` | `2 * (units + 1)` bytes | As above, with a 16-bit NUL. For registry names and REG_SZ values |
 | `USBDeviceClassMatchesConfiguration(device, configuration)` | `bool` | Class `0xEF/0x02/0x01` exactly when the configuration has an association. Otherwise `0x00/0x00/0x00` |
 | `USBDeviceSupportsBos(device)` | `bool` | `bcdUSB` is 2.01 or later |
 
 #### Strings
 
-`USBText` holds a string literal as a template argument. Its length is part of the type, so the builders size the array exactly. Write strings as `MakeUSBStringDescriptor<USBText{"Name"}>()`.
+A string literal is a `TextLiteral` template argument. Its length is part of the type, so the builders size the array exactly. Write strings as `MakeUSBStringDescriptor<"Name">()`.
 
 Strings must be valid UTF-8. Overlong forms, surrogate code points and code points above U+10FFFF are rejected. Code points above U+FFFF are written as surrogate pairs.
 
@@ -418,9 +418,9 @@ inline constexpr std::array<uint8, 18> DeviceDescriptor = MakeUSBDeviceDescripto
 
 
 inline constexpr std::array<uint8, 4> LanguageId = MakeUSBLanguageIdDescriptor(0x0409);
-inline constexpr std::array<uint8, 16> Manufacturer = MakeUSBStringDescriptor<USBText{"Example"}>();
-inline constexpr std::array<uint8, 38> Product = MakeUSBStringDescriptor<USBText{"Vendor Bulk Device"}>();
-inline constexpr std::array<uint8, 10> SerialNumber = MakeUSBStringDescriptor<USBText{"0001"}>();
+inline constexpr std::array<uint8, 16> Manufacturer = MakeUSBStringDescriptor<"Example">();
+inline constexpr std::array<uint8, 38> Product = MakeUSBStringDescriptor<"Vendor Bulk Device">();
+inline constexpr std::array<uint8, 10> SerialNumber = MakeUSBStringDescriptor<"0001">();
 inline constexpr std::span<const uint8> Strings[] = {
 	LanguageId,
 	Manufacturer,
@@ -438,8 +438,8 @@ inline constexpr std::array<uint8, 32> Configuration = MakeUSBConfigurationDescr
 inline constexpr std::array<uint8, 20> MsOsCompatibleId = MakeMsOs20CompatibleId("WINUSB", "");
 // Placeholder interface GUID. Generate one once for the product and keep it: Windows matches the driver by it.
 inline constexpr std::array<uint8, 80> MsOsGuids = MakeMsOs20MultiStringData(
-	MakeUSBUtf16LENullTerminated<USBText{"{00000000-0000-0000-0000-000000000000}"}>());
-inline constexpr std::array<uint8, 132> MsOsGuidProperty = MakeMsOs20RegistryProperty<USBText{"DeviceInterfaceGUIDs"}>(USBMsOs20PropertyType::MultiString, MsOsGuids);
+	MakeUSBUtf16LENullTerminated<"{00000000-0000-0000-0000-000000000000}">());
+inline constexpr std::array<uint8, 132> MsOsGuidProperty = MakeMsOs20RegistryProperty<"DeviceInterfaceGUIDs">(USBMsOs20PropertyType::MultiString, MsOsGuids);
 inline constexpr std::array<uint8, 160> MsOsFunction = MakeMsOs20FunctionSubset(0, MsOsCompatibleId, MsOsGuidProperty);
 inline constexpr std::array<uint8, 170> MsOsSet = MakeMsOs20DescriptorSet(0x06030000, MsOsFunction);
 inline constexpr std::array<uint8, 28> MsOsPlatform = MakeMsOs20PlatformCapability(MsOsSet, MsOsVendorCode, 0);

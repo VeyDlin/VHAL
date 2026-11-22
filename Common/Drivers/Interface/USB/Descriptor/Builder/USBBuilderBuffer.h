@@ -6,6 +6,7 @@
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorString.h>
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorUtility.h>
 #include <System/System.h>
+#include <Utilities/TextLiteral.h>
 
 
 // Shared pieces of the fluent builder. A chain is evaluated in a constant expression: the application writes it inside a
@@ -16,12 +17,12 @@
 
 
 // Declared, never defined. See the comment above.
-template<USBText Message>
+template<TextLiteral Message>
 void DescriptorError();
 
 
 // Rule check of the builders. Calls DescriptorError<Message>() when the condition does not hold.
-template<USBText Message>
+template<TextLiteral Message>
 constexpr void Require(bool condition) {
 	if (!condition) {
 		DescriptorError<Message>();
@@ -41,7 +42,7 @@ struct USBBuildBuffer {
 
 
 	constexpr void Put(uint8 value) {
-		Require<USBText{"descriptor is larger than the builder capacity"}>(size < USBBuildCapacity);
+		Require<"descriptor is larger than the builder capacity">(size < USBBuildCapacity);
 		bytes[size] = value;
 		size++;
 	}
@@ -65,7 +66,7 @@ struct USBBuildBuffer {
 // mismatch is a builder bug and is reported.
 template<std::size_t Size>
 constexpr std::array<uint8, Size> USBBuildExact(const USBBuildBuffer& buffer) {
-	Require<USBText{"builder output does not match its size"}>(buffer.size == Size);
+	Require<"builder output does not match its size">(buffer.size == Size);
 	std::array<uint8, Size> exact{};
 	for (std::size_t index = 0; index < Size; index++) {
 		exact[index] = buffer.bytes[index];
@@ -76,11 +77,11 @@ constexpr std::array<uint8, Size> USBBuildExact(const USBBuildBuffer& buffer) {
 
 
 // Appends a string descriptor for a run-time text (a string view of a literal). The text is checked the same way as a
-// USBText template argument: valid UTF-8, no surrogates, at most 126 UTF-16 code units.
+// TextLiteral template argument: valid UTF-8, no surrogates, at most 126 UTF-16 code units.
 constexpr void USBBuildStringDescriptor(std::string_view text, USBBuildBuffer& buffer) {
 	USBUtf16Count count = USBCountUtf16Units(text.data(), text.size());
-	Require<USBText{"string is not valid UTF-8"}>(count.valid);
-	Require<USBText{"a string descriptor holds at most 126 UTF-16 code units"}>(count.units <= 126);
+	Require<"string is not valid UTF-8">(count.valid);
+	Require<"a string descriptor holds at most 126 UTF-16 code units">(count.units <= 126);
 	buffer.Put(static_cast<uint8>(2 + 2 * count.units));
 	buffer.Put(static_cast<uint8>(USBDescriptorType::String));
 	buffer.size = USBEncodeUtf16(text.data(), text.size(), buffer.bytes, buffer.size);

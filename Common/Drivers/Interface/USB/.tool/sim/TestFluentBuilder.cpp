@@ -416,13 +416,13 @@ constexpr std::array<uint8, 10> GuidSetHeader = {
 
 
 constexpr std::array<uint8, 20> GuidCompatibleId = MakeMsOs20CompatibleId("WINUSB", "");
-constexpr std::array<uint8, 132> GuidProperty = MakeMsOs20RegistryProperty<USBText{"DeviceInterfaceGUIDs"}>(
+constexpr std::array<uint8, 132> GuidProperty = MakeMsOs20RegistryProperty<"DeviceInterfaceGUIDs">(
 	USBMsOs20PropertyType::MultiString,
-	MakeMsOs20MultiStringData(MakeUSBUtf16LENullTerminated<USBText{"{9CFFEE21-8C31-4DD2-ACB1-38A9CEB05DA4}"}>())
+	MakeMsOs20MultiStringData(MakeUSBUtf16LENullTerminated<"{9CFFEE21-8C31-4DD2-ACB1-38A9CEB05DA4}">())
 );
-constexpr std::array<uint8, 132> GuidPropertyTwo = MakeMsOs20RegistryProperty<USBText{"DeviceInterfaceGUIDs"}>(
+constexpr std::array<uint8, 132> GuidPropertyTwo = MakeMsOs20RegistryProperty<"DeviceInterfaceGUIDs">(
 	USBMsOs20PropertyType::MultiString,
-	MakeMsOs20MultiStringData(MakeUSBUtf16LENullTerminated<USBText{"{5F2B3F4E-0F3A-4B2C-9D1E-7A6B5C4D3E2F}"}>())
+	MakeMsOs20MultiStringData(MakeUSBUtf16LENullTerminated<"{5F2B3F4E-0F3A-4B2C-9D1E-7A6B5C4D3E2F}">())
 );
 
 

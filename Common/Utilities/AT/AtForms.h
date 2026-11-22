@@ -299,7 +299,7 @@ struct AtValueArgsOf<Head, Tail...> : AtValueArgsOf<Tail...> {
 
 // A command in the builder, or a closed command in a set. Name is the text of the name, with its plus sign for a command. A name of one
 // letter is a basic command.
-template<AtText Text, typename... Forms>
+template<TextLiteral Text, typename... Forms>
 struct AtCommandItem {
 	static constexpr std::string_view name = Text.View();
 	static constexpr bool isCommand = true;
@@ -408,7 +408,7 @@ struct AtNoCommand {
 // A URC: its prefix, its arguments, and its Data(). The arguments are the ones before a Data() last argument, so the length is the last of
 // them, and Data is AtDataLength<T> for a URC with Data() (T is the length's type) or AtNoData. The prefix ends at a colon, a comma or the
 // end of the line.
-template<AtText Text, typename Data, typename... Arguments>
+template<TextLiteral Text, typename Data, typename... Arguments>
 struct AtUrcItem {
 	static constexpr std::string_view name = Text.View();
 	static constexpr bool hasData = AtIsDataLength<Data>;
@@ -425,7 +425,7 @@ template<typename Item>
 inline constexpr bool AtIsCommandItem = false;
 
 
-template<AtText Text, typename... Forms>
+template<TextLiteral Text, typename... Forms>
 inline constexpr bool AtIsCommandItem<AtCommandItem<Text, Forms...>> = true;
 
 
@@ -433,7 +433,7 @@ template<typename Item>
 inline constexpr bool AtIsUrcItem = false;
 
 
-template<AtText Text, typename Data, typename... Arguments>
+template<TextLiteral Text, typename Data, typename... Arguments>
 inline constexpr bool AtIsUrcItem<AtUrcItem<Text, Data, Arguments...>> = true;
 
 

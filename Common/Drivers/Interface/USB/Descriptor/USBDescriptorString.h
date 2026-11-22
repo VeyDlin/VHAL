@@ -3,27 +3,7 @@
 #include <cstddef>
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorUtility.h>
 #include <Drivers/Interface/USB/USBProtocol.h>
-
-
-// A string literal as a class-type template parameter. Builders take it as USBText{"..."} in a template argument list, so the
-// return type carries the length of the encoded text and the array has no slack.
-template<std::size_t Size>
-struct USBText {
-	char value[Size];
-
-
-	constexpr USBText(const char (&text)[Size]) {
-		for (std::size_t index = 0; index < Size; index++) {
-			value[index] = text[index];
-		}
-	}
-
-
-	// The length without the terminating NUL of the literal.
-	constexpr std::size_t GetLength() const {
-		return Size - 1;
-	}
-};
+#include <Utilities/TextLiteral.h>
 
 
 // One code point decoded from UTF-8. length is 0 when the bytes at the position are not a valid sequence.
@@ -141,7 +121,7 @@ constexpr std::size_t USBEncodeUtf16(
 
 
 // Number of UTF-16 code units the text encodes to, without a terminator. Invalid text fails the static_assert.
-template<USBText Text>
+template<TextLiteral Text>
 constexpr std::size_t USBUtf16UnitCount() {
 	constexpr USBUtf16Count count = USBCountUtf16Units(Text.value, Text.GetLength());
 	static_assert(count.valid, "text must be valid UTF-8 with no surrogate and no code point above U+10FFFF");
@@ -150,7 +130,7 @@ constexpr std::size_t USBUtf16UnitCount() {
 
 
 // The text as UTF-16LE bytes, without a terminator.
-template<USBText Text>
+template<TextLiteral Text>
 constexpr std::array<uint8, 2 * USBUtf16UnitCount<Text>()> MakeUSBUtf16LE() {
 	std::array<uint8, 2 * USBUtf16UnitCount<Text>()> bytes{};
 	USBEncodeUtf16(Text.value, Text.GetLength(), bytes, 0);
@@ -159,7 +139,7 @@ constexpr std::array<uint8, 2 * USBUtf16UnitCount<Text>()> MakeUSBUtf16LE() {
 
 
 // The text as UTF-16LE bytes followed by a 16-bit NUL. Registry names and REG_SZ values are stored this way.
-template<USBText Text>
+template<TextLiteral Text>
 constexpr std::array<uint8, 2 * (USBUtf16UnitCount<Text>() + 1)> MakeUSBUtf16LENullTerminated() {
 	std::array<uint8, 2 * (USBUtf16UnitCount<Text>() + 1)> bytes{};
 	USBEncodeUtf16(Text.value, Text.GetLength(), bytes, 0);
@@ -169,7 +149,7 @@ constexpr std::array<uint8, 2 * (USBUtf16UnitCount<Text>() + 1)> MakeUSBUtf16LEN
 
 // String descriptor (USB 2.0 section 9.6.7): bLength, bDescriptorType 3, then the UTF-16LE text. bLength is one byte, so
 // the text is limited to 126 code units.
-template<USBText Text>
+template<TextLiteral Text>
 constexpr std::array<uint8, 2 + 2 * USBUtf16UnitCount<Text>()> MakeUSBStringDescriptor() {
 	constexpr std::size_t units = USBUtf16UnitCount<Text>();
 	static_assert(units <= 126, "a string descriptor holds at most 126 UTF-16 code units");

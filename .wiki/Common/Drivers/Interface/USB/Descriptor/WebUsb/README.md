@@ -39,7 +39,7 @@ Save it as `/etc/udev/rules.d/99-webusb.rules`, then run `sudo udevadm control -
 |---------|--------|-------------|
 | `.WebUsb(vendorCode, "https://...")` | Device builder step | Adds the platform capability to the BOS, forces bcdUSB 2.10 or later, and adds the GET_URL entry to the vendor requests. The URL is given once |
 | `MakeWebUsbPlatformCapability(vendorCode, landingPageIndex)` | 24 bytes | The BOS platform capability. `bcdVersion` is 1.00. `landingPageIndex` is 1 for the single URL; 0 means no landing page |
-| `MakeWebUsbUrlDescriptor<USBText{"..."}>()` | 3 bytes plus the URL | The URL descriptor of a literal. An `https://` or `http://` prefix becomes the scheme code, and the rest of the text is sent |
+| `MakeWebUsbUrlDescriptor<"...">()` | 3 bytes plus the URL | The URL descriptor of a literal. An `https://` or `http://` prefix becomes the scheme code, and the rest of the text is sent |
 | `MakeWebUsbVendorDescriptor(vendorCode, landingPageIndex, url)` | `USBVendorDescriptor` | The GET_URL entry for `USBDescriptorSet::vendorRequests`. `wIndex` is 2, and `wValue` must equal `landingPageIndex` |
 
 ## Example

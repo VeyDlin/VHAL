@@ -6,6 +6,7 @@
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorSet.h>
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorString.h>
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorUtility.h>
+#include <Utilities/TextLiteral.h>
 
 
 // Optional component: the Microsoft OS 2.0 descriptor set, served by a vendor request with wIndex 7. Every length is computed
@@ -99,7 +100,7 @@ constexpr std::array<uint8, 20> MakeMsOs20CompatibleId(
 
 // Registry property feature. The name is UTF-16LE with its terminator (taken from the text); the data is the value's bytes,
 // for example from MakeMsOs20MultiStringData() or MakeUSBUtf16LENullTerminated().
-template<USBText Name, std::size_t DataSize>
+template<TextLiteral Name, std::size_t DataSize>
 constexpr std::array<uint8, 10 + 2 * (USBUtf16UnitCount<Name>() + 1) + DataSize> MakeMsOs20RegistryProperty(
 	USBMsOs20PropertyType propertyType,
 	const std::array<uint8, DataSize>& data)

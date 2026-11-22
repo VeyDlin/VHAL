@@ -35,7 +35,7 @@ struct AtCall {
 
 // One handler for one command name. The name is checked against the description by the server, and the handler's signature is checked
 // against the forms of that command.
-template<AtText Name, auto Handler>
+template<TextLiteral Name, auto Handler>
 struct AtOn {
 	static constexpr decltype(Name) nameText = Name;
 	static constexpr std::string_view name = Name.View();
@@ -54,7 +54,7 @@ struct AtServerBinding {
 // One handler for a URC of the client, by its prefix. The handler's parameters are the URC's arguments, each with its handler type:
 //   void OnIpd(uint16 length)          for Urc<"+IPD">(Argument<uint16>("length"))
 // A URC with no handler is consumed and ignored. The client checks the signature against the description.
-template<AtText Name, auto Handler>
+template<TextLiteral Name, auto Handler>
 struct AtUrcOn : AtOn<Name, Handler> {
 };
 
