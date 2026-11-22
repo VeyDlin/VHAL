@@ -58,7 +58,11 @@ ITIMHelper<float> helper(tim2, ATIM::ChannelOption::Channel1);
 helper.SetBaseFrequency(1000.0f); // 1 kHz
 ```
 
-For 16-bit timers, it searches for a prescaler that brings the period into the 16-bit range. For 32-bit timers, it uses prescaler 0 and a large period directly.
+The bus clock is in Hz (as `GetBusClockHz()` reports it). The search runs in `float` for a `float` `Type` and in `double` for an `IQ` `Type`, so an `IQ` target cannot saturate the arithmetic and a `float` build does not link the double helpers. `Type` only carries the requested frequency.
+
+For 16-bit timers, it searches for the smallest prescaler that brings the period into the 16-bit range. For 32-bit timers, it uses prescaler 0 and a large period directly.
+
+The period is the number of timer ticks per cycle minus one, and it is never 0: a target that needs fewer than two ticks per cycle gives period 1. A 32-bit period is clamped to `0xFFFFFFFF`. A 16-bit timer that cannot fit the period at any prescaler (a target below `clock / (division * 65536 * 65537)`) gets prescaler `0xFFFF` and period `0xFFFF`, the slowest output.
 
 The update is performed inside a critical section to avoid glitches.
 

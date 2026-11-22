@@ -55,3 +55,11 @@ For integral types of up to 64 bits, signed or unsigned, every intermediate valu
 int32_t low = MathUtilities::Interpolation<int32_t>(INT32_MIN, INT32_MIN, INT32_MAX, INT32_MAX, 0); // 0
 uint64_t high = MathUtilities::Extrapolation<uint64_t>(0u, 0u, 1u, UINT64_MAX, 2u);                 // UINT64_MAX (saturated)
 ```
+
+For `IQ` types, the same formula runs on the raw `int32` values, with a 64-bit intermediate. The raw values share one scale, so the result is exact apart from the final rounding. The quotient is rounded to nearest, with ties away from zero, and then added to `y0`. The result saturates to the range of the IQ type. Float arguments keep the plain floating-point formula.
+
+```cpp
+using Q16 = IQ<16>;
+Q16 twoThirds = MathUtilities::Interpolation(Q16(0), Q16(0), Q16(3), Q16(1), Q16(2)); // 2/3, raw 43691
+Q16 battery = MathUtilities::Interpolation(Q16(3.6), Q16(10), Q16(3.7), Q16(25), Q16(3.65)); // 17.5
+```

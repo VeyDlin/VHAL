@@ -84,4 +84,7 @@ pwm.SetFrequency(20000.0f)
 
 - `SetFrequencyInfo` applies prescaler, period, and compare inside a critical section to avoid glitches
 - `SetFrequency` and `SetDuty` call `GetFrequencyInfo()` first to preserve the other parameter, then call `SetFrequencyInfo` — two register reads + one atomic update
-- For 32-bit timers, prescaler is 0 and period is large; for 16-bit timers, the prescaler is computed to fit period into 16 bits
+- For 32-bit timers, prescaler is 0 and period is large; for 16-bit timers, the prescaler is computed to fit period into 16 bits. The limits and the clamping are the same as in `ITIMHelper`
+- The frequency, duty and pulse arithmetic is done in `float` for a `float` `Type` and in `double` for an `IQ` `Type`, on the bus clock in Hz. `GetFrequencyInfo` converts the result to `Type`
+- `TunePrescaler` writes the prescaler that gives the target frequency at the current period: the clock divided by the period, divided by the target, minus one. The register is kept in `[0, 0xFFFF]`, so a target of zero or below gives 0 and a target below the reach of 16 bits gives `0xFFFF`
+- A pulse that needs more ticks than the compare register holds is clamped to the register's maximum, so 100 % duty at the slowest output gives `0xFFFF` (16-bit) or `0xFFFFFFFF` (32-bit), not a wrapped 0. A pulse below one tick is written as one tick

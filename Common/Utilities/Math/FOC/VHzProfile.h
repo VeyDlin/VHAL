@@ -15,7 +15,7 @@ public:
 	struct {
 		T lowFreq = 0;   // Low Frequency (pu)
 		T highFreq = 0;  // High Frequency at rated voltage (pu)
-		T freqMax = 0;   // Maximum Frequency (pu)
+		T freqMax = 0;   // Maximum Frequency (pu); not used by Resolve(), the output is voltMax above highFreq
 		T voltMax = 0;   // Rated voltage (pu)
 		T voltMin = 0;   // Voltage at low Frequency range (pu)
 	} parameters;
@@ -41,7 +41,7 @@ public:
 		} else if (absFreq <= parameters.highFreq) {
 			T vfSlope = (parameters.voltMax - parameters.voltMin) / (parameters.highFreq - parameters.lowFreq);
 			out.voltage = parameters.voltMin + vfSlope * (absFreq - parameters.lowFreq);
-		} else if (absFreq < parameters.freqMax) {
+		} else {
 			out.voltage = parameters.voltMax;
 		}
 

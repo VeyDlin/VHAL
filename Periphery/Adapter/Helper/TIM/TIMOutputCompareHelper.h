@@ -26,16 +26,25 @@ public:
 
 
 	TIMOutputCompareHelper& TunePrescaler(Type frequencyHz) {
-		Type division = Type(static_cast<int>(timAdapter->GetClockDivision()));
-		Type period = Type(static_cast<int>(timAdapter->GetParameters().period + 1));
-		Type sourceFrequency = Type(static_cast<int>(timAdapter->GetBusClockHz())) * Type(1000);
+		using Wide = FrequencyArithmetic<Type>;
 
-		Type input = sourceFrequency / division / period;
+		Wide division = static_cast<Wide>(static_cast<int>(timAdapter->GetClockDivision()));
+		Wide period = static_cast<Wide>(timAdapter->GetParameters().period) + Wide(1);
+		Wide clockHz = static_cast<Wide>(timAdapter->GetBusClockHz());
 
-		Type prescaler = input / frequencyHz;
-		prescaler = prescaler > period ? period - Type(1) : prescaler;
+		// Ticks per second at prescaler 0. The register holds the divisor minus one, so the value is kept in [0, 0xFFFF]:
+		// a negative or zero target gives 0, and a target below the reach of 16 bits gives 0xFFFF.
+		Wide ticksPerSecond = clockHz / division / period;
+		Wide prescaler = ticksPerSecond / static_cast<Wide>(frequencyHz) - Wide(1);
 
-		SetPrescaler(static_cast<uint16>(static_cast<uint32>(prescaler)));
+		uint16 value = 0;
+		if (prescaler >= Wide(0xFFFF)) {
+			value = 0xFFFF;
+		} else if (prescaler > Wide(0)) {
+			value = static_cast<uint16>(prescaler);
+		}
+
+		SetPrescaler(value);
 		return *this;
 	}
 
@@ -65,11 +74,22 @@ public:
 
 
 	TIMOutputCompareHelper& SetFrequencyInfo(const FrequencyInfo& info) {
+		using Wide = FrequencyArithmetic<Type>;
+
 		auto [prescaler, period] = CalculateFrequency(timAdapter, info.frequencyHz);
 
-		uint32 pulse = static_cast<uint32>(Type(static_cast<int>(period + 1)) * info.duty / Type(100));
-		if (pulse == 0) {
-		    pulse = 1;
+		// The counts are in Wide: period + 1 wraps in uint32 for a 32-bit period of 0xFFFFFFFF. A pulse of 100 % at the
+		// slowest output is one tick more than the compare register holds, so it is clamped to the register's maximum.
+		// A pulse below one tick is written as one tick.
+		bool is32Bit = timAdapter->GetBitness() == ATIM::Bitness::B32;
+		uint32 maxCompare = is32Bit ? 0xFFFFFFFFu : 0xFFFFu;
+		Wide ticks = (static_cast<Wide>(period) + Wide(1)) * static_cast<Wide>(info.duty) / Wide(100);
+
+		uint32 pulse = 1;
+		if (ticks >= static_cast<Wide>(maxCompare)) {
+			pulse = maxCompare;
+		} else if (ticks >= Wide(1)) {
+			pulse = static_cast<uint32>(ticks);
 		}
 
 		System::CriticalSection(true);
@@ -77,8 +97,8 @@ public:
 		SetPrescaler(prescaler);
 		SetPeriod(period);
 
-		if (timAdapter->GetBitness() == ATIM::Bitness::B32) {
-		    SetCompare(static_cast<uint32>(pulse));
+		if (is32Bit) {
+		    SetCompare(pulse);
 		} else {
 		    SetCompare(static_cast<uint16>(pulse));
 		}
@@ -112,15 +132,17 @@ public:
 
 
 	FrequencyInfo GetFrequencyInfo() {
-		Type division = Type(static_cast<int>(timAdapter->GetClockDivision()));
-		Type prescaler = Type(static_cast<int>(timAdapter->GetParameters().prescaler));
-		Type period = Type(static_cast<int>(timAdapter->GetParameters().period));
-		Type sourceFrequency = Type(static_cast<int>(timAdapter->GetBusClockHz())) * Type(1000);
-		Type compare = Type(static_cast<int>(timAdapter->GetOutputCompareParameters(timChannel).compare));
+		using Wide = FrequencyArithmetic<Type>;
+
+		Wide division = static_cast<Wide>(static_cast<int>(timAdapter->GetClockDivision()));
+		Wide prescaler = static_cast<Wide>(timAdapter->GetParameters().prescaler);
+		Wide period = static_cast<Wide>(timAdapter->GetParameters().period);
+		Wide clockHz = static_cast<Wide>(timAdapter->GetBusClockHz());
+		Wide compare = static_cast<Wide>(timAdapter->GetOutputCompareParameters(timChannel).compare);
 
 		return FrequencyInfo{
-			.frequencyHz = sourceFrequency / division / (prescaler + Type(1)) / (period + Type(1)),
-			.duty = (compare / (period + Type(1))) * Type(100)
+			.frequencyHz = Type(clockHz / division / (prescaler + Wide(1)) / (period + Wide(1))),
+			.duty = Type((compare / (period + Wide(1))) * Wide(100))
 		};
 	}
 

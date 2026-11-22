@@ -330,7 +330,7 @@ VHzProfile<float> vhz;
 vhz.parameters = {
     .lowFreq  = 10.0f,   // Lower frequency boundary [pu]
     .highFreq = 50.0f,   // Frequency at rated voltage [pu]
-    .freqMax  = 60.0f,   // Maximum frequency [pu]
+    .freqMax  = 60.0f,   // Kept for the layout; Resolve() does not use it [pu]
     .voltMax  = 1.0f,    // Voltage at highFreq [pu]
     .voltMin  = 0.1f     // Voltage at lowFreq [pu]
 };
@@ -340,7 +340,7 @@ vhz.Set(currentFrequency).Resolve();
 float voltage = vhz.Get().voltage;
 // Below lowFreq → voltMin (boost)
 // lowFreq..highFreq → linear interpolation
-// Above highFreq → voltMax (constant)
+// Above highFreq → voltMax (constant). freqMax is not used by Resolve()
 ```
 
 #### Resolver — resolver → angle

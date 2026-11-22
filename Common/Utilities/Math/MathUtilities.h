@@ -1,5 +1,7 @@
 ﻿#pragma once
+#include <algorithm>
 #include <cmath>
+#include <concepts>
 #include <cstdint>
 #include <limits>
 #include <stdlib.h>
@@ -9,6 +11,14 @@
 
 namespace MathUtilities {
 	namespace Detail {
+		// A fixed-point type with an int32 raw value and a FromRaw factory, such as IQ. It is matched by shape, so this
+		// header does not include the IQ header and the IQ names do not reach the files that include it.
+		template<typename type>
+		concept RawFixedPoint = requires(type value) {
+			{ value.raw } -> std::convertible_to<int32_t>;
+			{ type::FromRaw(int32_t{}) } -> std::same_as<type>;
+		};
+
 		// |a - b| for two values of one integer type, with the sign of a - b. The unsigned difference is exact
 		// even when a - b does not fit the type, because the true magnitude is always below 2^64.
 		template<typename type>
@@ -95,6 +105,46 @@ namespace MathUtilities {
 			}
 			return static_cast<type>(static_cast<uint64_t>(y0) - quotient);
 		}
+
+
+		// The same linear formula on the raw values of an IQ type. The raw values share one scale, so the ratio of the
+		// differences is the same in raw units. Both raw differences are below 2^32, so their product fits in 64 bits.
+		// The quotient is rounded to nearest, ties away from zero, and then added to y0.
+		template<typename type>
+		type LinearRounded(type x0, type y0, type x1, type y1, type x2) {
+			bool dxNegative = false;
+			bool dyNegative = false;
+			bool ddNegative = false;
+			uint64_t dx = AbsDifference<int32_t>(x2.raw, x0.raw, dxNegative);
+			uint64_t dy = AbsDifference<int32_t>(y1.raw, y0.raw, dyNegative);
+			uint64_t dd = AbsDifference<int32_t>(x1.raw, x0.raw, ddNegative);
+			bool negative = (dxNegative != dyNegative) != ddNegative;
+
+			uint64_t product = dx * dy;
+			uint64_t quotient = 0;
+
+			// A zero divisor saturates by the sign of the product, the same as the integer path.
+			if (dd == 0) {
+				quotient = product == 0 ? 0 : std::numeric_limits<uint64_t>::max();
+			} else {
+				quotient = product / dd;
+
+				// The remainder is below dd, so twice the remainder fits in 64 bits.
+				if ((product % dd) * 2 >= dd) {
+					quotient++;
+				}
+			}
+
+			// Beyond the int32 range the result saturates either way, so a larger quotient is clamped first.
+			if (quotient > 0xFFFFFFFFu) {
+				quotient = 0xFFFFFFFFu;
+			}
+
+			int64_t magnitude = static_cast<int64_t>(quotient);
+			int64_t value = negative ? static_cast<int64_t>(y0.raw) - magnitude : static_cast<int64_t>(y0.raw) + magnitude;
+			value = std::clamp<int64_t>(value, std::numeric_limits<int32_t>::min(), std::numeric_limits<int32_t>::max());
+			return type::FromRaw(static_cast<int32_t>(value));
+		}
 	}
 
 
@@ -134,6 +184,8 @@ namespace MathUtilities {
 	type Extrapolation(type x0, type y0, type x1, type y1, type x2) {
 		if constexpr (std::is_integral_v<type>) {
 			return Detail::LinearIntegral<type>(x0, y0, x1, y1, x2);
+		} else if constexpr (Detail::RawFixedPoint<type>) {
+			return Detail::LinearRounded<type>(x0, y0, x1, y1, x2);
 		} else {
 			return y0 + (((x2 - x0) * (y1 - y0)) / (x1 - x0));
 		}
@@ -144,6 +196,8 @@ namespace MathUtilities {
 	type Interpolation(type x0, type y0, type x1, type y1, type x2) {
 		if constexpr (std::is_integral_v<type>) {
 			return Detail::LinearIntegral<type>(x0, y0, x1, y1, x2);
+		} else if constexpr (Detail::RawFixedPoint<type>) {
+			return Detail::LinearRounded<type>(x0, y0, x1, y1, x2);
 		} else {
 			return (((x2 - x0) * (y1 - y0)) / (x1 - x0)) + y0;
 		}
