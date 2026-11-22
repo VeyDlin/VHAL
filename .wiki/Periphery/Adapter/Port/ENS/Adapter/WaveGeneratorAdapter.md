@@ -72,6 +72,8 @@ struct InterruptEvent {
 
 Replace the handler with `SetOnInterrupt(handler)` while the interrupt may run. See [Changing a callback while its interrupt may run](../../../IAdapter.md#changing-a-callback-while-its-interrupt-may-run).
 
+`onInterrupt` runs only while `EnableInterrupt(true)` is in effect. A flag raised while the interrupt is disabled is cleared without a call, and the clear never sets the enable bit.
+
 ## BSP Configuration Example
 
 ```cpp

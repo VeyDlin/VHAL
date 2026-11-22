@@ -129,6 +129,69 @@ void TestInterruptAndEventKinds() {
 }
 
 
+// A pin that the port does not gate itself (ESP32 and ENS001) gets its callback from the base handler, and only in an
+// interrupt mode. The state the callback receives is the pin state.
+int irqCalls = 0;
+bool irqLevel = false;
+
+
+class IrqGpio : public Base {
+public:
+	explicit IrqGpio(FakePort *gpioPort) : Base(gpioPort, 3, false) { }
+
+	void SetMode(Mode mode) {
+		parameters.mode = mode;
+	}
+
+
+protected:
+	ResultStatus Initialization() override {
+		return ResultStatus::ok;
+	}
+
+
+	bool GetPinState() override {
+		return true;
+	}
+
+
+	void SetPinState(bool) override { }
+
+	void TogglePinState() override { }
+};
+
+
+void TestIrqHandlerServesInterruptModesOnly() {
+	FakePort port;
+	IrqGpio gpio(&port);
+	gpio.onInterrupt = [](bool state) {
+		irqCalls++;
+		irqLevel = state;
+	};
+
+	Mode notInterrupt[] = {
+		Mode::Input, Mode::Output, Mode::OpenDrain, Mode::EventRising, Mode::EventFalling, Mode::EventRisingFalling,
+		Mode::Alternate, Mode::AlternateOpenDrain, Mode::Analog
+	};
+	for (Mode value : notInterrupt) {
+		gpio.SetMode(value);
+		irqCalls = 0;
+		gpio.IrqHandler();
+		GP_EQ(irqCalls, 0);
+	}
+
+	Mode interrupts[] = { Mode::InterruptRising, Mode::InterruptFalling, Mode::InterruptRisingFalling };
+	for (Mode value : interrupts) {
+		gpio.SetMode(value);
+		irqCalls = 0;
+		irqLevel = false;
+		gpio.IrqHandler();
+		GP_EQ(irqCalls, 1);
+		GP_EXPECT(irqLevel);
+	}
+}
+
+
 }
 
 
@@ -138,6 +201,7 @@ int main() {
 	TestInterruptAndEventKinds();
 	TestExtiLineTaking();
 	TestExtiLineRelease();
+	TestIrqHandlerServesInterruptModesOnly();
 
 	if (failureCount != 0) {
 		std::fprintf(stderr, "TestGPIOAdapter: %d check(s) failed\n", failureCount);

@@ -15,10 +15,17 @@ public:
 	GPIOAdapterG0(IO &io):GPIOAdapter(io) { }
 
 
-	// Serves only the EXTI line of this pin, and only while the pin is in an interrupt mode. G0 keeps the rising and the
-	// falling pending bits apart, so both are cleared before the user callback runs.
+	// Serves only the EXTI line of this pin. A line that the pin owns and that is unmasked (EXTI_IMR) raises the vector, so
+	// its pending bits are cleared here whatever the mode is; otherwise the vector would re-enter for ever. The callback
+	// runs only in an interrupt mode. A masked line or a line of another port keeps its pending bits, and the shared
+	// vector leaves them alone. ConfigureExti() clears the bits before it unmasks the line, so an edge from before that is
+	// never served. G0 keeps the rising and the falling pending bits apart, so both are cleared.
 	virtual inline void IrqHandler() override {
-		if((!LL_EXTI_IsActiveRisingFlag_0_31(pin) && !LL_EXTI_IsActiveFallingFlag_0_31(pin)) || !IsExtiOwned()) {
+		if(!IsExtiOwned() || LL_EXTI_IsEnabledIT_0_31(pin) == 0) {
+			return;
+		}
+
+		if(!LL_EXTI_IsActiveRisingFlag_0_31(pin) && !LL_EXTI_IsActiveFallingFlag_0_31(pin)) {
 			return;
 		}
 

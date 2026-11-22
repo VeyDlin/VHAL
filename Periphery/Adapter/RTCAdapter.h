@@ -12,7 +12,9 @@
 // protection, where the hardware has it, is handled inside the port.
 //
 // Interrupts: IrqHandler() serves the alarm and wakeup interrupts; the application calls it from each RTC vector it
-// enables (on STM32 the alarm and wakeup lines are separate vectors).
+// enables (on STM32 the alarm and wakeup lines are separate vectors). A port calls onAlarm and onWakeup only for a source
+// whose interrupt it has enabled. The F4 port clears a source's flag whether or not its interrupt is enabled. The G0 and G4
+// ports read the masked status, so a disabled source keeps its flag.
 template<typename HandleType>
 class RTCAdapter : public IAdapter {
 public:
@@ -197,6 +199,7 @@ protected:
 	virtual ResultStatus Initialization() = 0;
 
 
+	// Called by the port only after it has checked that the alarm's interrupt is enabled.
 	virtual inline void CallAlarm(uint8 alarmIndex) {
 		if (onAlarm != nullptr) {
 			onAlarm(alarmIndex);
@@ -204,6 +207,7 @@ protected:
 	}
 
 
+	// Called by the port only after it has checked that the wakeup interrupt is enabled.
 	virtual inline void CallWakeup() {
 		if (onWakeup != nullptr) {
 			onWakeup();

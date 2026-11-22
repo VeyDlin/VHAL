@@ -275,24 +275,38 @@ public:
 	// Runs in interrupt context. The callbacks (onAlarm, onWakeup) must only set a flag or post to a queue. They must not
 	// call SetDateTime, SetAlarm, SetWakeupTimer or the Disable* methods: those spin on RTC flags, and a nested
 	// LockRegisters() would drop the interrupted thread's remaining RTC writes.
+	// A flag is cleared whether or not its interrupt is enabled, so a disarmed source does not keep the vector firing. The
+	// callback runs only when the matching enable bit (ALRAIE, ALRBIE, WUTIE) is set.
 	virtual void IrqHandler() override {
-		// EXTI pending bits are cleared with the RTC flags; otherwise the line stays pending and the vector fires again.
+		// The EXTI pending bits are cleared before the flags are read and regardless of them. An application can disarm an
+		// alarm between the EXTI edge and this handler, which clears the flag; clearing the pending bit only for an active
+		// flag would then leave it latched and the vector would keep re-entering. An edge that arrives after the clear
+		// latches the pending bit again, and the next entry serves it.
+		LL_EXTI_ClearFlag_0_31(LL_EXTI_LINE_17);
+		LL_EXTI_ClearFlag_0_31(LL_EXTI_LINE_22);
+
 		if (LL_RTC_IsActiveFlag_ALRA(rtcHandle) != 0) {
 			LL_RTC_ClearFlag_ALRA(rtcHandle);
-			LL_EXTI_ClearFlag_0_31(LL_EXTI_LINE_17);
-			CallAlarm(0);
+
+			if (LL_RTC_IsEnabledIT_ALRA(rtcHandle) != 0) {
+				CallAlarm(0);
+			}
 		}
 
 		if (LL_RTC_IsActiveFlag_ALRB(rtcHandle) != 0) {
 			LL_RTC_ClearFlag_ALRB(rtcHandle);
-			LL_EXTI_ClearFlag_0_31(LL_EXTI_LINE_17);
-			CallAlarm(1);
+
+			if (LL_RTC_IsEnabledIT_ALRB(rtcHandle) != 0) {
+				CallAlarm(1);
+			}
 		}
 
 		if (LL_RTC_IsActiveFlag_WUT(rtcHandle) != 0) {
 			LL_RTC_ClearFlag_WUT(rtcHandle);
-			LL_EXTI_ClearFlag_0_31(LL_EXTI_LINE_22);
-			CallWakeup();
+
+			if (LL_RTC_IsEnabledIT_WUT(rtcHandle) != 0) {
+				CallWakeup();
+			}
 		}
 	}
 

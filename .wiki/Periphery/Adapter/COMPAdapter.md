@@ -66,6 +66,8 @@ struct Parameters {
 
 Replace a callback while its interrupt may run with its setter: `SetOnInterrupt(handler)`. See [Changing a callback while its interrupt may run](IAdapter.md#changing-a-callback-while-its-interrupt-may-run).
 
+`onInterrupt` runs only for an interrupt trigger mode that the adapter has accepted. The ENS001 device header defines no interrupt-enable field for the comparator control register, so a software flag gates the callback. `SetTriggerMode()` on ENS001 accepts only `None`, so the flag stays false and `onInterrupt` does not run on that port.
+
 ## BSP Configuration Example
 
 ```cpp

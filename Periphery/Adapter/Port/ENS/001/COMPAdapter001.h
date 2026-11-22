@@ -40,7 +40,14 @@ public:
 		: COMPAdapter(anac), instance(inst) {}
 
 
+	// The device header defines no interrupt-enable field for COMPx_CTRL, so a software flag gates the callback. The flag
+	// is set only for an accepted interrupt trigger mode (see SetTriggerMode). SetTriggerMode accepts only None, so the
+	// flag stays false and the callback does not run on this port.
 	void IrqHandler() override {
+		if (!interruptEnabled) {
+			return;
+		}
+
 		if (onInterrupt) {
 			onInterrupt(GetOutputLevel());
 		}
@@ -76,7 +83,7 @@ public:
 		return ResultStatus::ok;
 	}
 
-	ResultStatus SetInputHysteresis(InputHysteresisOption inputHysteresis) override {
+	ResultStatus SetInputHysteresis(InputHysteresisOption) override {
 		// ENS001 comparators do not support hysteresis
 		return ResultStatus::notSupported;
 	}
@@ -87,15 +94,18 @@ public:
 		return (polarity == OutputPolarity::NotInverted) ? ResultStatus::ok : ResultStatus::notSupported;
 	}
 
-	ResultStatus SetOutputBlankingSource(OutputBlankingSourceOption outputBlankingSource) override {
+	ResultStatus SetOutputBlankingSource(OutputBlankingSourceOption) override {
 		// ENS001 comparators do not support blanking
 		return ResultStatus::notSupported;
 	}
 
 	ResultStatus SetTriggerMode(TriggerMode triggerMode) override {
-		// ENS001 comparators do not have EXTI trigger support
+		// ENS001 comparators do not have EXTI trigger support, so only None is accepted. The interrupt flag follows the
+		// accepted mode: it is set only for an accepted interrupt mode, and cleared by None.
 		parameters.triggerMode = triggerMode;
-		return (triggerMode == TriggerMode::None) ? ResultStatus::ok : ResultStatus::notSupported;
+		bool accepted = (triggerMode == TriggerMode::None);
+		interruptEnabled = accepted && IsInterruptTrigger(triggerMode);
+		return accepted ? ResultStatus::ok : ResultStatus::notSupported;
 	}
 
 	// ENS001-specific: set VREF voltage (<6:4> in COMPx_CTRL)
@@ -137,6 +147,11 @@ protected:
 private:
 	Instance instance = Instance::Comparator0;
 	uint8 vrefVoltage = 0; // VREF voltage selection <6:4>, default 0 = 0.3V
+	bool interruptEnabled = false;
+
+	static constexpr bool IsInterruptTrigger(TriggerMode triggerMode) {
+		return (static_cast<uint8>(triggerMode) & TriggerModeFlags::Interrupt) != 0;
+	}
 
 	volatile uint32 &GetCtrlReg() {
 		return (instance == Instance::Comparator0)
@@ -144,7 +159,7 @@ private:
 			: compHandle->COMP1_CTRL;
 	}
 
-	volatile uint32 GetCtrlReg() const {
+	uint32 GetCtrlReg() const {
 		return (instance == Instance::Comparator0)
 			? compHandle->COMP0_CTRL
 			: compHandle->COMP1_CTRL;

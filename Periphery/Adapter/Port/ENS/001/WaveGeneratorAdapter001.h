@@ -65,10 +65,18 @@ public:
 			.readSecondAddr = static_cast<uint8>((intRead & CMSDK_WAVE_GEN_DRV_INT_READ_SECOND_ADDR_Msk) >> CMSDK_WAVE_GEN_DRV_INT_READ_SECOND_ADDR_Pos),
 		};
 
-		// Clear both interrupt flags
+		// Clear both interrupt flags. The write takes its enable bit from intRegShadow, the adapter's record of
+		// EnableInterrupt(), so clearing never sets an enable that the adapter has cleared. The flags are cleared even when
+		// the interrupt is disabled, so a flag raised while it is off does not keep the vector firing.
 		waveGenHandle->WAVE_GEN_DRV_INT_REG = intRegShadow
 			| CMSDK_WAVE_GEN_DRV_INT_FIRSTADDR_CLR_Msk
 			| CMSDK_WAVE_GEN_DRV_INT_SECONDADDR_CLR_Msk;
+
+		// The callback runs only while the adapter's interrupt is enabled. The shadow is the adapter's state, so this
+		// check does not depend on a read of the hardware register.
+		if ((intRegShadow & CMSDK_WAVE_GEN_DRV_INT_EN_Msk) == 0) {
+			return;
+		}
 
 		if (onInterrupt) {
 			onInterrupt(event);

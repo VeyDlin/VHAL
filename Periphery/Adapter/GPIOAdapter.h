@@ -158,10 +158,11 @@ public:
 
 
 
-	// Called from the EXTI vector of the pin. The STM32 ports override it: they call this only when their own line is
-	// pending, and clear the pending bit first.
+	// Called from the interrupt of the pin. The STM32 ports override it: they call this only for their own EXTI line,
+	// when that line is unmasked and the pin is in an interrupt mode. The check on the mode here covers the ports that
+	// do not override it (ESP32 and ENS001), so the callback never runs for a pin that is not in an interrupt mode.
 	virtual inline void IrqHandler() {
-		if(onInterrupt != nullptr) {
+		if(onInterrupt != nullptr && IsInterruptMode(parameters.mode)) {
 			onInterrupt(GetState());
 		}
 	}
