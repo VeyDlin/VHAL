@@ -157,7 +157,7 @@ All functions are free-standing (not methods) and work via ADL. This allows usin
 
 ### sin / cos
 
-Implementation via LUT (Look-Up Table) with linear interpolation. The table stores a quarter period in Q31, generated at compile time (`constexpr`).
+The argument is in radians, of any size. It becomes a binary angle first: a `uint32` phase where 2^32 is one turn. The uint32 wrap is the reduction, so the code has no `%` and no division. A quarter-wave table of Q31 values (`L + 1` entries, generated at compile time, in flash) gives sin and cos of the table point, and a second-order Taylor step from that point gives the value. The result is rounded to the nearest LSB.
 
 ```cpp
 iq24 angle(1.5708f);  // pi/2
@@ -166,9 +166,50 @@ iq24 s = sin(angle);  // ≈ 1.0
 iq24 c = cos(angle);  // ≈ 0.0
 ```
 
-Argument is in radians, any range. The argument is reduced to [0, 2π) with 32 fractional bits, so neither the reduction nor the table interpolation drops the low bits of the angle. The 2π constant is rounded to 32 fractional bits, which adds at most 2^-33 rad per full turn. Over the whole representable range of the format this stays below one LSB, so the result error is set by the LUT and the output resolution, for every `Q` from 1 to 30.
+**Radians to phase.** `phase = raw * 2^(32 - Q) / (2 pi)`, computed as `raw * M >> (Q + 2)` with `M = round(2^33 / pi) = 2734261102`. That is one 64-bit product. The rounding of `M` moves the phase by at most `2^(28 - Q)` units, and one unit is `2 pi / 2^32` rad, so the error is `2 pi / 16 = 0.393` LSB at every `Q`. The final shift adds half a unit more, which is about 0.012 LSB at Q24. The whole int32 range is covered, from `-128` to `128` rad at `Q24`.
 
-Precision depends on the LUT size (default is 256 points ≈ 14 bits). See [LUT Configuration](#lut-configuration).
+**Second-order step.** With `a` the table point and `t` the distance from it (below `2 pi / 1024` for the default table), `sin(a + t) = sin(a) (1 - t^2 / 2) + cos(a) (t - t^3 / 6)`. Both `sin(a)` and `cos(a)` come from the same quarter table: `cos(a) = sin(pi/2 - a)` is entry `L - index`. The next term, `t^4 / 24`, is below `2^-33` for the default table. Linear interpolation alone gives about 80 LSB at Q24, and this step removes that error.
+
+**Accuracy.** The error is in LSB of the result format and includes the final rounding, against `std::sin` and `std::cos` in double at the exact input. The default table (`LutSize` 256):
+
+| Q | Inputs | sin worst (LSB) | cos worst (LSB) |
+|---|---|---|---|
+| 16 | every raw value in [-4 pi, 4 pi] | 0.5001 | 0.5002 |
+| 16 | every raw value in the int32 range (step 7, sampled) | 0.7398 | 0.7400 |
+| 20 | step 7 over [-4 pi, 4 pi] | 0.5030 | 0.5031 |
+| 20 | every raw value in the int32 range (step 9, sampled) | 0.7408 | 0.7414 |
+| 24 | every raw value in [-4 pi, 4 pi] | 0.5617 | 0.5588 |
+| 24 | every raw value in the int32 range (step 5, sampled) | 0.7741 | 0.7773 |
+
+The worst errors come from the phase conversion and the rounding. The bound at Q24 over the whole int32 range is the sum of these terms: 0.393 LSB for the phase conversion, 0.012 LSB for its final shift, 0.5 LSB for the rounding to Q, and about 0.016 LSB for the Q30 truncation of the sum. That is 0.921 LSB, so the bound is 0.93 LSB, and the result is within 1 LSB at every raw value. Phases (`SinPhase`, `CosPhase`) have no conversion error, so they are at the rounding floor: 0.5000 LSB at Q16 and 0.5329 LSB at Q24 over the dense sweep. The `cos(x)` and `sin(x + pi/2)` identity holds within one LSB (the constant `pi/2` is rounded to Q, which moves the angle by up to half an LSB).
+
+The 1 LSB target holds up to Q24. Above it the error grows, because the phase unit is `2 pi / 2^32` rad: the radians path reaches about 1.07 LSB at Q27, 1.43 at Q28 and 3.14 at Q30 (worst of 20 million random raw values), and phases reach about 2.5 LSB at Q30.
+
+The test `.tool/sim/TestTrig.cpp` uses coarser steps than the table: step 1009 over the int32 range at Q16, step 7 at Q20 and step 97 at Q24 over [-4 pi, 4 pi]. Each of its bounds is the worst error of its sweep plus 0.02 LSB, rounded up to 0.01, except the Q24 [-4 pi, 4 pi] bound, which is the exhaustive run in the table plus the same margin.
+
+**Cost.** On a Cortex-M4 at `-O2`, with `-mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16`, `SinPhase<24>` is 36 instructions and `sin(iq24)` is 44, both with no call. On a Cortex-M0+ the 64-bit products become `__aeabi_lmul`: `SinPhase<24>` is 95 instructions with 7 calls, and `sin(iq24)` is 106 with 8. No target path calls `__aeabi_ldivmod`. The table is 1 KB of flash for `LutSize` 256.
+
+**Binary angles.** `SinPhase<Q>(uint32 phase)` and `CosPhase<Q>(uint32 phase)` take the phase directly, for code that keeps an integer angle (FOC, wave generators, oscillators). They return `IQ<Q>` with the default table size. `RadiansToPhase(double)` is a `constexpr` helper that converts an angle in radians to a phase, rounded to the nearest unit:
+
+```cpp
+constexpr uint32 quarterTurn = RadiansToPhase(3.14159265358979 / 2.0);  // 0x40000000
+
+iq24 wave = SinPhase<24>(phase);    // sin of the binary angle
+iq24 other = CosPhase<24>(phase);   // cos of the same angle
+```
+
+Each unit of phase is `2 pi / 2^32` rad, so a full turn is 2^32 units and wraps to 0. `RadiansToPhase` takes angles of any size: it takes the fraction of a turn in double, so its error is about 2^-53 of the turns (for example about 1e-5 turn at 1e12 rad). Beyond 2^52 turns, and for NaN and infinity, it returns 0.
+
+**Float: `FastSin` and `FastCos`.** An opt-in float sine and cosine without libm, in `Utilities/Math/IQMath/FastTrig.h`. The argument is reduced by `k pi/2` with a Cody-Waite split of `pi/2` into three parts, which keeps the reduction exact for `|x|` below about 2.5e4. A Taylor polynomial (degree 9 for sine, degree 10 for cosine) then gives the value on `[-pi/4, pi/4]`. Measured against `std::sin` in double on `[-1e4, 1e4]` (step 1e-3), the largest error is 8.5e-8. At multiples of `pi/2` it is 3e-8. On a Cortex-M4 at `-O2`, `FastSin` is 74 instructions and `FastCos` is 68 (static count, with the checks for NaN and for the argument range; 49 and 51 without them), with no call. `std::sin` stays the default; code opts in by calling `FastSin` and `FastCos`:
+
+```cpp
+#include <Utilities/Math/IQMath/FastTrig.h>
+
+float s = FastSin(theta);
+float c = FastCos(theta);
+```
+
+Domain: the error stays at the 8.5e-8 level up to about 2.5e4. Between 2.5e4 and 2.6e4 it rises to about 5e-7, and it keeps growing with `|x|`. Beyond about 1.6e6 the argument is clamped before the reduction, so the result stays in [-1, 1] but is not the sine of `x`. NaN and infinity give NaN.
 
 ### sqrt
 
@@ -311,15 +352,20 @@ SpeedPeriod<iq16> bad;     // error: constraints not satisfied (IQ<16> holds up 
 The second template parameter `LutSize` sets the sin/cos table size. Must be a power of two, >= 16:
 
 ```cpp
-// Default: 256 points — 1 KB ROM, precision ~14 bits
+// Default: 256 points — 1 KB ROM, sin and cos within 0.6 LSB at Q24 (measured over [-4 pi, 4 pi])
 using iq24 = IQ<24>;
 
-// Compact: 64 points — 256 bytes ROM, precision ~12 bits
+// Compact: 64 points — 256 bytes ROM, worst 0.78 LSB at Q24 over [-4 pi, 4 pi] (0.87 over the int32 range, sampled)
 using iq24_compact = IQ<24, 64>;
 
-// High-precision: 1024 points — 4 KB ROM, precision ~16 bits
+// High-precision: 1024 points — 4 KB ROM, worst 0.56 LSB at Q24 over [-4 pi, 4 pi], the same as 256 because the phase
+// conversion and the rounding set the error there
 using iq24_hq = IQ<24, 1024>;
 ```
+
+The table size matters for `sin` and `cos` only through the Taylor step (see [sin / cos](#sin--cos)). The float `FastSin` and `FastCos` have no table.
+
+Below 64 points the Taylor step leaves too much error. At Q24 over [-4 pi, 4 pi], 32 points give 4.5 LSB and 16 points give 65 LSB. The 1 LSB bound therefore needs `LutSize` >= 64. The `LutSize` check enforces only a power of two and at least 16, so a table of 16 to 32 points compiles and loses accuracy without a warning.
 
 Each `LutSize` creates its own table. If only one size is used in the project, only one table ends up in ROM.
 
