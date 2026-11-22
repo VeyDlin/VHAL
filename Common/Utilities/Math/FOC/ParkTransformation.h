@@ -3,6 +3,9 @@
 #include <cmath>
 
 
+// Rotation of alpha and beta by the angle (in turns) to d and q, and back. T is float or IQ<Q>.
+// Range: the angle is in turns (0..1). Each output is a sum of two products, so it reaches twice an input: IQ<Q> needs
+// the alpha and beta inputs below 2^(30 - Q) in magnitude (16384 at Q16, 64 at Q24) for the sums to hold.
 template<typename T = float>
 class ParkTransformation {
 public:

@@ -3,6 +3,9 @@
 #include <cmath>
 
 
+// Stationary-frame transform of three phase values to alpha and beta, and back. T is float or IQ<Q>.
+// Range: the phase inputs are per-unit values. beta = (a + 2 b) / sqrt(3) reaches three times an input, so IQ<Q> needs
+// inputs below 2^(29 - Q) in magnitude (8192 at Q16, 32 at Q24) for the intermediate sum to hold.
 template<typename T = float>
 class ClarkeTransformation {
 public:
@@ -48,8 +51,7 @@ public:
 
 
 	ClarkeTransformation& Resolve(CurrentsMode mode = CurrentsMode::C2) {
-		using std::sqrt;
-		static const T D1_SQRT3 = T(1) / sqrt(T(3));
+		constexpr T D1_SQRT3 = T(0.5773502691896258); // 1 / sqrt(3)
 
 		clarke.alpha = phase.a;
 
@@ -69,8 +71,7 @@ public:
 
 
 	ClarkeTransformation& ResolveInverse() {
-		using std::sqrt;
-		static const T SQRT3_D2 = sqrt(T(3)) / T(2);
+		constexpr T SQRT3_D2 = T(0.8660254037844386); // sqrt(3) / 2
 
 		phase.a = clarke.alpha;
 		phase.b = SQRT3_D2 * clarke.beta - T(0.5) * clarke.alpha;

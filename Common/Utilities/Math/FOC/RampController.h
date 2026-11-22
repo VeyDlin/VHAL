@@ -4,6 +4,10 @@
 #include <cmath>
 
 
+// Moves a position toward a target by one resolution step every delayMax calls. T is float or IQ<Q>.
+// Range: the position, target and resolution are per-unit values below 2^(31 - Q) in magnitude.
+// The default resolution is 2^-15. For IQ<Q> it is 2^(Q - 15) LSB: it rounds to 0 LSB at Q13 and below, so the ramp would
+// not move, and it is 2 LSB at Q16, where the step is coarse. Choose a resolution of at least a few LSB of T.
 template<typename T = float>
 class RampController {
 private:
@@ -16,7 +20,7 @@ public:
     	uint32 delayMax = 5;
     	T amplitudeMin = -1;
     	T amplitudeMax = 1;
-		T resolution = T(0.0000305);
+		T resolution = T(1.0 / 32768.0);
     } parameters;
 
 

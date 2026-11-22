@@ -6,8 +6,13 @@
 
 // This module determines the Bemf zero crossing points of a 3-ph BLDC motor based on motor phase voltage measurements 
 // and then generates the commutation trigger points for the 3-ph power inverter switches
+// The voltages are T (float or IQ<Q>); the counters are integers and do not depend on T.
+// Range: the phase voltages are per-unit values below 2^(31 - Q) in magnitude. The only arithmetic on them is sums and
+// products by 3, so the IQ decisions match float when the inputs are in range. The nested types depend on T: name them
+// as CommutationTrigger<T>::Input (CommutationTrigger::Input does not compile, the template argument is required).
+template<typename T = float>
 class CommutationTrigger {
-private:   
+private:
 	uint32 noiseWindowCounter = 0; 
 	uint32 timestamp = 0;  			
 	uint32 samplingPeriodsDelay = 0; // Time delay in terms of number of sampling time periods 
@@ -20,9 +25,9 @@ private:
 
 public:
 	struct Input {
-		float Va; // Motor phase a voltage referenced to GND 
-		float Vb; // Motor phase b voltage referenced to GND 
-		float Vc; // Motor phase c voltage referenced to GND
+		T Va; // Motor phase a voltage referenced to GND
+		T Vb; // Motor phase b voltage referenced to GND
+		T Vc; // Motor phase c voltage referenced to GND
 		uint32 commutationPointer; // Commutation state pointer input (0, 1, 2, 3, 4, 5)
 		uint32 virtualTimer; // A virtual timer used for commutation delay angle calculation
 	};
@@ -76,10 +81,10 @@ public:
 		zeroCrossingTrigger = false;
 
 		// Neutral voltage calculation (3 * motor Neutral voltage)								
-		float neutral = input.Va + input.Vb + input.Vc;
+		T neutral = input.Va + input.Vb + input.Vc;
 
 		// 3 * Back EMF = 3 * (vx = vn), x = a, b, c
-		float bemf;
+		T bemf;
 
 		switch (input.commutationPointer) {
 			case 0: // A->B, de-energized phase = C	

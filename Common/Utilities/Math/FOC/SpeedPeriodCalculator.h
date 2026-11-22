@@ -1,9 +1,20 @@
 #pragma once
 #include <VHAL.h>
+#include <Utilities/Math/NumberRange.h>
+#include <type_traits>
 
 
-template<typename T = float>
+// Speed from the timer counts between two events. The counts are timer values up to 0x7FFF (the default
+// maximumOutput), so T must hold 32767: float, or IQ<Q> with Q <= 16. IQ<17> and above fail to compile.
+// The speed is in T. The rpm is baseRpm * speed: a float rpm, or for IQ an int32 rpm computed from the raw values in 64
+// bits and truncated toward zero, so a Q16 rpm above 32767 does not saturate (46800 rpm at 26 pu is an example).
+template<typename T = float> requires RangeAtLeast<T, 32767.0>
 class SpeedPeriodCalculator {
+public:
+    // The rpm type: T for float, int32 for IQ.
+    using RpmType = std::conditional_t<std::is_floating_point_v<T>, T, int32>;
+
+
 private:
 	T newTimeStamp = 0;  		// New 'Timestamp' corresponding to a capture event
     T oldTimeStamp = 0;  		// Old 'Timestamp' corresponding to a capture event
@@ -27,7 +38,7 @@ public:
 
     struct Out {
     	T speed = 0;         	// speed in per-unit
-    	T speedRpm = 0;      	// speed in r.p.m.
+    	RpmType speedRpm = 0;  	// speed in r.p.m. (T for float, int32 for IQ)
     } out;
 
 
@@ -80,7 +91,15 @@ public:
 		}
 
 		out.speed = parameters.speedScaler / in.eventPeriod;
-		out.speedRpm = parameters.baseRpm * out.speed;
+
+		// The rpm product is taken in 64 bits for IQ (raw * raw has 2Q fractional bits); the division by 2^(2Q) truncates
+		// toward zero. The float product is unchanged.
+		if constexpr (std::is_floating_point_v<T>) {
+			out.speedRpm = parameters.baseRpm * out.speed;
+		} else {
+			int64 product = static_cast<int64>(parameters.baseRpm.raw) * static_cast<int64>(out.speed.raw);
+			out.speedRpm = static_cast<int32>(product / (int64(1) << (2 * T::q)));
+		}
 
 		return *this;
 	}

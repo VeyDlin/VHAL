@@ -3,6 +3,9 @@
 #include <cmath>
 
 
+// A ramp of per-unit values, one step of rampFrequency per call, between offset and gain. T is float or IQ<Q>.
+// Range: rampFrequency, gain and offset are per-unit values. The output is angle * gain + offset with the angle within
+// outputMin and outputMax, so |gain| + |offset| must be below 2^(31 - Q) in magnitude.
 template<typename T = float>
 class RampGenerator {
 private:

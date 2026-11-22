@@ -3,6 +3,9 @@
 #include <cmath>
 
 
+// Phase voltages from the modulation voltages and the DC bus voltage (per unit). T is float or IQ<Q>.
+// Range: the sum 2a - b - c reaches four times a modulation input, so IQ<Q> needs the modulation inputs below 2^(29 - Q)
+// in magnitude (8192 at Q16, 32 at Q24). The phase outputs reach 4/3 of the dc bus voltage, which must be below 2^(31 - Q).
 template<typename T = float>
 class VoltageCalculator {
 private:
@@ -54,8 +57,7 @@ public:
 		}
 
 		// Voltage transformation (a, b, c)  ->  (Alpha, Beta)
-		using std::sqrt;
-		static const T SQRT_1D3 = sqrt(T(1) / T(3));
+		constexpr T SQRT_1D3 = T(0.5773502691896258); // sqrt(1 / 3)
 		out.alpha = out.phaseA;
 		out.beta = (out.phaseA + (out.phaseB * T(2))) * SQRT_1D3;
 

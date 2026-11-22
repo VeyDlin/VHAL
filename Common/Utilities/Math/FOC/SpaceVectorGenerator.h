@@ -4,6 +4,9 @@
 #include <algorithm>
 
 
+// Space vector PWM duty cycles from the alpha and beta voltages. T is float or IQ<Q>.
+// Range: the alpha and beta inputs are per-unit values. The intermediate sums reach about 2.4 times an input, so IQ<Q>
+// needs inputs below 2^(30 - Q) in magnitude (16384 at Q16, 64 at Q24) for the sums to hold.
 template<typename T = float>
 class SpaceVectorGenerator {
 private:
@@ -30,8 +33,7 @@ public:
 
 
 	SpaceVectorGenerator& Resolve() {
-		using std::sqrt;
-		static const T SQRT3_D2 = sqrt(T(3)) / T(2);
+		constexpr T SQRT3_D2 = T(0.8660254037844386); // sqrt(3) / 2
 
 		T tmp1 = in.beta;
 		T tmp2 = (in.beta / T(2)) + (SQRT3_D2 * in.alpha);
@@ -70,10 +72,9 @@ public:
 
 
 	SpaceVectorGenerator& ResolveCommonMode() {
-		using std::sqrt;
 		using std::max;
 		using std::min;
-		static const T SQRT3_D2 = sqrt(T(3)) / T(2);
+		constexpr T SQRT3_D2 = T(0.8660254037844386); // sqrt(3) / 2
 
 		T Va = in.alpha; // Inv Clarke
 		T Vb = -(in.alpha / T(2)) + (SQRT3_D2 * in.beta);
@@ -93,8 +94,7 @@ public:
 
 
 	SpaceVectorGenerator& ResolveDiscontinuousPwmMode() {
-		using std::sqrt;
-		static const T SQRT3_D2 = sqrt(T(3)) / T(2);
+		constexpr T SQRT3_D2 = T(0.8660254037844386); // sqrt(3) / 2
 
 		T Va = in.beta;
 		T Vb = (in.beta / T(2)) + (SQRT3_D2 * in.alpha);

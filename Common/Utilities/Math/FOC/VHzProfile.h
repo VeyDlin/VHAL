@@ -3,6 +3,10 @@
 #include <cmath>
 
 
+// Volts per hertz profile: voltMin below lowFreq, a straight line up to highFreq and voltMax above. T is float or IQ<Q>.
+// Range: the frequencies and voltages are per-unit values below 2^(31 - Q) in magnitude, and the slope
+// (voltMax - voltMin) / (highFreq - lowFreq) must also fit in that range. There is no fixed range: the slope depends on
+// the parameters, so the user checks it for the parameters in use.
 template<typename T = float>
 class VHzProfile {
 private:
@@ -15,7 +19,6 @@ public:
 	struct {
 		T lowFreq = 0;   // Low Frequency (pu)
 		T highFreq = 0;  // High Frequency at rated voltage (pu)
-		T freqMax = 0;   // Maximum Frequency (pu); not used by Resolve(), the output is voltMax above highFreq
 		T voltMax = 0;   // Rated voltage (pu)
 		T voltMin = 0;   // Voltage at low Frequency range (pu)
 	} parameters;

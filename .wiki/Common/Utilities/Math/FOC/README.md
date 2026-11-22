@@ -21,13 +21,55 @@ Rewritten from TI C28x DMC Library (IQmath macros) into modern C++ header-only s
 
 ## Quick Start
 
-All blocks are header-only, depending only on `<cmath>`, `<algorithm>` and `VHAL.h` (types `uint8`, `int32`, etc.).
+All blocks are header-only. They use `VHAL.h` (types `uint8`, `int32`, etc.), the standard `<cmath>`, `<algorithm>`, `<limits>`, `<type_traits>` and `<concepts>`, and, for the blocks with a range requirement, `Utilities/Math/NumberRange.h` (which pulls in `IQ.h`).
 
 Common API pattern:
 ```cpp
 block.Set(...)     // Set inputs
      .Resolve();   // Compute
 auto result = block.Get();  // Get result
+```
+
+### Number types and ranges
+
+Every block that does arithmetic is a template on its number type `T`: `float` (the default) or `IQ<Q>` from `Utilities/Math/IQMath/IQ.h`. An `IQ<Q>` holds magnitudes below `2^(31 - Q)`: IQ16 up to 32768, IQ20 up to 2048, IQ22 up to 512 and IQ24 up to 128. The table gives, per block, the types it supports and the limit it has. The error figures are measured against the same block in double over 3000 steps of the reference motor (Rs 2, Rr 1.5, Ls = Lr 0.2, Lm 0.19, Ts 100 us, fb 50 Hz, per-unit values of about 0.3 to 0.9), so they show what each Q gives on that scenario.
+
+| Block | Types | Range or Q limit |
+|---|---|---|
+| `Impulse` | none (integer period) | the period is a `uint32` count of calls, in the constructor and in `SetPeriod`; a float argument does not compile (`use of deleted function 'Impulse::Impulse(F) [with F = float]'`) |
+| `CommutationTrigger<T>` | `float`, `IQ<Q>` for the voltages | the counters are integers; the decisions are signs, and IQ matches the double instance exactly. The nested types depend on `T`: write `CommutationTrigger<T>::Input`, not `CommutationTrigger::Input` (does not compile). `CommutationTrigger cmtn;` uses the float default |
+| `ClarkeTransformation<T>` | `float`, `IQ<Q>` | max error against the formulas 1.7e-5 at Q16, 1.3e-6 at Q20 and 7e-8 at Q24 |
+| `ParkTransformation<T>` | `float`, `IQ<Q>` | 2.3e-5 at Q16, 1.9e-6 at Q20 and 1.2e-7 at Q24. Sine and cosine take radians |
+| `VoltageCalculator<T>` | `float`, `IQ<Q>` | 2e-5 at Q16, 9e-7 at Q20 and 9e-8 at Q24 |
+| `SpaceVectorGenerator<T>` | `float`, `IQ<Q>` | 3e-5 at Q16, 2e-6 at Q20 and 1e-7 at Q24 (SVPWM output) |
+| `SVGenMF<T>` | `float`, `IQ<Q>` | needs Q24 for 1e-4 (5.6e-5) and Q20 or higher in general: 1.8e-3 at Q20, 1.4e-2 at Q16. The step `freq * freqMax` is rounded each call and the bias adds up over the calls |
+| `RampGenerator<T>` | `float`, `IQ<Q>` | matches the double instance on the same quantized step (error 0 at Q16 with step 2^-7, Q20 and Q24 with 0.01). The step product is rounded each call, so a step that is not a multiple of the LSB drifts |
+| `RampController<T>` | `float`, `IQ<Q>` | the default resolution 2^-15 is 2^(Q - 15) LSB: 0 at Q13 and below, 2 LSB at Q16. Use a resolution of several LSB |
+| `VHzProfile<T>` | `float`, `IQ<Q>` | no fixed range; within 1e-4 of the formulas at Q16 and Q24 (the slope is a quotient of the parameters) |
+| `CurrentModel<T>` | `float`, `IQ<Q>` | `Kr = Ts / Tr` sets the Q: `Kr * 2^Q` LSBs (49 at Q16, 786 at Q20, 12583 at Q24 for Kr 7.5e-4). Setup values are not rounded to the Q (see below). Angle error 2.4e-2 turn at Q16, 7e-4 at Q20, 2e-5 at Q24 over 3000 steps |
+| `ACIFluxEstimator<T>` | `float`, `IQ<Q>` | `requires` 2π in range, so Q 28 or lower (checked at compile time). The setup values are float for IQ, so a physical `Vb` (311 V) is held at IQ24. Only `Ib / Vb` enters the constants, so the per-sample currents and voltages are per-unit of `Ib` and `Vb`. Q20 keeps the angle within 1e-4 turn and the fluxes within 1e-4 |
+| `ACISpeedEstimator<T>` | `float`, `IQ<Q>` | `K2 = 1 / (fb Ts)` must be below `2^(31 - Q)`: 200 (fb 50 Hz, Ts 100 us) fits up to Q23 (Q22 is what the tests run), so IQ24 needs fb above 78 Hz. The rpm is an int32 with a 64-bit product for IQ. `Ts` and the other setup values are float for IQ, not rounded to the Q, so the constants do not depend on the Q of `Ts`. The Q still bounds `K2` and the speed it reads back |
+| `SlidingModeObserver<T>` | `float`, `IQ<Q>` | `requires` 2π in range, so Q 28 or lower. Only `Vb / Ib` enters, so the per-sample currents and voltages are per-unit of `Ib` and `Vb`. `1 - exp(-Rs Ts / Ls)` is computed as `-expm1` in float, so Q16 gives 1.4e-4 turn and Q24 2e-6 over 3000 steps |
+| `SpeedCalculator<T>` | `float`, `IQ<Q>` | `K1 = 1 / (fb Ts)` must be below `2^(31 - Q)`: 200 fits up to Q23 (Q22 is what the tests run). `ComputeK1` does not check the range: a K1 at or above the limit saturates silently. Use `SpeedCalculator<T>::ComputeK1(fb, Ts)`, which takes `SetupReal<T>` values, so `Ts` is not rounded to the Q. The rpm is an int32 with a 64-bit product for IQ |
+| `SpeedPeriodCalculator<T>` | `float`, `IQ<Q>` with Q 16 or lower | `requires` 32767 in range: the timer counts go up to 0x7FFF. IQ17 and above fail to compile. The speed is in `T`; the rpm is `float` for float and `int32` for IQ, from a 64-bit product, truncated toward zero. For IQ16 an rpm above 32767 is returned exactly (46800 rpm at 26 pu, from a 10-count period) |
+| `Resolver`, `CounterTrigger`, `Ramp2Controller`, `Ramp3Controller` | integers only | not templates; no change |
+
+**Range statements.** Each block header states its input range. The per-unit inputs must be below `2^(31 - Q)` in magnitude, and some blocks need less because an intermediate sum is larger than an input (Clarke below `2^(29 - Q)`, Park and SVPWM below `2^(30 - Q)`, VoltageCalculator modulation below `2^(29 - Q)`). The `RangeAtLeast` constraint is what the compiler checks. The other limits are documented in the headers.
+
+**Setup values are float for IQ.** The setup inputs (`MotorParameters` for the constants blocks, and the `Ts` and `fb` of `ComputeK1`) are `SetupReal<T>`: `double` for `double`, and `float` for `float` and every `IQ<Q>`. They are read only when a constant is computed, so they are not rounded to the Q: `Ts = 100 us` is the float 100 us at any Q, and a physical `Vb` of 311 V fits IQ24. The constants are computed in `SetupReal<T>` and each is rounded to `T` once. Per-sample inputs stay `T`, so the Q still limits them. A constant from the setup carries the float error: about 1e-7 relative, and about 5e-7 where the formula subtracts close values (`Ls Lr - Lm^2` in `ACIFluxEstimator`). Measured against double, every constant of the reference motor is within one LSB up to Q24 (the worst is 0.98 LSB, `ACIFluxEstimator` K8 at Q24); a constant with `k * 2^Q` above about 2^21 can be a few LSB off, which is still below the speed resolution for the speed constants.
+
+**Error figures.** The errors in this table are for the survey scenario of each block's host test (3000 steps, the motor values in the test). They are not bounds for other motors or step counts.
+
+**Choosing Q.** A constant `k` is rounded to half an LSB, so its relative error is `0.5 / (k * 2^Q)`. Choose the Q from the smallest constant the block uses (for the estimators it is `Kr` or `1 / (fb Ts)` in the table) so that `k * 2^Q` is at least about 1000. The integrating blocks (the flux, angle and speed estimators, SVGenMF) add a rounding bias on every call, so a long run needs a larger Q than a single call does. The ranges in the table are checked at compile time for `SpeedPeriodCalculator`; the other limits depend on the motor and the sampling period, so they are up to the user.
+
+```cpp
+#include <Utilities/Math/IQMath/IQMath.h>
+#include <Utilities/Math/FOC/SpeedPeriodCalculator.h>
+
+SpeedPeriodCalculator<IQ<16>> speedPr;   // timer counts fit in IQ16
+// SpeedPeriodCalculator<IQ<24>> speedPr;
+//   error: template constraint failure for 'template<class T> requires RangeAtLeast<T, 3.2767e+4> class SpeedPeriodCalculator'
+//   note: the expression '(NumberRange<T>::maxAbs) >= Need [with T = IQ<24, 256>; Need = 3.2767e+4]' evaluated to 'false'
 ```
 
 
@@ -42,7 +84,7 @@ auto result = block.Get();  // Get result
 ```cpp
 #include <Utilities/Math/FOC/Impulse.h>
 
-Impulse impulse(1000);  // Period = 1000 calls
+Impulse impulse(1000);  // Period = 1000 calls, a uint32 count; impulse.SetPeriod(500) takes a uint32 too
 
 // In timer interrupt:
 impulse.Resolve();
@@ -233,9 +275,10 @@ SpeedCalculator<float> speedCalc;
 speedCalc.baseSpeedRpm = 3600;  // Base speed for normalization
 
 // Differentiator and LPF coefficients
-// K1 = 1 / (fb * Ts), where fb — base frequency, Ts — sampling period
+// K1 = 1 / (fb * Ts), where fb — base frequency, Ts — sampling period.
+// ComputeK1 works in SetupReal<T> and rounds once; for IQ<Q> K1 must be below 2^(31 - Q)
+speedCalc.K1 = SpeedCalculator<float>::ComputeK1(60.0, 0.001);  // fb=60Hz, Ts=1ms
 // K2, K3 — LPF coefficients: K2 + K3 = 1
-speedCalc.K1 = 1.0f / (60.0f * 0.001f);  // fb=60Hz, Ts=1ms
 speedCalc.K2 = 0.95f;   // Previous value weight (higher = stronger filtering)
 speedCalc.K3 = 0.05f;   // New value weight
 
@@ -254,7 +297,7 @@ int   speedRPM = speedCalc.Get().speedRpm;   // Speed in RPM
 SpeedPeriodCalculator<float> speedPr(
     100.0f,  // speedScaler — scaler converting 1/N cycles to speed
     1800.0f, // baseRpm — scaler converting per-unit speed to rpm
-    0x7FFF,  // maximumOutput — output clamp (per-unit)
+    0x7FFF,  // maximumOutput — timer count range (0x7FFF); T must hold 32767, so IQ<Q> needs Q 16 or lower
     SpeedPeriodCalculator<float>::InputSelect::EventPeriod
 );
 
@@ -269,6 +312,8 @@ float speedRPM = speedPr.Get().speedRpm;
 ### 5. Observers and Estimators
 
 #### SlidingModeObserver — sensorless PMSM
+
+The base values below are physical (volts and amps). The setup values are float for `IQ<Q>` too, so the same physical values work with any Q. Only `Vb / Ib` enters the constants, so the per-sample currents and voltages must be per-unit of `Ib` and `Vb`.
 
 ```cpp
 #include <Utilities/Math/FOC/SlidingModeObserver.h>
@@ -330,7 +375,6 @@ VHzProfile<float> vhz;
 vhz.parameters = {
     .lowFreq  = 10.0f,   // Lower frequency boundary [pu]
     .highFreq = 50.0f,   // Frequency at rated voltage [pu]
-    .freqMax  = 60.0f,   // Kept for the layout; Resolve() does not use it [pu]
     .voltMax  = 1.0f,    // Voltage at highFreq [pu]
     .voltMin  = 0.1f     // Voltage at lowFreq [pu]
 };
@@ -340,7 +384,7 @@ vhz.Set(currentFrequency).Resolve();
 float voltage = vhz.Get().voltage;
 // Below lowFreq → voltMin (boost)
 // lowFreq..highFreq → linear interpolation
-// Above highFreq → voltMax (constant). freqMax is not used by Resolve()
+// Above highFreq → voltMax (constant). Resolve() reads only the four fields above.
 ```
 
 #### Resolver — resolver → angle
@@ -366,6 +410,8 @@ int32 mechAngle = resolver.Get().mechTheta;  // Mechanical angle (Q24)
 ### 6. ACI Blocks
 
 #### ACIFluxEstimator — flux estimation
+
+The base values below are physical (amps and volts). The setup values are float for `IQ<Q>` too, so a physical `Vb` of 200 V works with any Q. Only `Ib / Vb` enters the constants, so the per-sample currents and voltages must be per-unit of `Ib` and `Vb`.
 
 ```cpp
 #include <Utilities/Math/FOC/ACIFluxEstimator.h>
@@ -426,7 +472,7 @@ int   speedRPM = speedEst.Get().speedRpm;   // Speed in RPM
 ```cpp
 #include <Utilities/Math/FOC/CommutationTrigger.h>
 
-CommutationTrigger cmtn;
+CommutationTrigger<float> cmtn;   // the voltages are T; CommutationTrigger<IQ<20>> takes IQ voltages
 
 cmtn.SetWindowsNoise({
     .delta = 2,
@@ -782,7 +828,6 @@ void VHz_Init() {
     vhz.parameters = {
         .lowFreq  = 0.15f,   // 15% of base (boost region)
         .highFreq = 0.85f,   // 85% of base (rated voltage)
-        .freqMax  = 1.0f,    // 100% (maximum frequency)
         .voltMax  = 1.0f,    // Rated voltage (pu)
         .voltMin  = 0.1f     // Boost voltage at low frequency (pu)
     };
