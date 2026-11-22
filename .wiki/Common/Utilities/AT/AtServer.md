@@ -10,6 +10,7 @@
 - [Handlers](#handlers)
 - [Feed and Process](#feed-and-process)
 - [Lines and Results](#lines-and-results)
+- [Failure Codes](#failure-codes)
 - [Info Lines](#info-lines)
 - [URCs](#urcs)
 - [Limits](#limits)
@@ -99,6 +100,25 @@ void MainLoop() {
 - A declared command is answered with its handler's status. A test form writes the range of each write argument: the declared range of an integer, which is the range of its type unless `.Range()` sets one, such as `(-128-127)`; `(0,1)` for a bool; `(0-8)` for a string.
 
 Argument fields are read with the value grammar of [AtClient](AtClient.md). A field that does not parse, a missing required field, or a form the command does not declare gives ERROR. An integer field outside its argument's range gives ERROR too, the same as a field that overflows its type.
+
+---
+
+## Failure Codes
+
+A handler that returns an error with `failureCode` set, for a command declared with `.FailureCode("+CWJAP")`, writes its code line before the result. The line is the prefix, a colon and the code. With `failureCode` 2 the server writes:
+
+```
++CWJAP:2
+
+ERROR
+```
+
+The code line ends with CRLF, and the result starts with its own CRLF. So the code line is followed by a blank line. This is the framing every info line gets from the server (see Info Lines), not something the ESP-AT reference shows: the reference gives `+CWJAP:<error code>` and then `ERROR` with no blank. The blank is checked against the real module on the bench, not assumed.
+
+- Only an error writes the code line, and only when the code is not zero. A handler that returns `OK` writes no code line, even when it sets `failureCode`.
+- A command with no `.FailureCode()` never writes a code line.
+- Quiet mode (`ATQ1`) stops the result, and not the code line, since the code line is an info line.
+- A code line is written before the result of its request. A `+CME ERROR` result that comes with a code is written after the code line too.
 
 ---
 

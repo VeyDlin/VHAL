@@ -52,6 +52,7 @@
 //   - a row's fields are checked by AtRow (AtRow.h): a member of the row type, a grammar type, unique names, the optional fields last, and
 //     a RawString last;
 //   - a timeout is above zero, and a string has a capacity above zero;
+//   - FailureCode() is given once per command, its prefix is not empty, and the prefix is neither a URC prefix nor a final line;
 //   - Defaults(), Modules() of one tag and Dialect() are given once; Modules() takes a module tag only;
 //   - Prompt() is for a write form, given once, and a prompt command has a declared final; a prompt command and a Data() URC need
 //     AtDataMode in the modules (AtDataMode.h);
@@ -695,6 +696,115 @@ constexpr bool AtCheckUrcs(
 }
 
 
+// The failure code prefix of each command, in the order of the commands. An empty prefix means the command has no failure code line. The
+// table is built only for the checks and for the set's table, so a set with no failure code has no table in its code.
+template<std::size_t Count, typename Pack>
+constexpr std::array<std::string_view, Count> AtFailureCodesOf(const Pack& pack) {
+	std::array<std::string_view, Count> prefixes{};
+	std::size_t index = 0;
+
+	CommandPackForEach(pack, [&]<typename Item>(const Item& item) {
+		using ItemType = std::remove_cvref_t<decltype(item)>;
+
+		if constexpr (AtIsCommandItem<ItemType>) {
+			prefixes[index] = item.failureCodePrefix;
+			index++;
+		}
+	});
+
+	return prefixes;
+}
+
+
+// A command with a failure code line, and the prefix of that line.
+struct AtFailureCodeEntry {
+	uint16 command = 0;
+	std::string_view prefix;
+};
+
+
+// The number of commands with a failure code prefix. A set with none has no code for the failure code line.
+template<std::size_t Count>
+constexpr std::size_t AtFailureCodeCountOf(const std::array<std::string_view, Count>& prefixes) {
+	std::size_t count = 0;
+
+	for (std::string_view prefix : prefixes) {
+		if (!prefix.empty()) {
+			count++;
+		}
+	}
+
+	return count;
+}
+
+
+// The run-time table of the failure code prefixes: one entry for each command that has one, so a set pays only for those commands.
+template<std::size_t Count, std::size_t Source>
+constexpr std::array<AtFailureCodeEntry, Count> AtFailureCodeTableOf(const std::array<std::string_view, Source>& prefixes) {
+	std::array<AtFailureCodeEntry, Count> table{};
+	std::size_t index = 0;
+
+	for (std::size_t command = 0; command < Source; command++) {
+		if (!prefixes[command].empty()) {
+			table[index].command = static_cast<uint16>(command);
+			table[index].prefix = prefixes[command];
+			index++;
+		}
+	}
+
+	return table;
+}
+
+
+// The failure code prefix of a command in the run-time table, or an empty text when the command has none.
+template<std::size_t Count>
+constexpr std::string_view AtFailureCodePrefixOf(const std::array<AtFailureCodeEntry, Count>& table, std::size_t command) {
+	for (const AtFailureCodeEntry& entry : table) {
+		if (entry.command == command) {
+			return entry.prefix;
+		}
+	}
+
+	return {};
+}
+
+
+// The failure code checks of a set: the prefix of a command is not the prefix of a URC, and it is not the text of a final line of the set.
+// A failure code line that matched a URC or a final would be taken as one of those.
+template<std::size_t CommandCount, std::size_t UrcCount>
+constexpr bool AtCheckFailureCodes(
+	const std::array<std::string_view, CommandCount>& prefixes,
+	const std::array<AtCommandInfo, CommandCount>& commands,
+	const std::array<std::string_view, UrcCount>& urcNames)
+{
+	for (std::string_view prefix : prefixes) {
+		if (prefix.empty()) {
+			continue;
+		}
+
+		for (std::string_view urc : urcNames) {
+			AtRequire<"a failure code prefix is a URC prefix">(prefix != urc);
+		}
+
+		for (std::string_view standard : AtStandardFinals) {
+			AtRequire<"a failure code prefix is a final line of the set">(prefix != standard);
+		}
+
+		for (const AtCommandInfo& other : commands) {
+			for (std::size_t index = 0; index < other.options.finalCount; index++) {
+				AtRequire<"a failure code prefix is a final line of the set">(prefix != other.options.finals[index]);
+			}
+
+			for (std::size_t index = 0; index < other.options.failureCount; index++) {
+				AtRequire<"a failure code prefix is a final line of the set">(prefix != other.options.failures[index]);
+			}
+		}
+	}
+
+	return true;
+}
+
+
 // A Data() argument is taken as it is: it has no value, so it is not normalized into an AtArgument.
 constexpr AtDataDecl AtNormalize(const AtDataDecl& declaration) {
 	return declaration;
@@ -1064,6 +1174,19 @@ public:
 	}
 
 
+	// The failure code line of the open command: the prefix, a colon and an unsigned integer, such as +CWJAP:2, which comes before the error
+	// final. The status of the request then carries the code (AtStatus::failureCode).
+	constexpr AtCommandSetBuilder<Open, Items...> FailureCode(std::string_view prefix) const {
+		RequireOption();
+		AtRequire<"a failure code prefix is empty">(!prefix.empty());
+		AtRequire<"a failure code prefix holds a colon, a comma or a blank; the colon after it is added">(
+			prefix.find_first_of(":, \r\n") == std::string_view::npos
+		);
+		AtRequire<"FailureCode() is given twice">(open.failureCodePrefix.empty());
+		return AtCommandSetBuilder<Open, Items...>(items, open.WithFailureCode(prefix));
+	}
+
+
 private:
 	template<typename Entry>
 	static constexpr bool Given() {
@@ -1143,6 +1266,14 @@ public:
 	static constexpr std::size_t FieldTotal = AtFieldTotalOf(commands);
 	static constexpr bool HasCommaReplyPrefix = AtHasCommaReplyOf(commands);
 
+	// The failure code prefix of each command, for the checks. The run-time table has an entry only for each command with a prefix, so a set
+	// without one has an empty table, and the code that reads it is not compiled.
+	static constexpr std::array<std::string_view, CommandCount> failureCodes = AtFailureCodesOf<CommandCount>(built.items);
+	static constexpr std::size_t FailureCodeTableCount = AtFailureCodeCountOf(failureCodes);
+	static constexpr bool HasFailureCode = FailureCodeTableCount != 0;
+	static constexpr std::array<AtFailureCodeEntry, FailureCodeTableCount> failureCodePrefixes =
+		AtFailureCodeTableOf<FailureCodeTableCount>(failureCodes);
+
 	// The range of each argument of a command, in the field numbering, and the first range of each URC with the total of the URC arguments.
 	static constexpr std::array<AtFieldRange, FieldTotal> fieldRanges = AtFieldRangesOf<FieldTotal>(built.items);
 	static constexpr std::array<std::size_t, UrcCount> urcFieldBases = AtUrcFieldLayout<Urcs>::bases;
@@ -1169,11 +1300,13 @@ public:
 	static constexpr std::array<CommandTreeNode, TreeCount> tree = AtCopyTree<TreeCount>(AtBuildTree<TreeBound>(treeNames, urcNames));
 	static constexpr bool urcsChecked = AtCheckUrcs(tree, commands, urcNames);
 	static constexpr bool dataChecked = AtCheckDataModes(commands, AtAnyUrcHasData(Urcs{}), AtHasItem<AtDataModeTag, ItemTypes>);
+	static constexpr bool failureCodesChecked = AtCheckFailureCodes(failureCodes, commands, urcNames);
 
 	// The chain and every table are evaluated here, so each rule of the builder is checked when the set is named. A type-only member
 	// does not evaluate the chain, so this line is what makes the value checks run.
 	static_assert(urcsChecked);
 	static_assert(dataChecked);
+	static_assert(failureCodesChecked);
 
 
 	// The index of a command in the set's tables. A name the description does not declare is a compile error.

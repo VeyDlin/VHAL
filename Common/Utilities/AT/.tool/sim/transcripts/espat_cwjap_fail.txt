@@ -1,5 +1,5 @@
 # Written by hand from the ESP-AT command reference extract (source commit b2921f8f), not recorded from a module.
-# A failed AT+CWJAP sends +CWJAP:<code> and then ERROR. The client returns error, not timeout, and the code line is not read.
+# A failed AT+CWJAP sends +CWJAP:<code> and then ERROR. The client returns error with the code 2 from the line, not timeout.
 > AT+CWJAP="net","bad"
 < AT+CWJAP="net","bad"
 < +CWJAP:2

@@ -81,6 +81,10 @@ std::string Describe(AtStatus status) {
 		return "error cme " + std::to_string(status.cmeCode);
 	}
 
+	if (status.failureCode != 0) {
+		return std::string(status.status == ResultStatus::ok ? "ok" : "error") + " failure " + std::to_string(status.failureCode);
+	}
+
 	switch (status.status) {
 		case ResultStatus::ok:
 			return "ok";
@@ -525,6 +529,45 @@ void SetupNothingData(DataClient& client) {
 }
 
 
+// The failure code transcripts. The description has an echo, one command with a read form and a write form and a failure code line, and
+// the URC WIFI GOT IP, which a transcript puts between a code line and its final. The write is AT+CWJAP=2 and the read is AT+CWJAP?.
+using FailureSet = AtCommandSet<+[] {
+	return AtCommandSetBuilder()
+		.Defaults(AtDefaults().TimeoutMs(100))
+		.Dialect(AtDialect().Echo())
+		.Command<"+CWJAP">().Read<uint8>("channel").Write(Argument<uint8>("code")).FailureCode("+CWJAP")
+		.Urc<"WIFI GOT IP">();
+}>;
+
+
+void OnCwjapWrite(AtStatus status) {
+	Note("join " + Describe(status));
+}
+
+
+void OnCwjapRead(Result<uint8, AtStatus> result) {
+	Note(result.IsOk() ? "read " + std::to_string(result.Value()) : "read " + Describe(result.Error()));
+}
+
+
+using FailureBinding = AtClientBinding<
+	AtUrcOn<"WIFI GOT IP", &OnGotIp>
+>;
+
+
+using FailureClient = AtClient<FailureSet, FailureBinding, AtQueue<2>, AtEcho>;
+
+
+void SetupJoinWrite(FailureClient& client) {
+	client.Write<"+CWJAP", &OnCwjapWrite>(uint8{2});
+}
+
+
+void SetupChannelRead(FailureClient& client) {
+	client.Read<"+CWJAP", &OnCwjapRead>();
+}
+
+
 }
 
 
@@ -559,6 +602,15 @@ int main() {
 		"ipd 40 at 0 [01234567890123456789012345678901] more\nipd 40 at 32 [23456789] last\n");
 	CheckTranscript("ipd_length_overflow.txt", SetupDataTemp, "temp 9\n");
 	CheckTranscript("gt_outside_prompt.txt", SetupDataTemp, "temp 1\n");
+	CheckTranscript("failure_code_error.txt", SetupJoinWrite, "join error failure 2\n");
+	CheckTranscript("failure_code_blank.txt", SetupJoinWrite, "join error failure 3\n");
+	CheckTranscript("failure_code_then_ok.txt", SetupJoinWrite, "join ok\n");
+	CheckTranscript("failure_code_no_integer.txt", SetupJoinWrite, "join error\n");
+	CheckTranscript("failure_code_too_big.txt", SetupJoinWrite, "join error\n");
+	CheckTranscript("failure_code_max.txt", SetupJoinWrite, "join error failure 255\n");
+	CheckTranscript("failure_code_urc_between.txt", SetupJoinWrite, "got ip\njoin error failure 4\n");
+	CheckTranscript("failure_code_read_record.txt", SetupChannelRead, "read 6\n");
+	CheckTranscript("failure_code_read_reply.txt", SetupChannelRead, "read 2\n");
 
 	if (failureCount != 0) {
 		std::fprintf(stderr, "TestAtTranscript: %d of %d checks failed\n", failureCount, checkCount);

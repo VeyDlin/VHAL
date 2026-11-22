@@ -204,6 +204,11 @@ void OnRun(AtStatus status) {
 }
 
 
+void OnPing(AtStatus status) {
+	Note("ping " + Describe(status));
+}
+
+
 void OnTest(AtStatus status) {
 	Note("test " + Describe(status));
 }
@@ -872,6 +877,99 @@ void TestQueueAfterFinal() {
 }
 
 
+// Ping writes the bare AT, and its handler gets the status of the final line. The set's default timeout applies, 100 ms here.
+void TestPingOk() {
+	Reset();
+	CapturePrint out;
+	Client client(out);
+
+	AtStatus queued = client.Ping<&OnPing>();
+	AT_EQ(queued.status == ResultStatus::ok, true);
+	client.Process(0);
+	AT_TEXT(out.text, "AT\r\n");
+
+	Feed(client, "OK\r\n");
+	client.Process(0);
+	AT_TEXT(handled, "ping ok\n");
+	AT_EQ(simCriticalDepth, 0);
+}
+
+
+void TestPingError() {
+	Reset();
+	CapturePrint out;
+	Client client(out);
+
+	client.Ping<&OnPing>();
+	client.Process(0);
+	Feed(client, "ERROR\r\n");
+	client.Process(0);
+	AT_TEXT(handled, "ping error\n");
+	AT_TEXT(out.text, "AT\r\n");
+}
+
+
+// A module that does not answer: the Ping times out at 100 ms, and the drain writes its AT, the same bytes as the Ping. The drain ends 100 ms
+// later, and the next request is then written.
+void TestPingTimeoutAndDrain() {
+	Reset();
+	CapturePrint out;
+	Client client(out);
+
+	client.Ping<&OnPing>();
+	client.Read<"+TEMP", &OnTemp>();
+	client.Process(0);
+	client.Process(99);
+	AT_TEXT(out.text, "AT\r\n");
+	client.Process(100);
+	AT_TEXT(out.text, "AT\r\nAT\r\n");
+	AT_TEXT(handled, "");
+	client.Process(199);
+	AT_TEXT(handled, "");
+	client.Process(200);
+	AT_TEXT(handled, "ping timeout\n");
+	AT_TEXT(out.text, "AT\r\nAT\r\nAT+TEMP?\r\n");
+}
+
+
+// The queue has two places. A third Ping is busy, and it writes nothing. The two that are queued are sent one after the other.
+void TestPingBusyWhenFull() {
+	Reset();
+	CapturePrint out;
+	Client client(out);
+
+	AtStatus first = client.Ping<&OnPing>();
+	AtStatus second = client.Ping<&OnPing>();
+	AtStatus third = client.Ping<&OnPing>();
+	AT_EQ(first.status == ResultStatus::ok, true);
+	AT_EQ(second.status == ResultStatus::ok, true);
+	AT_EQ(third.status == ResultStatus::busy, true);
+	client.Process(0);
+	AT_TEXT(out.text, "AT\r\n");
+
+	Feed(client, "OK\r\nOK\r\n");
+	client.Process(0);
+	AT_TEXT(handled, "ping ok\nping ok\n");
+	AT_TEXT(out.text, "AT\r\nAT\r\n");
+}
+
+
+// With the echo module, the echo of the bare AT is dropped, and the final line answers the Ping.
+void TestPingEchoDropped() {
+	Reset();
+	CapturePrint out;
+	EchoClient client(out);
+
+	client.Ping<&OnPing>();
+	client.Process(0);
+	AT_TEXT(out.text, "AT\r\n");
+
+	Feed(client, "AT\r\nOK\r\n");
+	client.Process(0);
+	AT_TEXT(handled, "ping ok\n");
+}
+
+
 }
 
 
@@ -907,6 +1005,11 @@ int main() {
 	TestTimeoutAcrossWrap();
 	TestFinalBeforeDeadlineInSameCall();
 	TestQueueAfterFinal();
+	TestPingOk();
+	TestPingError();
+	TestPingTimeoutAndDrain();
+	TestPingBusyWhenFull();
+	TestPingEchoDropped();
 
 	if (failureCount != 0) {
 		std::fprintf(stderr, "TestAtClient: %d of %d checks failed\n", failureCount, checkCount);

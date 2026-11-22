@@ -1,0 +1,7 @@
+# Written by hand, not recorded from a module.
+# A URC between the code line and ERROR. The URC is handled at once, and the code is kept for the ERROR.
+> AT+CWJAP=2
+< AT+CWJAP=2
+< +CWJAP:4
+< WIFI GOT IP
+< ERROR

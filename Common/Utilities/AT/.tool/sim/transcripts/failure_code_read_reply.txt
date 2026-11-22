@@ -1,0 +1,6 @@
+# Written by hand, not recorded from a module.
+# In a read, a line with the prefix is the reply. Here +CWJAP:2 is the value 2 of the read, and not a failure code.
+> AT+CWJAP?
+< AT+CWJAP?
+< +CWJAP:2
+< OK

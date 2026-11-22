@@ -12,9 +12,10 @@
 // comment below, which starts with its section, such as AT+CWMODE. A timeout that the reference does not state is a value chosen
 // here. Each one is listed in the wiki as checked on the bench before release.
 //
-// ESP-AT ends a failed AT+CWJAP with +CWJAP:<code> and then ERROR, so AT+CWJAP has no failure final. FAIL is not a final line of any
-// command in the reference. SEND FAIL ends AT+CIPSEND. The reference says the stock firmware echoes, so the dialect declares ATE. The set
-// has AtDataMode for the prompt of AT+CIPSEND and for the +IPD data.
+// ESP-AT ends a failed AT+CWJAP with +CWJAP:<code> and then ERROR. AT+CWJAP has a failure code line, so the status carries the code,
+// and EspAtJoinFailure names the codes. FAIL is not a final line of any command in the reference. SEND FAIL ends AT+CIPSEND. The
+// reference says the stock firmware echoes, so the dialect declares ATE. The set has AtDataMode for the prompt of AT+CIPSEND and for
+// the +IPD data.
 
 
 // One access point of AT+CWLAP, from its info line +CWLAP:(<ecn>,<"ssid">,<rssi>,<"mac">,<channel>,...). The fields after channel are
@@ -38,6 +39,16 @@ struct EspAtJoinedNetwork {
 };
 
 
+// The code of a failed AT+CWJAP, from its line +CWJAP:<code>, as the status's failureCode. The reference gives these codes "for reference
+// only", so the codes are checked on the bench before release.
+enum class EspAtJoinFailure : uint8 {
+	timeout = 1,
+	wrongPassword = 2,
+	noAccessPoint = 3,
+	connectionFailed = 4
+};
+
+
 // The ESP-AT description. The chain is a captureless lambda, as in the other AT sets.
 using EspAt = AtCommandSet<+[] {
 	return AtCommandSetBuilder()
@@ -53,7 +64,7 @@ using EspAt = AtCommandSet<+[] {
 		.Read<uint8>("mode")
 		.Write(Argument<uint8>("mode").Range(0, 3), Optional<bool>("autoConnect"))
 		// AT+CWJAP, query and set. The query gives one record. The set has a 20 second timeout, above the reference default of 15 seconds
-		// for jap_timeout. A failure is +CWJAP:<code> and ERROR.
+		// for jap_timeout. A failure is +CWJAP:<code> and ERROR, and the code is the status's failureCode (EspAtJoinFailure).
 		.Command<"+CWJAP">()
 		.Read(AtRow<EspAtJoinedNetwork>(
 			AtField<&EspAtJoinedNetwork::ssid>("ssid"),
@@ -62,6 +73,7 @@ using EspAt = AtCommandSet<+[] {
 			AtField<&EspAtJoinedNetwork::rssi>("rssi")))
 		.Write(Argument<String<32>>("ssid"), Argument<String<64>>("password"), Optional<String<17>>("bssid"))
 		.TimeoutMs(20000)
+		.FailureCode("+CWJAP")
 		// AT+CWQAP, execute only.
 		.Command<"+CWQAP">().Run()
 		// AT+CWLAP, execute only. One access point for each info line, in the parentheses. The ecn field is 0 to 15. Its timeout is

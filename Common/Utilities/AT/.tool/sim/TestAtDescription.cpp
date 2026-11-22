@@ -271,8 +271,8 @@ int TestStatus() {
 	AT_EQ(plain.cmeCode, 0);
 
 	AtStatus cme = AtCmeError(3);
-	AtStatus sameCme{ResultStatus::error, 3};
-	AtStatus otherCme{ResultStatus::error, 4};
+	AtStatus sameCme{.status = ResultStatus::error, .cmeCode = 3};
+	AtStatus otherCme{.status = ResultStatus::error, .cmeCode = 4};
 	AtStatus busy{ResultStatus::busy};
 	AT_EQ(cme.status == ResultStatus::error, true);
 	AT_EQ(cme.cmeCode, 3);

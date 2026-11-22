@@ -1,0 +1,8 @@
+# Written by hand, not recorded from a module.
+# A code line with no integer, or with a sign, is an unknown line and is ignored. The ERROR then has no code.
+> AT+CWJAP=2
+< AT+CWJAP=2
+< +CWJAP:
+< +CWJAP:x
+< +CWJAP:-1
+< ERROR

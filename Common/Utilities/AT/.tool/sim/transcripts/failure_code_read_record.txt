@@ -1,0 +1,6 @@
+# Written by hand, not recorded from a module.
+# AT+CWJAP? reads its value. The read form has a reply, so its info line is the value, and no failure code is read.
+> AT+CWJAP?
+< AT+CWJAP?
+< +CWJAP: 6
+< OK

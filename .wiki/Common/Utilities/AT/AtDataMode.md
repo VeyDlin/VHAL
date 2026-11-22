@@ -117,7 +117,7 @@ Each rule is a compile error with its message. The snippets for each one are in 
 
 ## Costs
 
-- A set without `AtDataMode` has no prompt code, no data code and no chunk buffer. The five-command set of `SizeSet.h`, which has no data, is unchanged by this module: at -Os for Cortex-M4 its server text is 6204 bytes and its client text is 4279 bytes.
+- A set without `AtDataMode` has no prompt code, no data code and no chunk buffer. The five-command set of `SizeSet.h`, which has no data, is unchanged by this module: at -Os for Cortex-M4 its server text is 6144 bytes and its client text is 4267 bytes.
 - With the module, the client holds one chunk buffer of 32 bytes, and a few bytes of state for the run and the prompt.
 - Each queued `SendData` request keeps its data span (a pointer and a length, 8 bytes on a 32-bit MCU) and whether its prompt has come, about 12 bytes in the request's slot. A client without the module keeps neither.
 - The server holds no data state. A prompt command costs the server its write form's argument parsing and an `ERROR` line.

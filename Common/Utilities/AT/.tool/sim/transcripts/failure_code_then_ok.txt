@@ -1,0 +1,6 @@
+# Written by hand, not recorded from a module.
+# A failure code line, then OK. An OK is a success, so the status is ok, and it carries no code.
+> AT+CWJAP=2
+< AT+CWJAP=2
+< +CWJAP:2
+< OK

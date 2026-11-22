@@ -45,9 +45,12 @@ constexpr void AtRequire(bool condition) {
 }
 
 
-// The error of an AT call. cmeCode is zero unless status is error and the module sent +CME ERROR: cmeCode.
+// The error of an AT call. cmeCode is zero unless status is error and the module sent +CME ERROR: cmeCode. failureCode is zero unless
+// status is error and the command has a failure code line (.FailureCode()) that carried a code before the error final. The failure code
+// sits next to the status byte, so the status stays 4 bytes and is passed in one register.
 struct AtStatus {
 	ResultStatus status = ResultStatus::ok;
+	uint8 failureCode = 0;
 	uint16 cmeCode = 0;
 
 

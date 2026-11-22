@@ -91,6 +91,10 @@ std::string Describe(AtStatus status) {
 		return "error cme " + std::to_string(status.cmeCode);
 	}
 
+	if (status.failureCode != 0) {
+		return std::string(status.status == ResultStatus::ok ? "ok" : "error") + " failure " + std::to_string(status.failureCode);
+	}
+
 	switch (status.status) {
 		case ResultStatus::ok:
 			return "ok";
@@ -730,7 +734,13 @@ int main() {
 		SetupJoin,
 		"wifi connected\nwifi got ip\njoin ok\n",
 		"AT+CWJAP=\"net\",\"secret\"\r\n");
-	CheckTranscript<EspAtClient>("espat_cwjap_fail.txt", SetupJoinBad, "join error\n", "AT+CWJAP=\"net\",\"bad\"\r\n");
+	// The failure code 2 is EspAtJoinFailure::wrongPassword. The status carries it, and the expected log names it.
+	AT_TRUE(static_cast<int>(EspAtJoinFailure::wrongPassword) == 2);
+	CheckTranscript<EspAtClient>(
+		"espat_cwjap_fail.txt",
+		SetupJoinBad,
+		"join error failure 2\n",
+		"AT+CWJAP=\"net\",\"bad\"\r\n");
 	CheckTranscript<EspAtClient>(
 		"espat_cwjap_query.txt",
 		SetupJoinQuery,

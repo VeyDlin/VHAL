@@ -1,0 +1,6 @@
+# Written by hand, not recorded from a module.
+# A code above 255 does not fit the status, so the line is ignored. The ERROR then has no code.
+> AT+CWJAP=2
+< AT+CWJAP=2
+< +CWJAP:256
+< ERROR

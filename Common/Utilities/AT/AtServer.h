@@ -610,6 +610,25 @@ private:
 	}
 
 
+	// The failure code line of the command that failed: its prefix, a colon and the code, then the end of the line. It is written only for an
+	// error that carries a code, and only for a command with .FailureCode(). It is an info line, so Quiet does not stop it.
+	void WriteFailureCode(const AtStatus& status) {
+		if (status.status != ResultStatus::error || status.failureCode == 0) {
+			return;
+		}
+
+		std::string_view prefix = AtFailureCodePrefixOf(Set::failureCodePrefixes, command);
+
+		if (!prefix.empty()) {
+			WriteBreak();
+			out.Write(prefix);
+			out.Write(std::string_view(":"));
+			AtWriteValue(out, status.failureCode);
+			EndInfo();
+		}
+	}
+
+
 	// A result code: the word and the framing of the verbose form, or the number and one terminator of the numeric form.
 	void WriteFinal(const AtStatus& status) {
 		if (!Quiet()) {
@@ -682,6 +701,12 @@ private:
 				Fail();
 			} else {
 				FinishSegment();
+			}
+		}
+
+		if constexpr (Set::HasFailureCode) {
+			if (failed) {
+				WriteFailureCode(failure);
 			}
 		}
 

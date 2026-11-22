@@ -67,7 +67,7 @@ The ESP-AT reference says the stock firmware echoes, so an ESP-AT client lists `
 ## Costs
 
 - The compare is compiled in only when the client lists `AtEcho`. Without the module there is no compare, and no flag is set by a send.
-- The ESP-AT client's text is 11086 bytes with `AtEcho` and `AtRows<8>`, and 9402 bytes with neither module (see [EspAt](Descriptions/EspAt.md#sizes)). That difference covers the echo and the rows together, so the echo's share is not measured alone.
+- The ESP-AT client's text is 11237 bytes with `AtEcho` and `AtRows<8>`, and 9551 bytes with neither module (see [EspAt](Descriptions/EspAt.md#sizes)). That difference covers the echo and the rows together, so the echo's share is not measured alone.
 
 ---
 

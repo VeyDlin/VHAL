@@ -327,6 +327,7 @@ struct AtCommandItem {
 	CommandPack<Forms...> forms{};
 	AtCommandOptions options{};
 	bool prompt = false;
+	std::string_view failureCodePrefix{};
 
 
 	template<typename Form>
@@ -341,17 +342,22 @@ struct AtCommandItem {
 
 	template<typename Form>
 	constexpr AtCommandItem<Text, Forms..., Form> WithForm(const Form& form) const {
-		return AtCommandItem<Text, Forms..., Form>{CommandPackAppend(forms, form), options, prompt};
+		return AtCommandItem<Text, Forms..., Form>{CommandPackAppend(forms, form), options, prompt, failureCodePrefix};
 	}
 
 
 	constexpr AtCommandItem WithOptions(const AtCommandOptions& changed) const {
-		return AtCommandItem{forms, changed, prompt};
+		return AtCommandItem{forms, changed, prompt, failureCodePrefix};
 	}
 
 
 	constexpr AtCommandItem WithPrompt() const {
-		return AtCommandItem{forms, options, true};
+		return AtCommandItem{forms, options, true, failureCodePrefix};
+	}
+
+
+	constexpr AtCommandItem WithFailureCode(std::string_view prefix) const {
+		return AtCommandItem{forms, options, prompt, prefix};
 	}
 };
 
@@ -363,6 +369,7 @@ struct AtNoCommand {
 
 	AtCommandOptions options{};
 	bool prompt = false;
+	std::string_view failureCodePrefix{};
 
 
 	template<typename Form>
@@ -383,12 +390,17 @@ struct AtNoCommand {
 
 
 	constexpr AtNoCommand WithOptions(const AtCommandOptions& changed) const {
-		return AtNoCommand{changed, prompt};
+		return AtNoCommand{changed, prompt, failureCodePrefix};
 	}
 
 
 	constexpr AtNoCommand WithPrompt() const {
-		return AtNoCommand{options, true};
+		return AtNoCommand{options, true, failureCodePrefix};
+	}
+
+
+	constexpr AtNoCommand WithFailureCode(std::string_view prefix) const {
+		return AtNoCommand{options, prompt, prefix};
 	}
 };
 

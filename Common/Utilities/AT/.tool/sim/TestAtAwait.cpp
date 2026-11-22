@@ -448,6 +448,47 @@ void TestAwaitSafetyLimitOpenRequest() {
 }
 
 
+// AwaitPing: the bare AT, and its final line as the status. A busy queue returns busy at once. A module that never answers times out after
+// the request and the drain, 201 ms, and the drain's AT is written after the Ping's AT.
+void TestAwaitPing() {
+	Client client(wire);
+	Reset(&client, {"OK\r\n"});
+	AtStatus status = client.AwaitPing();
+	AT_TEXT(Describe(status), "ok");
+	AT_TEXT(wire.bytes, "AT\r\n");
+	AT_EQ(simCriticalDepth, 0);
+
+	Reset(&client, {"ERROR\r\n"});
+	status = client.AwaitPing();
+	AT_TEXT(Describe(status), "error");
+	AT_TEXT(wire.bytes, "AT\r\n");
+
+	Reset(&client, {"+CME ERROR: 3\r\n"});
+	status = client.AwaitPing();
+	AT_TEXT(Describe(status), "error cme 3");
+
+	Reset(&client, {});
+	System::tickLow = 0xFFFFFFF0u;
+	uint32 start = System::GetTick32();
+	status = client.AwaitPing();
+	AT_TEXT(Describe(status), "timeout");
+	AT_EQ(System::GetTick32() - start, 201);
+	AT_TEXT(wire.bytes, "AT\r\nAT\r\n");
+	AT_EQ(simCriticalDepth, 0);
+
+	// A second client, whose queue is full, so the Ping is busy at once. Its queued requests are never run here.
+	Client full(wire);
+	Reset(&full, {});
+	full.Write<"+LED", &OnStatus>(true);
+	full.Run<"+RST", &OnStatus>();
+	status = full.AwaitPing();
+	AT_TEXT(Describe(status), "busy");
+	AT_TEXT(wire.bytes, "");
+	AT_EQ(simCriticalDepth, 0);
+	Reset(nullptr, {});
+}
+
+
 // Wires the RTOS handle, which the Await waits use.
 void InstallHandle() {
 	System::rtosDelayMsHandle = RtosTask;
@@ -467,6 +508,7 @@ int main() {
 	TestAwaitModuleTimeout();
 	TestAwaitSafetyLimitNoProcess();
 	TestAwaitSafetyLimitOpenRequest();
+	TestAwaitPing();
 
 	if (failureCount != 0) {
 		std::printf("%d of %d checks failed\n", failureCount, checkCount);

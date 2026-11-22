@@ -1,0 +1,6 @@
+# Written by hand from the ESP-AT reference extract (failure: +CWJAP:<error code>, then ERROR), not recorded from a module.
+# The code line may have one blank after its colon. This one carries the code 3.
+> AT+CWJAP=2
+< AT+CWJAP=2
+< +CWJAP: 3
+< ERROR

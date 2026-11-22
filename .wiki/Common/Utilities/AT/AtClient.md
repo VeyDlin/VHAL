@@ -8,9 +8,11 @@
 
 - [Declaration](#declaration)
 - [Calls](#calls)
+- [Ping](#ping)
 - [Reply Handlers](#reply-handlers)
 - [Rows](#rows)
 - [Statuses](#statuses)
+- [Failure Codes](#failure-codes)
 - [Feed and Process](#feed-and-process)
 - [Timing, Queue and Drain](#timing-queue-and-drain)
 - [URCs](#urcs)
@@ -52,6 +54,7 @@ Each call queues one request and returns an `AtStatus`. It never writes.
 | `Run<"+X", &H>()` | `AT+X` | `void H(AtStatus)` for a run form with no reply |
 | `Run<"+X", &H>()` | `AT+X` | `void H(Result<T, AtStatus>)` for a run form with a value or a record |
 | `Test<"+X", &H>()` | `AT+X=?` | `void H(AtStatus)` |
+| `Ping<&H>()` | `AT` | `void H(AtStatus)`, see [Ping](#ping) |
 | `Value<"X", &H>(args...)` | `ATX1` (basic) | `void H(AtStatus)` |
 | `SendData<"+X", &H>(args..., data)` | `AT+X=a,b`, then the data after the prompt | `void H(AtStatus)` (needs `AtDataMode`, see [AtDataMode](AtDataMode.md)) |
 | `ReadRows<"+X", &H>()` | `AT+X?` | `void H(const Result<AtRowList<S, N>, AtStatus>&)` |
@@ -107,6 +110,26 @@ sensor.SendData<"+CIPSEND", &OnSent>(uint16{5}, std::span<const uint8>(kPayload)
 
 ---
 
+## Ping
+
+`Ping<&H>()` checks that the module answers. It writes the bare `AT`, and its handler gets the status of the final line:
+
+```cpp
+void OnPing(AtStatus status) {
+	// ok when the module answers OK, error for ERROR, timeout when it does not answer
+}
+
+sensor.Ping<&OnPing>();     // AT
+```
+
+- The request uses the set's default timeout. A timeout starts the drain, as for any request (see [Timing, Queue and Drain](#timing-queue-and-drain)).
+- It queues like every other call. It returns `busy` when the queue is full, and it waits behind the requests before it.
+- With `AtEcho`, the echo of the `AT` line is dropped.
+- With `AtAwait`, `AwaitPing()` waits for the status and returns it (see [AtAwait](AtAwait.md#the-calls)).
+- A client that never calls `Ping` has no code for it. The drain writes its `AT` through the same code as the request.
+
+---
+
 ## Reply Handlers
 
 ```cpp
@@ -119,7 +142,8 @@ void OnTemp(Result<int16, AtStatus> result) {
 }
 
 void OnLed(AtStatus status) {
-	// status.status is ResultStatus::ok, error, timeout, ...; status.cmeCode is the CME code
+	// status.status is ResultStatus::ok, error, timeout, ...; status.cmeCode is the CME code;
+	// status.failureCode is the code of a failure line, or zero (see Failure Codes)
 }
 ```
 
@@ -157,6 +181,7 @@ void OnList(const Result<AtRowList<Network, 8>, AtStatus>& result) {
 | `+CME ERROR: text` | `error`, with the code of `text` in the dialect's table, or no code |
 | a declared final, such as `SEND OK` | `ok` |
 | a declared failure, such as `FAIL` | `error` |
+| a code line before an error final, with `.FailureCode()` (see [Failure Codes](#failure-codes)) | `error`, with `failureCode` set to the code |
 | no final line before the timeout | `timeout` |
 | an info line of a value or a record that does not parse, and an OK with no info line | `invalidData` |
 | a row that does not parse, for `ReadRows`, `Rows` and the visits | `invalidData` |
@@ -168,6 +193,37 @@ void OnList(const Result<AtRowList<Network, 8>, AtStatus>& result) {
 An info line that does not parse gives `invalidData` at the final line, and the reply waits for that line. A bad info line followed by ERROR is `error`, since the final line decides.
 
 A value or a record has one info line. A line that does not parse, or a second info line, makes the reply `invalidData`, so the handler never gets a value that could be the wrong one. A reply with several lines is read with `Rows`. A row is different: every row is read, and a row that does not parse makes the whole reply `invalidData`.
+
+---
+
+## Failure Codes
+
+Some commands send a code line before they fail. ESP-AT sends `+CWJAP:2` and then `ERROR` when a join fails with code 2. The command declares the prefix of its code line:
+
+```cpp
+.Command<"+CWJAP">().Read(...).Write(...).FailureCode("+CWJAP")
+```
+
+- A code line is the prefix, a colon, an optional blank, and an unsigned integer that fits 8 bits. `+CWJAP:2` and `+CWJAP: 2` both give the code 2. The largest code is 255.
+- The client reads a code line only during a form that has no reply: a write, a test, or a run with no value. A form with a reply reads a line with the prefix as its reply. So `AT+CWJAP?` gives its record, and with `Read<uint8>` the line `+CWJAP:2` is the value 2.
+- A line with the prefix and no integer, or with a number above 255, is an unknown line. The client ignores it.
+- The code is kept in the status only when the request ends with an error: `ERROR`, `+CME ERROR` or a declared failure. An `OK` ends the request with `failureCode` 0, and so does a timeout. A second code line replaces the first one.
+- A URC between the code line and the final line is handled at once. The code stays until the final line.
+- The code is `AtStatus::failureCode`, next to `cmeCode`. A status with no code has `failureCode` 0.
+
+```cpp
+void OnJoin(AtStatus status) {
+	if (status.failureCode == 2) {
+		// the password is wrong
+	}
+}
+
+sensor.Write<"+CWJAP", &OnJoin>(std::string_view("net"), std::string_view("bad"), std::optional<std::string_view>());
+```
+
+The compile checks of `FailureCode()`: the prefix is not empty, it has no colon, comma or blank (the colon after it is added), the command has one `FailureCode()`, and the prefix is neither a URC prefix nor a final line of the set. A set with no `FailureCode()` has no code for the line and no table of prefixes.
+
+`AtStatus` is 4 bytes: the status, the failure code (one byte) and the CME code. Build one with named fields, such as `AtStatus{.status = ResultStatus::error, .failureCode = 2}`, or with `AtCmeError(code)` for a CME error.
 
 ---
 

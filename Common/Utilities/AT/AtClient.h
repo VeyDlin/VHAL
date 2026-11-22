@@ -207,10 +207,11 @@ struct AtFieldChars<std::tuple<Arguments...>> {
 };
 
 
-// The longest request text of the set, over every form of every command: "AT", the name, the mark of a form and the fields.
+// The longest request text of the set, over every form of every command: "AT", the name, the mark of a form and the fields. At least two,
+// which is the bare AT of Ping, so a set with no command still has room for it.
 template<typename Set, std::size_t... C>
 constexpr std::size_t AtMaxRequestChars(std::index_sequence<C...>) {
-	return std::max({std::size_t{1}, (4 + Set::names[C].size() + AtFieldChars<typename Set::template CommandType<C>::FieldArguments>::value)...});
+	return std::max({std::size_t{2}, (4 + Set::names[C].size() + AtFieldChars<typename Set::template CommandType<C>::FieldArguments>::value)...});
 }
 
 
@@ -758,6 +759,18 @@ public:
 	}
 
 
+	// AT, the bare request that checks that the module answers. Its handler gets the status of the request, and it uses the set's default
+	// timeout. A client that never calls Ping has no code for it.
+	template<auto Handler>
+	AtStatus Ping() {
+		static_assert(std::is_same_v<decltype(Handler), void (*)(AtStatus)>, "a Ping handler is void(AtStatus)");
+
+		AtTextBuffer<RequestChars> text;
+		text.Write(std::string_view("AT"));
+		return EnqueueNone(text, Set::CommandCount, &CompleteStatus<Handler>);
+	}
+
+
 	// ATE0: the value of a basic command follows its letter.
 	template<AtText Name, auto Handler, typename... Values>
 	AtStatus Value(Values... values) {
@@ -911,6 +924,22 @@ public:
 				slot);
 			return AwaitValueOf<typename Command::RunType>(queued, slot);
 		}
+	}
+
+
+	// AwaitPing: Ping, which waits for its final line and returns its status. Needs AtAwait. Call it in a task, never in Process().
+	AtStatus AwaitPing() {
+		static_assert(HasAwait, "AwaitPing needs AtAwait among the client modules");
+
+		AtTextBuffer<RequestChars> text;
+		text.Write(std::string_view("AT"));
+		std::size_t slot = 0;
+		AtStatus queued = AwaitQueue(
+			[&]() -> AtStatus {
+				return EnqueueNone(text, Set::CommandCount, nullptr);
+			},
+			slot);
+		return AwaitStatusOf(queued, slot);
 	}
 
 
@@ -1325,6 +1354,13 @@ private:
 	}
 
 
+	// Writes one request line and its line end. The head request and the bare AT of a drain are written here, so they share the code.
+	void WriteLine(std::string_view text) {
+		out.Write(text);
+		out.Write(std::string_view("\r\n"));
+	}
+
+
 	// Writes the head request, and starts its timeout. A rows reply starts with an empty list.
 	void Send(Request& head, uint32 nowMs) {
 		if constexpr (HasRows) {
@@ -1332,8 +1368,7 @@ private:
 			rows.skipped = 0;
 		}
 
-		out.Write(std::string_view(head.text.data(), head.length));
-		out.Write(std::string_view("\r\n"));
+		WriteLine(std::string_view(head.text.data(), head.length));
 		head.state = RequestState::open;
 		head.startMs = nowMs;
 
@@ -1370,8 +1405,7 @@ private:
 				head.status = AtStatus{ResultStatus::timeout};
 				head.drainStartMs = nowMs;
 				head.drainFinalSeen = false;
-				out.Write(std::string_view("AT"));
-				out.Write(std::string_view("\r\n"));
+				WriteLine(std::string_view("AT"));
 				return;
 			}
 
@@ -1664,6 +1698,12 @@ private:
 			return;
 		}
 
+		if constexpr (Set::HasFailureCode) {
+			if (!overflow && head.kind == ReplyKind::none && FailureCodeLine(head, text)) {
+				return;
+			}
+		}
+
 		AtStatus result{};
 
 		bool ended = false;
@@ -1675,8 +1715,62 @@ private:
 		}
 
 		if (ended) {
+			if constexpr (Set::HasFailureCode) {
+				KeepFailureCode(head, result);
+			}
+
 			head.status = result;
 			FinishHead();
+		}
+	}
+
+
+	// A failure code line of the head request: its prefix, a colon, one blank that is optional, and an unsigned integer that fits uint8.
+	// The code is kept in the request's status until its final line. A later code line replaces an earlier one. A line with no integer, or
+	// with one above 255, is not a failure code, so it is an unknown line. Only a request with no reply reads these lines: a request with a
+	// reply reads them as its reply.
+	static bool FailureCodeLine(Request& head, std::string_view text) {
+		std::string_view prefix = AtFailureCodePrefixOf(Set::failureCodePrefixes, head.command);
+
+		if (prefix.empty() || text.size() <= prefix.size() || !text.starts_with(prefix) || text[prefix.size()] != ':') {
+			return false;
+		}
+
+		std::size_t position = prefix.size() + 1;
+
+		if (position < text.size() && text[position] == ' ') {
+			position++;
+		}
+
+		if (position >= text.size()) {
+			return false;
+		}
+
+		uint32 code = 0;
+
+		for (; position < text.size(); position++) {
+			char character = text[position];
+
+			if (character < '0' || character > '9') {
+				return false;
+			}
+
+			code = code * 10 + static_cast<uint32>(character - '0');
+
+			if (code > 255) {
+				return false;
+			}
+		}
+
+		head.status.failureCode = static_cast<uint8>(code);
+		return true;
+	}
+
+
+	// The final line's status takes the failure code that the request read, only when the final is an error, so an OK never carries a code.
+	static void KeepFailureCode(const Request& head, AtStatus& result) {
+		if (result.status == ResultStatus::error) {
+			result.failureCode = head.status.failureCode;
 		}
 	}
 

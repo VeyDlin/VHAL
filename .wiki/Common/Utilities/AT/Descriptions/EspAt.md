@@ -139,7 +139,26 @@ Notes:
 
 `FAIL` is not a final of any command in the set. The reference does not give one.
 
-The `+CWJAP:<code>` line of a failed `AT+CWJAP` is an info line of a command with no read or run form, so the client ignores it. The status comes from the `ERROR` after it. The code is not kept, since `AtStatus` carries only a CME code.
+### Failure Codes
+
+`AT+CWJAP` declares `.FailureCode("+CWJAP")`. The `+CWJAP:<code>` line before a failed join is read as the code, and the status is `error` with `failureCode` set to it (see [AtClient](../AtClient.md#failure-codes)). The codes are named by `EspAtJoinFailure`:
+
+| Code | `EspAtJoinFailure` | Cause in the reference |
+|---|---|---|
+| 1 | `timeout` | connection timeout |
+| 2 | `wrongPassword` | wrong password |
+| 3 | `noAccessPoint` | the access point cannot be found |
+| 4 | `connectionFailed` | the connection failed |
+
+The reference gives these codes "for reference only". Each one is checked on the bench (see [Bench Check](#bench-check)).
+
+```cpp
+void OnJoin(AtStatus status) {
+	if (status.failureCode == static_cast<uint8>(EspAtJoinFailure::wrongPassword)) {
+		// the password is wrong
+	}
+}
+```
 
 ---
 
@@ -181,7 +200,7 @@ The check runs on an ESP32 with the flashed release. Each item below is checked,
 1. The `AT+GMR` version text, which is the release's text for `AT version:`. The `RawString<64>` must hold it.
 2. The `ready` line after `AT+RST`, and whether `AT+RST` answers `OK` first.
 3. The echo default (`ATE1` at start).
-4. `AT+CWJAP` with a wrong password: `+CWJAP:<code>` then `ERROR`, not `FAIL`. The client must return `error`, not `timeout`.
+4. `AT+CWJAP` with a wrong password: `+CWJAP:<code>` then `ERROR`, not `FAIL`. The client must return `error`, not `timeout`, with `failureCode` 2. Each code of `EspAtJoinFailure` (1 to 4) is checked with its cause: a timeout, a wrong password, no access point, and a failed connection.
 5. `AT+CWJAP` with a right password: the `WIFI CONNECTED` and `WIFI GOT IP` lines, and whether the `WIFI GOT IP` URC reaches its handler while the command is open.
 6. `AT+CWLAP`: the row format, and the time a scan takes against the 10000 ms timeout.
 7. `AT+CIFSR`: the `+CIFSR:STAIP,"<ip>"` line, with its comma.
@@ -208,7 +227,7 @@ The client runs these transcripts, in `.tool/sim/transcripts/espat_*.txt`. They 
 | `espat_cwmode.txt` | `AT+CWMODE?` and `AT+CWMODE=1` |
 | `espat_busy.txt` | `busy p...` between the echo and the reply |
 | `espat_cwjap_ok.txt` | `WIFI CONNECTED` and `WIFI GOT IP` inside the reply, and the `IPv6` line |
-| `espat_cwjap_fail.txt` | `+CWJAP:2` then `ERROR`: status `error` |
+| `espat_cwjap_fail.txt` | `+CWJAP:2` then `ERROR`: status `error` with `failureCode` 2 |
 | `espat_cwjap_query.txt` | `AT+CWJAP?` as a record, with the fields after the rssi skipped |
 | `espat_cwlap.txt` | four rows, a URC between two rows, a quoted comma in an ssid |
 | `espat_cwlap_bad_row.txt` | a row with a missing field: the reply is `invalidData` |
@@ -221,7 +240,7 @@ The client runs these transcripts, in `.tool/sim/transcripts/espat_*.txt`. They 
 | `espat_timeout_then_at.txt` | a silent request, its timeout, and the drain's `AT` |
 | `espat_late_reply_then_drain.txt` | a late reply after the timeout, the drain, then the next request |
 
-The host test has 2455 checks (`TestAtEspAt: all 2455 checks passed`).
+The host test has 2456 checks (`TestAtEspAt: all 2456 checks passed`).
 
 ### Sizes
 
@@ -229,10 +248,11 @@ The client objects at -Os for Cortex-M4 (from `run.sh`). Each holds the same cal
 
 | Object | text | data | bss |
 |---|---|---|---|
-| client with `AtEcho` and `AtRows<8>` | 11086 | 4 | 32 |
-| the same with `AtAwait` | 12790 | 4 | 32 |
-| client with neither module | 9402 | 4 | 32 |
+| client with `AtEcho` and `AtRows<8>` | 11237 | 4 | 32 |
+| the same with `AtAwait` | 12979 | 4 | 32 |
+| client with neither module | 9551 | 4 | 32 |
 
-- `AtRows<8>` and `AtEcho` add 1684 bytes of text to the plain client.
-- `AtAwait` adds 1704 bytes of text to the client with rows.
+- `AtRows<8>` and `AtEcho` add 1686 bytes of text to the plain client.
+- `AtAwait` adds 1742 bytes of text to the client with rows.
+- The `AT+CWJAP` failure code line adds 179 bytes of text to the plain client: the line parser, a prefix table with one entry, and the status step that keeps the code. Without that line the plain client is 9372 bytes.
 - The client object itself, on the stack or in the application's storage, is 1160 bytes for the plain client, 1752 bytes with `AtEcho` and `AtRows<8>`, and 2792 bytes with `AtAwait` as well. The difference is the queue, whose entries hold the whole row storage with `AtAwait`.

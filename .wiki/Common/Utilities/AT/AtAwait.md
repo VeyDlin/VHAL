@@ -58,6 +58,7 @@ Each call takes the same arguments as its plain call, and returns the reply:
 | `AwaitReadRows<"+X">()` | `ReadRows<"+X", &OnRows>()` | `Result<AtRowCopy<Row, N>, AtStatus>` |
 | `AwaitRows<"+X">()` | `Rows<"+X", &OnRows>()` | `Result<AtRowCopy<Row, N>, AtStatus>` |
 | `AwaitSendData<"+X">(values..., data)` | `SendData<"+X", &OnDone>(values..., data)` | `AtStatus` |
+| `AwaitPing()` | `Ping<&OnPing>()` | `AtStatus`, the status of the bare `AT` |
 
 `AwaitRead<"+TEMP">()` queues `AT+TEMP?`, waits, and returns the value. A `+CME ERROR: 3` reply returns `Result` with the error `AtStatus{error, 3}`. A full queue returns `busy` at once, without waiting.
 
@@ -74,6 +75,7 @@ AtStatus echo = sensor.AwaitValue<"E">(uint8{0});                               
 Result<AtRowCopy<Network, 8>, AtStatus> list = sensor.AwaitRows<"+LIST">();       // AT+LIST, the rows, copied
 Result<AtRowCopy<Network, 8>, AtStatus> scan = sensor.AwaitReadRows<"+SCAN">();   // AT+SCAN?, the rows, copied
 AtStatus sent = sensor.AwaitSendData<"+CIPSEND">(uint16{5}, std::span<const uint8>(kPayload));   // AT+CIPSEND=5, then the data
+AtStatus alive = sensor.AwaitPing();                                              // AT
 ```
 
 `AwaitRun` returns an `AtStatus` for a run form with no reply and a `Result` for one with a value. The Await calls need the same modules as their plain calls: `AwaitRows` and `AwaitReadRows` need `AtRows`, and `AwaitSendData` needs `AtDataMode` in the set.
@@ -167,7 +169,7 @@ The snippets are in `Common/Utilities/AT/.tool/sim/BuilderErrors/await_*.cpp`.
 - With `AtAwait`, each queued request has an abandonment flag and two row counts, about 12 bytes on a 32-bit MCU.
 - With `AtAwait` and `AtRows<N>`, every queue entry holds the whole row storage, N rows of the set's largest row type, since an awaited rows reply is copied into its entry. A client with `AtQueue<1>` pays for one entry only.
 - The `Await` calls add code for each form they are used with. A form that is not called costs nothing.
-- Measured on the ESP-AT client (see [EspAt](Descriptions/EspAt.md#sizes)): `AtAwait` adds 1704 bytes of text to the client with `AtEcho` and `AtRows<8>`, which is 12790 bytes in all. The client object grows from 1752 to 2792 bytes, since `AtQueue<2>` holds the row storage in each of its two entries.
+- Measured on the ESP-AT client (see [EspAt](Descriptions/EspAt.md#sizes)): `AtAwait` adds 1742 bytes of text to the client with `AtEcho` and `AtRows<8>`, which is 12979 bytes in all. The client object is 2792 bytes, since `AtQueue<2>` holds the row storage in each of its two entries.
 
 ---
 
@@ -181,6 +183,7 @@ The snippets are in `Common/Utilities/AT/.tool/sim/BuilderErrors/await_*.cpp`.
 - a module that never answers ends the wait with `timeout` after 201 ms (100 ms of the request and 100 ms of the drain), across the 32-bit wrap;
 - with no `Process()` running, the wait ends at the limit (800 ms for a queue of two and a longest timeout of 300 ms), the entry is dropped without being sent, and the next request works;
 - a request that was sent, and then abandoned, is drained by `Process()` and freed with no handler call;
-- the rows are copied, five rows give four stored and one skipped, and the copy is valid after a later request.
+- the rows are copied, five rows give four stored and one skipped, and the copy is valid after a later request;
+- `AwaitPing` returns `ok` for `OK`, `error` for `ERROR`, `error cme 3` for `+CME ERROR: 3`, and `busy` on a full queue with no bytes written. A module that never answers gives `timeout` after 201 ms, and the bytes are `AT` then the drain's `AT`.
 
 `TestAtEspAt.cpp` compiles every Await call of the ESP-AT client (`EspAtAwaitForms`), with `AtAwait`, `AtRows<8>` and `AtDataMode` in the set. It does not run them. The size objects `SizeEspAtAwait.cpp` make the same calls, for the flash figure above.

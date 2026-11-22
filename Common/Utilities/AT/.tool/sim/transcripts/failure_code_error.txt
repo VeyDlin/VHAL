@@ -1,0 +1,6 @@
+# Written by hand from the ESP-AT reference extract (failure: +CWJAP:<error code>, then ERROR), not recorded from a module.
+# A failure code line, then ERROR. The request ends with an error, and its status carries the code 2.
+> AT+CWJAP=2
+< AT+CWJAP=2
+< +CWJAP:2
+< ERROR

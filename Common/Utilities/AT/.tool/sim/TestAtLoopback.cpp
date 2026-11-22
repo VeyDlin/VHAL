@@ -218,6 +218,10 @@ std::string Describe(AtStatus status) {
 		return "error cme " + std::to_string(status.cmeCode);
 	}
 
+	if (status.failureCode != 0) {
+		return std::string(status.status == ResultStatus::ok ? "ok" : "error") + " failure " + std::to_string(status.failureCode);
+	}
+
 	switch (status.status) {
 		case ResultStatus::ok:
 			return "ok";
@@ -521,6 +525,103 @@ const char* ExpectedLog =
 	"mode 0\n";
 
 
+void OnPing(AtStatus status) {
+	Note("ping " + Describe(status));
+}
+
+
+void OnCwjap(AtStatus status) {
+	Note("cwjap " + Describe(status));
+}
+
+
+// The description of the failure code: one write with a failure code line. The server's handler returns the code it is given.
+struct FailureApp {
+};
+
+
+AtStatus FailureJoin(AtCall<FailureApp> call, uint8 code) {
+	static_cast<void>(call);
+	AtStatus status{ResultStatus::error};
+	status.failureCode = code;
+	return status;
+}
+
+
+using FailureSet = AtCommandSet<+[] {
+	return AtCommandSetBuilder()
+		.Defaults(AtDefaults().TimeoutMs(500))
+		.Command<"+CWJAP">().Write(Argument<uint8>("code")).FailureCode("+CWJAP")
+		.Urc<"WIFI GOT IP">();
+}>;
+
+
+using FailureServerBinding = AtServerBinding<
+	AtOn<"+CWJAP", &FailureJoin>
+>;
+
+
+// Runs the two sides, one round at a time, until the rounds have passed: the client's bytes go to the server, and the server's to the
+// client. The server's bytes are added to serverSaid, so a test can read them after the rounds.
+template<typename ClientType, typename ServerType>
+void Exchange(ClientType& client, ServerType& server, Wire& toServer, Wire& toClient, std::string& serverSaid) {
+	for (int round = 0; round < 4; round++) {
+		client.Process(0);
+
+		for (char character : toServer.bytes) {
+			server.Feed(static_cast<uint8>(character));
+		}
+
+		toServer.bytes.clear();
+		server.Process();
+		serverSaid += toClient.bytes;
+
+		for (char character : toClient.bytes) {
+			client.Feed(static_cast<uint8>(character));
+		}
+
+		toClient.bytes.clear();
+		client.Process(0);
+	}
+}
+
+
+// A Ping across the wire: the server answers the bare AT with OK, and the client's echo module drops the echo of its request.
+void TestPingLoopback() {
+	handled.clear();
+	Wire toServer;
+	Wire toClient;
+	App app;
+	AtClient<Set, ClientBinding, AtQueue<2>, AtEcho> client(toServer);
+	AtServer<Set, App, ServerBinding> server(app, toClient);
+	std::string serverSaid;
+
+	AtStatus queued = client.Ping<&OnPing>();
+	AT_EQ(queued.status == ResultStatus::ok, true);
+	Exchange(client, server, toServer, toClient, serverSaid);
+	AT_TEXT(handled, "ping ok\n");
+}
+
+
+// The failure code of a write: the server's handler returns error with code 2, so the server writes +CWJAP:2 before ERROR, and the client's
+// status carries the code. The next request, with code 0, writes no code line, so its status has none.
+void TestFailureCodeLoopback() {
+	handled.clear();
+	Wire toServer;
+	Wire toClient;
+	FailureApp app;
+	AtClient<FailureSet, AtClientBinding<>, AtQueue<2>> client(toServer);
+	AtServer<FailureSet, FailureApp, FailureServerBinding> server(app, toClient);
+	std::string serverSaid;
+
+	client.Write<"+CWJAP", &OnCwjap>(uint8{2});
+	client.Write<"+CWJAP", &OnCwjap>(uint8{0});
+	Exchange(client, server, toServer, toClient, serverSaid);
+	AT_TEXT(handled, "cwjap error failure 2\ncwjap error\n");
+	AT_TEXT(serverSaid, "\r\n+CWJAP:2\r\n\r\nERROR\r\n\r\nERROR\r\n");
+}
+
+
 // Two requests in flight at once: the second waits in the queue behind the first. A URC that the server queued during the first reply
 // reaches the client between the two replies, and the second request is sent only after the first reply.
 void TestPipelinedRequestsAndUrc() {
@@ -585,6 +686,8 @@ void TestSessionsAgree() {
 int main() {
 	TestPipelinedRequestsAndUrc();
 	TestSessionsAgree();
+	TestPingLoopback();
+	TestFailureCodeLoopback();
 
 	if (failureCount != 0) {
 		std::fprintf(stderr, "TestAtLoopback: %d of %d checks failed\n", failureCount, checkCount);

@@ -93,8 +93,8 @@ The sizes below are the server of a five-command set with every dialect option, 
 
 | Object | text | data | bss |
 |---|---|---|---|
-| no dialect option | 3179 | 4 | 32 |
-| every dialect option | 4972 | 4 | 32 |
+| no dialect option | 3147 | 4 | 32 |
+| every dialect option | 4940 | 4 | 32 |
 
 The dialect adds 1793 bytes of text. The `data` and `bss` figures are the simulation's own globals, and are the same in both.
 

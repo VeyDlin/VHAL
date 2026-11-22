@@ -1,0 +1,6 @@
+# Written by hand, not recorded from a module.
+# 255 is the largest code, and it is kept.
+> AT+CWJAP=2
+< AT+CWJAP=2
+< +CWJAP:255
+< ERROR
