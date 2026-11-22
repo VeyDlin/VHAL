@@ -111,6 +111,8 @@ Rules for a caller:
 | `onInterrupt` | `std::function<void(Irq)>` | Called on async TX/RX completion |
 | `onError` | `std::function<void(Error)>` | Called on SPI error |
 
+Replace a callback while its interrupt may run with its setter: `SetOnInterrupt(handler)` and `SetOnError(handler)`. See [Changing a callback while its interrupt may run](IAdapter.md#changing-a-callback-while-its-interrupt-may-run).
+
 ## ESP32 Port
 
 `ASPI` is `SPIAdapterESP` (`Periphery/Adapter/Port/ESP32/Common/SPIAdapterESP.h`), built on the ESP-IDF SPI master driver. `HandleType` is `void`.

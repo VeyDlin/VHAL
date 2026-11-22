@@ -23,6 +23,17 @@ public:
 public:
 	GPTimerAdapter() = default;
 
+
+	// Replaces onAlarm while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnAlarm(std::function<void()> handler) {
+		std::function<void()> old;
+		System::CriticalSection(true);
+		old = std::move(onAlarm);
+		onAlarm = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
 	virtual ResultStatus SetParameters(Parameters val) = 0;
 	virtual ResultStatus Start() = 0;
 	virtual ResultStatus Stop() = 0;

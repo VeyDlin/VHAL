@@ -11,12 +11,12 @@ private:
 
 public:
 	SerialFIFO(AUART &uart): serial(&uart)  {
-		serial->onInterrupt = [this](auto type) {
+		serial->SetOnInterrupt([this](AUART::Irq type) {
 			if(type == AUART::Irq::Rx) {
 				uint8 data = static_cast<uint8>(serial->GetLastRxData());
 				fifo.Push(data);
 			}
-		};
+		});
 	}
 
 

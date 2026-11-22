@@ -91,6 +91,8 @@ On STM32 G0, attach the DMA adapter with `SetDMA()` before starting a DMA-backed
 | `onInterrupt` | `std::function<void(Irq, uint8 channel)>` | Conversion complete (with channel number) |
 | `onError` | `std::function<void(Error)>` | Conversion error |
 
+Replace a callback while its interrupt may run with its setter: `SetOnInterrupt(handler)` and `SetOnError(handler)`. See [Changing a callback while its interrupt may run](IAdapter.md#changing-a-callback-while-its-interrupt-may-run).
+
 ## ESP32 Port
 
 `AADC` is `ADCAdapterESP` (`Periphery/Adapter/Port/ESP32/Common/ADCAdapterESP.h`), built on the ESP-IDF `esp_adc` oneshot and calibration API. `HandleType` is `void`.

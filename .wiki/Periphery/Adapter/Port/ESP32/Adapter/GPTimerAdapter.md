@@ -41,6 +41,8 @@ struct Parameters {
 |----------|------|-------------|
 | `onAlarm` | `std::function<void()>` | Called when counter reaches alarm value |
 
+Replace a callback while its interrupt may run with its setter: `SetOnAlarm(handler)`. See [Changing a callback while its interrupt may run](../../../IAdapter.md#changing-a-callback-while-its-interrupt-may-run).
+
 ## Usage Example
 
 ```cpp

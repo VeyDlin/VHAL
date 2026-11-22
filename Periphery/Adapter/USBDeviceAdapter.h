@@ -129,7 +129,8 @@ public:
 
 	// Events. Assign them before Connect(). They run in interrupt context, so a handler must be short and must not block
 	// or allocate. A delegate is a function pointer with a context, made with VSTD::Delegate::Bind() on a member function; a
-	// lambda with captures does not fit. An empty delegate is skipped.
+	// lambda with captures does not fit. An empty delegate is skipped. To replace one while its interrupt may run, use the
+	// SetOn... setter of that event.
 	VSTD::Delegate<void(USBSpeed speed)> onBusReset;
 
 
@@ -159,6 +160,62 @@ protected:
 
 
 public:
+	// Replaces onBusReset while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnBusReset(VSTD::Delegate<void(USBSpeed speed)> handler) {
+		System::CriticalSection(true);
+		onBusReset = handler;
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onSetup while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnSetup(VSTD::Delegate<void(const USBSetupBytes& setup)> handler) {
+		System::CriticalSection(true);
+		onSetup = handler;
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onTransferComplete while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnTransferComplete(VSTD::Delegate<void(uint8 address, uint32 byteCount)> handler) {
+		System::CriticalSection(true);
+		onTransferComplete = handler;
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onSuspend while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnSuspend(VSTD::Delegate<void()> handler) {
+		System::CriticalSection(true);
+		onSuspend = handler;
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onResume while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnResume(VSTD::Delegate<void()> handler) {
+		System::CriticalSection(true);
+		onResume = handler;
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onStartOfFrame while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnStartOfFrame(VSTD::Delegate<void(uint16 frameNumber)> handler) {
+		System::CriticalSection(true);
+		onStartOfFrame = handler;
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onError while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnError(VSTD::Delegate<void(Error error)> handler) {
+		System::CriticalSection(true);
+		onError = handler;
+		System::CriticalSection(false);
+	}
+
+
 	// Stores val and runs Initialization(). Only while disconnected: returns busy while IsConnected(). Thread context.
 	virtual ResultStatus SetParameters(Parameters val) {
 		if (IsConnected()) {

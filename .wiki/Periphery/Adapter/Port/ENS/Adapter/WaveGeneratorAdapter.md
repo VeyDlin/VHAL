@@ -70,6 +70,8 @@ struct InterruptEvent {
 |----------|------|-------------|
 | `onInterrupt` | `std::function<void(InterruptEvent)>` | Address watchpoint triggered |
 
+Replace the handler with `SetOnInterrupt(handler)` while the interrupt may run. See [Changing a callback while its interrupt may run](../../../IAdapter.md#changing-a-callback-while-its-interrupt-may-run).
+
 ## BSP Configuration Example
 
 ```cpp

@@ -89,6 +89,8 @@ Every asynchronous call returns `invalidParameter` for a size of 0 (a `WriteStri
 | `onInterrupt` | `std::function<void(Irq irqType)>` | Called when TX/RX completes asynchronously |
 | `onError` | `std::function<void(Error errorType)>` | Called on communication error |
 
+Replace a callback while its interrupt may run with its setter: `SetOnInterrupt(handler)` and `SetOnError(handler)`. See [Changing a callback while its interrupt may run](IAdapter.md#changing-a-callback-while-its-interrupt-may-run).
+
 ## ESP32 Port
 
 `AUART` is `UARTAdapterESP` (`Periphery/Adapter/Port/ESP32/Common/UARTAdapterESP.h`), built on the ESP-IDF UART driver. `HandleType` is `void`.

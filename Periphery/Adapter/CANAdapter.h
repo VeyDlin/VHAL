@@ -13,8 +13,8 @@
 // Reception: frames that pass a filter go to a hardware FIFO. With onReceive assigned, the interrupt reads every frame and
 // raises onReceive, and Receive() finds nothing. Without it, frames stay in the FIFO for Receive(); when the FIFO is full
 // the hardware drops new frames and the port raises onError(Error::ReceiveOverrun). When a handler assigned while the
-// controller runs takes effect is in the port's header. Assigning onReceive is not atomic: while frames can arrive, assign
-// it with interrupts masked.
+// controller runs takes effect is in the port's header. Change onReceive with SetOnReceive(): a plain assignment to the field
+// is not atomic, so it can tear while frames arrive.
 //
 // Transmission: Send() places a frame in a free transmit slot (mailbox or FIFO element) and returns at once.
 //
@@ -121,6 +121,46 @@ public:
 
 
 	CANAdapter(HandleType *can, uint32 kernelClockHz) : canHandle(can), inputBusClockHz(kernelClockHz) {
+	}
+
+
+	// Replaces onReceive while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnReceive(std::function<void(const Frame& frame)> handler) {
+		std::function<void(const Frame& frame)> old;
+		System::CriticalSection(true);
+		old = std::move(onReceive);
+		onReceive = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onTransmitComplete while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnTransmitComplete(std::function<void()> handler) {
+		std::function<void()> old;
+		System::CriticalSection(true);
+		old = std::move(onTransmitComplete);
+		onTransmitComplete = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onBusStateChanged while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnBusStateChanged(std::function<void(BusState state)> handler) {
+		std::function<void(BusState state)> old;
+		System::CriticalSection(true);
+		old = std::move(onBusStateChanged);
+		onBusStateChanged = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onError while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnError(std::function<void(Error error)> handler) {
+		std::function<void(Error error)> old;
+		System::CriticalSection(true);
+		old = std::move(onError);
+		onError = std::move(handler);
+		System::CriticalSection(false);
 	}
 
 

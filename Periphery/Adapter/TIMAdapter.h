@@ -145,6 +145,76 @@ public:
 	TIMAdapter(HandleType *tim, uint32 busClockHz, Bitness bit = Bitness::B16): timHandle(tim), inputBusClockHz(busClockHz), bitness(bit) { }
 
 
+	// Replaces onInputCaptureEvent while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnInputCaptureEvent(std::function<void(uint8 channel)> handler) {
+		std::function<void(uint8 channel)> old;
+		System::CriticalSection(true);
+		old = std::move(onInputCaptureEvent);
+		onInputCaptureEvent = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onOutputCompareEvent while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnOutputCompareEvent(std::function<void(uint8 channel)> handler) {
+		std::function<void(uint8 channel)> old;
+		System::CriticalSection(true);
+		old = std::move(onOutputCompareEvent);
+		onOutputCompareEvent = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onUpdateEvent while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnUpdateEvent(std::function<void()> handler) {
+		std::function<void()> old;
+		System::CriticalSection(true);
+		old = std::move(onUpdateEvent);
+		onUpdateEvent = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onBreakInputEvent while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnBreakInputEvent(std::function<void()> handler) {
+		std::function<void()> old;
+		System::CriticalSection(true);
+		old = std::move(onBreakInputEvent);
+		onBreakInputEvent = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onBreak2InputEvent while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnBreak2InputEvent(std::function<void()> handler) {
+		std::function<void()> old;
+		System::CriticalSection(true);
+		old = std::move(onBreak2InputEvent);
+		onBreak2InputEvent = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onTriggerDetectionEvent while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnTriggerDetectionEvent(std::function<void()> handler) {
+		std::function<void()> old;
+		System::CriticalSection(true);
+		old = std::move(onTriggerDetectionEvent);
+		onTriggerDetectionEvent = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onCommutationEvent while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnCommutationEvent(std::function<void()> handler) {
+		std::function<void()> old;
+		System::CriticalSection(true);
+		old = std::move(onCommutationEvent);
+		onCommutationEvent = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
 
 	virtual ResultStatus SetParameters(Parameters val) {
 		parameters = val;

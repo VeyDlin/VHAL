@@ -65,6 +65,26 @@ public:
 	I2SAdapter(HandleType *i2s, uint32 busClockHz = 0) : i2sHandle(i2s), inputBusClockHz(busClockHz) { }
 
 
+	// Replaces onInterrupt while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnInterrupt(std::function<void(Irq irqType)> handler) {
+		std::function<void(Irq irqType)> old;
+		System::CriticalSection(true);
+		old = std::move(onInterrupt);
+		onInterrupt = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onError while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnError(std::function<void(Error errorType)> handler) {
+		std::function<void(Error errorType)> old;
+		System::CriticalSection(true);
+		old = std::move(onError);
+		onError = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
 	virtual ResultStatus SetParameters(Parameters val) {
 		parameters = val;
 		return Initialization();

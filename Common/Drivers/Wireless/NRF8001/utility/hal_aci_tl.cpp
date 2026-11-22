@@ -347,11 +347,11 @@ void hal_aci_tl_init(aci_pins_t *a_pins, bool /*debug*/)
 #ifdef HAL_ACI_TL_INTERRUPT
   /* Attach the interrupt to the RDYN line as requested by the caller */
   if (a_pins->interface_is_interrupt) {
-	a_pins->rdyn_pin->onInterrupt = [](bool state) {
+	a_pins->rdyn_pin->SetOnInterrupt([]([[maybe_unused]] bool state) {
 		if(m_aci_isr_use) {
 			m_aci_isr();
 		}
-	};
+	});
   }
 #endif
 }

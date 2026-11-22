@@ -78,6 +78,8 @@ Assign them before `Connect()`. They run in interrupt context, so a handler must
 
 The core subscribes to the first six. The application may use `onStartOfFrame` only.
 
+Replace an event while its interrupt may run with its setter: `SetOnBusReset`, `SetOnSetup`, `SetOnTransferComplete`, `SetOnSuspend`, `SetOnResume`, `SetOnStartOfFrame` or `SetOnError`, each taking the delegate. See [Changing a callback while its interrupt may run](IAdapter.md#changing-a-callback-while-its-interrupt-may-run).
+
 When `onTransferComplete` runs, the transfer is no longer in flight. The callback may arm the next transfer in the same direction.
 
 ## API

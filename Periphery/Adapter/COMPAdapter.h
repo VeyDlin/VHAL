@@ -67,6 +67,16 @@ public:
 	COMPAdapter(HandleType *comp):compHandle(comp) { }
 
 
+	// Replaces onInterrupt while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnInterrupt(std::function<void(bool outputLevel)> handler) {
+		std::function<void(bool outputLevel)> old;
+		System::CriticalSection(true);
+		old = std::move(onInterrupt);
+		onInterrupt = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
 	virtual inline void IrqHandler() = 0;
 
 

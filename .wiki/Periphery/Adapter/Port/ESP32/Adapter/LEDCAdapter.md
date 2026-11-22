@@ -91,8 +91,11 @@ The destructor stops all bound channels with idle level `0`.
 | Callback | Type | Description |
 |----------|------|-------------|
 | `onFadeEnd` | `std::function<void(ChannelOption channel)>` | Hardware fade started by `FadeTo()` completed. Called in interrupt context |
+| `SetOnFadeEnd(handler)` | setter | Replaces `onFadeEnd`. See below and [Changing a callback while its interrupt may run](../../../IAdapter.md#changing-a-callback-while-its-interrupt-may-run) |
 
-Assign `onFadeEnd` before the first `FadeTo()` on a channel: the fade-end callback is registered with the driver only when a handler is set at that moment.
+On ESP32 the section masks interrupts on the calling core only. A callback whose interrupt runs on the other core may be swapped only while that interrupt cannot fire, or from the core that installed the driver. For LEDC the first case means no fade runs on that channel. See [Changing a callback while its interrupt may run](../../../IAdapter.md#changing-a-callback-while-its-interrupt-may-run).
+
+The driver's registration follows the channel's fade history. A channel that has started a fade gets the callback registered at once when a handler is set, so the handler runs for a fade that is already running. A channel that has never faded is not registered by `SetOnFadeEnd()`: its first `FadeTo()` registers the callback, when a handler is set at that moment. Clearing the handler with `SetOnFadeEnd(nullptr)` unregisters the callback from every registered channel, so the fade interrupt no longer calls into the adapter.
 
 The LEDC fade interrupt is not masked while flash memory is being written (NVS, OTA, file systems), and the handler is ordinary code in flash. Do not let a fade with `onFadeEnd` set complete during a flash write.
 

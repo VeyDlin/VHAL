@@ -60,6 +60,37 @@ public:
 	DMAAdapter(HandleType *dma, uint32 channel)
 		: dmaHandle(dma), dmaChannel(channel) { }
 
+
+	// Replaces onTransferComplete while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnTransferComplete(std::function<void()> handler) {
+		std::function<void()> old;
+		System::CriticalSection(true);
+		old = std::move(onTransferComplete);
+		onTransferComplete = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onHalfTransfer while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnHalfTransfer(std::function<void()> handler) {
+		std::function<void()> old;
+		System::CriticalSection(true);
+		old = std::move(onHalfTransfer);
+		onHalfTransfer = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onError while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnError(std::function<void()> handler) {
+		std::function<void()> old;
+		System::CriticalSection(true);
+		old = std::move(onError);
+		onError = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
 	ResultStatus SetParameters(const Parameters &params) {
 		parameters = params;
 		return Initialization();

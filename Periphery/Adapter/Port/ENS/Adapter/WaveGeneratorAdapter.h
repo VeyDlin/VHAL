@@ -55,6 +55,17 @@ public:
 	WaveGeneratorAdapter(HandleType *waveGen) : waveGenHandle(waveGen) {}
 	virtual ~WaveGeneratorAdapter() = default;
 
+
+	// Replaces onInterrupt while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnInterrupt(std::function<void(InterruptEvent)> handler) {
+		std::function<void(InterruptEvent)> old;
+		System::CriticalSection(true);
+		old = std::move(onInterrupt);
+		onInterrupt = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
 	virtual void SetParameters(Parameters val) = 0;
 	virtual void Start() = 0;
 	virtual void Stop() = 0;

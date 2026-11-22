@@ -81,6 +81,76 @@ public:
 	I2CAdapter(HandleType *i2c, uint32 busClockHz):i2cHandle(i2c), inputBusClockHz(busClockHz) { }
 
 
+	// Replaces onSlaveRead while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnSlaveRead(std::function<void(uint8 data)> handler) {
+		std::function<void(uint8 data)> old;
+		System::CriticalSection(true);
+		old = std::move(onSlaveRead);
+		onSlaveRead = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onSlaveWrite while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnSlaveWrite(std::function<uint8()> handler) {
+		std::function<uint8()> old;
+		System::CriticalSection(true);
+		old = std::move(onSlaveWrite);
+		onSlaveWrite = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onSlaveEndTransfer while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnSlaveEndTransfer(std::function<void()> handler) {
+		std::function<void()> old;
+		System::CriticalSection(true);
+		old = std::move(onSlaveEndTransfer);
+		onSlaveEndTransfer = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onError while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnError(std::function<void(Error errorType)> handler) {
+		std::function<void(Error errorType)> old;
+		System::CriticalSection(true);
+		old = std::move(onError);
+		onError = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onComplete while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnComplete(std::function<void()> handler) {
+		std::function<void()> old;
+		System::CriticalSection(true);
+		old = std::move(onComplete);
+		onComplete = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onSlaveAddressMatch while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnSlaveAddressMatch(std::function<void(bool isRead)> handler) {
+		std::function<void(bool isRead)> old;
+		System::CriticalSection(true);
+		old = std::move(onSlaveAddressMatch);
+		onSlaveAddressMatch = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onSlaveStop while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnSlaveStop(std::function<void(bool wasRead)> handler) {
+		std::function<void(bool wasRead)> old;
+		System::CriticalSection(true);
+		old = std::move(onSlaveStop);
+		onSlaveStop = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
 	virtual ResultStatus SetParameters(Parameters val) {
 		parameters = val;
 		return Initialization();

@@ -131,11 +131,11 @@ void BSP::InitAdapterPeripheryEvents() {
 
 	// Each transfer is one chunk, so the transmitter is idle again when it finishes. The next chunk is started from here while
 	// the ring still has text; when the ring is empty, the next ConsoleWrite() starts the transfer.
-	consoleSerial.onInterrupt = [](AUART::Irq irqType) {
+	consoleSerial.SetOnInterrupt([](AUART::Irq irqType) {
 		if (irqType == AUART::Irq::Tx) {
 			StartConsoleChunk();
 		}
-	};
+	});
 }
 
 

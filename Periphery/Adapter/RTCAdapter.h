@@ -81,6 +81,26 @@ public:
 	}
 
 
+	// Replaces onAlarm while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnAlarm(std::function<void(uint8 alarmIndex)> handler) {
+		std::function<void(uint8 alarmIndex)> old;
+		System::CriticalSection(true);
+		old = std::move(onAlarm);
+		onAlarm = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onWakeup while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnWakeup(std::function<void()> handler) {
+		std::function<void()> old;
+		System::CriticalSection(true);
+		old = std::move(onWakeup);
+		onWakeup = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
 	// Sets the prescalers for the clock source and the calibration. The calendar keeps running and is not reset, so this
 	// is safe after a reset or a wakeup from standby.
 	virtual ResultStatus SetParameters(Parameters val) {

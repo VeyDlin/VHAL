@@ -61,11 +61,13 @@ void System::Reset() {
 }
 
 
+// The _SAFE variants work from a task and from an interrupt. The task-only portENTER_CRITICAL asserts in an interrupt when
+// CONFIG_FREERTOS_CHECK_PORT_CRITICAL_COMPLIANCE is set, and a setter of a callback can run inside a driver interrupt.
 void System::CriticalSection(bool isEnable) {
 	if (isEnable) {
-		portENTER_CRITICAL(&s_criticalMux);
+		portENTER_CRITICAL_SAFE(&s_criticalMux);
 	} else {
-		portEXIT_CRITICAL(&s_criticalMux);
+		portEXIT_CRITICAL_SAFE(&s_criticalMux);
 	}
 }
 

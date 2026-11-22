@@ -59,6 +59,8 @@ struct Parameters {
 |----------|------|-------------|
 | `onError` | `std::function<void(Error)>` | DMA underrun error |
 
+Replace a callback while its interrupt may run with its setter: `SetOnError(handler)`. See [Changing a callback while its interrupt may run](IAdapter.md#changing-a-callback-while-its-interrupt-may-run).
+
 ## BSP Configuration Example
 
 ```cpp

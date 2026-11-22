@@ -42,6 +42,16 @@ public:
 	DACAdapter(HandleType *dac, uint8 channel):dacHandle(dac), dacChannel(channel) { }
 
 
+	// Replaces onError while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnError(std::function<void(Error errorType)> handler) {
+		std::function<void(Error errorType)> old;
+		System::CriticalSection(true);
+		old = std::move(onError);
+		onError = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
 	virtual inline void IrqHandler() = 0;
 
 

@@ -96,6 +96,8 @@ struct Parameters {
 | `onInterrupt` | `std::function<void(Irq)>` | DMA transfer event |
 | `onError` | `std::function<void(Error)>` | Audio error |
 
+Replace a callback while its interrupt may run with its setter: `SetOnInterrupt(handler)` and `SetOnError(handler)`. See [Changing a callback while its interrupt may run](IAdapter.md#changing-a-callback-while-its-interrupt-may-run).
+
 ## ESP32 Port
 
 `AI2S` is `I2SAdapterESP` (`Periphery/Adapter/Port/ESP32/Common/I2SAdapterESP.h`), built on the ESP-IDF I2S channel driver. `HandleType` is `void`: the peripheral is selected by an `i2s_port_t`.

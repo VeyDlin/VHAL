@@ -76,6 +76,26 @@ public:
 	SPIAdapter(HandleType *spi, uint32 busClockHz = 0): spiHandle(spi), inputBusClockHz(busClockHz) { }
 
 
+	// Replaces onInterrupt while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnInterrupt(std::function<void(Irq irqType)> handler) {
+		std::function<void(Irq irqType)> old;
+		System::CriticalSection(true);
+		old = std::move(onInterrupt);
+		onInterrupt = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
+	// Replaces onError while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnError(std::function<void(Error errorType)> handler) {
+		std::function<void(Error errorType)> old;
+		System::CriticalSection(true);
+		old = std::move(onError);
+		onError = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
 
 
 	template <typename DataType>

@@ -68,17 +68,7 @@ public:
 
 	~LEDCAdapterESP() {
 		// The driver keeps a pointer to this object for the fade-end callback; clear it before the object goes away.
-		ledc_cbs_t noCallbacks = {};
-		for (uint8 i = 0; i < channelCount; i++) {
-			if (fadeCallbackRegistered[i]) {
-				ledc_cb_register(
-					static_cast<ledc_mode_t>(speedMode.Get()),
-					static_cast<ledc_channel_t>(channels[i].channel.Get()),
-					&noCallbacks,
-					nullptr
-				);
-			}
-		}
+		UnregisterFadeCallbacks();
 
 		for (uint8 i = 0; i < channelCount; i++) {
 			ledc_stop(
@@ -91,11 +81,10 @@ public:
 
 
 	ResultStatus SetParameters(Parameters val) override {
+		// The channel list may change, so the old channels' fade callbacks are cleared in the driver first.
+		UnregisterFadeCallbacks();
 		parameters = val;
 		channelCount = 0;
-		for (uint8 i = 0; i < maxChannels; i++) {
-			fadeCallbackRegistered[i] = false;
-		}
 		return Initialization();
 	}
 
@@ -195,10 +184,14 @@ public:
 				return ResultStatus::error;
 			}
 			fadeCallbackRegistered[slot] = true;
+			fadeStarted[slot] = true;
 		}
 
 		if (ledc_set_fade_with_time(sm, ch, targetDuty, fadeTimeMs) != ESP_OK) {
 			return ResultStatus::error;
+		}
+		if (slot >= 0) {
+			fadeStarted[slot] = true;
 		}
 		return (ledc_fade_start(sm, ch, LEDC_FADE_NO_WAIT) == ESP_OK)
 			? ResultStatus::ok : ResultStatus::error;
@@ -220,6 +213,7 @@ protected:
 	ChannelConfig channels[maxChannels] = {};
 	uint8 channelCount = 0;
 	bool fadeCallbackRegistered[maxChannels] = {};
+	bool fadeStarted[maxChannels] = {};
 	static inline bool fadeInstalled = false;
 
 	ResultStatus Initialization() override {
@@ -243,7 +237,60 @@ protected:
 	}
 
 
+	// A new handler registers the fade callback on the channels that have started a fade, so each already has a driver fade
+	// record; a channel that has not faded yet is left alone, and its first FadeTo() registers the callback. A cleared handler
+	// unregisters every registered channel, so the fade interrupt stops calling FadeCallback, which lives in flash. ledc_cb_register() only stores the callback
+	// pointer and the context, which the fade interrupt reads with no lock, so it is called here with interrupts enabled,
+	// not inside SetOnFadeEnd()'s section.
+	void FadeEndHandlerChanged() override {
+		ledc_mode_t sm = static_cast<ledc_mode_t>(speedMode.Get());
+		for (uint8 i = 0; i < channelCount; i++) {
+			ledc_channel_t ch = static_cast<ledc_channel_t>(channels[i].channel.Get());
+			if (onFadeEnd) {
+				if (fadeCallbackRegistered[i] || !fadeStarted[i]) {
+					continue;
+				}
+
+				ledc_cbs_t callbacks = {};
+				callbacks.fade_cb = FadeCallback;
+				if (ledc_cb_register(sm, ch, &callbacks, this) == ESP_OK) {
+					fadeCallbackRegistered[i] = true;
+				}
+			} else {
+				if (!fadeCallbackRegistered[i]) {
+					continue;
+				}
+
+				ledc_cbs_t noCallbacks = {};
+				if (ledc_cb_register(sm, ch, &noCallbacks, nullptr) == ESP_OK) {
+					fadeCallbackRegistered[i] = false;
+				}
+			}
+		}
+	}
+
+
 private:
+	// Clears the fade-end callback in the driver for every registered channel and forgets the fade state of all slots, since
+	// SetParameters() reassigns them. Only registered channels get a call, so a channel that never registered is not touched.
+	void UnregisterFadeCallbacks() {
+		ledc_cbs_t noCallbacks = {};
+		for (uint8 i = 0; i < maxChannels; i++) {
+			if (i < channelCount && fadeCallbackRegistered[i]) {
+				ledc_cb_register(
+					static_cast<ledc_mode_t>(speedMode.Get()),
+					static_cast<ledc_channel_t>(channels[i].channel.Get()),
+					&noCallbacks,
+					nullptr
+				);
+			}
+
+			fadeCallbackRegistered[i] = false;
+			fadeStarted[i] = false;
+		}
+	}
+
+
 	ResultStatus EnsureFadeService() {
 		if (fadeInstalled) {
 			return ResultStatus::ok;
@@ -270,8 +317,10 @@ private:
 
 	// Deliberately not IRAM_ATTR: it calls onFadeEnd, which lives in flash anyway, and an in-class function placed
 	// in IRAM fails to link on Xtensa as soon as it needs a literal that the linker cannot relax away.
+	// ledc_cb_register() stores the callback before the context, so an interrupt between the two stores sees this callback
+	// with no context yet; it then does nothing.
 	static bool FadeCallback(const ledc_cb_param_t *parameter, void *argument) {
-		if (parameter->event == LEDC_FADE_END_EVT) {
+		if (argument != nullptr && parameter->event == LEDC_FADE_END_EVT) {
 			LEDCAdapterESP *self = static_cast<LEDCAdapterESP *>(argument);
 			if (self->onFadeEnd) {
 				self->onFadeEnd(ChannelOption(parameter->channel));

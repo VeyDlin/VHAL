@@ -53,8 +53,25 @@ public:
 	}
 
 
+	// Replaces onFadeEnd. See "Changing a callback while its interrupt may run" in the wiki for when this is safe on ESP32.
+	// The port then runs FadeEndHandlerChanged() outside the section, so the driver learns about the new handler.
+	void SetOnFadeEnd(std::function<void(ChannelOption channel)> handler) {
+		std::function<void(ChannelOption channel)> old;
+		System::CriticalSection(true);
+		old = std::move(onFadeEnd);
+		onFadeEnd = std::move(handler);
+		System::CriticalSection(false);
+		FadeEndHandlerChanged();
+	}
+
+
 protected:
 	TimerOption timer;
 	SpeedModeOption speedMode;
 	Parameters parameters;
+
+
+	// Called after SetOnFadeEnd() has replaced the handler, with interrupts enabled. A port overrides it when its driver
+	// needs a registration for the handler to run.
+	virtual void FadeEndHandlerChanged() { }
 };

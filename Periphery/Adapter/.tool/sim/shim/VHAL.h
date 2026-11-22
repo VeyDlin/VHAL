@@ -22,16 +22,27 @@ inline int simCriticalDepth = 0;
 // Every enter since the start of the test, so a test can count the sections one call takes.
 inline uint32 simCriticalEnters = 0;
 
+// Called after each enter, with the depth already counted, and before each leave, with the depth still counted. A test uses it
+// to look at the state a section protects while the section is open. Empty by default.
+inline std::function<void(bool isEnable)> simCriticalHook;
+
 
 inline void System::CriticalSection(bool isEnable) {
 	if (isEnable) {
 		simCriticalDepth++;
 		simCriticalEnters++;
+		if (simCriticalHook) {
+			simCriticalHook(true);
+		}
 		return;
 	}
 
 	if (simCriticalDepth == 0) {
 		System::Abort("critical section left without a matching entry", __FILE__, __LINE__);
+	}
+
+	if (simCriticalHook) {
+		simCriticalHook(false);
 	}
 
 	simCriticalDepth--;

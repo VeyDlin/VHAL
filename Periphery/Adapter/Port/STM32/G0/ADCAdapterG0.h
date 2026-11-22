@@ -44,14 +44,14 @@ public:
 	virtual void SetDMA(ADMA *dmaAdapter) override {
 		dma = dmaAdapter;
 		if (dma != nullptr) {
-			dma->onTransferComplete = [this]() {
+			dma->SetOnTransferComplete([this]() {
 				state = ResultStatus::ready;
 				CallInterrupt(Irq::Conversion);
-			};
-			dma->onError = [this]() {
+			});
+			dma->SetOnError([this]() {
 				state = ResultStatus::ready;
 				CallError(Error::Overrun);
-			};
+			});
 		}
 	}
 

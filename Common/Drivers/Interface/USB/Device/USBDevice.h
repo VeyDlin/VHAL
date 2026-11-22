@@ -366,12 +366,12 @@ private:
 	// while the device is alive, because a delegate the interrupt may be calling must not be replaced. Only the destructor
 	// clears them, under the precondition stated there. The handlers ignore events while the device is stopped.
 	void SubscribeEvents() {
-		adapter.onBusReset = VSTD::Delegate<void(USBSpeed)>::Bind<USBDevice, &USBDevice::HandleBusReset>(this);
-		adapter.onSetup = VSTD::Delegate<void(const USBSetupBytes&)>::Bind<USBDevice, &USBDevice::HandleSetup>(this);
-		adapter.onTransferComplete = VSTD::Delegate<void(uint8, uint32)>::Bind<USBDevice, &USBDevice::HandleTransferComplete>(this);
-		adapter.onSuspend = VSTD::Delegate<void()>::Bind<USBDevice, &USBDevice::HandleSuspend>(this);
-		adapter.onResume = VSTD::Delegate<void()>::Bind<USBDevice, &USBDevice::HandleResume>(this);
-		adapter.onError = VSTD::Delegate<void(USBDeviceAdapter::Error)>::Bind<USBDevice, &USBDevice::HandleError>(this);
+		adapter.SetOnBusReset(VSTD::Delegate<void(USBSpeed)>::Bind<USBDevice, &USBDevice::HandleBusReset>(this));
+		adapter.SetOnSetup(VSTD::Delegate<void(const USBSetupBytes&)>::Bind<USBDevice, &USBDevice::HandleSetup>(this));
+		adapter.SetOnTransferComplete(VSTD::Delegate<void(uint8, uint32)>::Bind<USBDevice, &USBDevice::HandleTransferComplete>(this));
+		adapter.SetOnSuspend(VSTD::Delegate<void()>::Bind<USBDevice, &USBDevice::HandleSuspend>(this));
+		adapter.SetOnResume(VSTD::Delegate<void()>::Bind<USBDevice, &USBDevice::HandleResume>(this));
+		adapter.SetOnError(VSTD::Delegate<void(USBDeviceAdapter::Error)>::Bind<USBDevice, &USBDevice::HandleError>(this));
 	}
 
 

@@ -65,7 +65,7 @@ static void ConfigurePulseTimer(iq16 frequencyHz) {
 	});
 	pulseTimer = ITIMHelper<iq16>(BSP::timer0);
 	pulseTimer.SetBaseFrequency(frequencyHz);
-	BSP::timer0.onUpdateEvent = OnPulseTick;
+	BSP::timer0.SetOnUpdateEvent(OnPulseTick);
 	BSP::timer0.EnableInterrupt({ TIMAdapter001::Interrupt::Update });
 	NVIC_EnableIRQ(TIMER0_IRQn);
 }

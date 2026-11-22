@@ -130,6 +130,8 @@ Timer DMA request support is port-specific. The base implementation returns `Res
 | `onTriggerDetectionEvent` | `std::function<void()>` | Trigger signal detected |
 | `onCommutationEvent` | `std::function<void()>` | Commutation event |
 
+Replace a callback while its interrupt may run with its setter: `SetOnInputCaptureEvent(handler)`, `SetOnOutputCompareEvent(handler)`, `SetOnUpdateEvent(handler)`, `SetOnBreakInputEvent(handler)`, `SetOnBreak2InputEvent(handler)`, `SetOnTriggerDetectionEvent(handler)` and `SetOnCommutationEvent(handler)`. See [Changing a callback while its interrupt may run](IAdapter.md#changing-a-callback-while-its-interrupt-may-run).
+
 ## BSP Configuration Example
 
 ```cpp

@@ -64,6 +64,8 @@ struct Parameters {
 |----------|------|-------------|
 | `onInterrupt` | `std::function<void(bool outputLevel)>` | Called on trigger event with current output level |
 
+Replace a callback while its interrupt may run with its setter: `SetOnInterrupt(handler)`. See [Changing a callback while its interrupt may run](IAdapter.md#changing-a-callback-while-its-interrupt-may-run).
+
 ## BSP Configuration Example
 
 ```cpp

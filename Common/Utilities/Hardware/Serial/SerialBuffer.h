@@ -12,11 +12,11 @@ private:
 
 public:
 	SerialBuffer(AUART &uart): serial(&uart)  {
-		serial->onInterrupt = [this](auto type) {
+		serial->SetOnInterrupt([this](AUART::Irq type) {
 			if(type == AUART::Irq::Rx) {
 				buffer.Push(serial->GetLastRxData());
 			}
-		};
+		});
 	}
 
 

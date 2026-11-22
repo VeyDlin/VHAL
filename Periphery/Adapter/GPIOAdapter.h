@@ -81,6 +81,16 @@ public:
 
 
 
+	// Replaces onInterrupt while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnInterrupt(std::function<void(bool state)> handler) {
+		std::function<void(bool state)> old;
+		System::CriticalSection(true);
+		old = std::move(onInterrupt);
+		onInterrupt = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
 	inline GPIOAdapter& SetState(bool state) {
 		SetPinState(inversion ? !state : state);
 		return *this;

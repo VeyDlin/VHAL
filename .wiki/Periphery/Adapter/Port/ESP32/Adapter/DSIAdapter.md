@@ -100,6 +100,8 @@ Access via `display.config.useDma2d = true;` before calling `Start()`.
 | `onInterrupt` | `std::function<void(Irq)>` | Refresh/transfer event |
 | `onError` | `std::function<void(Error)>` | Protocol/transmission error |
 
+Replace a callback while its interrupt may run with its setter: `SetOnInterrupt(handler)` and `SetOnError(handler)`. See [Changing a callback while its interrupt may run](../../../IAdapter.md#changing-a-callback-while-its-interrupt-may-run).
+
 ## Usage Example
 
 ```cpp

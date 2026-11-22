@@ -115,6 +115,8 @@ AGPIO::AnalogInit({ GPIOA, 0 });
 | `interruptPeripheryInit` | `std::function<ResultStatus()>` | Custom interrupt initialization |
 | `eventPeripheryInit` | `std::function<ResultStatus()>` | Custom event initialization |
 
+Replace `onInterrupt` while its interrupt may run with its setter: `SetOnInterrupt(handler)`. See [Changing a callback while its interrupt may run](IAdapter.md#changing-a-callback-while-its-interrupt-may-run).
+
 ## ESP32 Port
 
 `AGPIO` is `GPIOAdapterESP` (`Periphery/Adapter/Port/ESP32/Common/GPIOAdapterESP.h`). `PortType` is `void`, so the pin is given as a number:

@@ -74,6 +74,16 @@ public:
 	}
 
 
+	// Replaces onVoltageChange while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
+	void SetOnVoltageChange(std::function<void(bool low)> handler) {
+		std::function<void(bool low)> old;
+		System::CriticalSection(true);
+		old = std::move(onVoltageChange);
+		onVoltageChange = std::move(handler);
+		System::CriticalSection(false);
+	}
+
+
 	virtual ResultStatus SetParameters(Parameters val) {
 		parameters = val;
 		return Initialization();

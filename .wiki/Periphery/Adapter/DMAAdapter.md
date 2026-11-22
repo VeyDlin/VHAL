@@ -73,6 +73,8 @@ The STM32 F4, G0 and G4 DMA ports honour this field. Other ports may ignore it.
 | `onHalfTransfer` | `std::function<void()>` | Half transfer reached |
 | `onError` | `std::function<void()>` | Transfer error |
 
+Replace a callback while its interrupt may run with its setter: `SetOnTransferComplete(handler)`, `SetOnHalfTransfer(handler)` and `SetOnError(handler)`. See [Changing a callback while its interrupt may run](IAdapter.md#changing-a-callback-while-its-interrupt-may-run).
+
 ## Status Rules
 
 The STM32 G0 and G4 ports latch the completion and the error in software, so `GetStatus()` gives the right result after the interrupt has cleared the flags. `LatchedStatus()` holds the rule:

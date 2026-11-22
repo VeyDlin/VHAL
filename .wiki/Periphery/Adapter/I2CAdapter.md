@@ -88,6 +88,8 @@ struct Parameters {
 | `onError` | `std::function<void(Error)>` | Communication error |
 | `onComplete` | `std::function<void()>` | Async operation completed |
 
+Replace a callback while its interrupt may run with its setter: `SetOnSlaveRead(handler)`, `SetOnSlaveWrite(handler)`, `SetOnSlaveEndTransfer(handler)`, `SetOnSlaveAddressMatch(handler)`, `SetOnSlaveStop(handler)`, `SetOnError(handler)` and `SetOnComplete(handler)`. See [Changing a callback while its interrupt may run](IAdapter.md#changing-a-callback-while-its-interrupt-may-run).
+
 ## Bus Recovery
 
 A slave that is reset in the middle of a transfer can keep SDA low after the master has restarted, and every later transaction then times out. Ports should release a held bus at initialisation, before the peripheral takes over the pins: clock SCL with SDA released, then send a STOP. The ESP32 port does this in `SetParameters()` and returns `ResultStatus::error` when SDA stays low.
