@@ -31,7 +31,7 @@ Hysteresis<float> hyst(5.0f);
 float stable = hyst.Get(rawValue);
 
 // Pitch and roll from an accelerometer and a gyroscope
-ComplementaryFilter attitude;
+ComplementaryFilter<> attitude;
 attitude.Reset(firstSample);
 attitude.Update(sample, dtSec);
 float pitch = attitude.GetPitchDeg();
@@ -200,6 +200,31 @@ and one gyroscope. The gyroscope is integrated, and the gravity direction from t
 It is portable: it has no adapter, no RTOS and no UI notion, and the caller passes the time between samples. The inputs are
 g for the accelerometer and deg/s for the gyroscope, with the gyroscope bias already removed by the caller.
 
+### Number types
+
+`template <RealType T = float> requires RangeAtLeast<T, 180.0>`. Write `ComplementaryFilter<>` for `float`, or
+`ComplementaryFilter<IQ<Q>>`. The filter itself needs the angles, which span -180 to 180 degrees, so a type whose range is below
+180 is rejected at compile time. The gyroscope rate is the largest input, and its full scale depends on the sensor and its
+setting, so the caller picks a type that holds it:
+
+| Type | Range | Accepted | Largest gyroscope rate and acceleration |
+|------|-------|----------|-----------------------------------------|
+| `float` | any | yes | no limit |
+| `IQ<16>` | 32768 | yes | 32768 deg/s, 32768 g |
+| `IQ<20>` | 2048 | yes | 2048 deg/s (a 2000 deg/s full scale), 2048 g |
+| `IQ<22>` | 512 | yes | 512 deg/s (a 500 deg/s full scale), 512 g |
+| `IQ<23>` | 256 | yes | 256 deg/s (a 250 deg/s full scale), 256 g |
+| `IQ<24>` | 128 | no | rejected at compile time |
+
+An input beyond the range saturates silently. A 3000 deg/s rate on `IQ<20>` gives a pitch of 190 degrees instead of 293, while
+`float` gives 279. The caller must keep the inputs within the range. The `Sample` fields, the tuning and the `Update` time step
+are all `T`.
+
+Measured against a double reference over a 4 s scenario (host test `.tool/sim/TestComplementaryFilter.cpp`, bounds in the
+test): float 0.00006 degree, `IQ<16>` 0.0015 degree, `IQ<20>` 0.0002 degree. The time step should be a value the type holds
+exactly, such as 2^-10 s. At `IQ<16>` a 1 ms step is 66 raw steps, 0.7 percent high, and the gyroscope integral grows with it
+(about 0.5 degree in 4 s), so use `IQ<20>` for a 1 kHz sample time.
+
 ### Angles
 
 Pitch is the rotation about the sensor's Y axis, roll the rotation about X. Both are right-handed, so the gyroscope rate of an
@@ -224,12 +249,12 @@ integrating across the gap. `TiltScroll` does this for gaps longer than its `max
 ```cpp
 #include <Utilities/Math/Filter/ComplementaryFilter.h>
 
-ComplementaryFilter filter;
-ComplementaryFilter::Tuning tuning;
+ComplementaryFilter<> filter;
+ComplementaryFilter<>::Tuning tuning;
 tuning.timeConstantSec = 1.0f;
 filter.SetTuning(tuning);
 
-ComplementaryFilter::Sample sample;
+ComplementaryFilter<>::Sample sample;
 sample.accelX = ax;       // g
 sample.accelY = ay;
 sample.accelZ = az;

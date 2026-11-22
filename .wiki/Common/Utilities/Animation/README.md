@@ -196,7 +196,7 @@ Animation finishes or Stop() called → timer.Stop() → thread suspended again
 
 ## RgbAnimation
 
-Animates `Colors::FRgb` color values (from `Utilities/Data/Colors/Colors.h`, three `float` channels `r`, `g`, `b`) using a single internal `Animation<T>` as a 0→1 progress driver. Lightweight — one animation instance, not three. `T` must be a floating-point type such as `float` or `double`; the channels are stored as `float`.
+Animates `Colors::FRgb` color values (from `Utilities/Data/Colors/Colors.h`, three `float` channels `r`, `g`, `b`) using a single internal `Animation<T>` as a 0→1 progress driver. Lightweight — one animation instance, not three. `T` is a `RealType`: `float`, `double` or `IQ<Q>` (`RgbAnimation<IQ<24>>` is host-tested; the blend converts the channels to `T` first). The colours themselves stay `float`. `T` also needs the spring range described under Type Support when the spring is used.
 
 ```cpp
 #include <Utilities/Animation/RgbAnimation.h>
@@ -250,7 +250,23 @@ anim.SetTarget({0, 1, 0});   // retarget to green mid-animation
 - `float`, `double` — standard floating point
 - `IQ<Q>` — fixed-point math (no FPU required)
 
-Integral types such as `int` do not satisfy `RealType`. Tween time is measured in integer milliseconds, but the elapsed-time ratio is calculated in `T`, preserving fractional progress for floating-point and IQ animations.
+Integral types such as `int` do not satisfy `RealType`. Tween time is measured in integer milliseconds, and the fraction
+elapsed / duration is computed from those integers before it becomes `T`: for `IQ<Q>` in 64-bit integer arithmetic, so a
+long duration never saturates the type (`IQ<24>`, range 128, runs a 1000 ms tween). Durations must stay below 2^63 ms.
+Float divides the two converted integers.
+
+Ranges by type:
+- Tweens (`Tween`, `TweenSpeed`) work with any `RealType` whose range holds the start, the end and the difference
+  `end - start`, because the value is `from + (to - from) * t`. A difference beyond the range saturates silently: `IQ<24>`
+  (range 128) tweened from -100 to 100 reads -36 at the midpoint instead of 0, while `IQ<20>` (range 2048) gives the correct
+  value for -1000 to 1000. Host tests cover `float`, `IQ<16>`, `IQ<20>` and `IQ<24>` (a 0 to 100 tween).
+- The spring (`SetSpring`, `SetTarget`) needs a type whose range holds the default stiffness of 200. The force is 200 times
+  the distance, so the type must hold 200 times the largest distance from the target, and a force beyond the range saturates
+  silently (about 10 for `IQ<20>`). That distance limit depends on run-time values and is not checked; keep spring distances
+  within it, or use `float`. `float`, `double` and `IQ<Q>` with Q of 23 or less qualify; `IQ<24>` (range 128) does not compile
+  in `SetSpring` or `SetTarget`, and the `static_assert` says so. The spring's time step is also an integer fraction of 1000 ms,
+  so `IQ<22>` and `IQ<23>` (ranges below 1000) run at the right step. Spring host tests cover `float`, `IQ<16>`, `IQ<20>`,
+  `IQ<22>` and `IQ<23>` (a 0 to 1 spring at 17 ms ticks).
 
 Implicit conversions from `int` and `float` literals work transparently with IQ — no `T(...)` wrappers needed:
 

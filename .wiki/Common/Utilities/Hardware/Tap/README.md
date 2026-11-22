@@ -9,6 +9,11 @@ Input: `Sample` with a microsecond `timestampUs`, accelerometer `accelX/Y/Z` (g)
 MPU6886 driver (`Drivers/Sensor/MPU6886`) produces the samples at 1 kHz from its FIFO on the M5StickC PLUS2 (see its page).
 Use consecutive samples at a fixed rate: a tap is 5 to 20 ms, so 100 Hz misses most of them.
 
+Number types: `float` only. `TapDetector` is not a template: its inputs are float IMU readings with a float time step in seconds
+(from the microsecond timestamps), and its thresholds and the exponential average of the activity are float tuning values. IQ
+has `sqrt` and `abs`, so the reason is not the functions. Converting would change the tuned behaviour, and the thresholds would
+need re-checking on the board first.
+
 Host tests: `tools/vhal-host-tests/motion/` (the `motion.tap.*` tests, on synthetic traces).
 
 ---

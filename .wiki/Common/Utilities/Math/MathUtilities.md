@@ -8,7 +8,9 @@ Header-only helpers in `MathUtilities` for random integer values, min/max update
 
 ## Random
 
-`Random(type a, type b)` returns a value using `rand() % (b - a + 1)`, offset by `a`. Use an integer type, pass bounds with `a <= b`, and ensure `b - a + 1` does not overflow or become zero.
+`Random(type a, type b)` returns a value using `rand() % (b - a + 1)`, offset by `a`. Integral types only: the template has a
+`requires std::integral<type>` constraint, so a fixed-point type such as `IQ<16>` (or a float) does not compile, and the compiler
+reports the failed constraint at the call. Pass bounds with `a <= b`, and ensure `b - a + 1` does not overflow or become zero.
 
 ```cpp
 int value = MathUtilities::Random(1, 10);

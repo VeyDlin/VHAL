@@ -2,6 +2,12 @@
 
 RGB color types for LED control with per-channel gamma correction. Compatible with `Animation<T>` for smooth color transitions.
 
+## Number types
+
+Float by design. `FRgb` and `URgb` hold `float` or `uint8` channels, and `GammaProfile` computes `pow(value, gamma)` with a runtime
+gamma, which a fixed-point type cannot compute. `GammaProfile::Apply` and `Inverse` are therefore `float` only, and `IQ<Q>` is
+not supported here. Animate colours with `RgbAnimation<T>` (`T` may be `IQ<Q>`); the colours it passes stay `FRgb`.
+
 ## FRgb — Float RGB (0.0–1.0)
 
 ```cpp

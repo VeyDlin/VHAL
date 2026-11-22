@@ -148,7 +148,9 @@ namespace MathUtilities {
 	}
 
 
+	// Integer types only. A fixed-point or floating-point type fails the constraint at the call.
 	template<typename type>
+		requires std::integral<type>
 	type Random(type a, type b) {
 		return a + rand() % (b - a + 1);
 	}

@@ -1,10 +1,11 @@
 #pragma once
-#include <concepts>
 #include <Utilities/Data/Colors/Colors.h>
+#include <Utilities/Math/IQMath/IQ.h>
 #include "Animation.h"
 
 
-template<std::floating_point T = float, typename AnimationType = Animation<T>>
+// The colours stay float (Colors::FRgb). The progress and the blend run in T, so a fixed-point type like IQ<24> works too.
+template<RealType T = float, typename AnimationType = Animation<T>>
 class RgbAnimation {
 public:
 	std::function<void(Colors::FRgb)> onUpdateValue;
@@ -133,11 +134,12 @@ public:
 
 
 private:
+	// The channels are converted to T first: a float times an IQ does not compile. For float T the conversions are no-ops.
 	static Colors::FRgb Lerp(const Colors::FRgb& a, const Colors::FRgb& b, T t) {
 		return {
-			static_cast<float>(a.r + (b.r - a.r) * t),
-			static_cast<float>(a.g + (b.g - a.g) * t),
-			static_cast<float>(a.b + (b.b - a.b) * t)
+			static_cast<float>(T(a.r) + (T(b.r) - T(a.r)) * t),
+			static_cast<float>(T(a.g) + (T(b.g) - T(a.g)) * t),
+			static_cast<float>(T(a.b) + (T(b.b) - T(a.b)) * t)
 		};
 	}
 };

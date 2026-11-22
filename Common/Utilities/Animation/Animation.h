@@ -4,6 +4,7 @@
 #include <cmath>
 #include <type_traits>
 #include <Utilities/Math/IQMath/IQ.h>
+#include <Utilities/Math/NumberRange.h>
 #include "Easing.h"
 
 
@@ -32,12 +33,13 @@ private:
 	typename Easing<T>::Curve easingType = Easing<T>::Curve::Linear;
 	std::function<T(T)> easingFunction;
 
-	T springStiffness = 200;
-	T springDamping = 20;
+	T springStiffness = T(200);
+	T springDamping = T(20);
 	T springVelocity{};
 	T springEpsilon = 0.001f;
 
 	uint64 lastTick = 0;
+	static constexpr double springStiffnessRange = 200.0;
 
 
 public:
@@ -69,6 +71,7 @@ public:
 	// ==================== Spring ====================
 
 	void SetSpring(T stiffness, T damping) {
+		CheckSpringRange();
 		springStiffness = stiffness;
 		springDamping = damping;
 	}
@@ -78,6 +81,7 @@ public:
 	}
 
 	void SetTarget(T newTarget) {
+		CheckSpringRange();
 		target = newTarget;
 
 		if (activeMode != Mode::Spring) {
@@ -189,6 +193,47 @@ private:
 	}
 
 
+	// The spring's default stiffness is 200 and its force is the distance times the stiffness. A number type whose range is
+	// below 200 would saturate the stiffness silently, so the spring entry points require this range. The force also saturates
+	// once the distance exceeds the range divided by 200 (about 10 for IQ<20>). That limit depends on run-time values, so it is
+	// documented, not checked. Tweens have no such limit.
+	static void CheckSpringRange() {
+		static_assert(RangeAtLeast<T, springStiffnessRange>, "The spring needs a number type whose range holds the stiffness 200. The force is 200 times the distance, so distances above range / 200 saturate. Use IQ with Q of 23 or less, or float.");
+	}
+
+
+	// The fraction elapsed / duration as T, for elapsed < duration and duration > 0. An IQ type divides the two integers in
+	// 64-bit arithmetic, so the duration itself is never converted to T. A 1000 ms duration would saturate IQ<24>, whose
+	// range is 128. Float divides the two converted operands.
+	static T FractionOf(uint64 elapsed, uint64 duration) {
+		if constexpr (IQType<T>) {
+			return T::FromRaw(static_cast<int32>(FixedFraction(elapsed, duration, T::q)));
+		} else {
+			return static_cast<T>(static_cast<double>(elapsed)) / static_cast<T>(static_cast<double>(duration));
+		}
+	}
+
+
+	// floor(numerator * 2^bits / denominator) rounded to the nearest integer, ties up. Needs numerator < denominator < 2^63,
+	// so the remainder shifted left stays in 64 bits. The result is at most 2^bits.
+	static uint64 FixedFraction(uint64 numerator, uint64 denominator, int bits) {
+		uint64 remainder = numerator;
+		uint64 quotient = 0;
+		for (int bit = 0; bit < bits; bit++) {
+			remainder = remainder << 1;
+			quotient = quotient << 1;
+			if (remainder >= denominator) {
+				remainder = remainder - denominator;
+				quotient = quotient | 1u;
+			}
+		}
+		if (remainder >= denominator - remainder) {
+			quotient = quotient + 1;
+		}
+		return quotient;
+	}
+
+
 	// Duration of a constant-speed tween. A speed that is not positive gives 0 ms, so the tween ends at its target on the next update.
 	static uint64 SpeedToDuration(T distance, T speed) {
 		double speedValue = static_cast<double>(speed);
@@ -248,12 +293,8 @@ private:
 
 		uint64 elapsed = nowMs - startTick;
 
-		// Go through double: IQ has several implicit constructors and cannot take a uint64 directly.
-		T t = static_cast<T>(static_cast<double>(elapsed)) / static_cast<T>(static_cast<double>(durationMs));
-
-		if (t >= 1) {
-			t = 1;
-		}
+		// At or past the end the fraction is 1. Below it, the fraction is computed from the two integers (see FractionOf).
+		T t = elapsed >= durationMs ? T(1) : FractionOf(elapsed, durationMs);
 
 		T easedT = easingFunction ? easingFunction(t) : Easing<T>::Apply(easingType, t);
 
@@ -269,19 +310,28 @@ private:
 	}
 
 
-	void UpdateSpring(uint64 nowMs) {
-		T dt;
+	// The spring step in seconds for the elapsed milliseconds, capped at 0.1 s. An IQ type takes the fraction of 1000 ms in
+	// integers, because 1000 itself saturates Q22 and Q23.
+	static T SpringStep(uint64 ms) {
+		if (ms > 100) {
+			ms = 100;
+		}
 
-		if (lastTick == 0 || lastTick >= nowMs) {
-			dt = 0.001f;
+		if constexpr (IQType<T>) {
+			return FractionOf(ms, 1000);
 		} else {
-			dt = static_cast<T>(static_cast<double>(nowMs - lastTick)) / static_cast<T>(1000);
+			return static_cast<T>(static_cast<double>(ms)) / static_cast<T>(1000);
 		}
+	}
 
-		T maxDt = 0.1f;
-		if (dt > maxDt) {
-			dt = maxDt;
+
+	void UpdateSpring(uint64 nowMs) {
+		// The first tick and a clock that does not advance count as 1 ms.
+		uint64 elapsedMs = 1;
+		if (lastTick != 0 && lastTick < nowMs) {
+			elapsedMs = nowMs - lastTick;
 		}
+		T dt = SpringStep(elapsedMs);
 
 		T diff = target - value;
 		T force = diff * springStiffness;
