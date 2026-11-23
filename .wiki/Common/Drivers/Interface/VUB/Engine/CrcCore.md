@@ -15,7 +15,10 @@ A CRC in the model of the reveng CRC catalogue:
 | `finalXor` | XORed into the result last |
 | `reflectIn` | each input byte is reflected (the low bit first) |
 | `reflectOut` | the result is reflected |
-| `check` | the CRC of the ASCII string `"123456789"` in the catalogue |
+| `check` | the CRC of the ASCII string `"123456789"` in the catalogue, when `hasCheck` is set |
+| `hasWidth`, `hasPolynomial`, `hasCheck` | set by the chain methods `Width`, `Polynomial` and `Check`; a transform refuses a chain without `Width` or `Polynomial` |
+
+The parameters are written as a chain, for example `VUB::CrcParameters().Width(16).Polynomial(0x1021).Initial(0x1D0F).FinalXor(0x0000).ReflectIn(false).ReflectOut(false).Check(0xE5CC)`. `Initial` and `FinalXor` take a value; `ReflectIn` and `ReflectOut` take a bool that defaults to true. A brace list does not give the parameters.
 
 `VUB::CrcAlgorithm<parameters>` gives the parameters as a type, which is what an engine's `Run` and `Supports` take.
 

@@ -126,7 +126,7 @@ void TestPresetsPassContract() {
 
 // The custom set of the presets test, high byte first: 45 74 after the digits. The bytes come from the reference's CRC 4574.
 void TestCustomHighByteFirstEncodes() {
-	VUB::CrcHighByteFirst<VUB::CrcParameters{16, 0x1021, 0x1D0F, 0x00FF, true, false, 0x4574}> transform;
+	VUB::CrcHighByteFirst<VUB::CrcParameters().Width(16).Polynomial(0x1021).Initial(0x1D0F).FinalXor(0x00FF).ReflectIn().Check(0x4574)> transform;
 	VUB::Meta meta{};
 	std::array<uint8, 11> wire{};
 	SIM_EXPECT(transform.Encode(meta, std::span<const uint8>(digits.data(), digits.size()), wire).IsOk());

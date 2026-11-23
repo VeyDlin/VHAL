@@ -110,9 +110,9 @@ constexpr uint32 ReferenceCrc(const VUB::CrcParameters& parameters, std::span<co
 
 
 // Parameter sets written here, not taken from the presets, so the reference is checked against the catalogue on its own.
-inline constexpr VUB::CrcParameters modbusParameters = {16, 0x8005, 0xFFFF, 0x0000, true, true, 0x4B37};
-inline constexpr VUB::CrcParameters tmsParameters = {16, 0x1021, 0x89EC, 0x0000, true, true, 0x26B1};
-inline constexpr VUB::CrcParameters rielloParameters = {16, 0x1021, 0xB2AA, 0x0000, true, true, 0x63D0};
+inline constexpr VUB::CrcParameters modbusParameters = VUB::CrcParameters().Width(16).Polynomial(0x8005).Initial(0xFFFF).FinalXor(0x0000).ReflectIn().ReflectOut().Check(0x4B37);
+inline constexpr VUB::CrcParameters tmsParameters = VUB::CrcParameters().Width(16).Polynomial(0x1021).Initial(0x89EC).FinalXor(0x0000).ReflectIn().ReflectOut().Check(0x26B1);
+inline constexpr VUB::CrcParameters rielloParameters = VUB::CrcParameters().Width(16).Polynomial(0x1021).Initial(0xB2AA).FinalXor(0x0000).ReflectIn().ReflectOut().Check(0x63D0);
 
 
 // The reference gives the catalogue check values for three sets; the two last have a non-symmetric initial value.
@@ -123,7 +123,7 @@ static_assert(ReferenceCrc(rielloParameters, std::span<const uint8>(checkDigits.
 
 // A parameter set that is not in the catalogue: reflectIn differs from reflectOut, and the initial value is not symmetric. Its check value
 // is the reference's CRC of the digits, 4574.
-inline constexpr VUB::CrcParameters customParameters = {16, 0x1021, 0x1D0F, 0x00FF, true, false, 0x4574};
+inline constexpr VUB::CrcParameters customParameters = VUB::CrcParameters().Width(16).Polynomial(0x1021).Initial(0x1D0F).FinalXor(0x00FF).ReflectIn().Check(0x4574);
 using CustomCrc = VUB::Crc<customParameters>;
 static_assert(ReferenceCrc(customParameters, std::span<const uint8>(checkDigits.data(), checkDigits.size())) == 0x4574);
 

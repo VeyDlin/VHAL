@@ -4,7 +4,14 @@
 
 
 // CRC-16/MODBUS with a check value of 4B38 instead of 4B37: the parameters do not give the catalogue's check value.
-inline constexpr VUB::CrcParameters wrongCheck = {16, 0x8005, 0xFFFF, 0x0000, true, true, 0x4B38};
+inline constexpr VUB::CrcParameters wrongCheck = VUB::CrcParameters()
+	.Width(16)
+	.Polynomial(0x8005)
+	.Initial(0xFFFF)
+	.FinalXor(0x0000)
+	.ReflectIn()
+	.ReflectOut()
+	.Check(0x4B38);
 
 
 using Stack = VUB::Stack<+[] {

@@ -9,19 +9,50 @@
 #include <Utilities/Result/ResultStatus.h>
 #include <cstddef>
 #include <span>
+#include <utility>
 
 namespace VUB {
 
 
-// The checks of a CRC's parameters and engine, done when the transform type is instantiated. The width is 8, 16 or 32; the check value
-// of the parameters is the CRC of "123456789"; the engine supports the algorithm.
+// The hexadecimal digit of value at position, counted from the least significant digit: '0' to '9', then 'A' to 'F'.
+constexpr char CrcHexDigit(uint32 value, std::size_t position) {
+	const uint32 nibble = (value >> (4 * position)) & 0xFu;
+	return nibble < 10 ? static_cast<char>('0' + nibble) : static_cast<char>('A' + nibble - 10);
+}
+
+
+// Declared, never defined: a failed check of a CRC's check value. The message is the first template argument; the digits of the value the
+// parameters give follow, most significant first, so the diagnostic shows that value in hexadecimal. One call carries both, because a
+// constant evaluation stops at the first failed call.
+template<TextLiteral Message, char... Digits>
+void CrcCheckFailed();
+
+
+// Fails the check with the hexadecimal digits of Value, one per position of the index sequence.
+template<uint32 Value, std::size_t... Position>
+constexpr void CrcShowCheckValue(std::index_sequence<Position...>) {
+	CrcCheckFailed<"the check value of the CRC parameters does not match the CRC of 123456789",
+		CrcHexDigit(Value, sizeof...(Position) - 1 - Position)...>();
+}
+
+
+// The checks of a CRC's parameters and engine, done when the transform type is instantiated. The width and the polynomial are required,
+// and the width is 8, 16 or 32. The check value is optional: when it is given, it must be the CRC of "123456789", and a wrong one shows the
+// value the parameters give. The engine supports the algorithm.
 template<CrcParameters Parameters, typename Engine>
 constexpr bool CrcChecked() {
-	Require<"a CRC is 8, 16 or 32 bits wide">(Parameters.width == 8 || Parameters.width == 16 || Parameters.width == 32);
-	if constexpr (Parameters.width == 8 || Parameters.width == 16 || Parameters.width == 32) {
-		Require<"the check value of the CRC parameters does not match the CRC of 123456789">(CrcCheckValue(Parameters) == Parameters.check);
-		Require<"the engine cannot compute this CRC: its Supports says no for these parameters">(
-			Engine::template Supports<CrcAlgorithm<Parameters>>());
+	Require<"the CRC parameters have no Width: chain Width(8), Width(16) or Width(32)">(Parameters.hasWidth);
+	Require<"the CRC parameters have no Polynomial: chain Polynomial(...) with the polynomial in normal form">(Parameters.hasPolynomial);
+	if constexpr (Parameters.hasWidth && Parameters.hasPolynomial) {
+		Require<"a CRC is 8, 16 or 32 bits wide">(Parameters.width == 8 || Parameters.width == 16 || Parameters.width == 32);
+		if constexpr (Parameters.width == 8 || Parameters.width == 16 || Parameters.width == 32) {
+			if constexpr (Parameters.hasCheck && CrcCheckValue(Parameters) != Parameters.check) {
+				CrcShowCheckValue<CrcCheckValue(Parameters)>(std::make_index_sequence<Parameters.width / 4>());
+			}
+
+			Require<"the engine cannot compute this CRC: its Supports says no for these parameters">(
+				Engine::template Supports<CrcAlgorithm<Parameters>>());
+		}
 	}
 
 	return true;
@@ -98,37 +129,38 @@ public:
 // The presets: the CRCs of the shared CRC library (Utilities/Checksum/CRC/Crc.h) of width 8, 16 or 32, and CRC-16/RIELLO and
 // CRC-16/TMS37157, named as the reveng catalogue names them. Each is a transform type, with the table engine and low byte first;
 // Crc<Preset::parameters, CrcBitwise> is the same CRC with the bitwise engine, and CrcHighByteFirst<Preset::parameters> is
-// the same CRC high byte first. Any other CRC of width 8, 16 or 32 is a Crc<CrcParameters{...}> with its check value.
-using Crc8Smbus = Crc<CrcParameters{8, 0x07, 0x00, 0x00, false, false, 0xF4}>;
-using Crc8Ebu = Crc<CrcParameters{8, 0x1D, 0xFF, 0x00, true, true, 0x97}>;
-using Crc8Maxim = Crc<CrcParameters{8, 0x31, 0x00, 0x00, true, true, 0xA1}>;
-using Crc8Wcdma = Crc<CrcParameters{8, 0x9B, 0x00, 0x00, true, true, 0x25}>;
+// the same CRC high byte first. Each is written as a chain with its check value; a reflection that is off is left out, as it is the
+// default. Any other CRC of width 8, 16 or 32 is a Crc<CrcParameters().Width(...)...> with its check value.
+using Crc8Smbus = Crc<CrcParameters().Width(8).Polynomial(0x07).Initial(0x00).FinalXor(0x00).Check(0xF4)>;
+using Crc8Ebu = Crc<CrcParameters().Width(8).Polynomial(0x1D).Initial(0xFF).FinalXor(0x00).ReflectIn().ReflectOut().Check(0x97)>;
+using Crc8Maxim = Crc<CrcParameters().Width(8).Polynomial(0x31).Initial(0x00).FinalXor(0x00).ReflectIn().ReflectOut().Check(0xA1)>;
+using Crc8Wcdma = Crc<CrcParameters().Width(8).Polynomial(0x9B).Initial(0x00).FinalXor(0x00).ReflectIn().ReflectOut().Check(0x25)>;
 
-using Crc16Arc = Crc<CrcParameters{16, 0x8005, 0x0000, 0x0000, true, true, 0xBB3D}>;
-using Crc16Buypass = Crc<CrcParameters{16, 0x8005, 0x0000, 0x0000, false, false, 0xFEE8}>;
-using Crc16CcittFalse = Crc<CrcParameters{16, 0x1021, 0xFFFF, 0x0000, false, false, 0x29B1}>;
-using Crc16Cdma2000 = Crc<CrcParameters{16, 0xC867, 0xFFFF, 0x0000, false, false, 0x4C06}>;
-using Crc16Cms = Crc<CrcParameters{16, 0x8005, 0xFFFF, 0x0000, false, false, 0xAEE7}>;
-using Crc16DectR = Crc<CrcParameters{16, 0x0589, 0x0000, 0x0001, false, false, 0x007E}>;
-using Crc16DectX = Crc<CrcParameters{16, 0x0589, 0x0000, 0x0000, false, false, 0x007F}>;
-using Crc16Dnp = Crc<CrcParameters{16, 0x3D65, 0x0000, 0xFFFF, true, true, 0xEA82}>;
-using Crc16Genibus = Crc<CrcParameters{16, 0x1021, 0xFFFF, 0xFFFF, false, false, 0xD64E}>;
-using Crc16Kermit = Crc<CrcParameters{16, 0x1021, 0x0000, 0x0000, true, true, 0x2189}>;
-using Crc16Maxim = Crc<CrcParameters{16, 0x8005, 0x0000, 0xFFFF, true, true, 0x44C2}>;
-using Crc16Modbus = Crc<CrcParameters{16, 0x8005, 0xFFFF, 0x0000, true, true, 0x4B37}>;
-using Crc16Riello = Crc<CrcParameters{16, 0x1021, 0xB2AA, 0x0000, true, true, 0x63D0}>;
-using Crc16T10Dif = Crc<CrcParameters{16, 0x8BB7, 0x0000, 0x0000, false, false, 0xD0DB}>;
-using Crc16Tms37157 = Crc<CrcParameters{16, 0x1021, 0x89EC, 0x0000, true, true, 0x26B1}>;
-using Crc16Usb = Crc<CrcParameters{16, 0x8005, 0xFFFF, 0xFFFF, true, true, 0xB4C8}>;
-using Crc16X25 = Crc<CrcParameters{16, 0x1021, 0xFFFF, 0xFFFF, true, true, 0x906E}>;
-using Crc16Xmodem = Crc<CrcParameters{16, 0x1021, 0x0000, 0x0000, false, false, 0x31C3}>;
+using Crc16Arc = Crc<CrcParameters().Width(16).Polynomial(0x8005).Initial(0x0000).FinalXor(0x0000).ReflectIn().ReflectOut().Check(0xBB3D)>;
+using Crc16Buypass = Crc<CrcParameters().Width(16).Polynomial(0x8005).Initial(0x0000).FinalXor(0x0000).Check(0xFEE8)>;
+using Crc16CcittFalse = Crc<CrcParameters().Width(16).Polynomial(0x1021).Initial(0xFFFF).FinalXor(0x0000).Check(0x29B1)>;
+using Crc16Cdma2000 = Crc<CrcParameters().Width(16).Polynomial(0xC867).Initial(0xFFFF).FinalXor(0x0000).Check(0x4C06)>;
+using Crc16Cms = Crc<CrcParameters().Width(16).Polynomial(0x8005).Initial(0xFFFF).FinalXor(0x0000).Check(0xAEE7)>;
+using Crc16DectR = Crc<CrcParameters().Width(16).Polynomial(0x0589).Initial(0x0000).FinalXor(0x0001).Check(0x007E)>;
+using Crc16DectX = Crc<CrcParameters().Width(16).Polynomial(0x0589).Initial(0x0000).FinalXor(0x0000).Check(0x007F)>;
+using Crc16Dnp = Crc<CrcParameters().Width(16).Polynomial(0x3D65).Initial(0x0000).FinalXor(0xFFFF).ReflectIn().ReflectOut().Check(0xEA82)>;
+using Crc16Genibus = Crc<CrcParameters().Width(16).Polynomial(0x1021).Initial(0xFFFF).FinalXor(0xFFFF).Check(0xD64E)>;
+using Crc16Kermit = Crc<CrcParameters().Width(16).Polynomial(0x1021).Initial(0x0000).FinalXor(0x0000).ReflectIn().ReflectOut().Check(0x2189)>;
+using Crc16Maxim = Crc<CrcParameters().Width(16).Polynomial(0x8005).Initial(0x0000).FinalXor(0xFFFF).ReflectIn().ReflectOut().Check(0x44C2)>;
+using Crc16Modbus = Crc<CrcParameters().Width(16).Polynomial(0x8005).Initial(0xFFFF).FinalXor(0x0000).ReflectIn().ReflectOut().Check(0x4B37)>;
+using Crc16Riello = Crc<CrcParameters().Width(16).Polynomial(0x1021).Initial(0xB2AA).FinalXor(0x0000).ReflectIn().ReflectOut().Check(0x63D0)>;
+using Crc16T10Dif = Crc<CrcParameters().Width(16).Polynomial(0x8BB7).Initial(0x0000).FinalXor(0x0000).Check(0xD0DB)>;
+using Crc16Tms37157 = Crc<CrcParameters().Width(16).Polynomial(0x1021).Initial(0x89EC).FinalXor(0x0000).ReflectIn().ReflectOut().Check(0x26B1)>;
+using Crc16Usb = Crc<CrcParameters().Width(16).Polynomial(0x8005).Initial(0xFFFF).FinalXor(0xFFFF).ReflectIn().ReflectOut().Check(0xB4C8)>;
+using Crc16X25 = Crc<CrcParameters().Width(16).Polynomial(0x1021).Initial(0xFFFF).FinalXor(0xFFFF).ReflectIn().ReflectOut().Check(0x906E)>;
+using Crc16Xmodem = Crc<CrcParameters().Width(16).Polynomial(0x1021).Initial(0x0000).FinalXor(0x0000).Check(0x31C3)>;
 
-using Crc32IsoHdlc = Crc<CrcParameters{32, 0x04C11DB7, 0xFFFFFFFF, 0xFFFFFFFF, true, true, 0xCBF43926}>;
-using Crc32Bzip2 = Crc<CrcParameters{32, 0x04C11DB7, 0xFFFFFFFF, 0xFFFFFFFF, false, false, 0xFC891918}>;
-using Crc32C = Crc<CrcParameters{32, 0x1EDC6F41, 0xFFFFFFFF, 0xFFFFFFFF, true, true, 0xE3069283}>;
-using Crc32Mpeg2 = Crc<CrcParameters{32, 0x04C11DB7, 0xFFFFFFFF, 0x00000000, false, false, 0x0376E6E7}>;
-using Crc32Posix = Crc<CrcParameters{32, 0x04C11DB7, 0x00000000, 0xFFFFFFFF, false, false, 0x765E7680}>;
-using Crc32Q = Crc<CrcParameters{32, 0x814141AB, 0x00000000, 0x00000000, false, false, 0x3010BF7F}>;
+using Crc32IsoHdlc = Crc<CrcParameters().Width(32).Polynomial(0x04C11DB7).Initial(0xFFFFFFFF).FinalXor(0xFFFFFFFF).ReflectIn().ReflectOut().Check(0xCBF43926)>;
+using Crc32Bzip2 = Crc<CrcParameters().Width(32).Polynomial(0x04C11DB7).Initial(0xFFFFFFFF).FinalXor(0xFFFFFFFF).Check(0xFC891918)>;
+using Crc32C = Crc<CrcParameters().Width(32).Polynomial(0x1EDC6F41).Initial(0xFFFFFFFF).FinalXor(0xFFFFFFFF).ReflectIn().ReflectOut().Check(0xE3069283)>;
+using Crc32Mpeg2 = Crc<CrcParameters().Width(32).Polynomial(0x04C11DB7).Initial(0xFFFFFFFF).FinalXor(0x00000000).Check(0x0376E6E7)>;
+using Crc32Posix = Crc<CrcParameters().Width(32).Polynomial(0x04C11DB7).Initial(0x00000000).FinalXor(0xFFFFFFFF).Check(0x765E7680)>;
+using Crc32Q = Crc<CrcParameters().Width(32).Polynomial(0x814141AB).Initial(0x00000000).FinalXor(0x00000000).Check(0x3010BF7F)>;
 
 
 // The high byte first variant of a CRC: the same parameters, with the bytes of the CRC sent most significant first.

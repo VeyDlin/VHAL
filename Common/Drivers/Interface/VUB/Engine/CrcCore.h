@@ -10,14 +10,78 @@ namespace VUB {
 // The parameters of a CRC in the model of the reveng CRC catalogue: the width, the polynomial, the initial value (the value of the
 // unreflected register, also for a reflected input), the final XOR, the reflection of the input and of the output, and the check value
 // of the catalogue, which is the CRC of the ASCII string "123456789". The width is 8, 16 or 32 bits; the transform refuses other widths.
+// The parameters are written as a chain: CrcParameters().Width(16).Polynomial(0x1021)... Width and Polynomial are required; Initial,
+// FinalXor and the reflections default to 0 and false; Check is optional, and without it no check runs.
 struct CrcParameters {
-	uint8 width;
-	uint32 polynomial;
-	uint32 initialValue;
-	uint32 finalXor;
-	bool reflectIn;
-	bool reflectOut;
-	uint32 check;
+	uint8 width = 0;
+	uint32 polynomial = 0;
+	uint32 initialValue = 0;
+	uint32 finalXor = 0;
+	bool reflectIn = false;
+	bool reflectOut = false;
+	uint32 check = 0;
+	bool hasWidth = false;
+	bool hasPolynomial = false;
+	bool hasCheck = false;
+
+
+	// A default-constructed set has no width, no polynomial and no check. The declared constructor makes the struct not an aggregate: a
+	// brace list does not give the parameters, only the chain does.
+	constexpr CrcParameters() = default;
+
+
+	// Each method of the chain gives a copy with one field set.
+	// A width other than 8, 16 or 32 is kept as 0, so the transform's width check refuses it; a wide value does not wrap into a valid one.
+	constexpr CrcParameters Width(uint32 value) const {
+		CrcParameters result = *this;
+		result.width = value == 8 || value == 16 || value == 32 ? static_cast<uint8>(value) : static_cast<uint8>(0);
+		result.hasWidth = true;
+		return result;
+	}
+
+
+	constexpr CrcParameters Polynomial(uint32 value) const {
+		CrcParameters result = *this;
+		result.polynomial = value;
+		result.hasPolynomial = true;
+		return result;
+	}
+
+
+	constexpr CrcParameters Initial(uint32 value) const {
+		CrcParameters result = *this;
+		result.initialValue = value;
+		return result;
+	}
+
+
+	constexpr CrcParameters FinalXor(uint32 value) const {
+		CrcParameters result = *this;
+		result.finalXor = value;
+		return result;
+	}
+
+
+	constexpr CrcParameters ReflectIn(bool value = true) const {
+		CrcParameters result = *this;
+		result.reflectIn = value;
+		return result;
+	}
+
+
+	constexpr CrcParameters ReflectOut(bool value = true) const {
+		CrcParameters result = *this;
+		result.reflectOut = value;
+		return result;
+	}
+
+
+	constexpr CrcParameters Check(uint32 value) const {
+		CrcParameters result = *this;
+		result.check = value;
+		result.hasCheck = true;
+		return result;
+	}
 };
 
 

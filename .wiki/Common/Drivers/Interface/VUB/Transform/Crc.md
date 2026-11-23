@@ -32,7 +32,8 @@ fingerprint, because it is part of the wire. The engine is not.
 ## Presets
 
 Each preset is a transform type named as the reveng CRC catalogue names it. The check value is the CRC of `"123456789"` (the ASCII
-bytes `31` to `39`). Every preset is checked at compile time: a preset whose parameters do not give its check value does not compile.
+bytes `31` to `39`). Every preset is checked at compile time: a preset whose parameters do not give its check value does not compile. Each preset is written as
+a `VUB::CrcParameters()` chain with its check value, the same chain as [Other parameters](#other-parameters).
 
 | Preset | Width | Polynomial | Initial | Reflect in | Reflect out | Final XOR | Check |
 |---|---|---|---|---|---|---|---|
@@ -67,7 +68,7 @@ bytes `31` to `39`). Every preset is checked at compile time: a preset whose par
 
 The presets are those of `Crc.h` (the shared CRC library, `Utilities/Checksum/CRC/Crc.h`), plus CRC-16/RIELLO and CRC-16/TMS37157,
 which that library does not have. Any other CRC of the catalogue whose width is 8, 16 or 32 (CRC-16/AUG-CCITT and CRC-16/MCRF4XX,
-for example) is a custom `VUB::Crc<VUB::CrcParameters{...}>` with its check value, as in [Other parameters](#other-parameters).
+for example) is a custom `VUB::Crc` of a `VUB::CrcParameters()` chain with its check value, as in [Other parameters](#other-parameters).
 
 The initial value is the value of the unreflected register, as the catalogue gives it, also when the input is reflected. CRC-16/TMS37157
 and CRC-16/RIELLO have an initial value that is not symmetric, so their check values show that convention: a reflected CRC that
@@ -75,10 +76,29 @@ started from the initial value as it is would give another value. Both presets a
 
 ## Other parameters
 
-`VUB::Crc<VUB::CrcParameters{width, polynomial, initial, final XOR, reflect in, reflect out, check}>` takes any width of 8, 16 or 32.
-The check value is the CRC of `"123456789"` with those parameters, in the reveng model. Any other width is a compile error ("a CRC is 8,
-16 or 32 bits wide"). A wrong check value is a compile error ("the check value of the CRC parameters does not match the CRC of
-123456789").
+A CRC that is not a preset is a chain of `VUB::CrcParameters()` methods, given as the template argument of `VUB::Crc`:
+
+```cpp
+// CRC-16/AUG-CCITT: polynomial 1021, initial 1D0F, not reflected, final XOR 0000, check E5CC.
+inline constexpr VUB::CrcParameters augCcitt = VUB::CrcParameters()
+	.Width(16)
+	.Polynomial(0x1021)
+	.Initial(0x1D0F)
+	.FinalXor(0x0000)
+	.Check(0xE5CC);
+
+using AugCcitt = VUB::Crc<augCcitt>;
+```
+
+- `Width` and `Polynomial` are required. A chain without one is a compile error that names the method: "the CRC parameters have no
+  Width" or "the CRC parameters have no Polynomial".
+- `Width` takes 8, 16 or 32. Any other width is a compile error ("a CRC is 8, 16 or 32 bits wide").
+- `Initial` and `FinalXor` default to 0. `ReflectIn` and `ReflectOut` default to false; called with no argument they set true, and
+  `ReflectIn(false)` sets false.
+- `Check` is optional. Without it no check runs. With it, the value must be the CRC of `"123456789"` with those parameters, in the
+  reveng model. A wrong value is a compile error ("the check value of the CRC parameters does not match the CRC of 123456789"), and the
+  diagnostic also lists the value the parameters give as hexadecimal digits, as chars: for E5CC it shows `'E', '5', 'C', 'C'`.
+- The check is not part of the wire: the fingerprint is the same with or without `Check`.
 
 ## Engines
 
@@ -144,5 +164,5 @@ void BoardSend() {
 ```
 
 Every preset's check value is checked at compile time. The tests also run the contract check of the [test kit](../TestKit/README)
-on six of the transforms: CRC-16/MODBUS with each engine and with the high byte first, CRC-8/SMBUS, CRC-32/ISO-HDLC and
-CRC-16/RIELLO.
+on seven of the transforms: CRC-16/MODBUS with each engine and with the high byte first, CRC-8/SMBUS, CRC-32/ISO-HDLC, CRC-16/RIELLO
+and CRC-32/JAMCRC through the chain (unchecked, bitwise engine).

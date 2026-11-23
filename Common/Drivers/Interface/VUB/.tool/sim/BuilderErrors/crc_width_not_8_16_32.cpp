@@ -4,7 +4,13 @@
 
 
 // CRC-12/UMTS-like parameters: the width 12 is not one the transform takes.
-inline constexpr VUB::CrcParameters twelveBits = {12, 0x80F, 0x000, 0x000, false, true, 0x000};
+inline constexpr VUB::CrcParameters twelveBits = VUB::CrcParameters()
+	.Width(12)
+	.Polynomial(0x80F)
+	.Initial(0x000)
+	.FinalXor(0x000)
+	.ReflectOut()
+	.Check(0x000);
 
 
 using Stack = VUB::Stack<+[] {

@@ -46,6 +46,16 @@ using Small = VUB::Stack<+[] {
 		.OnReceive<&OnPacket>();
 }>;
 
+// CRC-16/AUG-CCITT: polynomial 1021, initial 1D0F, not reflected, final XOR 0000, check E5CC.
+inline constexpr VUB::CrcParameters augCcitt = VUB::CrcParameters()
+	.Width(16)
+	.Polynomial(0x1021)
+	.Initial(0x1D0F)
+	.FinalXor(0x0000)
+	.Check(0xE5CC);
+
+using AugCcitt = VUB::Crc<augCcitt>;
+
 BoardLink boardLink;
 Board board(boardLink);
 
@@ -64,7 +74,15 @@ void TestWikiSnippetRuns() {
 }
 
 
+// The "Other parameters" snippet of the page: its check is run at compile time, and the chain without Check is the same CRC.
+void TestWikiOtherParametersSnippet() {
+	SIM_EXPECT(WikiCrc::AugCcitt::checked);
+	SIM_EXPECT((WikiCrc::AugCcitt::fingerprint == VUB::Crc<VUB::CrcParameters().Width(16).Polynomial(0x1021).Initial(0x1D0F).FinalXor(0x0000)>::fingerprint));
+}
+
+
 int main() {
 	TestWikiSnippetRuns();
+	TestWikiOtherParametersSnippet();
 	return SimFinish("TestVubCrcWiki");
 }

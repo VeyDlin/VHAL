@@ -11,7 +11,7 @@
 using SizeStack = VUB::Stack<+[] {
 	return VUB::Builder()
 		.Layer<VUB::ReliableOf<32, 1>>().Retries(3).Window(1)
-		.Transform<VUB::Crc<VUB::CrcParameters{8, 0x07, 0xFF, 0x00, false, false, 0xFB}, VUB::CrcBitwise>>()
+		.Transform<VUB::Crc<VUB::CrcParameters().Width(8).Polynomial(0x07).Initial(0xFF).FinalXor(0x00).Check(0xFB), VUB::CrcBitwise>>()
 		.Framing<VUB::Cobs>()
 		.Link<SizeStreamLink>()
 		.MaxPayload(32)
