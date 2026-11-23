@@ -1,5 +1,6 @@
 #pragma once
 #include <Adapter/UARTAdapter.h>
+#include <Adapter/Port/STM32/Common/UARTWordLength.h>
 
 
 
@@ -70,10 +71,13 @@ protected:
 			return status;
 		}
 
+		// The G4 USART has a 7-bit, an 8-bit and a 9-bit word, so every combination of data bits and parity is possible.
+		UARTWordChoice word = ChooseUARTWordLength(parameters.dataBits == DataBits::B7, parameters.parity != Parity::None, true);
+
 		LL_USART_InitTypeDef init = {
 			.PrescalerValue = LL_USART_PRESCALER_DIV1,
 			.BaudRate = parameters.baudRate,
-			.DataWidth = LL_USART_DATAWIDTH_8B,
+			.DataWidth = CastWordLength(word.wordLength),
 			.StopBits = CastStopBits(),
 			.Parity = CastParity(),
 			.TransferDirection = CastMode(),
@@ -81,6 +85,8 @@ protected:
 			.OverSampling = CastOverSampling()
 		};
 
+		// LL_USART_Init leaves an enabled USART as it is, so a running port is disabled first.
+		LL_USART_Disable(uartHandle);
 		SystemAssert(LL_USART_Init(uartHandle, &init) == ErrorStatus::SUCCESS);
 
 		LL_USART_SetTXFIFOThreshold(uartHandle, LL_USART_FIFOTHRESHOLD_1_8);
@@ -162,7 +168,7 @@ protected:
 				}
 			}
 
-			uint8 mask = parameters.parity == Parity::None ? 0xFF : 0x7F;
+			uint8 mask = UARTReceiveMask(parameters.dataBits == DataBits::B7);
 			lastRxData = LL_USART_ReceiveData8(uartHandle) & mask;
 			*rxDataPointer++ = lastRxData;
 		}
@@ -313,7 +319,7 @@ private:
 			return;
 		}
 
-		uint8 mask = parameters.parity == Parity::None ? 0xFF : 0x7F;
+		uint8 mask = UARTReceiveMask(parameters.dataBits == DataBits::B7);
 		lastRxData = LL_USART_ReceiveData8(uartHandle) & mask;
 
 		if(continuousAsyncRxMode) {
@@ -379,6 +385,20 @@ private:
 
 
 private:
+	constexpr uint32 CastWordLength(UARTWordLength value) const {
+		switch (value) {
+			case UARTWordLength::Bits7: return LL_USART_DATAWIDTH_7B;
+			case UARTWordLength::Bits8: return LL_USART_DATAWIDTH_8B;
+			case UARTWordLength::Bits9: return LL_USART_DATAWIDTH_9B;
+			default:
+				SystemAbort();
+				return 0;
+			break;
+		}
+	}
+
+
+
 	constexpr uint32 CastStopBits() const {
 		switch (parameters.stopBits) {
 			case StopBits::B1: return LL_USART_STOPBITS_1;

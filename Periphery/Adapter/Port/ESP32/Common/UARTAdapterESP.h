@@ -82,7 +82,7 @@ protected:
 
 		uart_config_t uart_config = {};
 		uart_config.baud_rate = parameters.baudRate;
-		uart_config.data_bits = UART_DATA_8_BITS;
+		uart_config.data_bits = CastDataBits();
 		uart_config.parity = CastParity();
 		uart_config.stop_bits = CastStopBits();
 		uart_config.flow_ctrl = CastFlowControl();
@@ -199,6 +199,14 @@ protected:
 
 
 private:
+	uart_word_length_t CastDataBits() const {
+		switch (parameters.dataBits) {
+			case DataBits::B7: return UART_DATA_7_BITS;
+			case DataBits::B8: return UART_DATA_8_BITS;
+			default:           return UART_DATA_8_BITS;
+		}
+	}
+
 	uart_parity_t CastParity() const {
 		switch (parameters.parity) {
 			case Parity::Even: return UART_PARITY_EVEN;

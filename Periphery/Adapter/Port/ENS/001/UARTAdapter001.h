@@ -81,7 +81,7 @@ protected:
 		uint32 lcr = 0;
 
 		// Word length <1:0>: 0=5bit, 1=6bit, 2=7bit, 3=8bit
-		lcr |= 0x03; // 8-bit (base class Parameters has no wordLength field)
+		lcr |= (parameters.dataBits == DataBits::B7) ? 0x02 : 0x03;
 
 		// Stop bits
 		if(parameters.stopBits == StopBits::B2) {
@@ -165,7 +165,7 @@ protected:
 				}
 			}
 
-			uint8 mask = parameters.parity == Parity::None ? 0xFF : 0x7F;
+			uint8 mask = parameters.dataBits == DataBits::B7 ? 0x7F : 0xFF;
 			lastRxData = uartHandle->RBR & mask;
 			*rxDataPointer++ = lastRxData;
 		}
@@ -311,7 +311,7 @@ private:
 			return;
 		}
 
-		uint8 mask = parameters.parity == Parity::None ? 0xFF : 0x7F;
+		uint8 mask = parameters.dataBits == DataBits::B7 ? 0x7F : 0xFF;
 		lastRxData = uartHandle->RBR & mask;
 
 		if(continuousAsyncRxMode) {

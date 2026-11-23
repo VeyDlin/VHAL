@@ -23,6 +23,7 @@ struct Parameters {
     Mode mode = Mode::TxRx;
     FlowControl flowControl = FlowControl::None;
     OverSampling overSampling = OverSampling::B16;
+    DataBits dataBits = DataBits::B8;
 };
 ```
 
@@ -34,11 +35,31 @@ struct Parameters {
 | `mode` | `Tx`, `Rx`, `TxRx` | `TxRx` | Direction of communication |
 | `flowControl` | `None`, `Rts`, `Cts`, `RtsCts` | `None` | Hardware flow control |
 | `overSampling` | `B8`, `B16` | `B16` | Oversampling ratio |
+| `dataBits` | `B7`, `B8` | `B8` | Data bits in each frame. The parity bit, when parity is on, is added on top of them |
+
+## Frame
+
+A frame is `dataBits` data bits, then the parity bit when `parity` is `Even` or `Odd`, then `stopBits` stop bits. The default is 8 data bits, so `{ .parity = Parity::Even }` is 8E1, the Modbus RTU frame. Every port that accepts the `Parameters` sends the same frame for them.
+
+On the STM32 ports the parity bit takes the top bit of the USART word, so the word is one bit longer than the data when parity is on:
+
+| `dataBits` | `parity` | Word length | Receive mask |
+|------------|----------|-------------|--------------|
+| `B7` | `None` | 7 bits | `0x7F` |
+| `B7` | `Even`, `Odd` | 8 bits | `0x7F` |
+| `B8` | `None` | 8 bits | `0xFF` |
+| `B8` | `Even`, `Odd` | 9 bits | `0xFF` |
+
+The receive mask follows `dataBits` only. The parity bit is never returned in a byte. The F4 USART has no 7-bit word, so `dataBits = B7` with `parity = None` returns `notSupported` from `SetParameters()` on F4, and the port is left unchanged. The other STM32 families support every combination.
+
+`SetParameters()` on a running STM32 port disables the USART, configures it and enables it again, so a byte that is being sent or received at that moment is lost.
+
 
 ## Enums
 
 | Enum | Values | Description |
 |------|--------|-------------|
+| `DataBits` | `B7`, `B8` | Data bits per frame, without the parity bit |
 | `Irq` | `Tx`, `Rx` | Interrupt source type |
 | `Error` | `None`, `Parity`, `Noise`, `Frame`, `Overrun` | Error types |
 
@@ -100,7 +121,7 @@ AUART(uart_port_t uartPort, int tx, int rx, int rts = UART_PIN_NO_CHANGE, int ct
 ```
 
 - `bufSize` is the driver RX and TX ring buffer size in bytes.
-- `Parameters::mode` and `Parameters::overSampling` are not applied on ESP32. `baudRate`, `stopBits`, `parity` and `flowControl` are applied.
+- `Parameters::mode` and `Parameters::overSampling` are not applied on ESP32. `baudRate`, `dataBits`, `stopBits`, `parity` and `flowControl` are applied. `dataBits` maps to `UART_DATA_7_BITS` or `UART_DATA_8_BITS`.
 - `IrqHandler()` does nothing on ESP32. The driver handles its own interrupts.
 - `SetContinuousAsyncTxMode()` returns `notSupported`.
 - `ReadArrayAsync` (`ReadAsync`, `ReadArrayAsync`):

@@ -1,5 +1,6 @@
 #pragma once
 #include <Adapter/UARTAdapter.h>
+#include <Adapter/Port/STM32/Common/UARTWordLength.h>
 
 
 
@@ -65,6 +66,13 @@ public:
 
 protected:
 	virtual ResultStatus Initialization() override {
+		// The F4 USART has an 8-bit and a 9-bit word only. Seven data bits without parity has no word, so it is refused
+		// before the clock or any register is touched.
+		UARTWordChoice word = ChooseUARTWordLength(parameters.dataBits == DataBits::B7, parameters.parity != Parity::None, false);
+		if(!word.supported) {
+			return ResultStatus::notSupported;
+		}
+
 		auto status = BeforeInitialization();
 		if(status != ResultStatus::ok) {
 			return status;
@@ -72,7 +80,7 @@ protected:
 
 		LL_USART_InitTypeDef init = {
 			.BaudRate = parameters.baudRate,
-			.DataWidth = LL_USART_DATAWIDTH_8B,
+			.DataWidth = CastWordLength(word.wordLength),
 			.StopBits = CastStopBits(),
 			.Parity = CastParity(),
 			.TransferDirection = CastMode(),
@@ -80,6 +88,8 @@ protected:
 			.OverSampling = CastOverSampling()
 		};
 
+		// LL_USART_Init leaves an enabled USART as it is, so a running port is disabled first.
+		LL_USART_Disable(uartHandle);
 		SystemAssert(LL_USART_Init(uartHandle, &init) == ErrorStatus::SUCCESS);
 
 		LL_USART_ConfigAsyncMode(uartHandle);
@@ -146,7 +156,7 @@ protected:
 				}
 			}
 
-			uint8 mask = parameters.parity == Parity::None ? 0xFF : 0x7F;
+			uint8 mask = UARTReceiveMask(parameters.dataBits == DataBits::B7);
 			lastRxData = LL_USART_ReceiveData8(uartHandle) & mask;
 			*rxDataPointer++ = lastRxData;
 		}
@@ -307,7 +317,7 @@ private:
 			return;
 		}
 
-		uint8 mask = parameters.parity == Parity::None ? 0xFF : 0x7F;
+		uint8 mask = UARTReceiveMask(parameters.dataBits == DataBits::B7);
 		lastRxData = LL_USART_ReceiveData8(uartHandle) & mask;
 
 		if(continuousAsyncRxMode) {
@@ -373,6 +383,20 @@ private:
 
 
 private:
+	constexpr uint32 CastWordLength(UARTWordLength value) const {
+		switch (value) {
+			case UARTWordLength::Bits8: return LL_USART_DATAWIDTH_8B;
+			case UARTWordLength::Bits9: return LL_USART_DATAWIDTH_9B;
+			default:
+				// The 7-bit word is refused in Initialization() before this point.
+				SystemAbort();
+				return 0;
+			break;
+		}
+	}
+
+
+
 	constexpr uint32 CastStopBits() const {
 		switch (parameters.stopBits) {
 			case StopBits::B1: return LL_USART_STOPBITS_1;

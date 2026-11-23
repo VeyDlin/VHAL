@@ -7,6 +7,7 @@
 template<typename HandleType>
 class UARTAdapter: public IAdapter {
 public:
+	enum class DataBits { B7, B8 };
 	enum class StopBits { B1, B2 };
 	enum class Parity { None, Even, Odd };
 	enum class Mode { Tx, Rx, TxRx };
@@ -24,6 +25,8 @@ public:
 		Mode mode = Mode::TxRx;
 		FlowControl flowControl = FlowControl::None;
 		OverSampling overSampling = OverSampling::B16;
+		// The parity bit, when parity is on, is added to these data bits on every port.
+		DataBits dataBits = DataBits::B8;
 	};
 
 
@@ -209,9 +212,15 @@ public:
 
 
 public:
+	// On any status other than ok the previous Parameters are kept, so they match the registers that were left unchanged.
 	ResultStatus SetParameters(Parameters val) {
+		Parameters previous = parameters;
 		parameters = val;
-		return Initialization();
+		ResultStatus status = Initialization();
+		if(status != ResultStatus::ok) {
+			parameters = previous;
+		}
+		return status;
 	}
 
 
