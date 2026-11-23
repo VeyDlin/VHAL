@@ -22,6 +22,8 @@ SizeStreamLink sizeLink;
 SizeStack sizeStack(sizeLink);
 
 
+// The application gives the reliable layer its boot value once, before the first send: until then Send returns noInit and nothing is sent.
 void SizeRun() {
-	SizeRunStream(sizeStack);
+	sizeStack.Find<VubReliable>().SetSession(0x1234);
+	SizeRunReliable(sizeStack);
 }

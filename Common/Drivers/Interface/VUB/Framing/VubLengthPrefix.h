@@ -18,6 +18,11 @@
 // check: a lost payload byte makes the frame come out short or long, and the bytes of the next frame are taken as payload. The framing
 // then resynchronises at the first good header after them. The integrity of the payload is a CRC transform's job.
 //
+// A header whose length is larger than the receive buffer is refused as a header: its sync byte is dropped, and the bytes after it are
+// read again. So a false header costs no payload bytes when its length is over the buffer. A false header with a length the buffer holds
+// swallows up to that many bytes before the framing finds the next sync. The framing needs a byte stream that keeps its order: under
+// reordered bytes the count of payload bytes is wrong, and it does not recover.
+//
 // Width is a template argument, not an option of the Step, because it changes Growth, and Growth is a constant of the type. With one
 // byte, a packet must be at most 255 bytes long: a packet bound over 255 is a compile error, through Growth.
 //
@@ -74,7 +79,8 @@ struct VubLengthPrefix {
 
 
 	// Takes one received byte. Outside a payload the byte goes into the header window, which is checked each time it fills; inside a
-	// payload it is stored, and the packet is complete when the length is reached.
+	// payload it is stored, and the packet is complete when the length is reached. The length of a header is checked against the size of
+	// out, the receive buffer, when the header is read: a header longer than that is refused as a header, and counts as too long.
 	VubFrame Push(uint8 byte, std::span<uint8> out, std::size_t& length) {
 		if (inPayload) {
 			if (count < out.size()) {
@@ -87,18 +93,13 @@ struct VubLengthPrefix {
 			}
 
 			inPayload = false;
-			if (expected > out.size()) {
-				return VubFrame::tooLong;
-			}
-
 			length = expected;
 			return VubFrame::packet;
 		}
 
 		window[have] = byte;
 		have++;
-		Scan();
-		return VubFrame::pending;
+		return Scan(out.size()) ? VubFrame::tooLong : VubFrame::pending;
 	}
 
 
@@ -117,8 +118,10 @@ private:
 
 
 	// Looks at the window until it holds a good header, or it needs more bytes. A window that does not start with the sync drops its
-	// first byte; so does a window whose header check fails.
-	void Scan() {
+	// first byte; so does a window whose header check fails, and a good header whose length is over limit. The call returns true when it
+	// refused a good header for its length.
+	bool Scan(std::size_t limit) {
+		bool refused = false;
 		while (have > 0) {
 			if (window[0] != Sync) {
 				Shift();
@@ -126,7 +129,7 @@ private:
 			}
 
 			if (have < HeaderBytes) {
-				return;
+				return refused;
 			}
 
 			if (!HeaderValid()) {
@@ -139,11 +142,19 @@ private:
 				expected |= static_cast<std::size_t>(window[1 + index]) << (8 * index);
 			}
 
+			if (expected > limit) {
+				refused = true;
+				Shift();
+				continue;
+			}
+
 			have = 0;
 			inPayload = true;
 			count = 0;
-			return;
+			return refused;
 		}
+
+		return refused;
 	}
 
 

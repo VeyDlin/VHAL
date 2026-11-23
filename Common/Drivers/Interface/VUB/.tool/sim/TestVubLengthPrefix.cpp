@@ -286,7 +286,34 @@ void TestResyncContractWithLoss() {
 }
 
 
+// A header whose check is good but whose length is larger than the receive buffer (the out span, 16 bytes here) is refused at the header:
+// A5 20 3B is a header of 32 bytes. Its payload here is a whole good frame, A5 03 58 77 88 99, then filler. The header is refused, its
+// sync byte is dropped, and the good frame that follows it comes out. A framing that waits for the 32 bytes swallows that frame instead.
+void TestLongHeaderRefusedAtHeader() {
+	VubLengthPrefix<1> framing;
+	const std::array<uint8, 9> head = {0xA5, 0x20, 0x3B, 0xA5, 0x03, 0x58, 0x77, 0x88, 0x99};
+	std::array<uint8, 16> out{};
+	std::size_t packets = 0;
+	std::size_t length = 0;
+	uint8 first = 0;
+	for (std::size_t index = 0; index < head.size(); index++) {
+		std::size_t current = 0;
+		VubFrame state = framing.Push(head[index], out, current);
+		if (state == VubFrame::packet) {
+			packets++;
+			length = current;
+			first = out[0];
+		}
+	}
+
+	SIM_EXPECT(packets == 1);
+	SIM_EXPECT(length == 3);
+	SIM_EXPECT(first == 0x77);
+}
+
+
 int main() {
+	TestLongHeaderRefusedAtHeader();
 	TestOneByteByHand();
 	TestTwoByteByHand();
 	TestTwoByteLongByHand();

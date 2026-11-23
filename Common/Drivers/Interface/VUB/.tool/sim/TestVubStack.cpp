@@ -486,6 +486,118 @@ void TestOutboxPacketTooLongCounted() {
 }
 
 
+// The status the layer below the sending layer answers for the packet. ok lets the packet through.
+inline ResultStatus testOwnAddStatus = ResultStatus::ok;
+
+
+// A layer that sends one packet of its own from each Process. The packet goes through the layers below it, so the layer below refuses it.
+struct OwnSendLayer {
+	static constexpr std::size_t header = 1;
+	static constexpr uint32 fingerprint = 0x4F574E31;
+	static constexpr bool usesTime = false;
+	static constexpr bool makesBulk = false;
+
+
+	Result<std::size_t> Add(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size() + header) {
+			return ResultStatus::invalidParameter;
+		}
+
+		out[0] = 0;
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[header + index] = in[index];
+		}
+
+		return in.size() + header;
+	}
+
+
+	Result<VubTake> Take(const VubMeta&, std::span<const uint8> packet) {
+		if (packet.size() < header) {
+			return ResultStatus::invalidData;
+		}
+
+		return VubTake{header, true};
+	}
+
+
+	void Process(uint32, const VubOutbox& outbox) {
+		std::array<uint8, 1> packet{};
+		(void)outbox.Send(std::span<const uint8>(packet.data(), packet.size()));
+	}
+};
+
+
+// A layer below the sending layer. Its Add answers testOwnAddStatus: busy keeps the packet with the sender, and an error is a real one.
+struct OwnRefuseLayer {
+	static constexpr std::size_t header = 1;
+	static constexpr uint32 fingerprint = 0x4F574E32;
+	static constexpr bool usesTime = false;
+	static constexpr bool makesBulk = false;
+
+
+	Result<std::size_t> Add(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (testOwnAddStatus != ResultStatus::ok) {
+			return testOwnAddStatus;
+		}
+
+		if (out.size() < in.size() + header) {
+			return ResultStatus::invalidParameter;
+		}
+
+		out[0] = 0;
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[header + index] = in[index];
+		}
+
+		return in.size() + header;
+	}
+
+
+	Result<VubTake> Take(const VubMeta&, std::span<const uint8> packet) {
+		if (packet.size() < header) {
+			return ResultStatus::invalidData;
+		}
+
+		return VubTake{header, true};
+	}
+
+
+	void Process(uint32, const VubOutbox&) {
+	}
+};
+
+
+using OwnSendStack = Vub<+[] {
+	return VubBuilder()
+		.Layer<OwnSendLayer>()
+		.Layer<OwnRefuseLayer>()
+		.Link<PacketEnd>()
+		.MaxPayload(40)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
+// A layer's own packet that its Add refuses busy is not a drop: the layer keeps it and sends it again, so layerError stays at 0 however
+// many times it is refused. A real Add error on the same path still counts.
+void TestOwnBusyNotCounted() {
+	ResetTestState();
+	PacketLine line(VubFaults{});
+	OwnSendStack stack(line.a);
+	testOwnAddStatus = ResultStatus::busy;
+	for (int round = 0; round < 3; round++) {
+		stack.Process();
+	}
+
+	SIM_EXPECT(stack.Drops().layerError == 0);
+	testOwnAddStatus = ResultStatus::invalidParameter;
+	stack.Process();
+	SIM_EXPECT(stack.Drops().layerError == 1);
+	testOwnAddStatus = ResultStatus::ok;
+}
+
+
 int main() {
 	TestWireBytesByHand();
 	TestRoundTripStream();
@@ -503,5 +615,6 @@ int main() {
 	TestStreamFaultsOnlyWholePackets();
 	TestRefusedBulkCountsTowardPerProcess();
 	TestOutboxPacketTooLongCounted();
+	TestOwnBusyNotCounted();
 	return SimFinish("TestVubStack");
 }

@@ -16,6 +16,7 @@
 #include <span>
 #include <tuple>
 #include <type_traits>
+#include <utility>
 
 
 // A stack built from a chain. Make is a captureless lambda that returns the VubBuilder of the chain:
@@ -183,12 +184,15 @@ public:
 	}
 
 
-	// The block of type Block in the chain, for the settings it changes at run time (a baud rate). The chain names each block once; the
-	// first block of that type is returned. Only a block that is in the chain has a member here, so a chain without it has no code.
+	// The block of type Block in the chain, for the settings it changes at run time (a baud rate). The chain must hold one block of the
+	// type: a chain with two of them is a compile error, since Find would have to pick one. Only a block that is in the chain has a member
+	// here, so a chain without it has no code.
 	template<typename Block>
 	Block& Find() {
 		constexpr std::size_t index = BlockIndexOf<Block>();
 		static_assert(index < count, "the chain has no block of this type");
+		static_assert(CountBlocksOf<Block>(std::make_index_sequence<count>{}) <= 1,
+			"the chain has more than one block of this type: Find cannot tell them apart, so the chain holds each type once");
 		return std::get<index>(blocks);
 	}
 
@@ -276,7 +280,8 @@ private:
 	// The step with index From is applied to packet and its result goes into a step buffer, alternating between the two buffers. The
 	// packet reaches the end of the chain (the framing or the link) and is staged on the lane. A packet with a caller (caller true)
 	// returns its failure to that caller and is not counted. A packet with no caller (a layer's own packet, a bulk packet) is counted
-	// where it is refused: a layer's Add under layerError, a transform's Encode under transformError.
+	// where it is refused: a layer's Add under layerError, a transform's Encode under transformError. A busy refusal is not counted: the
+	// layer keeps the packet and sends it again.
 	template<std::size_t From>
 	ResultStatus SendFrom(std::span<const uint8> packet, const VubMeta& meta, VubLane lane, bool caller) {
 		if constexpr (From >= count) {
@@ -287,7 +292,7 @@ private:
 				std::span<uint8> out = StepBuffer<From>();
 				Result<std::size_t> added = std::get<From>(blocks).Add(meta, packet, out);
 				if (added.IsErr()) {
-					if (!caller) {
+					if (!caller && added.Error() != ResultStatus::busy) {
 						VubCountDrop(drops.layerError);
 					}
 
@@ -307,7 +312,7 @@ private:
 				std::span<uint8> out = StepBuffer<From>();
 				Result<std::size_t> encoded = std::get<From>(blocks).Encode(meta, packet, out);
 				if (encoded.IsErr()) {
-					if (!caller) {
+					if (!caller && encoded.Error() != ResultStatus::busy) {
 						VubCountDrop(drops.transformError);
 					}
 
@@ -476,6 +481,13 @@ private:
 		} else {
 			return BlockIndexOf<Block, Index + 1>();
 		}
+	}
+
+
+	// The number of blocks of type Block in the chain.
+	template<typename Block, std::size_t... Index>
+	static constexpr std::size_t CountBlocksOf(std::index_sequence<Index...>) {
+		return (0 + ... + (std::is_same_v<typename std::tuple_element_t<Index, Tuple>::BlockType, Block> ? 1 : 0));
 	}
 
 

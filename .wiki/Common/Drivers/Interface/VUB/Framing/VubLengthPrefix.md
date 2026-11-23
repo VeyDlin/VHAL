@@ -70,6 +70,24 @@ exactly.
 Example: `A5 03 58 11 33 A5 03 58 AA BB CC A5 03 58 77 88 99`, with the `22` of the first frame lost. Packet `11 33 A5` comes out. The
 bytes `03 58 AA BB CC` are dropped. Packet `77 88 99` comes out.
 
+## Refused headers and the cost of a false one
+
+A header whose length is larger than the receive buffer is refused as a header. The framing learns the buffer from the `out` span it is
+given with each byte, which is the link's `MaxPacket`. The refused header's sync byte is dropped and the bytes after it are read again, so
+the frame that follows comes out, and the refusal counts as too long. The framing does not know the chain's largest packet, only the
+buffer, which is at least as large; a header between the chain's largest packet and `MaxPacket` is still accepted. Passing the chain's
+bound would need a value the framing does not have at run time, so this framing uses the buffer.
+
+The cost of a false header, one whose check passes by chance (the check matches one sync byte in 256):
+
+- A length larger than the buffer costs no bytes: the header is refused at once.
+- A length the buffer holds swallows up to that many bytes, the payload it announces, before the framing finds the next sync. A false
+  header of 255 bytes swallows up to 255 bytes.
+
+The framing needs a byte stream that keeps its order. The count of payload bytes is taken from the stream as it arrives, so under
+reordered bytes a false header with a length the buffer holds can make the framing wait for the wrong bytes, and it may not find the next
+sync again.
+
 ## Reset
 
 `Reset()` drops the partial frame. The stack calls it when the link goes up or down.

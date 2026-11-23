@@ -89,7 +89,8 @@ in the control queue. `Process()` does the rest, in this order:
 everything else runs in `Process`. A chain whose framing uses time stores the time of each byte in `Feed`, so the clock is read there too.
 
 `Find<Block>()` returns the block of that type in the chain, for the settings that change at run time, such as the gap framing's baud
-rate: `stack.Find<VubGap>().SetBaud(19200)`. A chain without that block does not compile the call.
+rate: `stack.Find<VubGap>().SetBaud(19200)`. A chain without that block does not compile the call. A chain with two blocks of that type
+is allowed, but `Find` does not compile for it: it cannot tell the two apart, and the message says so.
 
 ## Backpressure and order
 
@@ -122,6 +123,15 @@ cannot see a down has none of this: no record, no `LinkUp()`, no code.
 
 A layer may also declare its peer down or up from `Process`, with `outbox.SetPeer(up)`, when it has a keep-alive of its own. The
 stack treats it as a change of the connection. The keep-alive for a link that cannot report is [VubKeepAlive](Layer/VubKeepAlive).
+
+A layer that declares `reportsPeer` must be the lowest layer of the chain: no other layer is below it, though transforms and the framing
+may be. A chain holds one such layer. The builder refuses a reporting layer with another layer below it, with the message "a layer that
+declares reportsPeer must be the lowest layer of the chain", and a second reporting layer, with "two layers declare reportsPeer". The
+reason for the first: the layer's pings go through the layers below it. Above a delivery layer such as [VubReliable](Layer/VubReliable),
+the pings go through a layer that holds back sending while the connection is down, so after a lost first session neither end can send its
+ping, and both wait. Below it, the pings go out, and the delivery layer sees only the application's packets. The reason for the second: the
+stack keeps one peer state, and the last `SetPeer` in a `Process` would overwrite the first.
+
 A layer that declares `usesLinkState` asks the physical link's state from `Process` with `outbox.LinkUp()`. On a link that does not report
 its state the answer is always true. A chain whose layers do not ask is unchanged.
 
@@ -186,7 +196,9 @@ Every packet or byte the stack discards is counted under one reason. `Drops()` r
 A packet with no caller is one the stack makes itself: a bulk packet from a layer's `Next`, or a packet a layer sends from `Process`.
 When such a packet is refused, it is counted. A packet the application passes to `Send` is different: `Send` returns the failure to the
 caller (`messageTooLong`, or the status of the block that refused it), and nothing is counted. `Send` does not count a busy queue
-either: it returns `busy` to the caller. A layer that gets `busy` from its outbox keeps the packet and sends it again.
+either: it returns `busy` to the caller. A layer that gets `busy` from its outbox keeps the packet and sends it again. A busy refusal of a
+packet with no caller is not counted either, under `layerError` or `transformError`, so a layer that waits for a busy block does not
+raise the count.
 
 The counters are 16-bit and stop at 65535.
 
@@ -213,15 +225,15 @@ ring, and a link with `MaxPacket(64)`.
 | (b) stream link, COBS | 932 | 620 | 1212 | 620 |
 | (c) (b) + CRC-16/MODBUS table | 1624 | 700 | 1912 | 700 |
 | (d) (b) + CRC-16/MODBUS bitwise | 1144 | 700 | 1432 | 700 |
-| (e) stream link, length prefix 1, CRC-8 bitwise | 1080 | 672 | 1360 | 672 |
+| (e) stream link, length prefix 1, CRC-8 bitwise | 1084 | 672 | 1376 | 672 |
 | (f) stream link, gap framing, CRC-16 table | 2724 | 1728 | 2916 | 1728 |
-| (g) (c) + VubReliable (Retries 3, Window 4) | 4616 | 1136 | 5124 | 1136 |
-| (h) (g) with the in-order option | 4948 | 1272 | 5508 | 1272 |
-| (i) COBS, CRC-8, VubReliableOf window 1, Retries 3 | 3844 | 932 | 4332 | 932 |
+| (g) (c) + VubReliable (Retries 3, Window 4) | 4708 | 1136 | 5216 | 1136 |
+| (h) (g) with the in-order option | 5044 | 1272 | 5576 | 1272 |
+| (i) COBS, CRC-8, VubReliableOf window 1, Retries 3 | 3780 | 932 | 4296 | 932 |
 | breakdown of (i): the same without VubReliableOf | 1096 | 692 | 1388 | 692 |
 | CompactStreamingProtocol<20, 4> (bootloader use) | 2292 | 1116 | 2880 | 1116 |
 | (j) stream link, COBS, CRC-16/MODBUS table, VubKeepAlive (default times) | 2616 | 940 | 2984 | 940 |
-| (k) (g) + VubKeepAlive (default times) | 5632 | 1428 | 6236 | 1428 |
+| (k) (g) + VubKeepAlive (default times) | 5724 | 1428 | 6332 | 1428 |
 
 Measured with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203` on Windows 11, through Git Bash,
 with `Common/Drivers/Interface/VUB/.tool/size/size.sh`.
@@ -234,6 +246,12 @@ stand-in for the VHAL umbrella header), the script's folder, `Common` and `Perip
 Each configuration is one file that defines the stack and `SizeRun`, compiled with the shared `SizeMain.cpp` (which has `main`). Both
 include the shared `SizeWire.h`, which has the link classes, the clock and the handler. `SizeRun` sends a 32-byte payload, processes,
 feeds back what the link wrote (the bytes one by one on a stream link, the packet on a packet link), and processes again.
+
+The reliable rows (g), (h), (i) and (k) call `SetSession` on their reliable layer with the boot value `0x1234` before the first send, since
+`Send` returns `noInit` until then. Their `SizeRun` calls `SizeRunReliable` instead of `SizeRunStream`. The first `Send` after the session
+is set returns `busy` and starts the session, so the run sends again in each round until a `Send` queues the payload. The rounds take
+turns with the wire, processing and then feeding back the bytes not fed yet, and the run ends in a round that puts no byte on the wire.
+On the host, each of the four programs hands the whole 32-byte payload to the handler (528 bytes, the sum of its bytes).
 
 The baseline makes the same calls with no VUB: `BaselineStream.cpp` writes the payload to a stream link and hands the bytes it took to
 the handler, and `BaselinePacket.cpp` sends the payload on a packet link and hands the packet to the handler. Each baseline has the same
@@ -255,8 +273,8 @@ build output goes to a temporary folder outside the repository.
 `CompactStreamingProtocol<20, 4>` is the bootloader's protocol (`Common/Utilities/Bootloader/Communication/BLECommunication.h`). Its row
 is the bootloader's use of it: the four callbacks the bootloader passes (transmit, data received, stream complete and receive reset),
 with bodies of the same kind, a packet link, and a 32-byte payload, against the packet baseline. The probe runs one protocol object as
-both ends. `SizeRun` sends the payload, then feeds the wire back to the protocol and processes it, again and again, until the wire holds
-no new bytes. Every fragment and every acknowledgement goes through the wire, so the message completes and the handler runs. Its caveats:
+both ends. `SizeRun` sends the payload, then feeds the wire back to the protocol and processes it, again and again, until no byte is left on
+the wire that has not been fed. Every fragment and every acknowledgement goes through the wire, so the message completes and the handler runs. Its caveats:
 
 - The protocol cuts a message into fragments of 16 bytes (a 20-byte packet less a 3-byte header and a CRC byte). The 32-byte payload is
   two fragments. VUB sends one packet of 32 bytes. Cutting large messages into fragments is part of stage 5 (large data), and the VUB
@@ -269,11 +287,11 @@ no new bytes. Every fragment and every acknowledgement goes through the wire, so
 - Configuration (i) uses the default ring of 256 bytes. The protocol's ring is 80 bytes. A bootloader that sets `ReceiveRing` smaller
   is not measured here.
 
-Against the protocol, configuration (i) is 1552 bytes larger in text on the M4 (3844 against 2292) and 1452 bytes larger on the M0+
-(4332 against 2880). Its RAM is 184 bytes smaller on the M4 (932 against 1116) and on the M0+ (932 against 1116). The design asks for
+Against the protocol, configuration (i) is 1488 bytes larger in text on the M4 (3780 against 2292) and 1416 bytes larger on the M0+
+(4296 against 2880). Its RAM is 184 bytes smaller on the M4 (932 against 1116) and on the M0+ (932 against 1116). The design asks for
 a stack with the protocol's properties to be no larger than the protocol on the same target, so this stage does not meet it in text.
 The breakdown row shows where the text goes: without `VubReliableOf`, configuration (i) is 1096 bytes of text on the M4, and the layer
-adds 2748 bytes. The layer carries what the protocol does not: sequence numbers with sessions and a sync, a window, a ring of owed
+adds 2684 bytes. The layer carries what the protocol does not: sequence numbers with sessions and a sync, a window, a ring of owed
 acknowledgements, retries with timeouts, and outcome reporting (see [VubReliable](Layer/VubReliable)). The measurement gives the size of
 the layer as a whole; it does not split the layer's code further.
 

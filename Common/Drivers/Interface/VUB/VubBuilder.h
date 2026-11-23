@@ -528,6 +528,12 @@ public:
 	}
 
 
+	// Whether each block of the chain, in chain order, declares its peer (reportsPeer).
+	static constexpr std::array<bool, count> PeerReports() {
+		return std::array<bool, count>{Entries::ReportsPeer()...};
+	}
+
+
 	// Whether the chain can ever tell that the connection is down: the link reports its state, or a layer reports its peer.
 	static constexpr bool CanReportDown() {
 		return LinkTraits().reportsState || PeersReport();
@@ -591,6 +597,27 @@ public:
 		if constexpr (count > 0) {
 			VubRequire<"the link must be the last block of the chain">(kinds[count - 1] == VubKind::link);
 		}
+
+		// A chain holds one layer that declares its peer, and it is the lowest layer: its state is the connection's, and the layers below
+		// it, the link and the framing, are the ones it reports on. Two of them would overwrite each other's state. The count comes first,
+		// so two layers report the count and not the position.
+		const std::array<bool, count> reports = PeerReports();
+		std::size_t peerLayers = 0;
+		std::size_t lowestLayer = 0;
+		for (std::size_t index = 0; index < count; index++) {
+			if (reports[index]) {
+				peerLayers++;
+			}
+
+			if (kinds[index] == VubKind::layer) {
+				lowestLayer = index;
+			}
+		}
+
+		VubRequire<"two layers declare reportsPeer: the stack keeps one peer state, and a second layer would overwrite the first">(
+			peerLayers <= 1);
+		VubRequire<"a layer that declares reportsPeer must be the lowest layer of the chain: it is a hop-level block, below every other layer">(
+			peerLayers == 0 || reports[lowestLayer]);
 
 		constexpr VubLinkTraits traits = LinkTraits();
 		if constexpr (VubPacketLink<LinkType>) {

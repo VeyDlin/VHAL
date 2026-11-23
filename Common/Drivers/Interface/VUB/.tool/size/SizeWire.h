@@ -111,3 +111,34 @@ void SizeRunStream(Stack& stack) {
 
 	stack.Process();
 }
+
+
+// The calls of a byte-stream stack with a reliable layer. The first Send returns busy and starts the session, so the payload is sent again
+// in each round until a Send queues it. The rounds take turns: process, then feed the bytes that are on the wire and not fed yet. The run
+// ends in a round that puts no byte on the wire once the payload is queued. The stack is both ends of the line: the bytes it writes are
+// the bytes it receives, so the packet it sends is received by the same stack.
+template<typename Stack>
+void SizeRunReliable(Stack& stack) {
+	std::array<uint8, 32> payload{};
+	SizeFill(payload);
+	sizeWireLength = 0;
+	bool queued = false;
+	std::size_t fed = 0;
+	for (std::size_t round = 0; round < 32; round++) {
+		if (!queued) {
+			queued = stack.Send(std::span<const uint8>(payload)) == ResultStatus::ok;
+		}
+
+		stack.Process();
+		if (queued && fed == sizeWireLength) {
+			break;
+		}
+
+		while (fed < sizeWireLength) {
+			stack.Feed(sizeWire[fed]);
+			fed++;
+		}
+	}
+
+	stack.Process();
+}

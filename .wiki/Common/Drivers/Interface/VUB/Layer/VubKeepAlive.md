@@ -66,6 +66,13 @@ The keep-alive is a layer above the link CRC and the framing, so a corrupted pac
 count as life. The chain from the top down is: the layers of the application, the keep-alive, the transforms, the framing, the link. A
 transform below the keep-alive sees packets that the layer has not checked.
 
+The keep-alive is the lowest layer of the chain. Its pings go through the layers below it, so no layer may be below it: a delivery layer
+such as VubReliable stops sending while the connection is down, and a ping that went through it would never leave, so after a lost first
+session both ends wait for each other. Placed below the delivery layer, the pings go out, and the delivery layer sees only the
+application's packets. The builder refuses a keep-alive with another layer below it, with the message "a layer that declares reportsPeer
+must be the lowest layer of the chain". A chain holds one layer that reports its peer, so a second keep-alive is refused too (see
+[Link state](../README#link-state)).
+
 ## Peer down and the queues
 
 The layer's own packets go while only the peer is down (see [Link state](../README#link-state)), so the pings and pongs go while
