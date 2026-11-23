@@ -4,7 +4,7 @@ Delivery layer. Each packet carries a sequence number, the session tag of its se
 
 The layer is added with `.Layer<VUB::Reliable>()` and its options follow it: `.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4)`.
 
-`VUB::Reliable` is `VUB::ReliableOf<32, 4>`: payloads up to 32 bytes, up to 4 packets unsettled. `VUB::ReliableOf<PayloadCapacity, WindowCapacity, InOrder>` sets the storage. The options choose within it. The third argument turns on in-order delivery (see In order); it is `false` by default. The layer needs a clock: add `Clock<&Fn>()` to the chain.
+`VUB::Reliable` is `VUB::ReliableOf<32, 4>`: payloads up to 32 bytes, up to 4 packets unsettled. `VUB::ReliableOf<PayloadCapacity, WindowCapacity, InOrder, options>` sets the storage. The options choose within it. The third argument turns on in-order delivery (see In order); it is `false` by default. The fourth is the value of the options, of type `VUB::ReliableOptions<PayloadCapacity, WindowCapacity>`: the stack gives each layer of a chain the options its chain sets, so they are constants of the layer and take no RAM. The default is the default options. The layer needs a clock: add `Clock<&Fn>()` to the chain.
 
 A chain with the layer, the packet link of a board, and a handler for each outcome:
 
@@ -308,28 +308,37 @@ Sim test `TestVubReliableInOrder` checks the option: the packets of a faulty lin
 
 The storage depends on the template arguments, not on the options. Each window slot holds one packet (`PayloadCapacity` plus the 11-byte header area) and its state. The owed acknowledgements take 3 bytes for each of the `2 * WindowCapacity` entries (a number and its tag, 2 bytes plus 1). The receiver keeps 4 bytes of bits for its window. The session fields (the boot value, the counters, the held boot value and the counter-reply flag) fit in the padding of the state.
 
-Sizes, measured with arm-none-eabi-g++ 15.2.1 for Cortex-M4 (`-std=c++20 -Os -mcpu=cortex-m4 -mthumb -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti`). The method: one global array per layer type, sized with `sizeof` of that type, and the size of its symbol in the object file (`arm-none-eabi-nm -S`):
+Sizes, measured with arm-none-eabi-g++ 15.2.1 for Cortex-M4 (`-std=c++20 -Os -mcpu=cortex-m4 -mthumb -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti`). The method: `sizeof` of each layer type, read at compile time (a declaration `Show<sizeof(T)> x;` whose error message names the value, with `arm-none-eabi-g++ -fsyntax-only`):
 
-| Layer | `sizeof` |
-|---|---|
-| `VUB::ReliableOf<32, 4>` | 336 bytes |
-| `VUB::ReliableOf<40, 4>` | 368 bytes |
-| `VUB::ReliableOf<40, 8>` | 664 bytes |
-| `VUB::ReliableOf<40, 4, true>` | 536 bytes (+168) |
-| `VUB::ReliableOf<40, 8, true>` | 1000 bytes (+336) |
+| Layer | `sizeof` | `sizeof` before the options became template arguments |
+|---|---|---|
+| `VUB::ReliableOf<32, 4>` | 316 bytes | 336 bytes |
+| `VUB::ReliableOf<40, 4>` | 348 bytes | 368 bytes |
+| `VUB::ReliableOf<40, 8>` | 644 bytes | 664 bytes |
+| `VUB::ReliableOf<40, 4, true>` | 516 bytes (+168) | 536 bytes (+168) |
+| `VUB::ReliableOf<40, 8, true>` | 980 bytes (+336) | 1000 bytes (+336) |
 
-The sizes of the layers without the option are the same as the table of the previous version: the counter reply adds no bytes. The growth in the previous version came from the header area of each slot, from 7 to 11 bytes: 4 bytes for each slot.
+The options take no RAM: a layer of a chain holds none of them, so each size is 20 bytes less than before, the size of the option fields.
+The counter reply adds no bytes. The growth in the previous version came from the header area of each slot, from 7 to 11 bytes: 4 bytes
+for each slot.
 
-The text of the layer is measured on a unit that constructs the layer with options passed in from another unit (so the options are not folded), calls `SetSession`, `Process`, `Add`, `Process` and `Take`, with the layer's type given by the in-order flag. The text of the unit, with no data and no bss:
+The code is measured in the size table. Each row is a whole program minus its baseline (see the README), so the layer's code is in the
+rows with the layer:
 
-- the unit with the plain layer, `VUB::ReliableOf<40, 4>`: 1698 bytes of text;
-- the unit with `VUB::ReliableOf<40, 4, true>`: 1962 bytes of text (+264).
+| Row | Before: text M4 / RAM M4 | After: text M4 / RAM M4 |
+|---|---|---|
+| (g) (c) + `VUB::Reliable` (Retries 3, Window 4) | 4708 / 1136 | 4096 / 1116 |
+| (h) (g) with the in-order option | 5044 / 1272 | 4404 / 1252 |
+| (i) COBS, CRC-8, `VUB::ReliableOf` window 1, Retries 3 | 3780 / 932 | 3200 / 912 |
+| (k) (g) + `VUB::KeepAlive` (default times) | 5724 / 1428 | 5148 / 1400 |
 
-The in-order code exists only in the unit with the option: the plain unit's object has no symbol of `ReleaseInOrder`, `HoldPacket` or `ShiftBase`, and the in-order unit's object has `ShiftBase` as a separate function. The counter reply is protocol, not an option, so its code is in every unit; its text is not measured on its own here. The figures are the sum of the `.text` sections of each object file (`arm-none-eabi-size -A`). In the in-order unit `PushOwed` and `ShiftBase` are separate functions; the rest of the in-order code is inlined into `Process` and the unit's own code.
+The options are template arguments of the stored layer, so an option that is off is compiled out: with `BackoffMaxMs` 0 the backoff code
+is not in the image, with `SequenceBits` 16 the 8-bit branches are not, and without a handler the handler calls are not. Row (i) is 580
+bytes of text smaller on the Cortex-M4 and 20 bytes smaller in RAM. The figures are the sum of the `.text` sections of the linked program
+(`arm-none-eabi-size`), so the change is the whole effect of the change on the program, the options that are off and the inlining.
 
-The options that are off are not removed at compile time. The layer holds its options as values, given to it at run time, so its checks stay in the code. A compile-time null would need the handler in the layer's type, and the builder does not give the layer a type that carries it in this version.
-
-The cost of the run-time options is measured on configuration (i) of the size table (COBS, CRC-8, window 1, Retries 3). Its options set the window, the retries and the timeout. The sequence width (16 bits by default), the backoff and the two handlers are left at their defaults, but their code stays in the image. A copy of the layer's header in which the sequence width is fixed to 16 bits, the backoff to 0 and both handlers to none gives an image 324 bytes smaller on the Cortex-M4 (3952 against 4276 bytes of text, linked with `--gc-sections` and read with `arm-none-eabi-size`, the same flags as the size script). Removing that code needs the options as template arguments, which this version of the builder does not pass.
+The in-order code exists only in a layer with the option. With the in-order option the packets wait in the layer's held store, which costs
+`WindowCapacity` payloads: the rows (h) and the `VUB::ReliableOf<40, 4, true>` sizes above show it.
 
 With `WindowCapacity` 1 the window is 1, and the layer has no code for the packets ahead of its base: its default is 1, the receiving side keeps no bits for packets ahead, and the sender does not search the window for a span. The in-order option keeps its bit for the packet at the base. An options value built by hand with a window above 1 is not supported with `WindowCapacity` 1: a packet ahead of the base is then not acknowledged and not passed up.
 
@@ -337,20 +346,23 @@ The out-of-line functions of the layer in configuration (i), on the Cortex-M4 (`
 
 | Function | Bytes | What it serves |
 |---|---:|---|
-| `Process` | 286 | the sync start, the resync request and the counter reply that are owed, the outcomes, the timers and the owed acknowledgements |
-| `Transmit` | 200 | a resend of a packet or of its sync, with an owed acknowledgement that rides on it |
-| `RunTimers` | 134 | the due resends, retryExhausted, and the sync given up without an outcome |
-| `PutHeader` | 122 | the header of every packet: the sequence fields, the sync fields and the acknowledgement fields, written once |
-| `FlushAcknowledgements` | 114 | the owed acknowledgements that did not ride on a packet |
-| `Settle` | 66 | the outcome report and the release of a slot |
-| `SenderBase` | 38 | the window base that a packet's delta is taken from |
-| `ReceiveAcknowledgement` | 38 | an acknowledgement of the current session; the acknowledgement of a sync establishes the session |
+| `Process` | 334 | the sync start, the resync request and the counter reply that are owed, the outcomes, the timers (`RunTimers`, which is inlined here) and the owed acknowledgements |
+| `Transmit` | 198 | a resend of a packet or of its sync, with an owed acknowledgement that rides on it |
+| `PutHeader` | 82 | the header of every packet: the sequence fields, the sync fields and the acknowledgement fields, written once |
+| `FlushAcknowledgements` | 112 | the owed acknowledgements that did not ride on a packet |
+| `SenderBase` | 14 | the window base that a packet's delta is taken from |
+| `ReceiveAcknowledgement` | 36 | an acknowledgement of the current session; the acknowledgement of a sync establishes the session |
 | `PushOwed` | 38 | the ring of owed acknowledgements |
 | `PopOwed` | 18 | the same ring, when an acknowledgement is sent |
 | `CopyBytes` | 18 | the byte copies of the packet and the slot |
 | `SyncInFlight` | 16 | whether a sync is waiting for its acknowledgement |
 
-The in-order functions (`HoldPacket`, `ReleaseInOrder`, `ShiftBase`) have no symbol in configuration (i), since the option is off. The receiving path (the take of a packet, the session and the window) has no symbol of its own in the image: it is inlined into the stack's functions.
+`Settle` (the outcome report and the release of a slot) has no symbol: it is inlined into its callers. The in-order functions (`HoldPacket`,
+`ReleaseInOrder`, `ShiftBase`) have no symbol in configuration (i), since the option is off. The receiving path (the take of a packet, the
+session and the window) has no symbol of its own in the image: it is inlined into the stack's functions.
+
+The table of the previous version had `RunTimers` (134 bytes) and `Settle` (66 bytes) as symbols of their own; they are inlined now, into
+`Process` and into the callers of `Settle`.
 
 ## Limits
 

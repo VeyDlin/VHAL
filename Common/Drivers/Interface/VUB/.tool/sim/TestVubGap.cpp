@@ -12,17 +12,25 @@
 
 
 // The options of a gap of 1000 us, with no baud rate: the send side waits for the gap, and assumes nothing about the line's speed.
-VUB::Gap::Options GapOptions(uint32 gapUs) {
-	VUB::Gap::Options options;
+// The gap framing takes its options as a template argument, so each set of options is a constant of its own.
+constexpr VUB::GapOptions GapOptions(uint32 gapUs) {
+	VUB::GapOptions options;
 	options.gapUs = gapUs;
 	options.timeoutUs = 5000;
 	return options;
 }
 
 
+constexpr VUB::GapOptions CharacterOptions{.inCharacters = true, .tenths = 35, .baud = 9600};
+constexpr VUB::GapOptions SentOptions1000{.gapUs = 1000, .baud = 9600, .timeoutUs = 50000};
+constexpr VUB::GapOptions SentOptions230400{.gapUs = 1750, .baud = 230400, .timeoutUs = 50000};
+constexpr VUB::GapOptions SentOptions921600{.gapUs = 1750, .baud = 921600, .timeoutUs = 50000};
+constexpr VUB::GapOptions TimeOutOptions{.gapUs = 1000, .baud = 9600, .timeoutUs = 5000};
+
+
 // The payload goes out unchanged.
 void TestFrameIsThePayload() {
-	VUB::Gap framing(GapOptions(1000));
+	VUB::GapOf<GapOptions(1000)> framing;
 	VUB::Meta meta{};
 	const std::array<uint8, 3> payload = {0x11, 0x22, 0x00};
 	std::array<uint8, 8> frame{};
@@ -40,7 +48,7 @@ void TestFrameIsThePayload() {
 // The bytes 11 at 0, 22 at 100 and 33 at 1099 are one frame: no silence reaches the gap of 1000. It comes out at 1099 + 1000 = 2099,
 // and not a microsecond earlier.
 void TestFrameEndsAtSilence() {
-	VUB::Gap framing(GapOptions(1000));
+	VUB::GapOf<GapOptions(1000)> framing;
 	std::array<uint8, 16> out{};
 	std::size_t length = 0;
 	SIM_EXPECT(framing.Push(0x11, 0, out, length) == VUB::FrameStatus::pending);
@@ -59,7 +67,7 @@ void TestFrameEndsAtSilence() {
 // A byte that comes after the gap starts the next frame. 11 at 0 and 22 at 2000: the frame {11} comes out with the byte 22, which is kept
 // for the next frame. 33 at 2100 joins 22, and {22 33} comes out at 3100.
 void TestByteAfterGapStartsNextFrame() {
-	VUB::Gap framing(GapOptions(1000));
+	VUB::GapOf<GapOptions(1000)> framing;
 	std::array<uint8, 16> out{};
 	std::size_t length = 0;
 	SIM_EXPECT(framing.Push(0x11, 0, out, length) == VUB::FrameStatus::pending);
@@ -78,7 +86,7 @@ void TestByteAfterGapStartsNextFrame() {
 // A byte that comes after the gap, with the next byte in the same chunk, leaves no frame lost: the Push that ends a frame gives the packet
 // and the byte that starts the next one is not counted in it.
 void TestGapEndsOnlyAtSilence() {
-	VUB::Gap framing(GapOptions(1000));
+	VUB::GapOf<GapOptions(1000)> framing;
 	std::array<uint8, 16> out{};
 	std::size_t length = 0;
 	SIM_EXPECT(framing.Push(0x11, 0, out, length) == VUB::FrameStatus::pending);
@@ -91,7 +99,7 @@ void TestGapEndsOnlyAtSilence() {
 
 // Reset drops the partial frame: 11 at 0 and 22 at 100 are dropped, and 33 at 200 is the start of the next frame.
 void TestResetDropsPartialFrame() {
-	VUB::Gap framing(GapOptions(1000));
+	VUB::GapOf<GapOptions(1000)> framing;
 	std::array<uint8, 16> out{};
 	std::size_t length = 0;
 	SIM_EXPECT(framing.Push(0x11, 0, out, length) == VUB::FrameStatus::pending);
@@ -106,7 +114,7 @@ void TestResetDropsPartialFrame() {
 
 // A frame longer than the output is tooLong when its silence ends it; the next frame comes out whole.
 void TestTooLong() {
-	VUB::Gap framing(GapOptions(1000));
+	VUB::GapOf<GapOptions(1000)> framing;
 	std::array<uint8, 2> out{};
 	std::size_t length = 0;
 	SIM_EXPECT(framing.Push(0x11, 0, out, length) == VUB::FrameStatus::pending);
@@ -123,11 +131,7 @@ void TestTooLong() {
 // Characters: 3.5 character times at 9600 baud, 11 bits each, is 38.5 bits. One bit is 1000000 / 9600 us, so 38.5 bits are
 // 38500000 / 9600 = 4010.42 us. Rounded up, the gap is 4011 us. The gap ends at 4011 and not before.
 void TestCharacterGapAtBaud() {
-	VUB::Gap::Options options;
-	options.inCharacters = true;
-	options.tenths = 35;
-	options.baud = 9600;
-	VUB::Gap framing(options);
+	VUB::GapOf<CharacterOptions> framing;
 	std::array<uint8, 8> out{};
 	std::size_t length = 0;
 	SIM_EXPECT(framing.Push(0x11, 0, out, length) == VUB::FrameStatus::pending);
@@ -139,11 +143,7 @@ void TestCharacterGapAtBaud() {
 
 // The baud rate changes at run time: at 19200 the same 3.5 character times are 38500000 / 19200 = 2005.21 us, rounded up to 2006.
 void TestSetBaudChangesGap() {
-	VUB::Gap::Options options;
-	options.inCharacters = true;
-	options.tenths = 35;
-	options.baud = 9600;
-	VUB::Gap framing(options);
+	VUB::GapOf<CharacterOptions> framing;
 	SIM_EXPECT(framing.SetBaud(19200) == ResultStatus::ok);
 	std::array<uint8, 8> out{};
 	std::size_t length = 0;
@@ -157,7 +157,7 @@ void TestSetBaudChangesGap() {
 
 // The send side waits for the gap after the last byte received: a byte at 0 gives Ready false until 1000, and true from 1000 on.
 void TestReadyWaitsAfterReceive() {
-	VUB::Gap framing(GapOptions(1000));
+	VUB::GapOf<GapOptions(1000)> framing;
 	std::array<uint8, 8> out{};
 	std::size_t length = 0;
 	SIM_EXPECT(framing.Push(0x11, 0, out, length) == VUB::FrameStatus::pending);
@@ -169,11 +169,7 @@ void TestReadyWaitsAfterReceive() {
 // The send side waits for the bytes it wrote: 10 bytes at 9600 baud are 110 bits, which take 11458.33 us. The end is rounded up to a
 // whole microsecond, 11459, and the gap counts from it. Ready is false at 12458 and true at 12459.
 void TestReadyWaitsAfterSend() {
-	VUB::Gap::Options options;
-	options.gapUs = 1000;
-	options.baud = 9600;
-	options.timeoutUs = 50000;
-	VUB::Gap framing(options);
+	VUB::GapOf<SentOptions1000> framing;
 	framing.Sent(0, 10);
 	SIM_EXPECT(!framing.Ready(12458));
 	SIM_EXPECT(framing.Ready(12459));
@@ -183,11 +179,7 @@ void TestReadyWaitsAfterSend() {
 // The end of a send is never estimated short: 100 bytes at 230400 baud are 1100 bits, which take 4774.3 us. The end is 4775, and the
 // gap of 1750 counts from it: Ready is false at 6524 and true at 6525.
 void TestSentEndAtBaud230400() {
-	VUB::Gap::Options options;
-	options.gapUs = 1750;
-	options.baud = 230400;
-	options.timeoutUs = 50000;
-	VUB::Gap framing(options);
+	VUB::GapOf<SentOptions230400> framing;
 	framing.Sent(0, 100);
 	SIM_EXPECT(!framing.Ready(6524));
 	SIM_EXPECT(framing.Ready(6525));
@@ -197,11 +189,7 @@ void TestSentEndAtBaud230400() {
 // 256 bytes at 921600 baud are 2816 bits, which take 3055.56 us. The end is 3056, and the gap of 1750 ends at 4806: Ready is false at
 // 4805 and true at 4806.
 void TestSentEndAtBaud921600() {
-	VUB::Gap::Options options;
-	options.gapUs = 1750;
-	options.baud = 921600;
-	options.timeoutUs = 50000;
-	VUB::Gap framing(options);
+	VUB::GapOf<SentOptions921600> framing;
 	framing.Sent(0, 256);
 	SIM_EXPECT(!framing.Ready(4805));
 	SIM_EXPECT(framing.Ready(4806));
@@ -211,11 +199,7 @@ void TestSentEndAtBaud921600() {
 // A line that never goes quiet does not hold a send for ever: after the timeout, Ready is true. Sent 1000 bytes at 9600 baud keeps the
 // line busy for 1145000 us. The wait starts at 1000 and ends at 6000 (timeout 5000).
 void TestReadyTimesOut() {
-	VUB::Gap::Options options;
-	options.gapUs = 1000;
-	options.baud = 9600;
-	options.timeoutUs = 5000;
-	VUB::Gap framing(options);
+	VUB::GapOf<TimeOutOptions> framing;
 	framing.Sent(0, 1000);
 	SIM_EXPECT(!framing.Ready(1000));
 	SIM_EXPECT(!framing.Ready(5999));
@@ -225,7 +209,7 @@ void TestReadyTimesOut() {
 
 // Without a baud rate the send side counts the gap from the time of the Sent call: the bytes are assumed to leave at once.
 void TestReadyWithoutBaud() {
-	VUB::Gap framing(GapOptions(1000));
+	VUB::GapOf<GapOptions(1000)> framing;
 	framing.Sent(500, 4);
 	SIM_EXPECT(!framing.Ready(1499));
 	SIM_EXPECT(framing.Ready(1500));
@@ -235,7 +219,7 @@ void TestReadyWithoutBaud() {
 // A byte that arrives exactly the gap after the last one ends the packet before it: 11 at 0 and 22 at 1000, with a gap of 1000. The
 // packet {11} comes out, and 22 starts the next one, which ends at 2000.
 void TestByteAtExactGapEndsPacket() {
-	VUB::Gap framing(GapOptions(1000));
+	VUB::GapOf<GapOptions(1000)> framing;
 	std::array<uint8, 16> out{};
 	std::size_t length = 0;
 	SIM_EXPECT(framing.Push(0x11, 0, out, length) == VUB::FrameStatus::pending);
@@ -252,7 +236,7 @@ void TestByteAtExactGapEndsPacket() {
 // A single byte carried past the gap, then silence: 11 at 0 and 22 at 2000 give the packet {11}, and 22 is carried. With no byte after
 // it, the silence of 1000 us after 22 ends its packet at 3000, which Poll gives.
 void TestCarriedByteDeliveredBySilence() {
-	VUB::Gap framing(GapOptions(1000));
+	VUB::GapOf<GapOptions(1000)> framing;
 	std::array<uint8, 16> out{};
 	std::size_t length = 0;
 	SIM_EXPECT(framing.Push(0x11, 0, out, length) == VUB::FrameStatus::pending);
@@ -268,7 +252,7 @@ void TestCarriedByteDeliveredBySilence() {
 // Reset right after a carried byte drops the carried byte: 11 at 0 and 22 at 2000 leave 22 carried, and Reset clears it. The first
 // packet after it is 33 at 5000, with no stale 22 in front.
 void TestResetClearsCarriedByte() {
-	VUB::Gap framing(GapOptions(1000));
+	VUB::GapOf<GapOptions(1000)> framing;
 	std::array<uint8, 16> out{};
 	std::size_t length = 0;
 	SIM_EXPECT(framing.Push(0x11, 0, out, length) == VUB::FrameStatus::pending);
@@ -295,14 +279,14 @@ void TestDefaults() {
 // The framing contract over time: random packets with random silences between them, random polling and random loss. Without loss every
 // packet comes out exactly, and the frames after a lossy part come out again.
 void TestFramingContractNoLoss() {
-	VUB::Gap framing(GapOptions(1000));
+	VUB::GapOf<GapOptions(1000)> framing;
 	SIM_EXPECT(VUB::CheckTimedFraming(framing, 3, 200, 32, 0, 1000));
 }
 
 
 // With loss, a frame that loses a byte comes out short, and the gap cannot tell. The clean frames after the lossy part come out exactly.
 void TestResyncContractWithLoss() {
-	VUB::Gap framing(GapOptions(1000));
+	VUB::GapOf<GapOptions(1000)> framing;
 	SIM_EXPECT(VUB::CheckTimedFraming(framing, 9, 200, 32, 15, 1000));
 }
 

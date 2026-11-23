@@ -50,6 +50,22 @@ namespace ReliableWire {
 }
 
 
+// The options of the delivery layer. The layer takes them as its last template argument, so each option is a constant of the layer: an
+// option that is off costs no code and no RAM. The fields are structural (integers and function pointers), so a value of this type can
+// be a template argument. The defaults are the layer's defaults for the two capacities.
+template<std::size_t PayloadCapacity, std::size_t WindowCapacity>
+struct ReliableOptions {
+	uint8 retries = 3;
+	uint16 timeoutMs = 200;
+	uint8 window = WindowCapacity < 4 ? static_cast<uint8>(WindowCapacity) : static_cast<uint8>(4);
+	uint8 sequenceBits = 16;
+	uint16 backoffMaxMs = 0;
+	uint16 payloadBytes = PayloadCapacity;
+	void (*outcomeFn)(const Outcome&) = nullptr;
+	void (*restartFn)() = nullptr;
+};
+
+
 // The delivery layer. Each packet carries a sequence number, the session tag of its sender and the sender's window base. The receiver
 // acknowledges each packet (with InOrder, a held packet when it goes up), and the sender resends it after a timeout, up to a number of
 // times, then reports retryExhausted. A session starts with a sync packet, which carries the sender's boot value and the session
@@ -57,9 +73,22 @@ namespace ReliableWire {
 // sizes and the options are described on the wiki page. PayloadCapacity and WindowCapacity are the sizes of the layer's storage: the
 // options choose within them, and an option that is off costs no more RAM than the storage the type already has. InOrder = true passes
 // the packets up in sequence order: it holds the packets that arrive ahead of a gap, and it costs WindowCapacity payloads of RAM.
-template<std::size_t PayloadCapacity = 32, std::size_t WindowCapacity = 4, bool InOrder = false>
+// Value is the layer's options. The stack stores a layer of a chain as Configured, with the options of its chain entry, so the
+// options are constants of the stored layer.
+template<
+	std::size_t PayloadCapacity = 32,
+	std::size_t WindowCapacity = 4,
+	bool InOrder = false,
+	ReliableOptions<PayloadCapacity, WindowCapacity> Value = ReliableOptions<PayloadCapacity, WindowCapacity>{}>
 class ReliableOf {
 public:
+	using Options = ReliableOptions<PayloadCapacity, WindowCapacity>;
+
+	// The layer with other options, as a template argument. The stack uses it for a layer of a chain given options.
+	template<Options value>
+	using Configured = ReliableOf<PayloadCapacity, WindowCapacity, InOrder, value>;
+
+	static constexpr Options options = Value;
 	static constexpr std::size_t header = 11;
 	static constexpr uint32 fingerprint = 0x52454C33;
 	static constexpr bool usesTime = true;
@@ -72,18 +101,6 @@ public:
 	static constexpr uint8 SyncFlag = 0x04;
 	static constexpr uint8 ResyncFlag = 0x08;
 	static constexpr uint8 ControlFlag = 0x10;
-
-
-	struct Options {
-		uint8 retries = 3;
-		uint16 timeoutMs = 200;
-		uint8 window = WindowCapacity < 4 ? static_cast<uint8>(WindowCapacity) : static_cast<uint8>(4);
-		uint8 sequenceBits = 16;
-		uint16 backoffMaxMs = 0;
-		uint16 payloadBytes = PayloadCapacity;
-		void (*outcomeFn)(const Outcome&) = nullptr;
-		void (*restartFn)() = nullptr;
-	};
 
 
 	// The option methods of the block, right after it in the chain. Each one changes one field of the options.
@@ -261,7 +278,6 @@ private:
 	static constexpr bool TracksAhead = WindowCapacity > 1 || InOrder;
 
 
-	Options options;
 	Peer peer;
 	[[no_unique_address]] std::conditional_t<InOrder, HeldStore, NoHeldStore> held{};
 	bool linkUp = true;
@@ -269,14 +285,6 @@ private:
 
 
 public:
-	ReliableOf() : ReliableOf(Options{}) {
-	}
-
-
-	explicit ReliableOf(const Options& value) : options(value) {
-	}
-
-
 	// Puts the payload into a packet with a sequence number, and keeps it until it is acknowledged. The packet is returned for the blocks
 	// below, which send it first. Returns noInit until SetSession has been called, and nothing is sent. Returns busy while the session is
 	// starting or the window is full, and messageTooLong for a payload over PayloadBytes. The first Send that returns busy starts the
@@ -475,7 +483,7 @@ public:
 		SettleSlots();
 		if (peer.restartReport) {
 			peer.restartReport = false;
-			if (options.restartFn != nullptr) {
+			if constexpr (options.restartFn != nullptr) {
 				options.restartFn();
 			}
 		}
@@ -535,29 +543,38 @@ public:
 private:
 	// The sequence width in bytes.
 	std::size_t SeqBytes() const {
-		return options.sequenceBits == 8 ? 1 : 2;
+		if constexpr (options.sequenceBits == 8) {
+			return 1;
+		} else {
+			return 2;
+		}
 	}
 
 
 	uint16 Mask() const {
-		return options.sequenceBits == 8 ? static_cast<uint16>(0xFF) : static_cast<uint16>(0xFFFF);
+		if constexpr (options.sequenceBits == 8) {
+			return static_cast<uint16>(0xFF);
+		} else {
+			return static_cast<uint16>(0xFFFF);
+		}
 	}
 
 
-	// The timeout before try number attempts. It doubles after each try up to the backoff cap, when there is one.
+	// The timeout before try number attempts. It doubles after each try up to the backoff cap, when there is one. Without a cap the
+	// timeout is fixed, and the code of the backoff is not in the layer.
 	uint32 TimeoutUs(uint16 attempts) const {
 		uint32 timeout = static_cast<uint32>(options.timeoutMs) * 1000u;
-		uint32 cap = static_cast<uint32>(options.backoffMaxMs) * 1000u;
-		if (cap == 0) {
+		if constexpr (options.backoffMaxMs == 0) {
+			return timeout;
+		} else {
+			uint32 cap = static_cast<uint32>(options.backoffMaxMs) * 1000u;
+			for (uint16 index = 1; index < attempts && timeout < cap; index++) {
+				uint32 doubled = timeout * 2u;
+				timeout = doubled > cap ? cap : doubled;
+			}
+
 			return timeout;
 		}
-
-		for (uint16 index = 1; index < attempts && timeout < cap; index++) {
-			uint32 doubled = timeout * 2u;
-			timeout = doubled > cap ? cap : doubled;
-		}
-
-		return timeout;
 	}
 
 
@@ -999,10 +1016,12 @@ private:
 
 	// A sync has no outcome: it carries no packet of the application.
 	void Settle(Slot& slot, ResultStatus status) {
-		if (!slot.sync && options.outcomeFn != nullptr) {
-			Outcome outcome{status, slot.sequence, slot.attempts,
-				std::span<const uint8>(slot.bytes.data() + header, slot.length)};
-			options.outcomeFn(outcome);
+		if constexpr (options.outcomeFn != nullptr) {
+			if (!slot.sync) {
+				Outcome outcome{status, slot.sequence, slot.attempts,
+					std::span<const uint8>(slot.bytes.data() + header, slot.length)};
+				options.outcomeFn(outcome);
+			}
 		}
 
 		slot.state = SlotState::free;

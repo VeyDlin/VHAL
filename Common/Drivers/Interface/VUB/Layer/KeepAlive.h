@@ -31,11 +31,21 @@ namespace VUB {
 // On a link that reports its state, the layer asks the link at each Process (outbox.LinkUp). While the link is down it sends nothing,
 // declares nothing and forgets what it heard; when the link comes up its timers start again from that Process, so the first ping goes
 // one quiet time later. A link that does not report its state is always up, and the query answers true.
-struct KeepAlive {
-	struct Options {
-		uint32 quietUs = 1000000;
-		uint32 downUs = 3000000;
-	};
+struct KeepAliveOptions {
+	uint32 quietUs = 1000000;
+	uint32 downUs = 3000000;
+};
+
+
+// The keep-alive layer with its options as a template argument. The options are constants of the layer, so the layer takes no RAM for
+// them. The stack stores a KeepAlive of a chain as Configured, with the options of its chain entry.
+template<KeepAliveOptions Value = KeepAliveOptions{}>
+class KeepAliveOf {
+public:
+	using Options = KeepAliveOptions;
+
+	template<Options value>
+	using Configured = KeepAliveOf<value>;
 
 
 	// The options of the layer, after the layer in the chain: each method reads them with LastOptions, changes one field, and returns the
@@ -73,8 +83,8 @@ struct KeepAlive {
 
 
 private:
-	uint32 quietUs = 0;
-	uint32 downUs = 0;
+	static constexpr uint32 quietUs = Value.quietUs;
+	static constexpr uint32 downUs = Value.downUs;
 	uint32 heardUs = 0;
 	uint32 pingUs = 0;
 	bool restart = true;
@@ -84,10 +94,6 @@ private:
 
 
 public:
-	explicit KeepAlive(const Options& value) : quietUs(value.quietUs), downUs(value.downUs) {
-	}
-
-
 	Result<std::size_t> Add(const Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		if (out.size() < in.size() + header) {
 			return ResultStatus::invalidParameter;
@@ -174,5 +180,9 @@ public:
 		}
 	}
 };
+
+
+// The keep-alive layer with the default times.
+using KeepAlive = KeepAliveOf<>;
 
 }

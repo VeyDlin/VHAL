@@ -29,18 +29,28 @@ namespace VUB {
 //
 // Growth is 0: a frame is the payload. A lost byte in a frame makes it come out short, and the gap cannot tell that: the integrity of
 // the payload is a CRC transform's job. The wiki page of this header has the timing rules and the RAM.
-struct Gap {
+// The options of the gap. A gap of 1750 us is the Modbus t3.5 at the baud rates above 19200.
+struct GapOptions {
+	uint32 gapUs = 1750;
+	bool inCharacters = false;
+	uint32 tenths = 0;
+	uint32 baud = 0;
+	uint32 timeoutUs = 100000;
+};
+
+
+// The gap framing with its options as a template argument. The options that do not change are constants of the framing, so the framing
+// takes no RAM for them. The baud rate is kept at run time, since SetBaud changes it, and it starts from the options. The stack stores a
+// Gap of a chain as Configured, with the options of its chain entry.
+template<GapOptions Value = GapOptions{}>
+class GapOf {
+public:
+	using Options = GapOptions;
+
+	template<Options value>
+	using Configured = GapOf<value>;
+
 	static constexpr bool usesTime = true;
-
-
-	// The options of the gap. A gap of 1750 us is the Modbus t3.5 at the baud rates above 19200.
-	struct Options {
-		uint32 gapUs = 1750;
-		bool inCharacters = false;
-		uint32 tenths = 0;
-		uint32 baud = 0;
-		uint32 timeoutUs = 100000;
-	};
 
 
 	// The options of the block, flat after it in the chain: GapUs, GapCharacters, Baud and WaitTimeoutUs.
@@ -88,10 +98,10 @@ struct Gap {
 	};
 
 
-	uint32 gapUs = 0;
-	uint32 tenths = 0;
-	uint32 baud = 0;
-	uint32 timeoutUs = 0;
+	static constexpr uint32 tenths = Value.inCharacters ? Value.tenths : 0;
+	static constexpr uint32 timeoutUs = Value.timeoutUs;
+	uint32 gapUs = Value.inCharacters ? CharactersUs(Value.tenths, Value.baud) : Value.gapUs;
+	uint32 baud = Value.baud;
 	uint32 lastRxUs = 0;
 	uint32 txEndUs = 0;
 	uint32 waitSinceUs = 0;
@@ -111,15 +121,6 @@ private:
 
 
 public:
-	Gap() : Gap(Options{}) {
-	}
-
-
-	explicit Gap(const Options& value) : gapUs(value.inCharacters ? CharactersUs(value.tenths, value.baud) : value.gapUs),
-		tenths(value.inCharacters ? value.tenths : 0), baud(value.baud), timeoutUs(value.timeoutUs) {
-	}
-
-
 	static constexpr std::size_t Growth(std::size_t length) {
 		(void)length;
 		return 0;
@@ -226,7 +227,7 @@ public:
 		}
 
 		baud = value;
-		if (tenths != 0) {
+		if constexpr (tenths != 0) {
 			gapUs = CharactersUs(tenths, value);
 		}
 
@@ -309,5 +310,9 @@ private:
 		return FrameStatus::packet;
 	}
 };
+
+
+// The gap framing with the default options.
+using Gap = GapOf<>;
 
 }

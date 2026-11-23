@@ -20,8 +20,6 @@
 
 
 using OrderLayer = VUB::ReliableOf<40, 4, true>;
-using PlainOrderLayer = VUB::ReliableOf<40, 4>;
-using BigSenderLayer = VUB::ReliableOf<64, 4>;
 
 
 // The packets a side sent, kept as bytes, and the payloads the side passed up, by id.
@@ -67,12 +65,18 @@ void ResetOrderState() {
 }
 
 
-// The options of a sender that reports its outcomes.
-PlainOrderLayer::Options OutcomeOptions() {
-	PlainOrderLayer::Options options{};
-	options.outcomeFn = &OrderOutcome;
-	return options;
-}
+// The options of the senders and receivers of this file. A layer takes its options as its template argument, so each set is a constant
+// of its own, and the sender types below are the layers built from them.
+constexpr VUB::ReliableOptions<40, 4> OutcomeOptions{.outcomeFn = &OrderOutcome};
+constexpr VUB::ReliableOptions<40, 4> RetryOnceOptions{.retries = 1, .outcomeFn = &OrderOutcome};
+constexpr VUB::ReliableOptions<40, 4> EightBitOutcomeOptions{.sequenceBits = 8, .outcomeFn = &OrderOutcome};
+constexpr VUB::ReliableOptions<40, 4> EightBitOptions{.sequenceBits = 8};
+constexpr VUB::ReliableOptions<64, 4> BigOutcomeOptions{.outcomeFn = &OrderOutcome};
+using OutcomeSender = VUB::ReliableOf<40, 4, false, OutcomeOptions>;
+using RetryOnceSender = VUB::ReliableOf<40, 4, false, RetryOnceOptions>;
+using EightBitSender = VUB::ReliableOf<40, 4, false, EightBitOutcomeOptions>;
+using EightBitReceiver = VUB::ReliableOf<40, 4, true, EightBitOptions>;
+using BigSenderLayer = VUB::ReliableOf<64, 4, false, BigOutcomeOptions>;
 
 
 ResultStatus OrderSend(void* owner, std::span<const uint8> packet, const VUB::Meta&) {
@@ -170,8 +174,8 @@ bool SentIs(const OrderSide& side, std::size_t index, const std::array<uint8, Si
 
 // Starts the session of the sender with the receiver at now: the first Send is busy, the sync goes out at Process, the receiver
 // acknowledges it, and the sender is established. Both sides are empty afterwards.
-template<typename Sender>
-void EstablishOrder(Sender& sender, OrderSide& sWire, OrderLayer& receiver, OrderSide& rWire, uint32 now) {
+template<typename Sender, typename Receiver>
+void EstablishOrder(Sender& sender, OrderSide& sWire, Receiver& receiver, OrderSide& rWire, uint32 now) {
 	SIM_EXPECT(!SendOrder(sender, 0xFFFF, sWire));
 	sender.Process(now, OrderOutbox(sWire));
 	SIM_EXPECT(sWire.count == 1);
@@ -191,10 +195,7 @@ void TestHeldPacketsGoUpAfterTheSenderGivesUpTheGap() {
 	ResetOrderState();
 	OrderSide sWire{};
 	OrderSide rWire{};
-	PlainOrderLayer::Options sendOptions{};
-	sendOptions.retries = 1;
-	sendOptions.outcomeFn = &OrderOutcome;
-	PlainOrderLayer sender(sendOptions);
+	RetryOnceSender sender;
 	OrderLayer receiver{};
 	sender.SetSession(0x2020);
 	EstablishOrder(sender, sWire, receiver, rWire, 1000000);
@@ -258,7 +259,7 @@ void TestGapFillReleasesInOrderAndAcknowledgesEach() {
 	ResetOrderState();
 	OrderSide sWire{};
 	OrderSide rWire{};
-	PlainOrderLayer sender(OutcomeOptions());
+	OutcomeSender sender;
 	OrderLayer receiver{};
 	sender.SetSession(0x2020);
 	EstablishOrder(sender, sWire, receiver, rWire, 1000000);
@@ -306,7 +307,7 @@ void TestReceiverRebootClearsHeldPackets() {
 	OrderSide sWire{};
 	OrderSide rWire{};
 	OrderSide rebootWire{};
-	PlainOrderLayer sender(OutcomeOptions());
+	OutcomeSender sender;
 	OrderLayer receiver{};
 	sender.SetSession(0x2020);
 	EstablishOrder(sender, sWire, receiver, rWire, 1000000);
@@ -343,9 +344,7 @@ void TestPayloadLargerThanCapacityIsNotHeld() {
 	ResetOrderState();
 	OrderSide sWire{};
 	OrderSide rWire{};
-	BigSenderLayer::Options bigOptions{};
-	bigOptions.outcomeFn = &OrderOutcome;
-	BigSenderLayer sender(bigOptions);
+	BigSenderLayer sender;
 	OrderLayer receiver{};
 	sender.SetSession(0x2020);
 	EstablishOrder(sender, sWire, receiver, rWire, 1000000);
@@ -469,12 +468,8 @@ void TestEightBitNumbersWrapInOrder() {
 	ResetOrderState();
 	OrderSide sWire{};
 	OrderSide rWire{};
-	PlainOrderLayer::Options sendOptions = OutcomeOptions();
-	sendOptions.sequenceBits = 8;
-	PlainOrderLayer sender(sendOptions);
-	OrderLayer::Options receiveOptions{};
-	receiveOptions.sequenceBits = 8;
-	OrderLayer receiver(receiveOptions);
+	EightBitSender sender;
+	EightBitReceiver receiver;
 	sender.SetSession(0x2020);
 	EstablishOrder(sender, sWire, receiver, rWire, 1000000);
 	uint32 now = 1000000;

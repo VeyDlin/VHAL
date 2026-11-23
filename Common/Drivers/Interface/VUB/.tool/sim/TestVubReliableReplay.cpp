@@ -17,9 +17,6 @@
 // the copy is passed to the receiver by hand, and the session rules must refuse it. Payloads start with a 16-bit id.
 
 
-using ReplayLayer = VUB::ReliableOf<40, 4>;
-
-
 // The ids the receiving side passed up, counted per id; the outcomes the sending side reported, counted per id and by status.
 inline std::array<uint16, 512> replayDelivered{};
 inline std::array<uint16, 512> replayOutcomes{};
@@ -85,26 +82,24 @@ VUB::Outbox ReplayOutbox(ReplayWire& wire) {
 }
 
 
-// The options of the sending side: the outcome handler is set, the restart handler is not.
-template<typename Layer>
-typename Layer::Options SenderOptions(uint8 window, uint8 sequenceBits) {
-	typename Layer::Options options{};
-	options.outcomeFn = &ReplayOutcome;
-	options.window = window;
-	options.sequenceBits = sequenceBits;
-	return options;
-}
+// The options of the sending side: the outcome handler is set, the restart handler is not. A layer takes its options as its template
+// argument, so the options of each window and sequence width the tests use are a constant of their own.
+template<uint8 Window, uint8 SequenceBits>
+constexpr VUB::ReliableOptions<40, 4> SenderOptionsOf{.window = Window, .sequenceBits = SequenceBits, .outcomeFn = &ReplayOutcome};
 
 
 // The options of the receiving side: the restart handler is set.
-template<typename Layer>
-typename Layer::Options ReceiverOptions(uint8 window, uint8 sequenceBits) {
-	typename Layer::Options options{};
-	options.restartFn = &ReplayRestart;
-	options.window = window;
-	options.sequenceBits = sequenceBits;
-	return options;
-}
+template<uint8 Window, uint8 SequenceBits>
+constexpr VUB::ReliableOptions<40, 4> ReceiverOptionsOf{.window = Window, .sequenceBits = SequenceBits, .restartFn = &ReplayRestart};
+
+
+// The layers of the sending and receiving sides with those options.
+template<uint8 Window, uint8 SequenceBits>
+using SenderLayerOf = VUB::ReliableOf<40, 4, false, SenderOptionsOf<Window, SequenceBits>>;
+
+
+template<uint8 Window, uint8 SequenceBits>
+using ReceiverLayerOf = VUB::ReliableOf<40, 4, false, ReceiverOptionsOf<Window, SequenceBits>>;
 
 
 // Hands every packet of from to the layer to. The packets that are passed up are counted by id; the sync's tag and counter are kept.
@@ -159,8 +154,8 @@ std::array<uint8, Size> Copied(const ReplayWire& wire, std::size_t index) {
 
 
 // Both sides run once at the current time, and each side's packets reach the other.
-template<typename Layer>
-void Round(Layer& near, ReplayWire& nearWire, Layer& far, ReplayWire& farWire) {
+template<typename NearType, typename FarType>
+void Round(NearType& near, ReplayWire& nearWire, FarType& far, ReplayWire& farWire) {
 	near.Process(replayNowUs, ReplayOutbox(nearWire));
 	Carry(nearWire, far);
 	far.Process(replayNowUs, ReplayOutbox(farWire));
@@ -170,8 +165,8 @@ void Round(Layer& near, ReplayWire& nearWire, Layer& far, ReplayWire& farWire) {
 
 // Starts the session of the sending side, when it has none: the first Send is busy and starts it, and the sync and its acknowledgement
 // go round. Returns the tag of the sync.
-template<typename Layer>
-uint8 Establish(Layer& near, ReplayWire& nearWire, Layer& far, ReplayWire& farWire) {
+template<typename NearType, typename FarType>
+uint8 Establish(NearType& near, ReplayWire& nearWire, FarType& far, ReplayWire& farWire) {
 	near.Process(replayNowUs, ReplayOutbox(nearWire));
 	std::array<uint8, 2> trigger = {0xFF, 0xFF};
 	std::array<uint8, 64> out{};
@@ -213,8 +208,8 @@ bool SendId(Layer& layer, uint16 id, ReplayWire& wire) {
 
 
 // Sends the id and runs rounds until its outcome is reported: ok, retryExhausted or reset. Returns true when the send was taken.
-template<typename Layer>
-bool SendUntilOutcome(Layer& near, ReplayWire& nearWire, Layer& far, ReplayWire& farWire, uint16 id) {
+template<typename NearType, typename FarType>
+bool SendUntilOutcome(NearType& near, ReplayWire& nearWire, FarType& far, ReplayWire& farWire, uint16 id) {
 	uint16 before = replayOutcomes[id];
 	bool taken = false;
 	for (std::size_t round = 0; round < 12 && replayOutcomes[id] == before; round++) {
@@ -235,8 +230,8 @@ void TestHeldSyncOfAnEarlierSessionIsIgnored() {
 	ResetReplayState();
 	ReplayWire nearWire{};
 	ReplayWire farWire{};
-	ReplayLayer far(ReceiverOptions<ReplayLayer>(4, 16));
-	ReplayLayer near(SenderOptions<ReplayLayer>(4, 16));
+	ReceiverLayerOf<4, 16> far;
+	SenderLayerOf<4, 16> near;
 	near.SetSession(0x1111);
 	uint8 tagA = Establish(near, nearWire, far, farWire);
 	SIM_EXPECT(tagA == 0x11);
@@ -286,8 +281,8 @@ void TestSessionsOfOneBootHaveTheirOwnTags() {
 	ResetReplayState();
 	ReplayWire nearWire{};
 	ReplayWire farWire{};
-	ReplayLayer far(ReceiverOptions<ReplayLayer>(4, 16));
-	ReplayLayer near(SenderOptions<ReplayLayer>(4, 16));
+	ReceiverLayerOf<4, 16> far;
+	SenderLayerOf<4, 16> near;
 	near.SetSession(0x2222);
 	uint8 tag1 = Establish(near, nearWire, far, farWire);
 	SIM_EXPECT(SendId(near, 10, nearWire));
@@ -320,8 +315,8 @@ void TestCopyOfAnOldPacketIsNotPassedUpAfterWraps() {
 	ResetReplayState();
 	ReplayWire nearWire{};
 	ReplayWire farWire{};
-	ReplayLayer far(ReceiverOptions<ReplayLayer>(4, 8));
-	ReplayLayer near(SenderOptions<ReplayLayer>(4, 8));
+	ReceiverLayerOf<4, 8> far;
+	SenderLayerOf<4, 8> near;
 	near.SetSession(0x3434);
 	Establish(near, nearWire, far, farWire);
 	SIM_EXPECT(SendId(near, 1, nearWire));
@@ -352,8 +347,8 @@ void TestOlderSyncOfTheSameBootIsIgnoredWhileLive() {
 	ResetReplayState();
 	ReplayWire nearWire{};
 	ReplayWire farWire{};
-	ReplayLayer far(ReceiverOptions<ReplayLayer>(4, 16));
-	ReplayLayer near(SenderOptions<ReplayLayer>(4, 16));
+	ReceiverLayerOf<4, 16> far;
+	SenderLayerOf<4, 16> near;
 	near.SetSession(0x4444);
 	uint8 tag1 = Establish(near, nearWire, far, farWire);
 	std::array<uint8, 8> syncOne = {0x05, tag1, 0x00, 0x00, 0x00, 0x44, 0x44, 0x00};
@@ -387,7 +382,7 @@ void TestOlderSyncOfTheSameBootIsIgnoredWhileLive() {
 // stale and is ignored; the held counter is then kept. The bytes are written by hand, boot 0x1234.
 void TestSessionCounterWrapsWithSerialArithmetic() {
 	ResetReplayState();
-	ReplayLayer far(ReceiverOptions<ReplayLayer>(4, 16));
+	ReceiverLayerOf<4, 16> far;
 	// Counter 250 (0xFA): tag 0xFA + 0x34 = 0x2E.
 	std::array<uint8, 8> sync250 = {0x05, 0x2E, 0x00, 0x00, 0x00, 0x34, 0x12, 0xFA};
 	SIM_EXPECT(Replay(far, sync250).IsOk());
@@ -429,11 +424,11 @@ void TestTags300SessionsOfOneBoot() {
 	ResetReplayState();
 	ReplayWire nearWire{};
 	ReplayWire farWire{};
-	ReplayLayer near(SenderOptions<ReplayLayer>(4, 16));
+	SenderLayerOf<4, 16> near;
 	near.SetSession(0x1234);
-	std::optional<ReplayLayer> far;
+	std::optional<ReceiverLayerOf<4, 16>> far;
 	for (uint16 session = 0; session < 300; session++) {
-		far.emplace(ReceiverOptions<ReplayLayer>(4, 16));
+		far.emplace();
 		uint16 dummy = 500;
 		if (session > 0) {
 			SIM_EXPECT(SendUntilOutcome(near, nearWire, *far, farWire, dummy));
@@ -450,16 +445,17 @@ void TestTags300SessionsOfOneBoot() {
 // Test G of the window base: a sender gives up on its packets (the path drops them), then sends again. The receiver moves its base to the
 // sender's base, so the packets after them go up, and the given-up packets never go up, not even when their copies arrive later.
 template<std::size_t Capacity>
-void CheckWindowBaseAfterGiveUp(uint8 window) {
+void CheckWindowBaseAfterGiveUp() {
+	// The window is the layer's whole window capacity in both uses of this check.
+	constexpr uint8 window = static_cast<uint8>(Capacity);
 	ResetReplayState();
 	ReplayWire nearWire{};
 	ReplayWire farWire{};
-	typename VUB::ReliableOf<40, Capacity>::Options farOptions = ReceiverOptions<VUB::ReliableOf<40, Capacity>>(window, 16);
-	VUB::ReliableOf<40, Capacity> far(farOptions);
-	typename VUB::ReliableOf<40, Capacity>::Options nearOptions = SenderOptions<VUB::ReliableOf<40, Capacity>>(window, 16);
-	nearOptions.retries = 1;
-	nearOptions.timeoutMs = 100;
-	VUB::ReliableOf<40, Capacity> near(nearOptions);
+	constexpr VUB::ReliableOptions<40, Capacity> farOptions{.window = window, .sequenceBits = 16, .restartFn = &ReplayRestart};
+	VUB::ReliableOf<40, Capacity, false, farOptions> far;
+	constexpr VUB::ReliableOptions<40, Capacity> nearOptions{
+		.retries = 1, .timeoutMs = 100, .window = window, .sequenceBits = 16, .outcomeFn = &ReplayOutcome};
+	VUB::ReliableOf<40, Capacity, false, nearOptions> near;
 	near.SetSession(0x5555);
 	Establish(near, nearWire, far, farWire);
 
@@ -513,23 +509,23 @@ void TestRebootsInTheMiddleOfARun() {
 	ResetReplayState();
 	ReplayWire nearWire{};
 	ReplayWire farWire{};
-	std::optional<ReplayLayer> far;
-	std::optional<ReplayLayer> near;
-	far.emplace(ReceiverOptions<ReplayLayer>(4, 16));
-	near.emplace(SenderOptions<ReplayLayer>(4, 16));
+	std::optional<ReceiverLayerOf<4, 16>> far;
+	std::optional<SenderLayerOf<4, 16>> near;
+	far.emplace();
+	near.emplace();
 	near->SetSession(0x1111);
 	for (uint16 id = 0; id < 10; id++) {
 		SIM_EXPECT(SendUntilOutcome(*near, nearWire, *far, farWire, id));
 	}
 
-	near.emplace(SenderOptions<ReplayLayer>(4, 16));
+	near.emplace();
 	near->SetSession(0x2222);
 	for (uint16 id = 10; id < 20; id++) {
 		SIM_EXPECT(SendUntilOutcome(*near, nearWire, *far, farWire, id));
 	}
 
 	SIM_EXPECT(replayRestarts == 1);
-	far.emplace(ReceiverOptions<ReplayLayer>(4, 16));
+	far.emplace();
 	for (uint16 id = 20; id < 30; id++) {
 		SIM_EXPECT(SendUntilOutcome(*near, nearWire, *far, farWire, id));
 	}
@@ -555,8 +551,8 @@ int main() {
 	TestOlderSyncOfTheSameBootIsIgnoredWhileLive();
 	TestSessionCounterWrapsWithSerialArithmetic();
 	TestTags300SessionsOfOneBoot();
-	CheckWindowBaseAfterGiveUp<1>(1);
-	CheckWindowBaseAfterGiveUp<8>(8);
+	CheckWindowBaseAfterGiveUp<1>();
+	CheckWindowBaseAfterGiveUp<8>();
 	TestRebootsInTheMiddleOfARun();
 	return SimFinish("TestVubReliableReplay");
 }
