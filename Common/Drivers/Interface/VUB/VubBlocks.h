@@ -199,7 +199,8 @@ concept VubEngineFor = VubEngine<Engine> && requires(std::span<const uint8> data
 // are constant expressions. Two members are optional. OnLink(bool up, uint32 now) is called on each change of the connection, in chain
 // order, from Process. A layer that declares reportsPeer = true may call outbox.SetPeer(up) from its Process to declare its peer down or
 // up; the stack treats that as a change of the connection. A layer that declares passesUp = true may call outbox.Deliver(packet) from its
-// Process to pass a packet up the receive path from its own position.
+// Process to pass a packet up the receive path from its own position. A layer that declares usesLinkState = true may call outbox.LinkUp()
+// from its Process to ask whether the physical link is up; on a link that does not report its state the answer is always true.
 template<typename Layer>
 concept VubLayer = requires(
 	Layer& layer,

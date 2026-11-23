@@ -16,19 +16,33 @@
 // removed, and the blocks above the layer decode it and take it as they take a packet the layer had just taken. It reaches the receive
 // handler when they have. A layer that holds packets and releases them from Process declares passesUp = true. Deliver returns
 // messageTooLong when the packet is longer than the link's receive buffer, and notSupported for a layer that did not declare passesUp.
+//
+// LinkUp tells whether the physical link is up, as of this Process. A link that does not report its state is always up. A layer that
+// declares usesLinkState = true may ask; the stack gives the query only to such a layer on a link that reports its state, and any other
+// layer gets a query that answers true.
 class VubOutbox {
 public:
 	VubOutbox(
 		void* ownerObject,
 		ResultStatus (*sendFunction)(void*, std::span<const uint8>, const VubMeta&),
 		void (*peerFunction)(void*, bool),
-		ResultStatus (*deliverFunction)(void*, std::span<const uint8>)) :
-		owner(ownerObject), sendFn(sendFunction), peerFn(peerFunction), deliverFn(deliverFunction) {
+		ResultStatus (*deliverFunction)(void*, std::span<const uint8>),
+		bool (*linkFunction)(void*) = nullptr) :
+		owner(ownerObject), sendFn(sendFunction), peerFn(peerFunction), deliverFn(deliverFunction), linkFn(linkFunction) {
 	}
 
 
 	ResultStatus Send(std::span<const uint8> packet, const VubMeta& meta = VubMeta()) const {
 		return sendFn(owner, packet, meta);
+	}
+
+
+	bool LinkUp() const {
+		if (linkFn == nullptr) {
+			return true;
+		}
+
+		return linkFn(owner);
 	}
 
 
@@ -55,4 +69,5 @@ private:
 	ResultStatus (*sendFn)(void*, std::span<const uint8>, const VubMeta&);
 	void (*peerFn)(void*, bool);
 	ResultStatus (*deliverFn)(void*, std::span<const uint8>);
+	bool (*linkFn)(void*);
 };

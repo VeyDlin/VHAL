@@ -500,6 +500,7 @@ private:
 
 	using PeerFunction = void (*)(void*, bool);
 	using DeliverFunction = ResultStatus (*)(void*, std::span<const uint8>);
+	using LinkFunction = bool (*)(void*);
 
 
 	template<std::size_t Index>
@@ -507,7 +508,7 @@ private:
 		if constexpr (Index < count) {
 			using Entry = std::tuple_element_t<Index, Tuple>;
 			if constexpr (Entry::kind == VubKind::layer) {
-				VubOutbox outbox(this, &Vub::template SendThunk<Index + 1>, PeerFor<Index>(), DeliverFor<Index>());
+				VubOutbox outbox(this, &Vub::template SendThunk<Index + 1>, PeerFor<Index>(), DeliverFor<Index>(), LinkFor<Index>());
 				std::get<Index>(blocks).Process(now, outbox);
 			}
 
@@ -534,6 +535,19 @@ private:
 		using Entry = std::tuple_element_t<Index, Tuple>;
 		if constexpr (Entry::PassesUp()) {
 			return &Vub::template DeliverThunk<Index>;
+		} else {
+			return nullptr;
+		}
+	}
+
+
+	// The link query of a layer. Only a layer that declares usesLinkState on a link that reports its state gets one; any other layer gets
+	// none, and its outbox answers that the link is up.
+	template<std::size_t Index>
+	static LinkFunction LinkFor() {
+		using Entry = std::tuple_element_t<Index, Tuple>;
+		if constexpr (linkReports && Entry::UsesLinkState()) {
+			return &Vub::LinkUpThunk;
 		} else {
 			return nullptr;
 		}
@@ -604,6 +618,13 @@ private:
 	static void ReportLinkThunk(void* owner, bool up) {
 		Vub* self = static_cast<Vub*>(owner);
 		self->linkRecord.Get().Report(up);
+	}
+
+
+	// The physical link's state as of the last Process: the state the link reports, not the connection.
+	static bool LinkUpThunk(void* owner) {
+		Vub* self = static_cast<Vub*>(owner);
+		return self->linkRecord.Get().linkUp;
 	}
 
 

@@ -334,8 +334,8 @@ void TestPartlyWrittenAppFrameWaitsWhilePeerDown() {
 }
 
 
-// A layer's own frame that is partly written when the peer goes down goes on while the peer is down: its packets still go out. The own
-// frame of byte C1 is 7E C1 C1 C1 7E (sum and XOR are C1).
+// A layer's own frame that is partly written when the peer goes down starts again from its first byte, and its packets still go out while
+// the peer is down. The own frame of byte C1 is 7E C1 C1 C1 7E (sum and XOR are C1): the 7E C1 already written is followed by the whole frame.
 void TestPartlyWrittenOwnFrameGoesWhilePeerDown() {
 	ResetTestState();
 	testSendOwn = false;
@@ -363,6 +363,38 @@ void TestPartlyWrittenOwnFrameGoesWhilePeerDown() {
 	SIM_EXPECT(sink.bytes[4] == testOwnValue);
 	SIM_EXPECT(sink.bytes[5] == testOwnValue);
 	SIM_EXPECT(sink.bytes[6] == 0x7E);
+}
+
+
+// A layer's own packet that is queued before the peer goes down, under WhileDown(Fail). The link is busy, so the packet stays in the own
+// queue; the peer goes down with the link up. The packet is kept and goes while the peer is still down, and nothing counts as linkDown:
+// a peer-only down drops the application's queued packets under Fail, and keeps the layer's own packets.
+void TestOwnPacketQueuedBeforePeerDownGoesUnderFail() {
+	ResetTestState();
+	testSendOwn = false;
+	testPeerCall = 0;
+	ReportingPacketLine line(VubFaults{});
+	OwnFailStack stack(line.a);
+	PacketLog log;
+	stack.Process();
+	line.a.StartRound(0);
+	testSendOwn = true;
+	stack.Process();
+	SIM_EXPECT(line.toB.Counts().pushed == 0);
+
+	testPeerCall = -1;
+	stack.Process();
+	SIM_EXPECT(!stack.LinkUp());
+	SIM_EXPECT(stack.Drops().linkDown == 0);
+
+	line.a.StartRound(10);
+	stack.Process();
+	SIM_EXPECT(line.toB.Counts().pushed == 1);
+	line.DeliverToB(log);
+	SIM_EXPECT(log.count == 1);
+	SIM_EXPECT(log.length[0] == 1);
+	SIM_EXPECT(log.bytes[0][0] == testOwnValue);
+	SIM_EXPECT(stack.Drops().linkDown == 0);
 }
 
 
@@ -403,6 +435,7 @@ int main() {
 	TestNothingGoesWhileLinkDown();
 	TestPartlyWrittenAppFrameWaitsWhilePeerDown();
 	TestPartlyWrittenOwnFrameGoesWhilePeerDown();
+	TestOwnPacketQueuedBeforePeerDownGoesUnderFail();
 	TestPeersRecoverWhenEachSendsItsOwn();
 	return SimFinish("TestVubPeerDown");
 }

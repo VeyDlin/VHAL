@@ -102,11 +102,15 @@ packet for that reason.
   framing or the link refuses with an error counts toward `PerProcess` as well, so a bulk layer that always has data cannot hold a call.
 - `Send` and the layers' `Process` queue packets on the control lane, up to `SendQueue` packets. When the queue is full, `Send` returns
   `busy` and nothing is queued; the caller sends again later.
+- In a chain with a layer that reports its peer, a layer's own packets (from its `Process` or its outbox) have a second queue of the same
+  size, the own lane. The outbox's `Send` returns `busy` when that queue is full, and the layer keeps the packet and sends it again on the
+  next `Process`. Any other chain puts the layers' packets on the control lane.
 
-Order: control packets (from the application and from the layers' `Process`) go before bulk packets. A layer that makes bulk packets
-(`makesBulk`) is asked for its next packet through `Next` only when the link is free and no control packet waits. The stack asks the
-layers in chain order and takes the first one that has data. The packet from `Next` is complete at the layer's level: the layer added
-its own header, and the blocks below add theirs.
+Order: in a chain with a layer that reports its peer, the layers' own packets go first, on the own lane. Then the control packets from the
+application go, and then the bulk packets. In any other chain the layers' packets are control packets, so control packets (from the
+application and from the layers' `Process`) go before bulk packets. A layer that makes bulk packets (`makesBulk`) is asked for its next
+packet through `Next` only when the link is free and no control packet waits. The stack asks the layers in chain order and takes the first
+one that has data. The packet from `Next` is complete at the layer's level: the layer added its own header, and the blocks below add theirs.
 
 ## Link state
 
@@ -115,7 +119,9 @@ A link may report that it is up or down: a USB device when it is configured, a B
 cannot see a down has none of this: no record, no `LinkUp()`, no code.
 
 A layer may also declare its peer down or up from `Process`, with `outbox.SetPeer(up)`, when it has a keep-alive of its own. The
-stack treats it as a change of the connection.
+stack treats it as a change of the connection. The keep-alive for a link that cannot report is [VubKeepAlive](Layer/VubKeepAlive).
+A layer that declares `usesLinkState` asks the physical link's state from `Process` with `outbox.LinkUp()`. On a link that does not report
+its state the answer is always true. A chain whose layers do not ask is unchanged.
 
 - The connection is up when the link is up and no layer has declared the peer down. `LinkUp()` says so as of the last `Process`, and
   `LinkDowns()` counts the falls from up to down. Both exist only when the link reports or a layer reports its peer.
@@ -130,9 +136,10 @@ stack treats it as a change of the connection.
   up in every case.
 - A layer's own packets go before the application's queued packets, in a chain with a layer that reports its peer. Any other chain has
   one queue for both, in the order they were queued.
-- A frame that is partly written when the connection goes down starts again from its first byte under `Wait`. Under `Fail` it is dropped,
-  except a layer's own frame while only the peer is down. While the peer is down, an application's frame is not sent: it waits, and goes
-  from its first byte when the peer is up. A layer's own frame goes on while the peer is down.
+- A frame that is partly written when the connection goes down starts again from its first byte, under `Wait` and under `Fail`. Under
+  `Fail` an application's frame is dropped instead, and counted under `linkDown`; so is a layer's own frame while the link is down. A
+  layer's own frame that starts again while only the peer is down goes on while the peer is down. Under `Wait`, while the peer is down, an
+  application's frame is not sent: it waits, and goes from its first byte when the peer is up.
 - `WhileDown` sets what happens to the packets waiting to be sent:
   - `Wait` (the default): they stay queued. `Send` queues until the queue is full, then returns `busy`, and the packets go in order
     after the connection is up. A layer's own packet waits the same way while the link is down.
@@ -143,8 +150,10 @@ stack treats it as a change of the connection.
 - `WhileDown(VubDown::Fail)` needs something that can report the connection down: a link with `ReportsState()`, or a layer with
   `reportsPeer`. Otherwise it is a compile error.
 - Cost. A chain with a layer that reports its peer has a second send queue for the layers' own packets, of `SendQueue(n) + 1` slots of
-  the packet size, with its lengths, flags and indexes. Measured with `sizeof` on the 64-bit host for a packet link, one layer that
-  reports its peer, `MaxPayload(40)` and the default `SendQueue`: 752 bytes before this queue, 968 after, so 216 bytes. A chain without a
+  the packet size, with its lengths, flags and indexes, and a link record when the link does not report. Measured with `sizeof` on the
+  Cortex-M4 for one layer that reports its peer (the same layer type with `reportsPeer` cleared and set), on a packet link that does not
+  report, with `MaxPayload(40)` and the default queues: `sizeof` is 756 bytes without the report and 996 with it, so 240 bytes; `text`
+  adds 230 bytes and `bss` 240. The method and the other figures are on the [keep-alive page](Layer/VubKeepAlive#cost). A chain without a
   layer that reports its peer has no second queue, and its size is the same as before.
 
 The test kit can take a line down and up, see the [test kit](TestKit/README).
