@@ -83,7 +83,7 @@ void DisableCharging(I2CRegisterBus<I2CAdapterG4>& bus) {
 }
 ```
 
-Each access is one bus transaction. UART framing, byte-order conversion beyond the descriptor's byte order, and scheduling belong to the application or a protocol driver. For a framed transport, see [ReliableProtocolCOBS](https://veydlin.github.io/VHAL/docs/Common/Drivers/Interface/User/ProtocolCOBS/).
+Each access is one bus transaction. UART framing, byte-order conversion beyond the descriptor's byte order, and scheduling belong to the application or a protocol driver. For a framed transport, see [VUB](https://veydlin.github.io/VHAL/docs/Common/Drivers/Interface/VUB).
 
 ## Architecture
 
