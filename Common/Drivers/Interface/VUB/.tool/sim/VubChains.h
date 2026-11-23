@@ -134,6 +134,97 @@ using BulkStack = Vub<+[] {
 }>;
 
 
+// The lines that report their state, as a USB class does: the stacks on them are told when the line goes down and up.
+using ReportingStreamEnd = VubStreamEnd<64, 512, true>;
+using ReportingPacketEnd = VubPacketEnd<64, 512, true>;
+using ReportingStreamLine = VubStreamLine<64, 512, true>;
+using ReportingPacketLine = VubPacketLine<64, 512, true>;
+
+
+// Flag framing over a reporting stream line, with no layer: a frame is the payload with its checks and flags. Waits while the link is down.
+using ReportingStreamStack = Vub<+[] {
+	return VubBuilder()
+		.Framing<FlagFraming>()
+		.Link<ReportingStreamEnd>()
+		.MaxPayload(40)
+		.ReceiveRing(256)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
+// Flag framing over a line that does not report: the stack never knows the line went down.
+using SilentStreamStack = Vub<+[] {
+	return VubBuilder()
+		.Framing<FlagFraming>()
+		.Link<StreamEnd>()
+		.MaxPayload(40)
+		.ReceiveRing(256)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
+// Length framing over a reporting stream line. The waiting chain keeps what is queued while the link is down; the failing one drops it.
+using ReportingLengthStack = Vub<+[] {
+	return VubBuilder()
+		.Framing<LengthFraming>()
+		.Link<ReportingStreamEnd>()
+		.MaxPayload(40)
+		.ReceiveRing(256)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
+using FailingLengthStack = Vub<+[] {
+	return VubBuilder()
+		.Framing<LengthFraming>()
+		.Link<ReportingStreamEnd>()
+		.MaxPayload(40)
+		.ReceiveRing(256)
+		.WhileDown(VubDown::Fail)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
+// The same chain, which drops what is queued when the link goes down.
+using FailingStreamStack = Vub<+[] {
+	return VubBuilder()
+		.Framing<FlagFraming>()
+		.Link<ReportingStreamEnd>()
+		.MaxPayload(40)
+		.ReceiveRing(256)
+		.WhileDown(VubDown::Fail)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
+// A packet chain with no layer over a reporting packet line. Waits while the link is down.
+using ReportingPacketStack = Vub<+[] {
+	return VubBuilder()
+		.Link<ReportingPacketEnd>()
+		.MaxPayload(40)
+		.ReceiveQueue(4)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
+// The same chain, which drops what is queued when the link goes down.
+using FailingPacketStack = Vub<+[] {
+	return VubBuilder()
+		.Link<ReportingPacketEnd>()
+		.MaxPayload(40)
+		.ReceiveQueue(4)
+		.WhileDown(VubDown::Fail)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
 // A packet chain with the flag probe under the layer, so the flags set at the top reach a transform at the bottom.
 using ProbeStack = Vub<+[] {
 	return VubBuilder()

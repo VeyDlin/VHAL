@@ -28,6 +28,7 @@ class VubLinkTraits {
 public:
 	bool framed = false;
 	bool reliable = false;
+	bool reportsState = false;
 	VubDuplex duplex = VubDuplex::Unset;
 	VubStarts starts = VubStarts::Either;
 	std::size_t maxPacket = 0;
@@ -43,6 +44,14 @@ public:
 	constexpr VubLinkTraits Reliable() const {
 		VubLinkTraits next = *this;
 		next.reliable = true;
+		return next;
+	}
+
+
+	// The link tells the stack when it goes up and down (USB configured, BLE connected). Without it the link is always up.
+	constexpr VubLinkTraits ReportsState() const {
+		VubLinkTraits next = *this;
+		next.reportsState = true;
 		return next;
 	}
 

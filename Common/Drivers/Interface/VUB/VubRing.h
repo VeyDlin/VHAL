@@ -36,6 +36,17 @@ inline bool VubByteRingPush(VubIndexes& indexes, std::span<uint8> slots, uint8 v
 }
 
 
+// Drops the bytes the ring holds, and returns how many there were. Called from the main context when the link goes down: the receive
+// interrupt keeps writing the head, the main context moves the tail up to it.
+inline std::size_t VubByteRingClear(VubIndexes& indexes, std::size_t slotCount) {
+	uint16 head = indexes.head;
+	uint16 tail = indexes.tail;
+	std::size_t held = (static_cast<std::size_t>(head) + slotCount - tail) % slotCount;
+	indexes.tail = head;
+	return held;
+}
+
+
 // Pops the oldest byte of the ring into value. Called from the main context. Returns false when the ring is empty.
 inline bool VubByteRingPop(VubIndexes& indexes, std::span<const uint8> slots, uint8& value) {
 	uint16 tail = indexes.tail;

@@ -8,17 +8,21 @@
 
 // The faults a wire applies to each byte or packet it carries. The percentages are chances per byte or per packet. Each item gets
 // a delay from 0 to maxDelayUs, so a later item can overtake an earlier one: that is the reordering.
+// The outageEveryUs and outageForUs fields give a schedule of outages for a line: the line goes down for outageForUs, then up for a time
+// from 1 to outageEveryUs drawn from the seed, and so on. Zero outageEveryUs means the line has no schedule.
 struct VubFaults {
 	uint32 seed = 1;
 	uint32 dropPercent = 0;
 	uint32 corruptPercent = 0;
 	uint32 duplicatePercent = 0;
 	uint32 maxDelayUs = 0;
+	uint32 outageEveryUs = 0;
+	uint32 outageForUs = 0;
 };
 
 
 // What a wire did. Overflow is the wire running out of its own slots, or a packet longer than the wire's packet size: the item is lost on
-// the line, and the test kit counts it.
+// the line, and the test kit counts it. Outaged is an item pushed while the wire was down.
 struct VubWireCounts {
 	uint32 pushed = 0;
 	uint32 dropped = 0;
@@ -26,6 +30,40 @@ struct VubWireCounts {
 	uint32 duplicated = 0;
 	uint32 overflowed = 0;
 	uint32 delivered = 0;
+	uint32 outaged = 0;
+};
+
+
+// Decides, from the seed, when a line is up and down, for a schedule of outages (see VubFaults). A line without a schedule is always up.
+class VubOutageSchedule {
+public:
+	explicit VubOutageSchedule(const VubFaults& faults) : everyUs(faults.outageEveryUs), forUs(faults.outageForUs),
+		random(faults.seed ^ 0x3C3C3C3Cu), changeUs(0) {
+		changeUs = everyUs > 0 ? 1 + random.Below(everyUs) : 0;
+	}
+
+
+	// The state of the line at nowUs: true when it is up. The state changes at the scheduled time, and the next change is drawn then.
+	bool UpAt(uint32 nowUs) {
+		if (everyUs == 0) {
+			return true;
+		}
+
+		if (nowUs >= changeUs) {
+			up = !up;
+			changeUs = nowUs + (up ? 1 + random.Below(everyUs) : forUs);
+		}
+
+		return up;
+	}
+
+
+private:
+	uint32 everyUs;
+	uint32 forUs;
+	VubRandom random;
+	uint32 changeUs;
+	bool up = true;
 };
 
 
@@ -43,9 +81,20 @@ public:
 	}
 
 
+	// Takes the line down or up. A byte pushed while the line is down is lost, and counted as outaged.
+	void SetDown(bool value) {
+		down = value;
+	}
+
+
 	void Push(std::span<const uint8> bytes) {
 		for (uint8 byte : bytes) {
 			counts.pushed++;
+			if (down) {
+				counts.outaged++;
+				continue;
+			}
+
 			if (random.Chance(faults.dropPercent)) {
 				counts.dropped++;
 				continue;
@@ -125,6 +174,7 @@ private:
 	uint32 now = 0;
 	uint32 nextSequence = 0;
 	VubWireCounts counts;
+	bool down = false;
 };
 
 
@@ -142,8 +192,19 @@ public:
 	}
 
 
+	// Takes the line down or up. A packet pushed while the line is down is lost, and counted as outaged.
+	void SetDown(bool value) {
+		down = value;
+	}
+
+
 	void Push(std::span<const uint8> packet) {
 		counts.pushed++;
+		if (down) {
+			counts.outaged++;
+			return;
+		}
+
 		if (random.Chance(faults.dropPercent)) {
 			counts.dropped++;
 			return;
@@ -238,4 +299,5 @@ private:
 	uint32 now = 0;
 	uint32 nextSequence = 0;
 	VubWireCounts counts;
+	bool down = false;
 };

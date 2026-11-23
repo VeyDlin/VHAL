@@ -1,4 +1,5 @@
 #pragma once
+#include <Drivers/Interface/VUB/VubLinkState.h>
 #include <Drivers/Interface/VUB/VubLinkTraits.h>
 #include <Drivers/Interface/VUB/VubMeta.h>
 #include <Drivers/Interface/VUB/VubOutbox.h>
@@ -88,10 +89,22 @@ template<typename Link>
 concept VubLink = VubStreamLink<Link> || VubPacketLink<Link>;
 
 
+// A link with ReportsState() in its traits. SetStateSink gives the link the sink to report into; the link reports its current state
+// through the sink when it is given one. The stack gives a null sink when it is destroyed.
+template<typename Link>
+concept VubReportingLink = requires(
+	Link& link,
+	VubStateSink sink
+) {
+	link.SetStateSink(sink);
+};
+
+
 // Finds packet boundaries in a byte stream. Frame writes the bytes of one packet with its boundaries. Push takes one received byte and
 // reports, through VubFrame, whether a packet is now complete. Growth(length) is the most bytes Frame adds to a packet of that length.
 // usesTime says whether the framing reads the clock (the gap framing does), so a chain that has one needs a clock. usesTime and
-// Growth are constant expressions: the builder reads them at compile time.
+// Growth are constant expressions: the builder reads them at compile time. An optional Reset() drops a partial frame; the stack calls it
+// when the link changes state (up or down), if the framing has it.
 template<typename Framing>
 concept VubFraming = requires(
 	Framing& framing,
@@ -141,7 +154,9 @@ concept VubEngine = requires {
 // removes the header from a received packet, or keeps it. Process(now, outbox) runs once per Process call, and may send packets of its
 // own through the outbox. makesBulk says the layer has bulk packets: then Next gives the next one, and the stack asks for it only when
 // the link is free and no control packet waits. A layer that does not make bulk leaves no Next behind. header, usesTime and makesBulk
-// are constant expressions.
+// are constant expressions. Two members are optional. OnLink(bool up, uint32 now) is called on each change of the connection, in chain
+// order, from Process. A layer that declares reportsPeer = true may call outbox.SetPeer(up) from its Process to declare its peer down or
+// up; the stack treats that as a change of the connection.
 template<typename Layer>
 concept VubLayer = requires(
 	Layer& layer,

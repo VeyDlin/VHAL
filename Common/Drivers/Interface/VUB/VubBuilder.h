@@ -1,5 +1,6 @@
 #pragma once
 #include <Drivers/Interface/VUB/VubBlocks.h>
+#include <Drivers/Interface/VUB/VubLinkState.h>
 #include <Drivers/Interface/VUB/VubLinkTraits.h>
 #include <Drivers/Interface/VUB/VubMeta.h>
 #include <Drivers/Interface/VUB/VubRequire.h>
@@ -68,6 +69,20 @@ struct VubEntry {
 			return false;
 		}
 	}
+
+
+	// Whether the block is a layer that declares its peer (reportsPeer = true): it can take the connection down from Process.
+	static constexpr bool ReportsPeer() {
+		if constexpr (Kind == VubKind::layer) {
+			if constexpr (requires { Block::reportsPeer; }) {
+				return Block::reportsPeer;
+			} else {
+				return false;
+			}
+		} else {
+			return false;
+		}
+	}
 };
 
 
@@ -80,6 +95,7 @@ struct VubSettings {
 	std::size_t perProcess = 8;
 	uint32 (*clockFn)() = nullptr;
 	void (*receiveFn)(const VubMeta&, std::span<const uint8>) = nullptr;
+	VubDown whileDown = VubDown::Wait;
 };
 
 
@@ -385,6 +401,15 @@ public:
 	}
 
 
+	// What the stack does with its packets while the connection is down: Wait (the default) keeps them queued, Fail drops them and refuses
+	// further ones. Fail needs a link that reports its state or a layer that reports its peer; the builder checks it.
+	constexpr VubBuilder WhileDown(VubDown policy) const {
+		VubBuilder next = *this;
+		next.settings.whileDown = policy;
+		return next;
+	}
+
+
 	// The receive handler: called from Process with each packet that reached the top of the chain.
 	template<void (*Fn)(const VubMeta&, std::span<const uint8>)>
 	constexpr VubBuilder OnReceive() const {
@@ -469,6 +494,18 @@ public:
 	}
 
 
+	// Whether a layer of the chain declares its peer's state (reportsPeer).
+	static constexpr bool PeersReport() {
+		return (false || ... || Entries::ReportsPeer());
+	}
+
+
+	// Whether the chain can ever tell that the connection is down: the link reports its state, or a layer reports its peer.
+	static constexpr bool CanReportDown() {
+		return LinkTraits().reportsState || PeersReport();
+	}
+
+
 	static constexpr VubLinkTraits LinkTraits() {
 		return VubTraitsOf<LinkType>();
 	}
@@ -544,6 +581,11 @@ public:
 			VubRequire<"a packet is larger than the MaxPacket of the link: the payload and the headers and growths of the blocks add up to more">(
 				PacketBound(values) <= traits.maxPacket);
 		}
+
+		VubRequire<"a link with ReportsState() needs SetStateSink(VubStateSink): the stack gives its state object there">(
+			!traits.reportsState || VubReportingLink<LinkType>);
+		VubRequire<"WhileDown(VubDown::Fail) needs a connection that can go down: the link needs ReportsState(), or a layer needs reportsPeer">(
+			values.whileDown != VubDown::Fail || CanReportDown());
 
 		// A ring or a queue of n slots needs n + 1 indexes of at most 65535, so it holds at most 65535 entries.
 		VubRequire<"ReceiveRing() is zero">(values.receiveRing > 0);

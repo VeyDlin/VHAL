@@ -9,7 +9,7 @@ block uses it to check the block on a PC before it goes onto a board.
 |---|---|
 | `VubRandom.h` | a deterministic generator (xorshift32): the same seed gives the same run |
 | `VubWire.h` | `VubStreamWire` and `VubPacketWire`: one direction of a line that drops, corrupts, duplicates and delays items from a seed (`VubFaults`) |
-| `VubLoopback.h` | link objects over the wires: `VubStreamEnd` (a byte stream, `Write` takes what the round budget allows) and `VubPacketEnd` (`Send` returns `busy` when the round budget is used, and `messageTooLong` for a packet longer than the line's `MaxPacket`); `VubStreamLine` and `VubPacketLine` join two ends |
+| `VubLoopback.h` | link objects over the wires: `VubStreamEnd` (a byte stream, `Write` takes what the round budget allows) and `VubPacketEnd` (`Send` returns `busy` when the round budget is used, and `messageTooLong` for a packet longer than the line's `MaxPacket`); `VubStreamLine` and `VubPacketLine` join two ends; a third parameter `true` makes the ends report the line's state, and `SetLinkUp` takes the line down and up (see [outages and reboots](#outages-and-reboots)) |
 | `VubContracts.h` | `VubCheckTransform` and `VubCheckFraming`, the contract checks |
 
 ## The loopback
@@ -69,6 +69,63 @@ the bytes one at a time, and loses `lossPercent` of them:
 
 A link is checked by running a stack over a line with faults: the packets that the handler gets, plus the drops that the stack counts,
 must account for every item the wire delivered.
+
+## Outages and reboots
+
+`SetLinkUp(false)` takes a line down and `SetLinkUp(true)` brings it up. While it is down, both wires lose what is sent, and `Counts()`
+counts it as `outaged`. A line with the state trait (the `true` parameter, as in `VubPacketLine<64, 512, true>`) tells both ends, so
+their stacks learn of the outage at their next `Process`. A line without it is silent, as a UART is: its stacks learn nothing, and what
+is sent meanwhile is lost.
+
+A schedule of outages comes from the seed. `faults.outageForUs` is how long the line is down, and `faults.outageEveryUs` bounds the time
+it is up before the next outage (the up time is drawn from the seed). The schedule runs in `SetNow`:
+
+```cpp
+// A line that reports its state, and a schedule of outages from the seed.
+VubFaults faults;
+faults.seed = 7;
+faults.outageEveryUs = 500;
+faults.outageForUs = 100;
+VubPacketLine<64, 512, true> scheduled(faults);
+scheduled.SetNow(0);
+```
+
+The line is up only when it is up by hand and up by its schedule. The two states are kept apart:
+
+- A line taken down by hand (`SetLinkUp(false)`) stays down through every `SetNow`, with or without a schedule, until `SetLinkUp(true)`.
+- A `SetNow` changes only the schedule's own state. A schedule that has the line up does not bring up a line that was taken down by hand.
+- A line taken up by hand is still down while its schedule has it down, until the schedule's next up time.
+
+A peer that reboots is a stack that is destroyed and built again on the same end, in the middle of a run. A reporting end gives its sink
+back when its stack is destroyed, so an outage that comes while the peer is gone reports to no one. The pattern keeps the far stack in a
+`std::optional`:
+
+```cpp
+// A peer that reboots: the far stack is destroyed and built again, and the near stack keeps working.
+using Near = Vub<+[] {
+	return VubBuilder()
+		.Link<VubPacketEnd<64, 512, true>>()
+		.MaxPayload(32)
+		.WhileDown(VubDown::Fail)
+		.OnReceive<&OnPacket>()
+		.Clock<&Now>();
+}>;
+
+VubPacketLine<64, 512, true> line(VubFaults{});
+Near near(line.a);
+std::optional<Near> far;
+far.emplace(line.b);
+far.reset();                 // the far stack is destroyed; its end gives the line back its sink
+line.SetLinkUp(false);       // reported to no one
+near.Process();              // near.LinkUp() is false
+line.SetLinkUp(true);
+far.emplace(line.b);         // the rebooted far stack
+near.Process();              // near.LinkUp() is true again
+far->Process();
+```
+
+With `WhileDown(VubDown::Fail)` the packets the near stack has queued while the line is down are dropped and counted as `linkDown`. The
+[link state](../README#link-state) section has the rules.
 
 ## What the checks do not do
 

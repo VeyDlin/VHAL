@@ -1,11 +1,13 @@
 #include "SimCheck.h"
 #include <Drivers/Interface/VUB/TestKit/VubContracts.h>
+#include <Drivers/Interface/VUB/TestKit/VubLoopback.h>
 #include <Drivers/Interface/VUB/Vub.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
 #include <array>
 #include <cstddef>
+#include <optional>
 #include <span>
 
 
@@ -176,11 +178,256 @@ static_assert(VubBuilder().Transform<XorKey>().LastOptions().key == 0);
 }  // namespace WikiSteps
 
 
+// A link that reports its state, a framing that resets, and a layer that is told of the connection and declares its peer.
+namespace WikiLinkState {
+using WikiWriting::OnPacket;
+
+
+// A packet link that reports its state, as a USB device does. The stack gives its sink here; the interrupt reports the connection.
+struct UsbLink {
+	static constexpr VubLinkTraits traits = VubLinkTraits().Framed().MaxPacket(64).FullDuplex().ReportsState();
+
+	// The stack gives its sink here, and the link reports its current state through it at once.
+	void SetStateSink(VubStateSink value) {
+		sink = value;
+		sink.Report(configured);
+	}
+
+	// Called from the interrupt when the host configures or unconfigures the device. Report only records the state.
+	void OnConfigured(bool value) {
+		configured = value;
+		sink.Report(value);
+	}
+
+	ResultStatus Send(std::span<const uint8> packet) {
+		(void)packet;
+		return ResultStatus::ok;
+	}
+
+	VubStateSink sink;
+	bool configured = false;
+};
+
+
+using Usb = Vub<+[] {
+	return VubBuilder()
+		.Link<UsbLink>()
+		.MaxPayload(32)
+		.WhileDown(VubDown::Fail)
+		.OnReceive<&OnPacket>();
+}>;
+
+
+UsbLink usbLink;
+Usb usb(usbLink);
+
+
+void UsbSample() {
+	usbLink.OnConfigured(true);
+	usb.Process();
+	SIM_EXPECT(usb.LinkUp());
+	usbLink.OnConfigured(false);
+	usb.Process();
+	SIM_EXPECT(!usb.LinkUp());
+	SIM_EXPECT(usb.LinkDowns() == 1);
+}
+
+
+// A framing that ends a frame at a newline byte, 0x0A. Growth is 1: the newline. A frame longer than 32 bytes is too long.
+struct LineFraming {
+	static constexpr bool usesTime = false;
+
+
+	static constexpr std::size_t Growth(std::size_t length) {
+		return length + 1;
+	}
+
+
+	Result<std::size_t> Frame(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (in.size() + 1 > out.size()) {
+			return ResultStatus::messageTooLong;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = in[index];
+		}
+
+		out[in.size()] = 0x0A;
+		return in.size() + 1;
+	}
+
+
+	VubFrame Push(uint8 byte, std::span<uint8> out, std::size_t& length) {
+		if (byte != 0x0A) {
+			if (count < body.size()) {
+				body[count] = byte;
+			}
+
+			count++;
+			return VubFrame::pending;
+		}
+
+		std::size_t frame = count;
+		count = 0;
+		if (frame == 0) {
+			return VubFrame::pending;
+		}
+
+		if (frame > body.size() || frame > out.size()) {
+			return VubFrame::tooLong;
+		}
+
+		for (std::size_t index = 0; index < frame; index++) {
+			out[index] = body[index];
+		}
+
+		length = frame;
+		return VubFrame::packet;
+	}
+
+
+	// Drops the partial frame. The stack calls it when the link goes up or down, if the framing has it.
+	void Reset() {
+		count = 0;
+	}
+
+
+	std::array<uint8, 32> body{};
+	std::size_t count = 0;
+};
+
+
+using Lines = Vub<+[] {
+	return VubBuilder()
+		.Framing<LineFraming>()
+		.Link<VubStreamEnd<64, 512, true>>()
+		.MaxPayload(32)
+		.ReceiveRing(128)
+		.OnReceive<&OnPacket>();
+}>;
+
+static_assert(Lines::count == 2);
+
+
+// A layer that declares its peer down when nothing has been heard from it for 1000 microseconds. It is told of each change of the connection.
+struct PeerWatch {
+	static constexpr std::size_t header = 0;
+	static constexpr uint32 fingerprint = 0x50575431;
+	static constexpr bool usesTime = true;
+	static constexpr bool makesBulk = false;
+	static constexpr bool reportsPeer = true;
+
+
+	Result<std::size_t> Add(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = in[index];
+		}
+
+		return in.size();
+	}
+
+
+	Result<VubTake> Take(const VubMeta&, std::span<const uint8>) {
+		return VubTake{0, true};
+	}
+
+
+	void Process(uint32 nowUs, const VubOutbox& outbox) {
+		outbox.SetPeer(nowUs - heardUs < 1000);
+	}
+
+
+	// Called when a packet from the peer arrives.
+	void Heard(uint32 nowUs) {
+		heardUs = nowUs;
+	}
+
+
+	void OnLink(bool up, uint32 nowUs) {
+		linkUp = up;
+		changedUs = nowUs;
+	}
+
+
+	uint32 heardUs = 0;
+	uint32 changedUs = 0;
+	bool linkUp = false;
+};
+
+
+inline uint32 Now() {
+	return 0;
+}
+
+
+using Watched = Vub<+[] {
+	return VubBuilder()
+		.Layer<PeerWatch>()
+		.Link<VubPacketEnd<64, 512>>()
+		.MaxPayload(32)
+		.OnReceive<&OnPacket>()
+		.Clock<&Now>();
+}>;
+
+static_assert(Watched::count == 2);
+}  // namespace WikiLinkState
+
+
+// The test kit's outages, and the pattern for a peer that reboots.
+namespace WikiOutage {
+using WikiLine = VubPacketLine<64, 512, true>;
+
+using Near = Vub<+[] {
+	return VubBuilder()
+		.Link<VubPacketEnd<64, 512, true>>()
+		.MaxPayload(32)
+		.WhileDown(VubDown::Fail)
+		.OnReceive<&WikiWriting::OnPacket>()
+		.Clock<&WikiLinkState::Now>();
+}>;
+
+
+void RebootPattern() {
+	WikiLine line(VubFaults{});
+	Near near(line.a);
+	std::optional<Near> far;
+	far.emplace(line.b);
+	far.reset();
+	line.SetLinkUp(false);
+	near.Process();
+	SIM_EXPECT(!near.LinkUp());
+	line.SetLinkUp(true);
+	far.emplace(line.b);
+	near.Process();
+	SIM_EXPECT(near.LinkUp());
+	far->Process();
+}
+
+
+void OutageSample() {
+	VubFaults faults;
+	faults.seed = 7;
+	faults.outageEveryUs = 500;
+	faults.outageForUs = 100;
+	WikiLine scheduled(faults);
+	scheduled.SetNow(0);
+	SIM_EXPECT(scheduled.toB.Counts().outaged == 0);
+}
+}  // namespace WikiOutage
+
+
 int main() {
 	WikiWriting::CheckContract();
 	WikiWriting::BoardSend();
 	SIM_EXPECT(WikiWriting::board.Drops().sendError == 0);
 	SIM_EXPECT(WikiChain::Board::count == 2);
 	SIM_EXPECT(WikiSteps::Board::count == 2);
+	WikiLinkState::UsbSample();
+	WikiOutage::RebootPattern();
+	WikiOutage::OutageSample();
 	return SimFinish("TestVubWikiExamples");
 }

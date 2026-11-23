@@ -2,6 +2,7 @@
 #include <Drivers/Interface/VUB/VubBlocks.h>
 #include <Drivers/Interface/VUB/VubBuilder.h>
 #include <Drivers/Interface/VUB/VubDrops.h>
+#include <Drivers/Interface/VUB/VubLinkState.h>
 #include <Drivers/Interface/VUB/VubLinkTraits.h>
 #include <Drivers/Interface/VUB/VubMeta.h>
 #include <Drivers/Interface/VUB/VubOutbox.h>
@@ -14,6 +15,7 @@
 #include <cstddef>
 #include <span>
 #include <tuple>
+#include <type_traits>
 
 
 // A stack built from a chain. Make is a captureless lambda that returns the VubBuilder of the chain:
@@ -39,6 +41,11 @@
 // Feed (a byte-stream link) and FeedPacket (a packet link) are called from the receive interrupt. Everything else runs in one context:
 // Send, Process and Drops. Another task calling Send needs a lock of its own.
 //
+// The connection. A link with ReportsState() in its traits tells the stack up and down through the sink it is given; a layer that
+// declares reportsPeer tells it the peer's state from Process. Each change is applied in Process, in this order: the framing's partial
+// frame is reset, a down discards the bytes in the receive ring and the packets in flight, the layers' OnLink are called. While the
+// connection is down, Process offers nothing to the link. A stack without either declaration is always connected and keeps no state.
+//
 // Sizes: the buffers are the packet size of the chain, computed at compile time. A block or a feature that the chain does not use
 // has no member: the storage of a disabled part is an empty type, and its code is not instantiated.
 template<auto (*Make)()>
@@ -58,6 +65,10 @@ public:
 
 	static constexpr VubLinkTraits linkTraits = Builder::LinkTraits();
 	static constexpr bool streamLink = Builder::IsStreamLink();
+	static constexpr bool linkReports = linkTraits.reportsState;
+	static constexpr bool peersReport = Builder::PeersReport();
+	static constexpr bool hasLinkState = linkReports || peersReport;
+	static constexpr VubDown whileDown = built.settings.whileDown;
 	static constexpr std::size_t packetBytes = Builder::PacketBound(built.settings);
 	static constexpr std::size_t framedBytes = Builder::FramedBound(built.settings);
 	static constexpr std::size_t framingIndex = Builder::FramingIndex();
@@ -74,16 +85,32 @@ public:
 	static constexpr uint32 (*clockFn)() = built.settings.clockFn;
 
 
-	explicit Vub(LinkType& linkObject) : link(&linkObject), blocks(Builder::MakeStorage(built.entries)) {
+	explicit Vub(LinkType& linkObject) : link(&linkObject), detach(link), blocks(Builder::MakeStorage(built.entries)) {
+		if constexpr (hasLinkState) {
+			VubLinkRecord& record = linkRecord.Get();
+			record.reportedUp = !linkReports;
+			record.linkUp = !linkReports;
+			record.connected = !linkReports;
+		}
+
+		if constexpr (linkReports) {
+			link->SetStateSink(VubStateSink(this, &Vub::ReportLinkThunk));
+		}
 	}
 
 
 	// Encodes one payload and queues it. Returns ok when it is queued, busy when the control queue is full (the payload is not queued and
-	// nothing is counted: the caller sends it again later), messageTooLong when it is larger than MaxPayload, or the status of a block that
-	// refused it.
+	// nothing is counted: the caller sends it again later), messageTooLong when it is larger than MaxPayload, noConnection while the
+	// connection is down under the Fail option, or the status of a block that refused it.
 	ResultStatus Send(std::span<const uint8> payload, const VubMeta& meta = VubMeta()) {
 		if (payload.size() > built.settings.maxPayload) {
 			return ResultStatus::messageTooLong;
+		}
+
+		if constexpr (hasLinkState) {
+			if (whileDown == VubDown::Fail && !LinkUp()) {
+				return ResultStatus::noConnection;
+			}
 		}
 
 		if (VubQueueFull(control.indexes, sendSlots)) {
@@ -94,11 +121,16 @@ public:
 	}
 
 
-	// The main loop call. Reads the clock, takes the received bytes and packets up the chain, runs the layers' Process, and sends.
+	// The main loop call. Reads the clock, applies the link's state, takes the received bytes and packets up the chain, runs the layers'
+	// Process, and sends.
 	void Process() {
 		uint32 now = 0;
 		if (clockFn != nullptr) {
 			now = clockFn();
+		}
+
+		if constexpr (hasLinkState) {
+			SampleLink(now);
 		}
 
 		if constexpr (streamLink) {
@@ -108,6 +140,10 @@ public:
 		}
 
 		ProcessLayers<0>(now);
+		if constexpr (hasLinkState) {
+			ApplyConnection(now, false, linkRecord.Get().linkUp);
+		}
+
 		Egress();
 	}
 
@@ -134,12 +170,30 @@ public:
 
 	// A copy of the counters.
 	VubDrops Drops() const {
-		VubDrops snapshot = drops;
+		VubDrops snapshot;
+		static_cast<VubDropCounts&>(snapshot) = drops;
 		snapshot.ringFull = ringFullIsr;
 		snapshot.queueFull = queueFullIsr;
 		uint32 tooLongTotal = static_cast<uint32>(drops.tooLong) + tooLongIsr;
 		snapshot.tooLong = tooLongTotal > 65535 ? 65535 : static_cast<uint16>(tooLongTotal);
+		if constexpr (hasLinkState) {
+			snapshot.linkDown = linkRecord.Get().dropped;
+		}
+
 		return snapshot;
+	}
+
+
+	// Whether the stack is connected: the link is up and no layer has declared the peer down, as of the last Process. Present only when the
+	// link reports its state or a layer reports its peer.
+	bool LinkUp() const requires (hasLinkState) {
+		return linkRecord.Get().connected;
+	}
+
+
+	// How many times the connection went from up to down. Present only when LinkUp is.
+	uint16 LinkDowns() const requires (hasLinkState) {
+		return linkRecord.Get().downs;
 	}
 
 
@@ -159,6 +213,7 @@ private:
 
 
 	LinkType* link;
+	[[no_unique_address]] VubDetach<linkReports, LinkType> detach;
 	[[no_unique_address]] Storage blocks;
 	[[no_unique_address]] VubBuffer<hasSteps, packetBytes, 1> sendA;
 	[[no_unique_address]] VubBuffer<hasSteps, packetBytes, 2> sendB;
@@ -171,7 +226,8 @@ private:
 	[[no_unique_address]] VubBuffer<true, receiveBytes, 9> rx;
 	[[no_unique_address]] VubRingStorage<streamLink, ringSlots, 10> ring;
 	[[no_unique_address]] VubQueueStorage<!streamLink, receiveSlots, receiveBytes, 11> rxQueue;
-	VubDrops drops;
+	[[no_unique_address]] VubState<hasLinkState, VubLinkRecord, 12> linkRecord;
+	VubDropCounts drops;
 	volatile uint16 ringFullIsr = 0;
 	volatile uint16 queueFullIsr = 0;
 	volatile uint16 tooLongIsr = 0;
@@ -368,8 +424,14 @@ private:
 		if constexpr (Index < count) {
 			using Entry = std::tuple_element_t<Index, Tuple>;
 			if constexpr (Entry::kind == VubKind::layer) {
-				VubOutbox outbox(this, &Vub::template SendThunk<Index + 1>);
-				std::get<Index>(blocks).Process(now, outbox);
+				// A layer that does not declare its peer gets no peer function, so no code for one is made.
+				if constexpr (Entry::ReportsPeer()) {
+					VubOutbox outbox(this, &Vub::template SendThunk<Index + 1>, &Vub::PeerThunk);
+					std::get<Index>(blocks).Process(now, outbox);
+				} else {
+					VubOutbox outbox(this, &Vub::template SendThunk<Index + 1>, nullptr);
+					std::get<Index>(blocks).Process(now, outbox);
+				}
 			}
 
 			ProcessLayers<Index + 1>(now);
@@ -377,16 +439,20 @@ private:
 	}
 
 
-	// The outbox of the layer at Index - 1 sends into the steps below it. The packet is at the layer's level, so it starts at the step
-	// after the layer.
-	// The outbox of a layer. A packet with no caller: one the layer could not send is counted, and busy is not, since the layer keeps
-	// the packet and sends it again.
+	// The outbox of a layer. The packet is at the layer's level, so it starts at the step after the layer. A packet with no caller: one
+	// the layer could not send is counted, and busy is not, since the layer keeps the packet and sends it again.
 	template<std::size_t From>
 	static ResultStatus SendThunk(void* owner, std::span<const uint8> packet, const VubMeta& meta) {
 		Vub* self = static_cast<Vub*>(owner);
 		if (packet.size() > packetBytes) {
 			VubCountDrop(self->drops.layerError);
 			return ResultStatus::messageTooLong;
+		}
+
+		if constexpr (hasLinkState) {
+			if (whileDown == VubDown::Fail && !self->LinkUp()) {
+				return ResultStatus::noConnection;
+			}
 		}
 
 		if (VubQueueFull(self->control.indexes, sendSlots)) {
@@ -397,55 +463,123 @@ private:
 	}
 
 
-	// Sends from the queues while the link accepts: control first, then the held bulk packet, then a new bulk packet from a layer. Every
-	// packet taken from a queue or a layer counts toward PerProcess, whether the link took it or refused it, so one call stops within
-	// PerProcess packets.
-	void Egress() {
-		std::size_t sentPackets = 0;
-		while (sentPackets < perProcess) {
-			if constexpr (streamLink && hasFraming) {
-				if (framedState.Get().valid) {
-					if (!WriteFramed()) {
-						return;
-					}
+	// The peer's state, as a layer declares it from its Process. The change is applied after the layers have run.
+	static void PeerThunk(void* owner, bool up) {
+		Vub* self = static_cast<Vub*>(owner);
+		self->linkRecord.Get().peerUp = up;
+	}
 
-					continue;
+
+	// The link's state, as the link reports it. It only records the state; Process acts on it.
+	static void ReportLinkThunk(void* owner, bool up) {
+		Vub* self = static_cast<Vub*>(owner);
+		self->linkRecord.Get().Report(up);
+	}
+
+
+	// Reads what the link reported since the last Process: whether it fell, and the state it reports. The falls are read first. The report
+	// writes the state before it counts a fall, so a state read after the count is at least as new as the fall. A fall reported after the
+	// count is read is seen by the next Process.
+	void SampleLink(uint32 now) {
+		VubLinkRecord& record = linkRecord.Get();
+		uint16 falls = record.reportedFalls;
+		bool fallen = falls != record.seenFalls;
+		record.seenFalls = falls;
+		record.linkUp = record.reportedUp;
+		ApplyConnection(now, fallen, record.linkUp);
+	}
+
+
+	// Applies the connection: the link's state and the peer's. A fall of the link is a down even when the link came back up before this
+	// Process. A fall while the stack is already down is not a down: the framing and the receive ring are left as they are. A change in
+	// either direction resets the framing. On a down the queued packets and the receive ring are dropped as DropOnDown says. The layers are
+	// told of each change, in chain order.
+	void ApplyConnection(uint32 now, bool fallen, bool linkUpNow) {
+		VubLinkRecord& record = linkRecord.Get();
+		bool next = linkUpNow && record.peerUp;
+		bool wentDown = record.connected && (fallen || !next);
+		if (!wentDown && next == record.connected) {
+			return;
+		}
+
+		if (wentDown) {
+			record.connected = false;
+			VubCountDrop(record.downs);
+			DropOnDown();
+			ResetFraming();
+			TellLayers<0>(false, now);
+		}
+
+		if (next && !record.connected) {
+			record.connected = true;
+			ResetFraming();
+			TellLayers<0>(true, now);
+		}
+	}
+
+
+	// On a down. The receive ring's bytes are dropped: a partial frame is useless after a disconnect. The frame being written starts again
+	// from its first byte under Wait, and is dropped under Fail. The packets queued for the link wait under Wait, and are dropped under Fail.
+	// The packets the receive queue holds are kept: they are whole and still go up.
+	void DropOnDown() {
+		VubLinkRecord& record = linkRecord.Get();
+		if constexpr (streamLink) {
+			VubAddDrops(record.dropped, VubByteRingClear(ring.indexes, ringSlots));
+		}
+
+		if constexpr (streamLink && hasFraming) {
+			if (framedState.Get().valid) {
+				if (whileDown == VubDown::Fail) {
+					framedState.Get().valid = false;
+					VubAddDrops(record.dropped, 1);
+				} else {
+					framedState.Get().sent = 0;
 				}
 			}
+		}
 
+		if (whileDown == VubDown::Fail) {
 			std::span<const uint8> packet;
 			uint8 flags = 0;
-			if (VubQueueFront(control.indexes, control.View(), packet, flags)) {
-				if (!Offer(packet, flags)) {
-					return;
-				}
-
+			while (VubQueueFront(control.indexes, control.View(), packet, flags)) {
 				VubQueuePop(control.indexes, sendSlots);
-				sentPackets++;
-				continue;
+				VubAddDrops(record.dropped, 1);
 			}
 
 			if constexpr (hasBulk) {
 				if (heldState.Get().valid) {
-					std::span<const uint8> bulk(held.Span().data(), heldState.Get().length);
-					if (!Offer(bulk, heldState.Get().flags)) {
-						return;
-					}
-
 					heldState.Get().valid = false;
-					sentPackets++;
-					continue;
+					VubAddDrops(record.dropped, 1);
 				}
-
-				std::size_t dropped = PullBulk(perProcess - sentPackets);
-				if (dropped == 0 && !heldState.Get().valid) {
-					return;
-				}
-
-				sentPackets += dropped;
-			} else {
-				return;
 			}
+		}
+	}
+
+
+	// Resets the framing's partial frame, when the framing has a Reset.
+	void ResetFraming() {
+		if constexpr (streamLink && hasFraming) {
+			using FramingType = std::remove_reference_t<decltype(std::get<framingIndex>(blocks))>;
+			if constexpr (requires(FramingType& framing) { framing.Reset(); }) {
+				std::get<framingIndex>(blocks).Reset();
+			}
+		}
+	}
+
+
+	// Tells each layer that has an OnLink, in chain order, that the connection is up or down.
+	template<std::size_t Index>
+	void TellLayers(bool up, uint32 now) {
+		if constexpr (Index < count) {
+			using Entry = std::tuple_element_t<Index, Tuple>;
+			if constexpr (Entry::kind == VubKind::layer) {
+				using LayerType = typename Entry::BlockType;
+				if constexpr (requires(LayerType& layer, bool value, uint32 time) { layer.OnLink(value, time); }) {
+					std::get<Index>(blocks).OnLink(up, now);
+				}
+			}
+
+			TellLayers<Index + 1>(up, now);
 		}
 	}
 
@@ -544,6 +678,65 @@ private:
 			}
 
 			return PullFrom<Index + 1>(room);
+		}
+	}
+
+
+	// Sends from the queues while the link accepts: control first, then the held bulk packet, then a new bulk packet from a layer. Every
+	// packet taken from a queue or a layer counts toward PerProcess, whether the link took it or refused it, so one call stops within
+	// PerProcess packets. Nothing is offered while the connection is down.
+	void Egress() {
+		std::size_t sentPackets = 0;
+		while (sentPackets < perProcess) {
+			if constexpr (hasLinkState) {
+				if (!linkRecord.Get().connected) {
+					return;
+				}
+			}
+
+			if constexpr (streamLink && hasFraming) {
+				if (framedState.Get().valid) {
+					if (!WriteFramed()) {
+						return;
+					}
+
+					continue;
+				}
+			}
+
+			std::span<const uint8> packet;
+			uint8 flags = 0;
+			if (VubQueueFront(control.indexes, control.View(), packet, flags)) {
+				if (!Offer(packet, flags)) {
+					return;
+				}
+
+				VubQueuePop(control.indexes, sendSlots);
+				sentPackets++;
+				continue;
+			}
+
+			if constexpr (hasBulk) {
+				if (heldState.Get().valid) {
+					std::span<const uint8> bulk(held.Span().data(), heldState.Get().length);
+					if (!Offer(bulk, heldState.Get().flags)) {
+						return;
+					}
+
+					heldState.Get().valid = false;
+					sentPackets++;
+					continue;
+				}
+
+				std::size_t dropped = PullBulk(perProcess - sentPackets);
+				if (dropped == 0 && !heldState.Get().valid) {
+					return;
+				}
+
+				sentPackets += dropped;
+			} else {
+				return;
+			}
 		}
 	}
 };

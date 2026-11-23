@@ -191,6 +191,15 @@ struct FlagFraming {
 	}
 
 
+	// Drops a partial frame. The stack calls it when the link changes state.
+	void Reset() {
+		started = false;
+		count = 0;
+		escaping = false;
+		overflow = false;
+	}
+
+
 	std::array<uint8, MaxBody> body{};
 	std::size_t count = 0;
 	bool started = false;
@@ -253,6 +262,77 @@ private:
 		length = payload;
 		return VubFrame::packet;
 	}
+};
+
+
+// Framing with a length byte in front: the byte is the payload length (1 to 255), then the payload. It does not resynchronise on its own:
+// a partial frame takes the first bytes of the next one, so the stack must reset it when the link changes. Growth is length + 1.
+struct LengthFraming {
+	static constexpr bool usesTime = false;
+	static constexpr std::size_t MaxBody = 64;
+
+
+	static constexpr std::size_t Growth(std::size_t length) {
+		return length + 1;
+	}
+
+
+	Result<std::size_t> Frame(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (in.size() == 0 || in.size() > MaxBody || in.size() + 1 > out.size()) {
+			return ResultStatus::messageTooLong;
+		}
+
+		out[0] = static_cast<uint8>(in.size());
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index + 1] = in[index];
+		}
+
+		return in.size() + 1;
+	}
+
+
+	VubFrame Push(uint8 byte, std::span<uint8> out, std::size_t& length) {
+		if (!haveLength) {
+			expected = byte;
+			haveLength = true;
+			count = 0;
+			return VubFrame::pending;
+		}
+
+		if (count < MaxBody) {
+			body[count] = byte;
+		}
+
+		count++;
+		if (count < expected) {
+			return VubFrame::pending;
+		}
+
+		haveLength = false;
+		if (expected > MaxBody || expected > out.size()) {
+			return VubFrame::tooLong;
+		}
+
+		for (std::size_t index = 0; index < expected; index++) {
+			out[index] = body[index];
+		}
+
+		length = expected;
+		return VubFrame::packet;
+	}
+
+
+	// Drops a partial frame. The stack calls it when the link changes state.
+	void Reset() {
+		haveLength = false;
+		count = 0;
+	}
+
+
+	std::array<uint8, MaxBody> body{};
+	std::size_t expected = 0;
+	std::size_t count = 0;
+	bool haveLength = false;
 };
 
 
