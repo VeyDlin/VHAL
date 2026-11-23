@@ -1,6 +1,6 @@
 #pragma once
-#include <Drivers/Interface/VUB/VubLinkTraits.h>
-#include <Drivers/Interface/VUB/VubMeta.h>
+#include <Drivers/Interface/VUB/LinkTraits.h>
+#include <Drivers/Interface/VUB/Meta.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -49,7 +49,7 @@ inline void SizeKeep(std::span<const uint8> bytes) {
 }
 
 
-inline void SizeReceive(const VubMeta&, std::span<const uint8> payload) {
+inline void SizeReceive(const VUB::Meta&, std::span<const uint8> payload) {
 	uint32 sum = 0;
 	for (uint8 byte : payload) {
 		sum = sum + byte;
@@ -61,7 +61,7 @@ inline void SizeReceive(const VubMeta&, std::span<const uint8> payload) {
 
 // A byte-stream link. Write keeps the bytes in the wire and takes all of them.
 struct SizeStreamLink {
-	static constexpr VubLinkTraits traits = VubLinkTraits().MaxPacket(64).HalfDuplex().Starts(VubStarts::Either);
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().MaxPacket(64).HalfDuplex().Starts(VUB::Initiator::Either);
 
 
 	Result<std::size_t> Write(std::span<const uint8> bytes) {
@@ -73,7 +73,7 @@ struct SizeStreamLink {
 
 // A packet link. Send keeps the packet in the wire, in place of the one before it.
 struct SizePacketLink {
-	static constexpr VubLinkTraits traits = VubLinkTraits().Framed().MaxPacket(64).FullDuplex();
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64).FullDuplex();
 
 
 	ResultStatus Send(std::span<const uint8> packet) {

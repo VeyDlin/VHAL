@@ -81,13 +81,13 @@ rows=(
 	"(d) (b) + CRC-16/MODBUS bitwise|BaselineStream.cpp|ConfigD.cpp"
 	"(e) stream link, length prefix 1, CRC-8 bitwise|BaselineStream.cpp|ConfigE.cpp"
 	"(f) stream link, gap framing, CRC-16 table|BaselineStream.cpp|ConfigF.cpp"
-	"(g) (c) + VubReliable (Retries 3, Window 4)|BaselineStream.cpp|ConfigG.cpp"
+	"(g) (c) + VUB::Reliable (Retries 3, Window 4)|BaselineStream.cpp|ConfigG.cpp"
 	"(h) (g) with the in-order option|BaselineStream.cpp|ConfigH.cpp"
-	"(i) COBS, CRC-8, VubReliableOf window 1, Retries 3|BaselineStream.cpp|ConfigI.cpp"
-	"breakdown of (i): the same without VubReliableOf|BaselineStream.cpp|ConfigIPlain.cpp"
+	"(i) COBS, CRC-8, VUB::ReliableOf window 1, Retries 3|BaselineStream.cpp|ConfigI.cpp"
+	"breakdown of (i): the same without VUB::ReliableOf|BaselineStream.cpp|ConfigIPlain.cpp"
 	"CompactStreamingProtocol<20, 4> (bootloader use)|BaselinePacket.cpp|ConfigCompact.cpp"
-	"(j) stream link, COBS, CRC-16/MODBUS table, VubKeepAlive (default times)|BaselineStream.cpp|ConfigJ.cpp"
-	"(k) (g) + VubKeepAlive (default times)|BaselineStream.cpp|ConfigK.cpp"
+	"(j) stream link, COBS, CRC-16/MODBUS table, VUB::KeepAlive (default times)|BaselineStream.cpp|ConfigJ.cpp"
+	"(k) (g) + VUB::KeepAlive (default times)|BaselineStream.cpp|ConfigK.cpp"
 )
 
 baselines=(BaselinePacket.cpp BaselineStream.cpp)

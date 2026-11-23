@@ -1,10 +1,10 @@
 #include "SimCheck.h"
-#include "VubChains.h"
-#include "VubDoubles.h"
-#include <Drivers/Interface/VUB/VubBlocks.h>
-#include <Drivers/Interface/VUB/VubBuilder.h>
-#include <Drivers/Interface/VUB/VubLinkTraits.h>
-#include <Drivers/Interface/VUB/Vub.h>
+#include "Chains.h"
+#include "Doubles.h"
+#include <Drivers/Interface/VUB/Blocks.h>
+#include <Drivers/Interface/VUB/Builder.h>
+#include <Drivers/Interface/VUB/LinkTraits.h>
+#include <Drivers/Interface/VUB/Stack.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -36,7 +36,7 @@ struct WatchLayer {
 	static constexpr bool makesBulk = false;
 
 
-	Result<std::size_t> Add(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		if (out.size() < in.size()) {
 			return ResultStatus::invalidParameter;
 		}
@@ -49,12 +49,12 @@ struct WatchLayer {
 	}
 
 
-	Result<VubTake> Take(const VubMeta&, std::span<const uint8>) {
-		return VubTake{0, true};
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
 	}
 
 
-	void Process(uint32, const VubOutbox&) {
+	void Process(uint32, const VUB::Outbox&) {
 	}
 
 
@@ -74,7 +74,7 @@ struct PeerLayer : WatchLayer {
 	static constexpr bool reportsPeer = true;
 
 
-	void Process(uint32, const VubOutbox& outbox) {
+	void Process(uint32, const VUB::Outbox& outbox) {
 		if (testPeerCall != 0) {
 			outbox.SetPeer(testPeerCall > 0);
 			testPeerCall = 0;
@@ -92,8 +92,8 @@ struct CountingFraming : FlagFraming {
 };
 
 
-using WatchStack = Vub<+[] {
-	return VubBuilder()
+using WatchStack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<WatchLayer>()
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
@@ -104,8 +104,8 @@ using WatchStack = Vub<+[] {
 
 
 // A layer that declares the peer, over a link that does not report: the layer alone takes the stack down.
-using PeerStack = Vub<+[] {
-	return VubBuilder()
+using PeerStack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<PeerLayer>()
 		.Link<PacketEnd>()
 		.MaxPayload(40)
@@ -115,8 +115,8 @@ using PeerStack = Vub<+[] {
 }>;
 
 
-using CountingStack = Vub<+[] {
-	return VubBuilder()
+using CountingStack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Framing<CountingFraming>()
 		.Link<ReportingStreamEnd>()
 		.MaxPayload(40)
@@ -131,14 +131,14 @@ static_assert(!StreamEnd::traits.reportsState);
 static_assert(!PacketEnd::traits.reportsState);
 static_assert(ReportingStreamEnd::traits.reportsState);
 static_assert(ReportingPacketEnd::traits.reportsState);
-static_assert(VubLinkTraits().ReportsState().reportsState);
-static_assert(!VubLinkTraits().MaxPacket(8).reportsState);
+static_assert(VUB::LinkTraits().ReportsState().reportsState);
+static_assert(!VUB::LinkTraits().MaxPacket(8).reportsState);
 
 // A link with the trait has the SetStateSink member the stack calls. A link without the trait does not need it.
-static_assert(VubReportingLink<ReportingStreamEnd>);
-static_assert(VubReportingLink<ReportingPacketEnd>);
-static_assert(!VubReportingLink<StreamEnd>);
-static_assert(!VubReportingLink<PacketEnd>);
+static_assert(VUB::ReportingLink<ReportingStreamEnd>);
+static_assert(VUB::ReportingLink<ReportingPacketEnd>);
+static_assert(!VUB::ReportingLink<StreamEnd>);
+static_assert(!VUB::ReportingLink<PacketEnd>);
 
 // The state API exists only on a stack with something to report: a link with the trait, or a layer that reports its peer.
 template<typename StackType>
@@ -166,8 +166,8 @@ static_assert(sizeof(StreamStack) == 1192);
 static_assert(sizeof(PacketStack) == 888);
 
 // The option is a value of the builder: Wait by default, Fail when given.
-static_assert(VubBuilder().settings.whileDown == VubDown::Wait);
-static_assert(VubBuilder().WhileDown(VubDown::Fail).settings.whileDown == VubDown::Fail);
+static_assert(VUB::Builder().settings.whileDown == VUB::Down::Wait);
+static_assert(VUB::Builder().WhileDown(VUB::Down::Fail).settings.whileDown == VUB::Down::Fail);
 
 
 // The layer is told of each change, in order, with the time of the Process that saw it. A Process with no change tells it nothing. The
@@ -175,7 +175,7 @@ static_assert(VubBuilder().WhileDown(VubDown::Fail).settings.whileDown == VubDow
 void TestLayerIsTold() {
 	ResetTestState();
 	testLinkEvents = 0;
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	WatchStack stack(line.a);
 	testNowUs = 100;
 	stack.Process();
@@ -210,7 +210,7 @@ void TestLayerIsTold() {
 void TestFramingResetOnChange() {
 	ResetTestState();
 	testFramingResets = 0;
-	ReportingStreamLine line(VubFaults{});
+	ReportingStreamLine line(VUB::Faults{});
 	CountingStack stack(line.a);
 	stack.Process();
 	SIM_EXPECT(testFramingResets == 1);
@@ -229,7 +229,7 @@ void TestFramingResetOnChange() {
 void TestDownAndUpBetweenProcessIsSeen() {
 	ResetTestState();
 	testLinkEvents = 0;
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	WatchStack stack(line.a);
 	stack.Process();
 	line.SetLinkUp(false);
@@ -249,7 +249,7 @@ void TestDownAndUpBetweenProcessIsSeen() {
 // Each fall from up counts once. A second report of down while down is not another fall.
 void TestDownsCountFallsFromUp() {
 	ResetTestState();
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	ReportingPacketStack stack(line.a);
 	stack.Process();
 	line.SetLinkUp(false);
@@ -272,7 +272,7 @@ void TestPeerDeclaredFromProcess() {
 	ResetTestState();
 	testLinkEvents = 0;
 	testPeerCall = 0;
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	PeerStack stack(line.a);
 	std::array<uint8, 2> payload = {0x01, 0x02};
 	SIM_EXPECT(stack.LinkUp());
@@ -302,8 +302,8 @@ void TestPeerDeclaredFromProcess() {
 
 
 // A stream chain with a peer layer and a counting framing, over a link that reports: a down resets the framing and drops the receive ring.
-using PeerFramedStack = Vub<+[] {
-	return VubBuilder()
+using PeerFramedStack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<PeerLayer>()
 		.Framing<CountingFraming>()
 		.Link<ReportingStreamEnd>()
@@ -321,7 +321,7 @@ void TestFallWhilePeerDownChangesNothing() {
 	testLinkEvents = 0;
 	testPeerCall = 0;
 	testFramingResets = 0;
-	ReportingStreamLine line(VubFaults{});
+	ReportingStreamLine line(VUB::Faults{});
 	PeerFramedStack stack(line.a);
 	stack.Process();
 	testPeerCall = -1;

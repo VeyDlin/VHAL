@@ -1,11 +1,11 @@
 #include "SimCheck.h"
-#include "VubChains.h"
-#include <Drivers/Interface/VUB/Framing/VubCobs.h>
-#include <Drivers/Interface/VUB/Framing/VubGap.h>
-#include <Drivers/Interface/VUB/Framing/VubLengthPrefix.h>
-#include <Drivers/Interface/VUB/TestKit/VubLoopback.h>
-#include <Drivers/Interface/VUB/Vub.h>
-#include <Drivers/Interface/VUB/VubBuilder.h>
+#include "Chains.h"
+#include <Drivers/Interface/VUB/Framing/Cobs.h>
+#include <Drivers/Interface/VUB/Framing/Gap.h>
+#include <Drivers/Interface/VUB/Framing/LengthPrefix.h>
+#include <Drivers/Interface/VUB/TestKit/Loopback.h>
+#include <Drivers/Interface/VUB/Stack.h>
+#include <Drivers/Interface/VUB/Builder.h>
 #include <Utilities/DataTypes.h>
 #include <array>
 #include <cstddef>
@@ -30,9 +30,9 @@ std::array<uint8, 40> Payload(std::size_t index, std::size_t& length) {
 
 
 // A stack on a line that does not report. COBS, a length byte, and the gap of 1000 us.
-using CobsStream = Vub<+[] {
-	return VubBuilder()
-		.Framing<VubCobs>()
+using CobsStream = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Framing<VUB::Cobs>()
 		.Link<StreamEnd>()
 		.MaxPayload(40)
 		.ReceiveRing(256)
@@ -41,9 +41,9 @@ using CobsStream = Vub<+[] {
 }>;
 
 
-using LengthStream = Vub<+[] {
-	return VubBuilder()
-		.Framing<VubLengthPrefix<1>>()
+using LengthStream = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Framing<VUB::LengthPrefix<1>>()
 		.Link<StreamEnd>()
 		.MaxPayload(40)
 		.ReceiveRing(256)
@@ -52,9 +52,9 @@ using LengthStream = Vub<+[] {
 }>;
 
 
-using GapStream = Vub<+[] {
-	return VubBuilder()
-		.Framing<VubGap>()
+using GapStream = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Framing<VUB::Gap>()
 		.GapUs(1000)
 		.Link<StreamEnd>()
 		.MaxPayload(40)
@@ -65,9 +65,9 @@ using GapStream = Vub<+[] {
 
 
 // The same three on a line that reports its state, for the link change.
-using ReportingCobsStream = Vub<+[] {
-	return VubBuilder()
-		.Framing<VubCobs>()
+using ReportingCobsStream = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Framing<VUB::Cobs>()
 		.Link<ReportingStreamEnd>()
 		.MaxPayload(40)
 		.ReceiveRing(256)
@@ -76,9 +76,9 @@ using ReportingCobsStream = Vub<+[] {
 }>;
 
 
-using ReportingLengthStream = Vub<+[] {
-	return VubBuilder()
-		.Framing<VubLengthPrefix<1>>()
+using ReportingLengthStream = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Framing<VUB::LengthPrefix<1>>()
 		.Link<ReportingStreamEnd>()
 		.MaxPayload(40)
 		.ReceiveRing(256)
@@ -87,9 +87,9 @@ using ReportingLengthStream = Vub<+[] {
 }>;
 
 
-using ReportingGapStream = Vub<+[] {
-	return VubBuilder()
-		.Framing<VubGap>()
+using ReportingGapStream = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Framing<VUB::Gap>()
 		.GapUs(1000)
 		.Link<ReportingStreamEnd>()
 		.MaxPayload(40)
@@ -172,7 +172,7 @@ bool ReceivedAll(std::size_t count) {
 // Twenty payloads over a clean line, with COBS: all come out exactly.
 void TestCobsCleanLine() {
 	ResetTestState();
-	VubStreamLine<64, 512> line(VubFaults{});
+	VUB::StreamLine<64, 512> line(VUB::Faults{});
 	CobsStream left(line.a);
 	CobsStream right(line.b);
 	SendClean(left, right, line, 20);
@@ -183,7 +183,7 @@ void TestCobsCleanLine() {
 // The same with a length byte.
 void TestLengthCleanLine() {
 	ResetTestState();
-	VubStreamLine<64, 512> line(VubFaults{});
+	VUB::StreamLine<64, 512> line(VUB::Faults{});
 	LengthStream left(line.a);
 	LengthStream right(line.b);
 	SendClean(left, right, line, 20);
@@ -194,7 +194,7 @@ void TestLengthCleanLine() {
 // The same with the gap framing: the silence between two steps ends each frame.
 void TestGapCleanLine() {
 	ResetTestState();
-	VubStreamLine<64, 512> line(VubFaults{});
+	VUB::StreamLine<64, 512> line(VUB::Faults{});
 	GapStream left(line.a);
 	GapStream right(line.b);
 	SendClean(left, right, line, 20);
@@ -208,10 +208,10 @@ void TestGapCleanLine() {
 template<typename Stack>
 void RunFaulty() {
 	ResetTestState();
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.dropPercent = 10;
 	faults.seed = 7;
-	VubStreamLine<64, 512> line(faults);
+	VUB::StreamLine<64, 512> line(faults);
 	Stack left(line.a);
 	Stack right(line.b);
 	SendClean(left, right, line, 100);
@@ -240,7 +240,7 @@ void TestGapFaultyLine() {
 // clean payload comes out.
 void TestCobsResetOnLinkChange() {
 	ResetTestState();
-	VubStreamLine<64, 512, true> line(VubFaults{});
+	VUB::StreamLine<64, 512, true> line(VUB::Faults{});
 	ReportingCobsStream left(line.a);
 	ReportingCobsStream right(line.b);
 	testNowUs = 1000;
@@ -271,7 +271,7 @@ void TestCobsResetOnLinkChange() {
 // and is dropped; the clean packet after it comes out.
 void TestLengthResetOnLinkChange() {
 	ResetTestState();
-	VubStreamLine<64, 512, true> line(VubFaults{});
+	VUB::StreamLine<64, 512, true> line(VUB::Faults{});
 	ReportingLengthStream left(line.a);
 	ReportingLengthStream right(line.b);
 	testNowUs = 1000;
@@ -303,7 +303,7 @@ void TestLengthResetOnLinkChange() {
 // link change drops 11 22, so the packet that comes out after the silence is 33 44.
 void TestGapResetOnLinkChange() {
 	ResetTestState();
-	VubStreamLine<64, 512, true> line(VubFaults{});
+	VUB::StreamLine<64, 512, true> line(VUB::Faults{});
 	ReportingGapStream left(line.a);
 	ReportingGapStream right(line.b);
 	testNowUs = 1000;
@@ -333,7 +333,7 @@ void TestGapResetOnLinkChange() {
 // so the two come out as two packets. Without the wait they would arrive together and run into one frame.
 void TestGapSendWaitsForGap() {
 	ResetTestState();
-	VubStreamLine<64, 512> line(VubFaults{});
+	VUB::StreamLine<64, 512> line(VUB::Faults{});
 	GapStream left(line.a);
 	GapStream right(line.b);
 	const std::array<uint8, 2> first = {0x11, 0x22};

@@ -1,15 +1,15 @@
-// Breakdown of configuration (i): the same COBS framing and CRC-8 with no VubReliableOf layer. The difference from (i) is the layer's cost.
+// Breakdown of configuration (i): the same COBS framing and CRC-8 with no VUB::ReliableOf layer. The difference from (i) is the layer's cost.
 #include "SizeWire.h"
-#include <Drivers/Interface/VUB/Engine/VubCrcBitwise.h>
-#include <Drivers/Interface/VUB/Framing/VubCobs.h>
-#include <Drivers/Interface/VUB/Transform/VubCrc.h>
-#include <Drivers/Interface/VUB/Vub.h>
+#include <Drivers/Interface/VUB/Engine/CrcBitwise.h>
+#include <Drivers/Interface/VUB/Framing/Cobs.h>
+#include <Drivers/Interface/VUB/Transform/Crc.h>
+#include <Drivers/Interface/VUB/Stack.h>
 
 
-using SizeStack = Vub<+[] {
-	return VubBuilder()
-		.Transform<VubCrc<VubCrcParameters{8, 0x07, 0xFF, 0x00, false, false, 0xFB}, VubCrcBitwise>>()
-		.Framing<VubCobs>()
+using SizeStack = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Transform<VUB::Crc<VUB::CrcParameters{8, 0x07, 0xFF, 0x00, false, false, 0xFB}, VUB::CrcBitwise>>()
+		.Framing<VUB::Cobs>()
 		.Link<SizeStreamLink>()
 		.MaxPayload(32)
 		.OnReceive<&SizeReceive>()

@@ -1,6 +1,6 @@
 #include "SimCheck.h"
-#include "VubReliableChains.h"
-#include <Drivers/Interface/VUB/TestKit/VubLoopback.h>
+#include "ReliableChains.h"
+#include <Drivers/Interface/VUB/TestKit/Loopback.h>
 #include <Utilities/DataTypes.h>
 #include <array>
 #include <cstddef>
@@ -35,7 +35,7 @@ void Establish(Line& line, Stack& near, Stack& far) {
 // Every packet of ids 1 to 3 is delivered once, in order, and each gets one outcome: ok.
 void TestSendIsDeliveredAndAcknowledged() {
 	ResetReliableState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	ReliableWire near(line.a);
 	GiveSession(near);
 	ReliableWire far(line.b);
@@ -63,7 +63,7 @@ void TestSendIsDeliveredAndAcknowledged() {
 // The window: four packets may be unacknowledged; the fifth is refused with busy until an acknowledgement frees a place.
 void TestWindowLimitsUnacknowledgedPackets() {
 	ResetReliableState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	ReliableWire near(line.a);
 	GiveSession(near);
 	ReliableWire far(line.b);
@@ -88,7 +88,7 @@ void TestWindowLimitsUnacknowledgedPackets() {
 // lost.
 void TestDuplicateIsDeliveredOnce() {
 	ResetReliableState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	ReliableWire near(line.a);
 	GiveSession(near);
 	ReliableWire far(line.b);
@@ -123,7 +123,7 @@ void TestDuplicateIsDeliveredOnce() {
 // the sent times are the times of the packet's transmissions.
 void TestRetriesAtTheRightTimes() {
 	ResetReliableState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	ReliableWire near(line.a);
 	GiveSession(near);
 	ReliableWire far(line.b);
@@ -172,7 +172,7 @@ void TestRetriesAtTheRightTimes() {
 // fourth try reports retryExhausted at 2200 ms. As above, the line drops every packet after the session has started.
 void TestBackoffTiming() {
 	ResetReliableState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	ReliableBackoff near(line.a);
 	GiveSession(near);
 	ReliableBackoff far(line.b);
@@ -217,7 +217,7 @@ void TestBackoffTiming() {
 // exhausted at 800 ms, and the packets 2 to 21 sent after the line is up are all delivered once. The receiver moves past the gap.
 void TestGivenUpPacketDoesNotStopTheStream() {
 	ResetReliableState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	ReliableWire near(line.a);
 	GiveSession(near);
 	ReliableWire far(line.b);
@@ -264,7 +264,7 @@ void TestGivenUpPacketDoesNotStopTheStream() {
 // Eight-bit sequence numbers wrap around every 256 packets, and 500 packets in a row are each delivered once and acknowledged.
 void TestEightBitSequenceWraps() {
 	ResetReliableState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	ReliableWire8 near(line.a);
 	GiveSession(near);
 	ReliableWire8 far(line.b);
@@ -297,7 +297,7 @@ void TestEightBitSequenceWraps() {
 // A packet with the no-acknowledgement flag is delivered, gets no outcome, and gets no acknowledgement back.
 void TestUnsequencedPacketIsNotAcknowledged() {
 	ResetReliableState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	ReliableWire near(line.a);
 	GiveSession(near);
 	ReliableWire far(line.b);
@@ -307,7 +307,7 @@ void TestUnsequencedPacketIsNotAcknowledged() {
 	Establish(line, near, far);
 	ReliableCapture drained;
 	line.DeliverToA(drained);
-	SIM_EXPECT(ReliableSend(near, 11, VubMeta::NoAcknowledgeFlag) == ResultStatus::ok);
+	SIM_EXPECT(ReliableSend(near, 11, VUB::Meta::NoAcknowledgeFlag) == ResultStatus::ok);
 	PacketRound(line, near, far);
 	PacketRound(line, near, far);
 	SIM_EXPECT(testDelivered[11] == 1);

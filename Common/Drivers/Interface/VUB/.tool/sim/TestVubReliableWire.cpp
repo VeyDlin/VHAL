@@ -1,12 +1,12 @@
 #include "SimCheck.h"
-#include "VubReliableChains.h"
-#include <Drivers/Interface/VUB/TestKit/VubLoopback.h>
+#include "ReliableChains.h"
+#include <Drivers/Interface/VUB/TestKit/Loopback.h>
 #include <Utilities/DataTypes.h>
 #include <array>
 #include <cstddef>
 #include <span>
 
-// The bytes of the delivery header, checked against the layout of the wiki page (Layer/VubReliable): flags first, then for a sequenced
+// The bytes of the delivery header, checked against the layout of the wiki page (Layer/VUB::Reliable): flags first, then for a sequenced
 // packet its tag, its number and the window base delta, for a sync the boot value and the session counter, and for an acknowledgement its
 // tag and number. The tests give the boot value 0x1234 with SetSession, so the first session has counter 0 and tag 0x34. The
 // expected bytes below are written by hand from that layout.
@@ -38,7 +38,7 @@ void EstablishSession(PacketLine& line, Stack& near, Stack& far) {
 void TestSyncPacketBytes() {
 	ResetReliableState();
 	testNowUs = 0x1234;
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	ReliableWire near(line.a);
 	GiveSession(near);
 	near.Process();
@@ -59,7 +59,7 @@ void TestSyncPacketBytes() {
 void TestSequencedPacketBytes() {
 	ResetReliableState();
 	testNowUs = 0x1234;
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	ReliableWire near(line.a);
 	GiveSession(near);
 	ReliableWire far(line.b);
@@ -91,7 +91,7 @@ void TestSequencedPacketBytes() {
 void TestBareAckBytes() {
 	ResetReliableState();
 	testNowUs = 0x1234;
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	ReliableWire near(line.a);
 	GiveSession(near);
 	ReliableWire far(line.b);
@@ -124,7 +124,7 @@ void TestBareAckBytes() {
 void TestResyncRequestBytes() {
 	ResetReliableState();
 	testNowUs = 0x1234;
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	ReliableWire far(line.b);
 	GiveSession(far);
 	far.Process();
@@ -143,15 +143,15 @@ void TestResyncRequestBytes() {
 // A packet with the no-acknowledgement flag has no sequence number, no tag and no delta: flags 0x00, then the payload.
 void TestUnsequencedPacketBytes() {
 	ResetReliableState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	ReliableWire near(line.a);
 	GiveSession(near);
 	near.Process();
 	ReliableCapture discard;
 	line.DeliverToB(discard);
 	std::array<uint8, 2> payload = {0xAB, 0x00};
-	VubMeta meta{};
-	meta.flags = VubMeta::NoAcknowledgeFlag;
+	VUB::Meta meta{};
+	meta.flags = VUB::Meta::NoAcknowledgeFlag;
 	SIM_EXPECT(near.Send(std::span<const uint8>(payload.data(), payload.size()), meta) == ResultStatus::ok);
 	near.Process();
 	ReliableCapture capture;
@@ -169,8 +169,8 @@ ReliableWire* testEchoStack = nullptr;
 void EchoUnsequencedOnDeliver(uint16 id) {
 	(void)id;
 	std::array<uint8, 2> reply = {0xCD, 0x00};
-	VubMeta meta{};
-	meta.flags = VubMeta::NoAcknowledgeFlag;
+	VUB::Meta meta{};
+	meta.flags = VUB::Meta::NoAcknowledgeFlag;
 	testEchoStack->Send(std::span<const uint8>(reply.data(), reply.size()), meta);
 }
 
@@ -180,7 +180,7 @@ void EchoUnsequencedOnDeliver(uint16 id) {
 void TestAcknowledgementRidesOnReply() {
 	ResetReliableState();
 	testNowUs = 0x1234;
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	ReliableWire near(line.a);
 	GiveSession(near);
 	ReliableWire far(line.b);
@@ -216,7 +216,7 @@ void TestAcknowledgementRidesOnReply() {
 void TestSyncAndSequencedPacketsWithAcknowledgementBytes() {
 	ResetReliableState();
 	testNowUs = 0x1234;
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	ReliableWire near(line.a);
 	GiveSession(near);
 	near.Process();
@@ -265,7 +265,7 @@ void TestSyncAndSequencedPacketsWithAcknowledgementBytes() {
 void TestEightBitBytes() {
 	ResetReliableState();
 	testNowUs = 0x1234;
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	ReliableWire8 near(line.a);
 	GiveSession(near);
 	ReliableWire8 far(line.b);
@@ -292,7 +292,7 @@ void TestEightBitBytes() {
 // and a sync whose tag is not the tag of its boot value and counter.
 void TestMalformedHeadersAreRefused() {
 	ResetReliableState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	ReliableWire near(line.a);
 	GiveSession(near);
 	near.Process();

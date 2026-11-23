@@ -1,14 +1,14 @@
 // Configuration (c): (b) with the CRC-16/MODBUS transform that uses the table engine.
 #include "SizeWire.h"
-#include <Drivers/Interface/VUB/Framing/VubCobs.h>
-#include <Drivers/Interface/VUB/Transform/VubCrc.h>
-#include <Drivers/Interface/VUB/Vub.h>
+#include <Drivers/Interface/VUB/Framing/Cobs.h>
+#include <Drivers/Interface/VUB/Transform/Crc.h>
+#include <Drivers/Interface/VUB/Stack.h>
 
 
-using SizeStack = Vub<+[] {
-	return VubBuilder()
-		.Transform<VubCrc16Modbus>()
-		.Framing<VubCobs>()
+using SizeStack = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Transform<VUB::Crc16Modbus>()
+		.Framing<VUB::Cobs>()
 		.Link<SizeStreamLink>()
 		.MaxPayload(32)
 		.OnReceive<&SizeReceive>()

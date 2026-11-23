@@ -46,7 +46,7 @@ SizeProtocol sizeProtocol(
 			return true;
 		}
 
-		const VubMeta meta{};
+		const VUB::Meta meta{};
 		SizeReceive(meta, data);
 		return true;
 	},

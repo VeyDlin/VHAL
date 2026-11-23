@@ -1,7 +1,7 @@
 #include "SimCheck.h"
-#include "VubChains.h"
-#include <Drivers/Interface/VUB/TestKit/VubRandom.h>
-#include <Drivers/Interface/VUB/VubMeta.h>
+#include "Chains.h"
+#include <Drivers/Interface/VUB/TestKit/Random.h>
+#include <Drivers/Interface/VUB/Meta.h>
 #include <Utilities/DataTypes.h>
 #include <array>
 #include <cstddef>
@@ -13,7 +13,7 @@
 // adds its checks BF (sum) and DF (XOR), and frames them between flags 7E. The wire carries exactly ten bytes.
 void TestWireBytesByHand() {
 	ResetTestState();
-	StreamLine line(VubFaults{});
+	StreamLine line(VUB::Faults{});
 	StreamStack sender(line.a);
 	std::array<uint8, 1> payload = {0x01};
 	SIM_EXPECT(sender.Send(std::span<const uint8>(payload.data(), payload.size())) == ResultStatus::ok);
@@ -32,10 +32,10 @@ void TestWireBytesByHand() {
 // Twenty random packets through the stream chain, sent one at a time, come out whole and in order.
 void TestRoundTripStream() {
 	ResetTestState();
-	StreamLine line(VubFaults{});
+	StreamLine line(VUB::Faults{});
 	StreamStack sender(line.a);
 	StreamStack receiver(line.b);
-	VubRandom random(11);
+	VUB::Random random(11);
 	std::array<std::array<uint8, 40>, 20> sent{};
 	std::array<std::size_t, 20> sentLength{};
 	for (std::size_t index = 0; index < 20; index++) {
@@ -67,7 +67,7 @@ void TestRoundTripStream() {
 // frames, and all 6 arrive in 10 rounds.
 void TestStreamBackpressure() {
 	ResetTestState();
-	StreamLine line(VubFaults{});
+	StreamLine line(VUB::Faults{});
 	StreamStack sender(line.a);
 	StreamStack receiver(line.b);
 	const std::size_t frameBytes = 19;
@@ -106,7 +106,7 @@ void TestStreamBackpressure() {
 // A packet link that takes one packet a round: after each round the receiver has exactly one more, and all four come out in order.
 void TestPacketBackpressure() {
 	ResetTestState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	PacketStack sender(line.a);
 	PacketStack receiver(line.b);
 	for (std::size_t index = 0; index < 4; index++) {
@@ -131,7 +131,7 @@ void TestPacketBackpressure() {
 // The control queue holds four packets. A fifth Send while it is full returns busy, and nothing is dropped: the four still go out.
 void TestSendBusyWhenQueueFull() {
 	ResetTestState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	PacketStack sender(line.a);
 	PacketStack receiver(line.b);
 	line.a.StartRound(0);
@@ -152,7 +152,7 @@ void TestSendBusyWhenQueueFull() {
 // An application packet sent while the bulk layer's packet waits for the link goes out first. The bulk packet follows.
 void TestApplicationBeforeBulk() {
 	ResetTestState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	BulkStack sender(line.a);
 	BulkStack receiver(line.b);
 
@@ -185,7 +185,7 @@ void TestApplicationBeforeBulk() {
 // Process sends at most PerProcess packets a call, so a bulk layer that always has data cannot hold the call.
 void TestProcessDoesNotHoldOnBulk() {
 	ResetTestState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	BulkStack sender(line.a);
 	sender.Process();
 	SIM_EXPECT(line.toB.Counts().pushed == 8);
@@ -197,10 +197,10 @@ void TestProcessDoesNotHoldOnBulk() {
 void TestFlagsReachBottom() {
 	ResetTestState();
 	testProbeFlags = 0;
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	ProbeStack sender(line.a);
 
-	VubMeta meta{};
+	VUB::Meta meta{};
 	meta.flags = 0x02;
 	std::array<uint8, 1> application = {0x11};
 	SIM_EXPECT(sender.Send(std::span<const uint8>(application.data(), application.size()), meta) == ResultStatus::ok);
@@ -215,7 +215,7 @@ void TestFlagsReachBottom() {
 // Counters: the ring keeps 256 bytes, so 300 bytes fed without a Process lose 44, counted as ring full.
 void TestRingFullCounted() {
 	ResetTestState();
-	StreamLine line(VubFaults{});
+	StreamLine line(VUB::Faults{});
 	StreamStack receiver(line.b);
 	for (std::size_t index = 0; index < 300; index++) {
 		receiver.Feed(0x00);
@@ -228,7 +228,7 @@ void TestRingFullCounted() {
 // A packet longer than the receive buffer (64) is counted as too long; a fifth packet into a queue of four is counted as queue full.
 void TestPacketDropsCounted() {
 	ResetTestState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	PacketStack receiver(line.b);
 	std::array<uint8, 65> big{};
 	receiver.FeedPacket(std::span<const uint8>(big.data(), big.size()));
@@ -248,7 +248,7 @@ void TestPacketDropsCounted() {
 // layer refuses it.
 void TestTransformAndLayerErrorsCounted() {
 	ResetTestState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	PacketStack receiver(line.b);
 	std::array<uint8, 5> bad = {1, 2, 3, 4, 5};
 	receiver.FeedPacket(std::span<const uint8>(bad.data(), bad.size()));
@@ -267,7 +267,7 @@ void TestTransformAndLayerErrorsCounted() {
 // side without reaching the handler.
 void TestBeaconSentAndTaken() {
 	ResetTestState();
-	StreamLine line(VubFaults{});
+	StreamLine line(VUB::Faults{});
 	BeaconStack sender(line.a);
 	StreamStack receiver(line.b);
 
@@ -290,7 +290,7 @@ void TestBeaconSentAndTaken() {
 // fail the XOR check, the duplicates arrive twice, and none is lost without a count.
 void TestPacketFaultsAccounted() {
 	ResetTestState();
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.seed = 21;
 	faults.dropPercent = 10;
 	faults.corruptPercent = 10;
@@ -317,12 +317,12 @@ void TestPacketFaultsAccounted() {
 	}
 
 	SIM_EXPECT(sentCount == 100);
-	VubWireCounts counts = line.toB.Counts();
+	VUB::WireCounts counts = line.toB.Counts();
 	SIM_EXPECT(counts.dropped > 0);
 	SIM_EXPECT(counts.corrupted > 0);
 	SIM_EXPECT(counts.duplicated > 0);
 
-	VubDrops drops = receiver.Drops();
+	VUB::DropCounters drops = receiver.Drops();
 	SIM_EXPECT(drops.transformError > 0);
 	std::size_t stackDrops = drops.transformError + drops.layerError + drops.tooLong + drops.queueFull;
 	SIM_EXPECT(testReceivedCount + stackDrops == counts.delivered);
@@ -333,7 +333,7 @@ void TestPacketFaultsAccounted() {
 // frames are counted as framing errors.
 void TestStreamFaultsOnlyWholePackets() {
 	ResetTestState();
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.seed = 31;
 	faults.dropPercent = 3;
 	faults.corruptPercent = 3;
@@ -341,7 +341,7 @@ void TestStreamFaultsOnlyWholePackets() {
 	StreamStack sender(line.a);
 	StreamStack receiver(line.b);
 
-	VubRandom random(31);
+	VUB::Random random(31);
 	std::array<std::array<uint8, 40>, 60> sent{};
 	std::array<std::size_t, 60> sentLength{};
 	std::size_t sentCount = 0;
@@ -396,8 +396,8 @@ void TestStreamFaultsOnlyWholePackets() {
 // The bulk layer always has data (its limit is 1000 packets, so a loop that never ends stops with a wrong count), and the framing refuses
 // every bulk packet. Each Process call takes exactly PerProcess (8) bulk packets: a refused packet counts toward PerProcess like a sent
 // one, and it is counted as a send error.
-using RefusingStack = Vub<+[] {
-	return VubBuilder()
+using RefusingStack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<TestLayer>(TestLayerOptions{0, true, 1000})
 		.Transform<XorTransform>()
 		.Framing<BulkRefusingFraming>()
@@ -411,7 +411,7 @@ using RefusingStack = Vub<+[] {
 
 void TestRefusedBulkCountsTowardPerProcess() {
 	ResetTestState();
-	StreamLine line(VubFaults{});
+	StreamLine line(VUB::Faults{});
 	RefusingStack stack(line.a);
 	stack.Process();
 	SIM_EXPECT(stack.Drops().sendError == 8);
@@ -430,7 +430,7 @@ struct OversizeLayer {
 	static constexpr bool makesBulk = false;
 
 
-	Result<std::size_t> Add(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		if (out.size() < in.size()) {
 			return ResultStatus::invalidParameter;
 		}
@@ -443,12 +443,12 @@ struct OversizeLayer {
 	}
 
 
-	Result<VubTake> Take(const VubMeta&, std::span<const uint8>) {
-		return VubTake{0, true};
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
 	}
 
 
-	void Process(uint32, const VubOutbox& outbox) {
+	void Process(uint32, const VUB::Outbox& outbox) {
 		if (sent) {
 			return;
 		}
@@ -463,8 +463,8 @@ struct OversizeLayer {
 };
 
 
-using OversizeStack = Vub<+[] {
-	return VubBuilder()
+using OversizeStack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<OversizeLayer>()
 		.Link<PacketEnd>()
 		.MaxPayload(40)
@@ -475,7 +475,7 @@ using OversizeStack = Vub<+[] {
 
 void TestOutboxPacketTooLongCounted() {
 	ResetTestState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	OversizeStack stack(line.a);
 	std::array<uint8, 41> tooLong{};
 	SIM_EXPECT(stack.Send(std::span<const uint8>(tooLong.data(), tooLong.size())) == ResultStatus::messageTooLong);
@@ -498,7 +498,7 @@ struct OwnSendLayer {
 	static constexpr bool makesBulk = false;
 
 
-	Result<std::size_t> Add(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		if (out.size() < in.size() + header) {
 			return ResultStatus::invalidParameter;
 		}
@@ -512,16 +512,16 @@ struct OwnSendLayer {
 	}
 
 
-	Result<VubTake> Take(const VubMeta&, std::span<const uint8> packet) {
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8> packet) {
 		if (packet.size() < header) {
 			return ResultStatus::invalidData;
 		}
 
-		return VubTake{header, true};
+		return VUB::Taken{header, true};
 	}
 
 
-	void Process(uint32, const VubOutbox& outbox) {
+	void Process(uint32, const VUB::Outbox& outbox) {
 		std::array<uint8, 1> packet{};
 		(void)outbox.Send(std::span<const uint8>(packet.data(), packet.size()));
 	}
@@ -536,7 +536,7 @@ struct OwnRefuseLayer {
 	static constexpr bool makesBulk = false;
 
 
-	Result<std::size_t> Add(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		if (testOwnAddStatus != ResultStatus::ok) {
 			return testOwnAddStatus;
 		}
@@ -554,22 +554,22 @@ struct OwnRefuseLayer {
 	}
 
 
-	Result<VubTake> Take(const VubMeta&, std::span<const uint8> packet) {
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8> packet) {
 		if (packet.size() < header) {
 			return ResultStatus::invalidData;
 		}
 
-		return VubTake{header, true};
+		return VUB::Taken{header, true};
 	}
 
 
-	void Process(uint32, const VubOutbox&) {
+	void Process(uint32, const VUB::Outbox&) {
 	}
 };
 
 
-using OwnSendStack = Vub<+[] {
-	return VubBuilder()
+using OwnSendStack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<OwnSendLayer>()
 		.Layer<OwnRefuseLayer>()
 		.Link<PacketEnd>()
@@ -583,7 +583,7 @@ using OwnSendStack = Vub<+[] {
 // many times it is refused. A real Add error on the same path still counts.
 void TestOwnBusyNotCounted() {
 	ResetTestState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	OwnSendStack stack(line.a);
 	testOwnAddStatus = ResultStatus::busy;
 	for (int round = 0; round < 3; round++) {

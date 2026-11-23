@@ -3,7 +3,7 @@
 
 
 struct NoDuplexLink {
-	static constexpr VubLinkTraits traits = VubLinkTraits().Framed().MaxPacket(64);
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64);
 
 
 	ResultStatus Send(std::span<const uint8> packet) {
@@ -13,8 +13,8 @@ struct NoDuplexLink {
 };
 
 
-using Stack = Vub<+[] {
-	return VubBuilder()
+using Stack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<TestLayer>()
 		.Link<NoDuplexLink>()
 		.MaxPayload(40)

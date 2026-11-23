@@ -1,7 +1,7 @@
 #include "SimCheck.h"
-#include "VubDoubles.h"
-#include <Drivers/Interface/VUB/Vub.h>
-#include <Drivers/Interface/VUB/TestKit/VubLoopback.h>
+#include "Doubles.h"
+#include <Drivers/Interface/VUB/Stack.h>
+#include <Drivers/Interface/VUB/TestKit/Loopback.h>
 #include <Utilities/DataTypes.h>
 
 
@@ -11,7 +11,7 @@ struct NoDecodeTransform {
 	static constexpr uint32 fingerprint = 1;
 
 
-	Result<std::size_t> Encode(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Encode(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		(void)out;
 		return in.size();
 	}
@@ -25,18 +25,18 @@ struct NoNextLayer {
 	static constexpr bool makesBulk = true;
 
 
-	Result<std::size_t> Add(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		(void)out;
 		return in.size();
 	}
 
 
-	Result<VubTake> Take(const VubMeta&, std::span<const uint8> packet) {
-		return VubTake{0, packet.size() > 0};
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8> packet) {
+		return VUB::Taken{0, packet.size() > 0};
 	}
 
 
-	void Process(uint32 nowUs, const VubOutbox& outbox) {
+	void Process(uint32 nowUs, const VUB::Outbox& outbox) {
 		(void)nowUs;
 		(void)outbox;
 	}
@@ -61,36 +61,36 @@ struct NoTraitsLink {
 };
 
 
-using StreamLink = VubStreamEnd<64, 16>;
-using PacketLink = VubPacketEnd<64, 16>;
+using StreamLink = VUB::StreamEnd<64, 16>;
+using PacketLink = VUB::PacketEnd<64, 16>;
 
 
-static_assert(VubTransform<XorTransform>);
-static_assert(VubTransform<FlagProbe>);
-static_assert(!VubTransform<NoDecodeTransform>);
+static_assert(VUB::TransformBlock<XorTransform>);
+static_assert(VUB::TransformBlock<FlagProbe>);
+static_assert(!VUB::TransformBlock<NoDecodeTransform>);
 
-static_assert(VubFraming<FlagFraming>);
-static_assert(!VubFraming<XorTransform>);
+static_assert(VUB::FramingBlock<FlagFraming>);
+static_assert(!VUB::FramingBlock<XorTransform>);
 
-static_assert(VubLayer<TestLayer>);
-static_assert(!VubLayer<NoNextLayer>);
+static_assert(VUB::LayerBlock<TestLayer>);
+static_assert(!VUB::LayerBlock<NoNextLayer>);
 
-static_assert(VubStreamLink<StreamLink>);
-static_assert(!VubPacketLink<StreamLink>);
-static_assert(VubPacketLink<PacketLink>);
-static_assert(!VubStreamLink<PacketLink>);
-static_assert(VubLink<StreamLink>);
-static_assert(VubLink<PacketLink>);
-static_assert(!VubLink<NoTraitsLink>);
-static_assert(!VubLink<int>);
+static_assert(VUB::StreamLink<StreamLink>);
+static_assert(!VUB::PacketLink<StreamLink>);
+static_assert(VUB::PacketLink<PacketLink>);
+static_assert(!VUB::StreamLink<PacketLink>);
+static_assert(VUB::LinkBlock<StreamLink>);
+static_assert(VUB::LinkBlock<PacketLink>);
+static_assert(!VUB::LinkBlock<NoTraitsLink>);
+static_assert(!VUB::LinkBlock<int>);
 
-static_assert(VubEngine<SyncEngine>);
-static_assert(!VubEngine<AsyncEngine>);
+static_assert(VUB::EngineBlock<SyncEngine>);
+static_assert(!VUB::EngineBlock<AsyncEngine>);
 
 
 void TestConceptsAccept() {
-	SIM_EXPECT(VubTransform<XorTransform>);
-	SIM_EXPECT(VubLayer<TestLayer>);
+	SIM_EXPECT(VUB::TransformBlock<XorTransform>);
+	SIM_EXPECT(VUB::LayerBlock<TestLayer>);
 }
 
 

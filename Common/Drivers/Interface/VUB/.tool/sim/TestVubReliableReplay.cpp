@@ -1,8 +1,8 @@
 #include "SimCheck.h"
-#include <Drivers/Interface/VUB/Layer/VubReliable.h>
-#include <Drivers/Interface/VUB/VubBytes.h>
-#include <Drivers/Interface/VUB/VubMeta.h>
-#include <Drivers/Interface/VUB/VubOutbox.h>
+#include <Drivers/Interface/VUB/Layer/Reliable.h>
+#include <Drivers/Interface/VUB/Bytes.h>
+#include <Drivers/Interface/VUB/Meta.h>
+#include <Drivers/Interface/VUB/Outbox.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -17,7 +17,7 @@
 // the copy is passed to the receiver by hand, and the session rules must refuse it. Payloads start with a 16-bit id.
 
 
-using ReplayLayer = VubReliableOf<40, 4>;
+using ReplayLayer = VUB::ReliableOf<40, 4>;
 
 
 // The ids the receiving side passed up, counted per id; the outcomes the sending side reported, counted per id and by status.
@@ -37,8 +37,8 @@ void ReplayRestart() {
 }
 
 
-void ReplayOutcome(const VubOutcome& outcome) {
-	uint16 id = VubGetLe16(outcome.payload.data());
+void ReplayOutcome(const VUB::Outcome& outcome) {
+	uint16 id = VUB::GetLe16(outcome.payload.data());
 	if (id < replayStatus.size()) {
 		replayStatus[id] = outcome.status;
 		replayOutcomes[id]++;
@@ -65,7 +65,7 @@ struct ReplayWire {
 };
 
 
-ResultStatus ReplayCapture(void* owner, std::span<const uint8> packet, const VubMeta&) {
+ResultStatus ReplayCapture(void* owner, std::span<const uint8> packet, const VUB::Meta&) {
 	ReplayWire* wire = static_cast<ReplayWire*>(owner);
 	if (wire->count < wire->packets.size()) {
 		for (std::size_t index = 0; index < packet.size(); index++) {
@@ -80,8 +80,8 @@ ResultStatus ReplayCapture(void* owner, std::span<const uint8> packet, const Vub
 }
 
 
-VubOutbox ReplayOutbox(ReplayWire& wire) {
-	return VubOutbox(&wire, &ReplayCapture, nullptr, nullptr);
+VUB::Outbox ReplayOutbox(ReplayWire& wire) {
+	return VUB::Outbox(&wire, &ReplayCapture, nullptr, nullptr);
 }
 
 
@@ -117,9 +117,9 @@ void Carry(ReplayWire& from, Layer& to) {
 			replayLastSyncCounter = packet[7];
 		}
 
-		Result<VubTake> taken = to.Take(VubMeta{}, packet);
+		Result<VUB::Taken> taken = to.Take(VUB::Meta{}, packet);
 		if (taken.IsOk() && taken.Value().deliver) {
-			uint16 id = VubGetLe16(packet.data() + taken.Value().consumed);
+			uint16 id = VUB::GetLe16(packet.data() + taken.Value().consumed);
 			if (id < replayDelivered.size()) {
 				replayDelivered[id]++;
 			}
@@ -132,10 +132,10 @@ void Carry(ReplayWire& from, Layer& to) {
 
 // Hands one packet given as bytes to the layer, the way the path would.
 template<std::size_t Size, typename Layer>
-Result<VubTake> Replay(Layer& layer, const std::array<uint8, Size>& bytes) {
-	Result<VubTake> taken = layer.Take(VubMeta{}, std::span<const uint8>(bytes.data(), bytes.size()));
+Result<VUB::Taken> Replay(Layer& layer, const std::array<uint8, Size>& bytes) {
+	Result<VUB::Taken> taken = layer.Take(VUB::Meta{}, std::span<const uint8>(bytes.data(), bytes.size()));
 	if (taken.IsOk() && taken.Value().deliver) {
-		uint16 id = VubGetLe16(bytes.data() + taken.Value().consumed);
+		uint16 id = VUB::GetLe16(bytes.data() + taken.Value().consumed);
 		if (id < replayDelivered.size()) {
 			replayDelivered[id]++;
 		}
@@ -175,7 +175,7 @@ uint8 Establish(Layer& near, ReplayWire& nearWire, Layer& far, ReplayWire& farWi
 	near.Process(replayNowUs, ReplayOutbox(nearWire));
 	std::array<uint8, 2> trigger = {0xFF, 0xFF};
 	std::array<uint8, 64> out{};
-	SIM_EXPECT(near.Add(VubMeta{}, std::span<const uint8>(trigger.data(), trigger.size()), std::span<uint8>(out.data(), out.size()))
+	SIM_EXPECT(near.Add(VUB::Meta{}, std::span<const uint8>(trigger.data(), trigger.size()), std::span<uint8>(out.data(), out.size()))
 		.IsErr());
 	nearWire.count = 0;
 	near.Process(replayNowUs, ReplayOutbox(nearWire));
@@ -191,9 +191,9 @@ uint8 Establish(Layer& near, ReplayWire& nearWire, Layer& far, ReplayWire& farWi
 template<typename Layer>
 bool SendId(Layer& layer, uint16 id, ReplayWire& wire) {
 	std::array<uint8, 2> payload{};
-	VubPutLe16(payload.data(), id);
+	VUB::PutLe16(payload.data(), id);
 	std::array<uint8, 64> out{};
-	Result<std::size_t> added = layer.Add(VubMeta{}, std::span<const uint8>(payload.data(), payload.size()),
+	Result<std::size_t> added = layer.Add(VUB::Meta{}, std::span<const uint8>(payload.data(), payload.size()),
 		std::span<uint8>(out.data(), out.size()));
 	if (added.IsErr()) {
 		return false;
@@ -250,7 +250,7 @@ void TestHeldSyncOfAnEarlierSessionIsIgnored() {
 
 	// The resync for session A starts session B of the same boot: counter 1, tag 0x12.
 	std::array<uint8, 2> resyncA = {0x08, 0x11};
-	SIM_EXPECT(near.Take(VubMeta{}, std::span<const uint8>(resyncA.data(), resyncA.size())).IsOk());
+	SIM_EXPECT(near.Take(VUB::Meta{}, std::span<const uint8>(resyncA.data(), resyncA.size())).IsOk());
 	uint8 tagB = Establish(near, nearWire, far, farWire);
 	SIM_EXPECT(tagB == 0x12);
 	SIM_EXPECT(replayRestarts == 1);
@@ -260,7 +260,7 @@ void TestHeldSyncOfAnEarlierSessionIsIgnored() {
 
 	// The held sync of session A arrives late. It is older than the held counter: no reopen, no acknowledgement, nothing passed up. The
 	// receiver answers with a counter reply: boot 0x1111, held counter 1.
-	Result<VubTake> staleSync = Replay(far, syncA);
+	Result<VUB::Taken> staleSync = Replay(far, syncA);
 	SIM_EXPECT(staleSync.IsOk());
 	SIM_EXPECT(!staleSync.Value().deliver);
 	far.Process(replayNowUs, ReplayOutbox(farWire));
@@ -295,10 +295,10 @@ void TestSessionsOfOneBootHaveTheirOwnTags() {
 	nearWire.count = 0;
 
 	std::array<uint8, 2> resync1 = {0x08, tag1};
-	SIM_EXPECT(near.Take(VubMeta{}, std::span<const uint8>(resync1.data(), resync1.size())).IsOk());
+	SIM_EXPECT(near.Take(VUB::Meta{}, std::span<const uint8>(resync1.data(), resync1.size())).IsOk());
 	uint8 tag2 = Establish(near, nearWire, far, farWire);
 	std::array<uint8, 2> resync2 = {0x08, tag2};
-	SIM_EXPECT(near.Take(VubMeta{}, std::span<const uint8>(resync2.data(), resync2.size())).IsOk());
+	SIM_EXPECT(near.Take(VUB::Meta{}, std::span<const uint8>(resync2.data(), resync2.size())).IsOk());
 	uint8 tag3 = Establish(near, nearWire, far, farWire);
 	SIM_EXPECT(tag1 == 0x22);
 	SIM_EXPECT(tag2 == 0x23);
@@ -358,7 +358,7 @@ void TestOlderSyncOfTheSameBootIsIgnoredWhileLive() {
 	uint8 tag1 = Establish(near, nearWire, far, farWire);
 	std::array<uint8, 8> syncOne = {0x05, tag1, 0x00, 0x00, 0x00, 0x44, 0x44, 0x00};
 	std::array<uint8, 2> resync = {0x08, tag1};
-	SIM_EXPECT(near.Take(VubMeta{}, std::span<const uint8>(resync.data(), resync.size())).IsOk());
+	SIM_EXPECT(near.Take(VUB::Meta{}, std::span<const uint8>(resync.data(), resync.size())).IsOk());
 	uint8 tag2 = Establish(near, nearWire, far, farWire);
 	SIM_EXPECT(tag2 == static_cast<uint8>(tag1 + 1));
 	// The session that replaced the first one is a restart on the receiver.
@@ -366,7 +366,7 @@ void TestOlderSyncOfTheSameBootIsIgnoredWhileLive() {
 	SIM_EXPECT(SendUntilOutcome(near, nearWire, far, farWire, 5));
 	SIM_EXPECT(replayDelivered[5] == 1);
 
-	Result<VubTake> staleSync = Replay(far, syncOne);
+	Result<VUB::Taken> staleSync = Replay(far, syncOne);
 	SIM_EXPECT(staleSync.IsOk());
 	SIM_EXPECT(!staleSync.Value().deliver);
 	far.Process(replayNowUs, ReplayOutbox(farWire));
@@ -454,12 +454,12 @@ void CheckWindowBaseAfterGiveUp(uint8 window) {
 	ResetReplayState();
 	ReplayWire nearWire{};
 	ReplayWire farWire{};
-	typename VubReliableOf<40, Capacity>::Options farOptions = ReceiverOptions<VubReliableOf<40, Capacity>>(window, 16);
-	VubReliableOf<40, Capacity> far(farOptions);
-	typename VubReliableOf<40, Capacity>::Options nearOptions = SenderOptions<VubReliableOf<40, Capacity>>(window, 16);
+	typename VUB::ReliableOf<40, Capacity>::Options farOptions = ReceiverOptions<VUB::ReliableOf<40, Capacity>>(window, 16);
+	VUB::ReliableOf<40, Capacity> far(farOptions);
+	typename VUB::ReliableOf<40, Capacity>::Options nearOptions = SenderOptions<VUB::ReliableOf<40, Capacity>>(window, 16);
 	nearOptions.retries = 1;
 	nearOptions.timeoutMs = 100;
-	VubReliableOf<40, Capacity> near(nearOptions);
+	VUB::ReliableOf<40, Capacity> near(nearOptions);
 	near.SetSession(0x5555);
 	Establish(near, nearWire, far, farWire);
 
@@ -495,7 +495,7 @@ void CheckWindowBaseAfterGiveUp(uint8 window) {
 
 	for (std::size_t index = 0; index < held.count; index++) {
 		std::span<const uint8> packet(held.packets[index].data(), held.lengths[index]);
-		Result<VubTake> taken = far.Take(VubMeta{}, packet);
+		Result<VUB::Taken> taken = far.Take(VUB::Meta{}, packet);
 		SIM_EXPECT(taken.IsOk());
 		SIM_EXPECT(!taken.Value().deliver);
 	}

@@ -1,8 +1,8 @@
 #include "SimCheck.h"
-#include <Drivers/Interface/VUB/Layer/VubReliable.h>
-#include <Drivers/Interface/VUB/VubBytes.h>
-#include <Drivers/Interface/VUB/VubMeta.h>
-#include <Drivers/Interface/VUB/VubOutbox.h>
+#include <Drivers/Interface/VUB/Layer/Reliable.h>
+#include <Drivers/Interface/VUB/Bytes.h>
+#include <Drivers/Interface/VUB/Meta.h>
+#include <Drivers/Interface/VUB/Outbox.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -19,7 +19,7 @@
 // page.
 
 
-using SessionLayer = VubReliableOf<40, 4>;
+using SessionLayer = VUB::ReliableOf<40, 4>;
 
 
 // The restarts the receiving side reported.
@@ -46,7 +46,7 @@ struct SessionReceived {
 };
 
 
-ResultStatus CaptureSend(void* owner, std::span<const uint8> packet, const VubMeta&) {
+ResultStatus CaptureSend(void* owner, std::span<const uint8> packet, const VUB::Meta&) {
 	SessionWire* wire = static_cast<SessionWire*>(owner);
 	if (wire->count < wire->packets.size()) {
 		for (std::size_t index = 0; index < packet.size(); index++) {
@@ -61,8 +61,8 @@ ResultStatus CaptureSend(void* owner, std::span<const uint8> packet, const VubMe
 }
 
 
-VubOutbox Outbox(SessionWire& wire) {
-	return VubOutbox(&wire, &CaptureSend, nullptr, nullptr);
+VUB::Outbox Outbox(SessionWire& wire) {
+	return VUB::Outbox(&wire, &CaptureSend, nullptr, nullptr);
 }
 
 
@@ -71,8 +71,8 @@ void CountRestart() {
 }
 
 
-void RecordById(const VubOutcome& outcome) {
-	uint16 id = VubGetLe16(outcome.payload.data());
+void RecordById(const VUB::Outcome& outcome) {
+	uint16 id = VUB::GetLe16(outcome.payload.data());
 	if (id < testStatusById.size()) {
 		testStatusById[id] = outcome.status;
 		testCountById[id]++;
@@ -83,9 +83,9 @@ void RecordById(const VubOutcome& outcome) {
 // Adds a packet with the id as its payload. Returns true when the layer took it; false when it is busy, and then nothing is sent.
 bool SendId(SessionLayer& layer, uint16 id, SessionWire& wire) {
 	std::array<uint8, 2> payload{};
-	VubPutLe16(payload.data(), id);
+	VUB::PutLe16(payload.data(), id);
 	std::array<uint8, 64> out{};
-	Result<std::size_t> added = layer.Add(VubMeta{}, std::span<const uint8>(payload.data(), payload.size()),
+	Result<std::size_t> added = layer.Add(VUB::Meta{}, std::span<const uint8>(payload.data(), payload.size()),
 		std::span<uint8>(out.data(), out.size()));
 	if (added.IsErr()) {
 		return false;
@@ -108,10 +108,10 @@ bool SendId(SessionLayer& layer, uint16 id, SessionWire& wire) {
 void Carry(SessionWire& from, SessionLayer& to, SessionReceived& received) {
 	for (std::size_t index = 0; index < from.count && index < from.packets.size(); index++) {
 		std::span<const uint8> packet(from.packets[index].data(), from.lengths[index]);
-		Result<VubTake> taken = to.Take(VubMeta{}, packet);
+		Result<VUB::Taken> taken = to.Take(VUB::Meta{}, packet);
 		if (taken.IsOk() && taken.Value().deliver && received.count < received.ids.size()) {
 			std::size_t at = taken.Value().consumed;
-			received.ids[received.count] = VubGetLe16(packet.data() + at);
+			received.ids[received.count] = VUB::GetLe16(packet.data() + at);
 			received.count++;
 		}
 	}
@@ -158,8 +158,8 @@ SessionLayer::Options SendingOptions() {
 
 // Takes a packet given as bytes, as the receiving side gets it.
 template<std::size_t Size>
-Result<VubTake> TakeBytes(SessionLayer& layer, const std::array<uint8, Size>& bytes) {
-	return layer.Take(VubMeta{}, std::span<const uint8>(bytes.data(), bytes.size()));
+Result<VUB::Taken> TakeBytes(SessionLayer& layer, const std::array<uint8, Size>& bytes) {
+	return layer.Take(VUB::Meta{}, std::span<const uint8>(bytes.data(), bytes.size()));
 }
 
 
@@ -199,9 +199,9 @@ void TestSendBeforeSessionValueIsNoInit() {
 	SessionWire wire{};
 	SessionLayer layer;
 	std::array<uint8, 2> payload{};
-	VubPutLe16(payload.data(), 0);
+	VUB::PutLe16(payload.data(), 0);
 	std::array<uint8, 64> out{};
-	Result<std::size_t> added = layer.Add(VubMeta{}, std::span<const uint8>(payload.data(), payload.size()),
+	Result<std::size_t> added = layer.Add(VUB::Meta{}, std::span<const uint8>(payload.data(), payload.size()),
 		std::span<uint8>(out.data(), out.size()));
 	SIM_EXPECT(added.IsErr());
 	SIM_EXPECT(added.Error() == ResultStatus::noInit);
@@ -310,7 +310,7 @@ void TestOldSessionPacketCannotSlideTheWindow() {
 	farWire.count = 0;
 	// Flags 0x01, tag 0x77, number 0x123B, delta 0x00, payload id 0x00AA.
 	std::array<uint8, 7> stale = {0x01, 0x77, 0x3B, 0x12, 0x00, 0xAA, 0x00};
-	Result<VubTake> taken = TakeBytes(far, stale);
+	Result<VUB::Taken> taken = TakeBytes(far, stale);
 	SIM_EXPECT(taken.IsOk());
 	SIM_EXPECT(!taken.Value().deliver);
 	far.Process(0x0100, Outbox(farWire));
@@ -318,7 +318,7 @@ void TestOldSessionPacketCannotSlideTheWindow() {
 	SIM_EXPECT(SentOnly(farWire, resync));
 	// The session's own packet with the first number is inside the window and goes up.
 	std::array<uint8, 7> current = {0x01, 0x34, 0x01, 0x00, 0x00, 0x05, 0x00};
-	Result<VubTake> own = TakeBytes(far, current);
+	Result<VUB::Taken> own = TakeBytes(far, current);
 	SIM_EXPECT(own.IsOk());
 	SIM_EXPECT(own.Value().deliver);
 	SIM_EXPECT(testRestartCount == 0);
@@ -337,7 +337,7 @@ void TestDataOfAnotherSessionIsNotDelivered() {
 	farWire.count = 0;
 	// The sync of session 0x5656 was lost; its data, with the number 0x0001 of the held session's tag 0x56, is refused.
 	std::array<uint8, 7> foreign = {0x01, 0x56, 0x01, 0x00, 0x00, 0x05, 0x00};
-	Result<VubTake> refused = TakeBytes(far, foreign);
+	Result<VUB::Taken> refused = TakeBytes(far, foreign);
 	SIM_EXPECT(refused.IsOk());
 	SIM_EXPECT(!refused.Value().deliver);
 	far.Process(0x0100, Outbox(farWire));
@@ -352,10 +352,10 @@ void TestDataOfAnotherSessionIsNotDelivered() {
 	far.Process(0x0100, Outbox(farWire));
 	SIM_EXPECT(testRestartCount == 1);
 	std::array<uint8, 7> next = {0x01, 0x56, 0x01, 0x00, 0x00, 0x06, 0x00};
-	Result<VubTake> first = TakeBytes(far, next);
+	Result<VUB::Taken> first = TakeBytes(far, next);
 	SIM_EXPECT(first.IsOk());
 	SIM_EXPECT(first.Value().deliver);
-	Result<VubTake> copy = TakeBytes(far, next);
+	Result<VUB::Taken> copy = TakeBytes(far, next);
 	SIM_EXPECT(copy.IsOk());
 	SIM_EXPECT(!copy.Value().deliver);
 }
@@ -374,11 +374,11 @@ void TestResyncOfAnotherSessionIsIgnored() {
 	SIM_EXPECT(SendId(near, 3, nearWire));
 	nearWire.count = 0;
 	std::array<uint8, 2> other = {0x08, 0x77};
-	SIM_EXPECT(near.Take(VubMeta{}, std::span<const uint8>(other.data(), other.size())).IsOk());
+	SIM_EXPECT(near.Take(VUB::Meta{}, std::span<const uint8>(other.data(), other.size())).IsOk());
 	near.Process(0x0100, Outbox(nearWire));
 	SIM_EXPECT(testCountById[3] == 0);
 	std::array<uint8, 2> own = {0x08, 0x34};
-	SIM_EXPECT(near.Take(VubMeta{}, std::span<const uint8>(own.data(), own.size())).IsOk());
+	SIM_EXPECT(near.Take(VUB::Meta{}, std::span<const uint8>(own.data(), own.size())).IsOk());
 	near.Process(0x0100, Outbox(nearWire));
 	SIM_EXPECT(testCountById[3] == 1);
 	SIM_EXPECT(testStatusById[3] == ResultStatus::reset);
@@ -411,7 +411,7 @@ void TestDelayedResyncOfTheCurrentSessionIsSafe() {
 	SIM_EXPECT(SendId(near, 2, nearWire));
 	nearWire.count = 0;
 	std::array<uint8, 2> delayed = {0x08, 0x34};
-	SIM_EXPECT(near.Take(VubMeta{}, std::span<const uint8>(delayed.data(), delayed.size())).IsOk());
+	SIM_EXPECT(near.Take(VUB::Meta{}, std::span<const uint8>(delayed.data(), delayed.size())).IsOk());
 	near.Process(0x0100, Outbox(nearWire));
 	SIM_EXPECT(testCountById[1] == 1);
 	SIM_EXPECT(testStatusById[1] == ResultStatus::reset);

@@ -3,7 +3,7 @@
 
 
 struct ZeroLink {
-	static constexpr VubLinkTraits traits = VubLinkTraits().Framed().MaxPacket(0).FullDuplex();
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(0).FullDuplex();
 
 
 	ResultStatus Send(std::span<const uint8> packet) {
@@ -13,8 +13,8 @@ struct ZeroLink {
 };
 
 
-using Stack = Vub<+[] {
-	return VubBuilder()
+using Stack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<TestLayer>()
 		.Link<ZeroLink>()
 		.MaxPayload(40)

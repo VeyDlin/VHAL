@@ -1,7 +1,7 @@
 #include "SimCheck.h"
-#include "VubChains.h"
-#include <Drivers/Interface/VUB/VubBuilder.h>
-#include <Drivers/Interface/VUB/Vub.h>
+#include "Chains.h"
+#include <Drivers/Interface/VUB/Builder.h>
+#include <Drivers/Interface/VUB/Stack.h>
 #include <Utilities/DataTypes.h>
 #include <array>
 #include <cstddef>
@@ -22,18 +22,18 @@ static_assert(PacketStack::framedBytes == 45);
 static_assert(!PacketStack::streamLink);
 
 // The options of the last block can be read and replaced by value, and the type of the options must match.
-static_assert(VubBuilder().Layer<TestLayer>(TestLayerOptions{5, false}).WithLastOptions(TestLayerOptions{7, true}).LastOptions().beaconIntervalUs == 7);
-static_assert(VubBuilder().Layer<TestLayer>(TestLayerOptions{5, false}).WithLastOptions(TestLayerOptions{7, true}).LastOptions().bulk);
-static_assert(VubBuilder().Layer<TestLayer>().LastIs<TestLayer>());
-static_assert(!VubBuilder().Layer<TestLayer>().LastIs<XorTransform>());
-static_assert(VubBuilder().Transform<XorTransform>().Link<StreamEnd>().LastIs<StreamEnd>());
+static_assert(VUB::Builder().Layer<TestLayer>(TestLayerOptions{5, false}).WithLastOptions(TestLayerOptions{7, true}).LastOptions().beaconIntervalUs == 7);
+static_assert(VUB::Builder().Layer<TestLayer>(TestLayerOptions{5, false}).WithLastOptions(TestLayerOptions{7, true}).LastOptions().bulk);
+static_assert(VUB::Builder().Layer<TestLayer>().LastIs<TestLayer>());
+static_assert(!VUB::Builder().Layer<TestLayer>().LastIs<XorTransform>());
+static_assert(VUB::Builder().Transform<XorTransform>().Link<StreamEnd>().LastIs<StreamEnd>());
 
 
 // A chain with no stored block: its storage is an empty type, and the stack takes no room for it. Without [[no_unique_address]] the
 // empty storage takes a byte, and the padding after it can add 8 bytes to the stack (on a 64-bit host, with a receive queue of 3, the
 // stack is 592 bytes instead of 584).
-using NoBlockStack = Vub<+[] {
-	return VubBuilder()
+using NoBlockStack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Link<PacketEnd>()
 		.MaxPayload(40)
 		.ReceiveQueue(3)
@@ -52,7 +52,7 @@ void TestNoBlockStorageTakesNoRoom() {
 
 void TestBuildRunsSend() {
 	ResetTestState();
-	StreamLine line(VubFaults{});
+	StreamLine line(VUB::Faults{});
 	StreamStack stack(line.a);
 
 	std::array<uint8, 41> tooLong{};
@@ -66,7 +66,7 @@ void TestBuildRunsSend() {
 // The builder keeps the options a block was given: the layer of the beacon chain is built with its options value.
 void TestOptionsReachTheBlock() {
 	ResetTestState();
-	StreamLine line(VubFaults{});
+	StreamLine line(VUB::Faults{});
 	BeaconStack beacon(line.a);
 	testNowUs = 0;
 	beacon.Process();

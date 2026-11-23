@@ -2,12 +2,12 @@
 #include "SnippetSupport.h"
 
 
-using Stack = Vub<+[] {
-	return VubBuilder()
+using Stack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<TestLayer>()
 		.Framing<FlagFraming>()
 		.Framing<FlagFraming>()
-		.Link<VubStreamEnd<64, 16>>()
+		.Link<VUB::StreamEnd<64, 16>>()
 		.MaxPayload(40)
 		.OnReceive<&SnippetReceive>()
 		.Clock<&SnippetClock>();

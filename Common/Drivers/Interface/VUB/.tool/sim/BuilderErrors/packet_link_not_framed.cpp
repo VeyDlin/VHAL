@@ -3,7 +3,7 @@
 
 
 struct UnframedPacketLink {
-	static constexpr VubLinkTraits traits = VubLinkTraits().MaxPacket(64).FullDuplex();
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().MaxPacket(64).FullDuplex();
 
 
 	ResultStatus Send(std::span<const uint8> packet) {
@@ -13,8 +13,8 @@ struct UnframedPacketLink {
 };
 
 
-using Stack = Vub<+[] {
-	return VubBuilder()
+using Stack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<TestLayer>()
 		.Link<UnframedPacketLink>()
 		.MaxPayload(40)

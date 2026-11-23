@@ -10,6 +10,6 @@ void SizeRun() {
 	std::array<uint8, 32> payload{};
 	SizeFill(payload);
 	(void)sizeLink.Send(std::span<const uint8>(payload));
-	const VubMeta meta{};
+	const VUB::Meta meta{};
 	SizeReceive(meta, std::span<const uint8>(sizeWire.data(), sizeWireLength));
 }

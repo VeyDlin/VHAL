@@ -1,4 +1,4 @@
-// expect: VubLink
+// expect: VUB::LinkBlock
 #include "SnippetSupport.h"
 
 
@@ -9,8 +9,8 @@ struct NoTraitsLink {
 };
 
 
-using Stack = Vub<+[] {
-	return VubBuilder()
+using Stack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<TestLayer>()
 		.Link<NoTraitsLink>()
 		.MaxPayload(40)

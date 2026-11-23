@@ -1,7 +1,7 @@
 #include "SimCheck.h"
-#include "VubReliableChains.h"
-#include <Drivers/Interface/VUB/TestKit/VubLoopback.h>
-#include <Drivers/Interface/VUB/TestKit/VubWire.h>
+#include "ReliableChains.h"
+#include <Drivers/Interface/VUB/TestKit/Loopback.h>
+#include <Drivers/Interface/VUB/TestKit/Wire.h>
 #include <Utilities/DataTypes.h>
 #include <cstddef>
 #include <span>
@@ -74,7 +74,7 @@ void RunFaultyTraffic(Line& line, Stack& near, Stack& far, std::size_t total, ui
 // reorder would hand the layer damage that looks valid. Reordering is tested on the packet line.
 void TestStreamWithByteFaults() {
 	ResetReliableState();
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.seed = 0x2468;
 	faults.dropPercent = 1;
 	faults.duplicatePercent = 1;
@@ -100,7 +100,7 @@ void TestStreamWithByteFaults() {
 // A packet line with 20 % drops, 10 % corrupted packets, 10 % duplicates, and delays up to 500 us, so packets overtake each other.
 void TestPacketsWithFaultsAndReordering() {
 	ResetReliableState();
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.seed = 0x1357;
 	faults.dropPercent = 20;
 	faults.corruptPercent = 10;
@@ -129,7 +129,7 @@ void TestPacketsWithFaultsAndReordering() {
 // far side start at 256, so the two sets do not share a count.
 void TestBothDirectionsWithFaults() {
 	ResetReliableState();
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.seed = 0x0BAD;
 	faults.dropPercent = 10;
 	faults.duplicatePercent = 5;

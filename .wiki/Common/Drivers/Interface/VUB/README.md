@@ -4,18 +4,18 @@ VUB is a protocol stack built from blocks. A product's protocol is a chain of bl
 time. Each block has a small contract. The built-in blocks use only that contract, so a user block goes into the chain the same way.
 
 Stage 1 is the core: the five block contracts, the builder and its checks, the stack at run time, drop counters, a test kit, and the
-built-in blocks of stage 1: the CRC transform ([CRC](Transform/VubCrc)), the framings ([COBS](Framing/VubCobs),
-[length prefix](Framing/VubLengthPrefix) and [gap framing](Framing/VubGap)), the delivery layer
-([VubReliable](Layer/VubReliable)), and the keep-alive layer for a link that cannot report its state
-([VubKeepAlive](Layer/VubKeepAlive)). A chain is made of these, of user blocks, and of the test kit's loopback.
+built-in blocks of stage 1: the CRC transform ([CRC](Transform/Crc)), the framings ([COBS](Framing/Cobs),
+[length prefix](Framing/LengthPrefix) and [gap framing](Framing/Gap)), the delivery layer
+([VUB::Reliable](Layer/Reliable)), and the keep-alive layer for a link that cannot report its state
+([VUB::KeepAlive](Layer/KeepAlive)). A chain is made of these, of user blocks, and of the test kit's loopback.
 
 ## The chain
 
 A chain is written from the application down to the link:
 
 ```cpp
-using Board = Vub<+[] {
-	return VubBuilder()
+using Board = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Transform<SumCheck>()
 		.Link<BoardLink>()
 		.MaxPayload(32)
@@ -25,21 +25,43 @@ using Board = Vub<+[] {
 
 The application sends into the top, and the link is the last block. A block that is not in the chain has no code and no RAM.
 
+## Names
+
+Every type of VUB is in the namespace `VUB`, and the pages name each type with it: `VUB::Stack`, `VUB::Reliable`,
+`VUB::Crc16Modbus`. Inside the builder's lambda, `using namespace VUB;` shortens the chain. Write it there or in a `.cpp` file, not in
+a header, so the short names do not reach the files that include the header:
+
+```cpp
+using Board = VUB::Stack<+[] {
+	using namespace VUB;
+	return Builder()
+		.Layer<Reliable>().Retries(3).TimeoutMs(200)
+		.Transform<Crc16Modbus>()
+		.Link<BoardLink>()
+		.MaxPayload(32)
+		.OnReceive<&OnPacket>()
+		.Clock<&BoardClockUs>();
+}>;
+```
+
+`Crc` is also the class of the shared CRC library (`Utilities/Checksum/CRC/Crc.h`). In a file that includes both, the short name
+`Crc` is ambiguous, so the transform is written `VUB::Crc`. The presets, such as `Crc16Modbus`, have no such clash.
+
 ## The five kinds
 
 | Kind | Concept | What it does | Members the concept needs |
 |---|---|---|---|
-| Link | `VubStreamLink`, `VubPacketLink` | the wire at the bottom | `traits`; `Write(span)` returning `Result<size_t>` (a byte stream), or `Send(span)` returning `ResultStatus` (whole packets) |
-| Framing | `VubFraming` | finds packet boundaries in a byte stream | `usesTime`, `Growth(length)`, `Frame(meta, packet, out)`, `Push(byte, out, length)`; with `usesTime`: `Push(byte, nowUs, out, length)`, `Poll(nowUs, out, length)`, `Ready(nowUs)` and `Sent(nowUs, count)` (see [gap framing](Framing/VubGap)) |
-| Transform | `VubTransform` | one packet into another, and back | `growth`, `fingerprint`, `Encode(meta, in, out)`, `Decode(meta, packet)` |
-| Engine | `VubEngine`, `VubEngineFor` | computes what a transform describes (a CRC, AES) | `synchronous`; `Supports<Algorithm>()` and `Run<Algorithm>(data)` for `VubEngineFor` (see [engines](Engine/README)) |
-| Layer | `VubLayer` | a header, state, time; may send packets of its own and make bulk packets | `header`, `fingerprint`, `usesTime`, `makesBulk`, `Add`, `Take`, `Process`, and `Next` when `makesBulk` is true |
+| Link | `VUB::StreamLink`, `VUB::PacketLink` | the wire at the bottom | `traits`; `Write(span)` returning `Result<size_t>` (a byte stream), or `Send(span)` returning `ResultStatus` (whole packets) |
+| Framing | `VUB::FramingBlock` | finds packet boundaries in a byte stream | `usesTime`, `Growth(length)`, `Frame(meta, packet, out)`, `Push(byte, out, length)`; with `usesTime`: `Push(byte, nowUs, out, length)`, `Poll(nowUs, out, length)`, `Ready(nowUs)` and `Sent(nowUs, count)` (see [gap framing](Framing/Gap)) |
+| Transform | `VUB::TransformBlock` | one packet into another, and back | `growth`, `fingerprint`, `Encode(meta, in, out)`, `Decode(meta, packet)` |
+| Engine | `VUB::EngineBlock`, `VUB::EngineFor` | computes what a transform describes (a CRC, AES) | `synchronous`; `Supports<Algorithm>()` and `Run<Algorithm>(data)` for `VUB::EngineFor` (see [engines](Engine/README)) |
+| Layer | `VUB::LayerBlock` | a header, state, time; may send packets of its own and make bulk packets | `header`, `fingerprint`, `usesTime`, `makesBulk`, `Add`, `Take`, `Process`, and `Next` when `makesBulk` is true |
 
-A block that misses a member is a compile error. The message names the concept it does not satisfy, for example `the transform does not satisfy VubTransform`, and the concept's notes follow it.
+A block that misses a member is a compile error. The message names the concept it does not satisfy, for example `the transform does not satisfy VUB::TransformBlock`, and the concept's notes follow it.
 
 ## The builder
 
-`VubBuilder()` makes an empty builder. Each method that adds a block returns a builder with one more block in its type. The four
+`VUB::Builder()` makes an empty builder. Each method that adds a block returns a builder with one more block in its type. The four
 block methods take the block's type, and optionally an options value:
 
 - `.Layer<T>()` or `.Layer<T>(options)`
@@ -60,14 +82,14 @@ Settings are set anywhere in the chain:
 | `SendQueue(packets)` | packets held for the link while it is busy | 4 |
 | `PerProcess(packets)` | most packets one `Process` call sends | 8 |
 | `Clock<&Fn>()` | the clock, a function returning microseconds as `uint32` | required when a block uses time |
-| `OnReceive<&Fn>()` | the receive handler, `void(const VubMeta&, std::span<const uint8>)` | required |
-| `WhileDown(policy)` | what the packets do while the connection is down: `VubDown::Wait` or `VubDown::Fail` (see [Link state](#link-state)) | `Wait` |
+| `OnReceive<&Fn>()` | the receive handler, `void(const VUB::Meta&, std::span<const uint8>)` | required |
+| `WhileDown(policy)` | what the packets do while the connection is down: `VUB::Down::Wait` or `VUB::Down::Fail` (see [Link state](#link-state)) | `Wait` |
 
 The builder checks: one link, the link last; a byte-stream link has one framing right above it, a packet link has none; a link has
 traits with `Framed()` only when it is a packet link, `HalfDuplex()` or `FullDuplex()`, and a non-zero `MaxPacket(n)`; the packet built
 from the payload, the headers and the growths fits the link's `MaxPacket`; the sizes and the handler are given; a block that uses time
 has a clock. The lengths and indexes are 16-bit: a packet, a framed packet and a link's `MaxPacket` are at most 65535 bytes, and the
-ring and the queues hold at most 65535 entries. Each rule is a compile error with its message. A link with `ReportsState()` must take `SetStateSink`, and `WhileDown(VubDown::Fail)` needs
+ring and the queues hold at most 65535 entries. Each rule is a compile error with its message. A link with `ReportsState()` must take `SetStateSink`, and `WhileDown(VUB::Down::Fail)` needs
 something that can report the connection down.
 
 Options after a block: `LastIs<Block>()`, `LastOptions()` and `WithLastOptions(value)` read and replace the options of the last block.
@@ -89,7 +111,7 @@ in the control queue. `Process()` does the rest, in this order:
 everything else runs in `Process`. A chain whose framing uses time stores the time of each byte in `Feed`, so the clock is read there too.
 
 `Find<Block>()` returns the block of that type in the chain, for the settings that change at run time, such as the gap framing's baud
-rate: `stack.Find<VubGap>().SetBaud(19200)`. A chain without that block does not compile the call. A chain with two blocks of that type
+rate: `stack.Find<VUB::Gap>().SetBaud(19200)`. A chain without that block does not compile the call. A chain with two blocks of that type
 is allowed, but `Find` does not compile for it: it cannot tell the two apart, and the message says so.
 
 ## Backpressure and order
@@ -122,12 +144,12 @@ A link may report that it is up or down: a USB device when it is configured, a B
 cannot see a down has none of this: no record, no `LinkUp()`, no code.
 
 A layer may also declare its peer down or up from `Process`, with `outbox.SetPeer(up)`, when it has a keep-alive of its own. The
-stack treats it as a change of the connection. The keep-alive for a link that cannot report is [VubKeepAlive](Layer/VubKeepAlive).
+stack treats it as a change of the connection. The keep-alive for a link that cannot report is [VUB::KeepAlive](Layer/KeepAlive).
 
 A layer that declares `reportsPeer` must be the lowest layer of the chain: no other layer is below it, though transforms and the framing
 may be. A chain holds one such layer. The builder refuses a reporting layer with another layer below it, with the message "a layer that
 declares reportsPeer must be the lowest layer of the chain", and a second reporting layer, with "two layers declare reportsPeer". The
-reason for the first: the layer's pings go through the layers below it. Above a delivery layer such as [VubReliable](Layer/VubReliable),
+reason for the first: the layer's pings go through the layers below it. Above a delivery layer such as [VUB::Reliable](Layer/Reliable),
 the pings go through a layer that holds back sending while the connection is down, so after a lost first session neither end can send its
 ping, and both wait. Below it, the pings go out, and the delivery layer sees only the application's packets. The reason for the second: the
 stack keeps one peer state, and the last `SetPeer` in a `Process` would overwrite the first.
@@ -159,24 +181,24 @@ its state the answer is always true. A chain whose layers do not ask is unchange
     down. When the peer goes down, the application's queued packets are dropped and the layers' own packets are kept; when the link goes
     down, the layers' own packets are dropped too. A layer's own packet gets `noConnection` only while the link is down. A refused
     `Send` is not counted: the caller has the status.
-- `WhileDown(VubDown::Fail)` needs something that can report the connection down: a link with `ReportsState()`, or a layer with
+- `WhileDown(VUB::Down::Fail)` needs something that can report the connection down: a link with `ReportsState()`, or a layer with
   `reportsPeer`. Otherwise it is a compile error.
 - Cost. A chain with a layer that reports its peer has a second send queue for the layers' own packets, of `SendQueue(n) + 1` slots of
   the packet size, with its lengths, flags and indexes, and a link record when the link does not report. Measured with `sizeof` on the
   Cortex-M4 for one layer that reports its peer (the same layer type with `reportsPeer` cleared and set), on a packet link that does not
   report, with `MaxPayload(40)` and the default queues: `sizeof` is 756 bytes without the report and 996 with it, so 240 bytes; `text`
-  adds 230 bytes and `bss` 240. The method and the other figures are on the [keep-alive page](Layer/VubKeepAlive#cost). A chain without a
+  adds 230 bytes and `bss` 240. The method and the other figures are on the [keep-alive page](Layer/KeepAlive#cost). A chain without a
   layer that reports its peer has no second queue, and its size is the same as before.
 
 The test kit can take a line down and up, see the [test kit](TestKit/README).
 
 ## Flags
 
-`VubMeta` has a `flags` field. The block that makes a packet sets it: the application through the `meta` argument of `Send`, a layer
-in `Next`, a layer in `Process` through the outbox. Every block below the producer reads it through the `const VubMeta&` it is given:
+`VUB::Meta` has a `flags` field. The block that makes a packet sets it: the application through the `meta` argument of `Send`, a layer
+in `Next`, a layer in `Process` through the outbox. Every block below the producer reads it through the `const VUB::Meta&` it is given:
 the layers' `Add`, the transforms' `Encode` and `Decode`, and the framing's `Frame`. Links do not get it: a link carries bytes or
-packets, not flags. `VubMeta::NoAcknowledgeFlag` is defined, and the delivery layer honours it: a packet with the flag has no sequence
-number and is not acknowledged (see [VubReliable](Layer/VubReliable)).
+packets, not flags. `VUB::Meta::NoAcknowledgeFlag` is defined, and the delivery layer honours it: a packet with the flag has no sequence
+number and is not acknowledged (see [VUB::Reliable](Layer/Reliable)).
 
 ## Drop counters
 
@@ -191,7 +213,7 @@ Every packet or byte the stack discards is counted under one reason. `Drops()` r
 | `transformError` | a transform's `Decode` returned an error, or its `Encode` failed for a packet with no caller (see below) |
 | `layerError` | a layer's `Take` returned an error, or a layer's `Add` or `Next` failed for a packet with no caller, or a layer's packet from `Process` was too long, or a packet it passed up with `Deliver` was too long |
 | `sendError` | the link or the framing refused a packet with an error other than `busy` |
-| `linkDown` | a packet queued when the connection went down under `VubDown::Fail`, or a byte of the receive ring that a down discarded |
+| `linkDown` | a packet queued when the connection went down under `VUB::Down::Fail`, or a byte of the receive ring that a down discarded |
 
 A packet with no caller is one the stack makes itself: a bulk packet from a layer's `Next`, or a packet a layer sends from `Process`.
 When such a packet is refused, it is counted. A packet the application passes to `Send` is different: `Send` returns the failure to the
@@ -227,13 +249,13 @@ ring, and a link with `MaxPacket(64)`.
 | (d) (b) + CRC-16/MODBUS bitwise | 1144 | 700 | 1432 | 700 |
 | (e) stream link, length prefix 1, CRC-8 bitwise | 1084 | 672 | 1376 | 672 |
 | (f) stream link, gap framing, CRC-16 table | 2724 | 1728 | 2916 | 1728 |
-| (g) (c) + VubReliable (Retries 3, Window 4) | 4708 | 1136 | 5216 | 1136 |
+| (g) (c) + VUB::Reliable (Retries 3, Window 4) | 4708 | 1136 | 5216 | 1136 |
 | (h) (g) with the in-order option | 5044 | 1272 | 5576 | 1272 |
-| (i) COBS, CRC-8, VubReliableOf window 1, Retries 3 | 3780 | 932 | 4296 | 932 |
-| breakdown of (i): the same without VubReliableOf | 1096 | 692 | 1388 | 692 |
+| (i) COBS, CRC-8, VUB::ReliableOf window 1, Retries 3 | 3780 | 932 | 4296 | 932 |
+| breakdown of (i): the same without VUB::ReliableOf | 1096 | 692 | 1388 | 692 |
 | CompactStreamingProtocol<20, 4> (bootloader use) | 2292 | 1116 | 2880 | 1116 |
-| (j) stream link, COBS, CRC-16/MODBUS table, VubKeepAlive (default times) | 2616 | 940 | 2984 | 940 |
-| (k) (g) + VubKeepAlive (default times) | 5724 | 1428 | 6332 | 1428 |
+| (j) stream link, COBS, CRC-16/MODBUS table, VUB::KeepAlive (default times) | 2616 | 940 | 2984 | 940 |
+| (k) (g) + VUB::KeepAlive (default times) | 5724 | 1428 | 6332 | 1428 |
 
 Measured with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203` on Windows 11, through Git Bash,
 with `Common/Drivers/Interface/VUB/.tool/size/size.sh`.
@@ -290,9 +312,9 @@ the wire that has not been fed. Every fragment and every acknowledgement goes th
 Against the protocol, configuration (i) is 1488 bytes larger in text on the M4 (3780 against 2292) and 1416 bytes larger on the M0+
 (4296 against 2880). Its RAM is 184 bytes smaller on the M4 (932 against 1116) and on the M0+ (932 against 1116). The design asks for
 a stack with the protocol's properties to be no larger than the protocol on the same target, so this stage does not meet it in text.
-The breakdown row shows where the text goes: without `VubReliableOf`, configuration (i) is 1096 bytes of text on the M4, and the layer
+The breakdown row shows where the text goes: without `VUB::ReliableOf`, configuration (i) is 1096 bytes of text on the M4, and the layer
 adds 2684 bytes. The layer carries what the protocol does not: sequence numbers with sessions and a sync, a window, a ring of owed
-acknowledgements, retries with timeouts, and outcome reporting (see [VubReliable](Layer/VubReliable)). The measurement gives the size of
+acknowledgements, retries with timeouts, and outcome reporting (see [VUB::Reliable](Layer/Reliable)). The measurement gives the size of
 the layer as a whole; it does not split the layer's code further.
 
 ## Writing a block
@@ -306,7 +328,7 @@ struct SumCheck {
 	static constexpr std::size_t growth = 1;
 	static constexpr uint32 fingerprint = 0x53554D31;
 
-	Result<std::size_t> Encode(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Encode(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		if (out.size() < in.size() + growth) {
 			return ResultStatus::invalidParameter;
 		}
@@ -321,7 +343,7 @@ struct SumCheck {
 		return in.size() + growth;
 	}
 
-	Result<std::size_t> Decode(const VubMeta&, std::span<uint8> packet) {
+	Result<std::size_t> Decode(const VUB::Meta&, std::span<uint8> packet) {
 		if (packet.empty()) {
 			return ResultStatus::invalidData;
 		}
@@ -346,7 +368,7 @@ The block is used like a built-in one. The link of the board is a packet link: i
 ```cpp
 // The packet link of the board: it sends a whole packet, or reports busy when its transmitter has no room.
 struct BoardLink {
-	static constexpr VubLinkTraits traits = VubLinkTraits().Framed().MaxPacket(64).FullDuplex();
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64).FullDuplex();
 
 	ResultStatus Send(std::span<const uint8> packet) {
 		(void)packet;
@@ -354,12 +376,12 @@ struct BoardLink {
 	}
 };
 
-void OnPacket(const VubMeta&, std::span<const uint8> payload) {
+void OnPacket(const VUB::Meta&, std::span<const uint8> payload) {
 	(void)payload;
 }
 
-using Board = Vub<+[] {
-	return VubBuilder()
+using Board = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Transform<SumCheck>()
 		.Link<BoardLink>()
 		.MaxPayload(32)
@@ -380,7 +402,7 @@ Before the block goes into a chain, run its contract check (see the [test kit](T
 
 ```cpp
 SumCheck sumCheck;
-bool passes = VubCheckTransform(sumCheck, 7, 500, 32);
+bool passes = VUB::CheckTransform(sumCheck, 7, 500, 32);
 ```
 
 A block that uses time declares `usesTime = true` and gets the clock from `Process`. A layer that makes bulk packets declares
@@ -397,10 +419,10 @@ interrupt may call it. The stack gives back a null sink when it is destroyed.
 ```cpp
 // A packet link that reports its state, as a USB device does. The stack gives its sink here; the interrupt reports the connection.
 struct UsbLink {
-	static constexpr VubLinkTraits traits = VubLinkTraits().Framed().MaxPacket(64).FullDuplex().ReportsState();
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64).FullDuplex().ReportsState();
 
 	// The stack gives its sink here, and the link reports its current state through it at once.
-	void SetStateSink(VubStateSink value) {
+	void SetStateSink(VUB::StateSink value) {
 		sink = value;
 		sink.Report(configured);
 	}
@@ -416,15 +438,15 @@ struct UsbLink {
 		return ResultStatus::ok;
 	}
 
-	VubStateSink sink;
+	VUB::StateSink sink;
 	bool configured = false;
 };
 
-using Usb = Vub<+[] {
-	return VubBuilder()
+using Usb = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Link<UsbLink>()
 		.MaxPayload(32)
-		.WhileDown(VubDown::Fail)
+		.WhileDown(VUB::Down::Fail)
 		.OnReceive<&OnPacket>();
 }>;
 ```
@@ -443,7 +465,7 @@ struct LineFraming {
 	}
 
 
-	Result<std::size_t> Frame(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Frame(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		if (in.size() + 1 > out.size()) {
 			return ResultStatus::messageTooLong;
 		}
@@ -457,24 +479,24 @@ struct LineFraming {
 	}
 
 
-	VubFrame Push(uint8 byte, std::span<uint8> out, std::size_t& length) {
+	VUB::FrameStatus Push(uint8 byte, std::span<uint8> out, std::size_t& length) {
 		if (byte != 0x0A) {
 			if (count < body.size()) {
 				body[count] = byte;
 			}
 
 			count++;
-			return VubFrame::pending;
+			return VUB::FrameStatus::pending;
 		}
 
 		std::size_t frame = count;
 		count = 0;
 		if (frame == 0) {
-			return VubFrame::pending;
+			return VUB::FrameStatus::pending;
 		}
 
 		if (frame > body.size() || frame > out.size()) {
-			return VubFrame::tooLong;
+			return VUB::FrameStatus::tooLong;
 		}
 
 		for (std::size_t index = 0; index < frame; index++) {
@@ -482,7 +504,7 @@ struct LineFraming {
 		}
 
 		length = frame;
-		return VubFrame::packet;
+		return VUB::FrameStatus::packet;
 	}
 
 
@@ -512,7 +534,7 @@ struct PeerWatch {
 	static constexpr bool reportsPeer = true;
 
 
-	Result<std::size_t> Add(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		if (out.size() < in.size()) {
 			return ResultStatus::invalidParameter;
 		}
@@ -525,12 +547,12 @@ struct PeerWatch {
 	}
 
 
-	Result<VubTake> Take(const VubMeta&, std::span<const uint8>) {
-		return VubTake{0, true};
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
 	}
 
 
-	void Process(uint32 nowUs, const VubOutbox& outbox) {
+	void Process(uint32 nowUs, const VUB::Outbox& outbox) {
 		outbox.SetPeer(nowUs - heardUs < 1000);
 	}
 
@@ -558,10 +580,10 @@ inline uint32 Now() {
 }
 
 
-using Watched = Vub<+[] {
-	return VubBuilder()
+using Watched = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<PeerWatch>()
-		.Link<VubPacketEnd<64, 512>>()
+		.Link<VUB::PacketEnd<64, 512>>()
 		.MaxPayload(32)
 		.OnReceive<&OnPacket>()
 		.Clock<&Now>();
@@ -594,7 +616,7 @@ struct InOrder {
 	static constexpr bool passesUp = true;
 
 
-	Result<std::size_t> Add(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		if (out.size() < in.size() + header) {
 			return ResultStatus::invalidParameter;
 		}
@@ -609,14 +631,14 @@ struct InOrder {
 	}
 
 
-	Result<VubTake> Take(const VubMeta&, std::span<const uint8> packet) {
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8> packet) {
 		if (packet.empty()) {
 			return ResultStatus::invalidData;
 		}
 
 		if (packet[0] == expected) {
 			expected++;
-			return VubTake{header, true};
+			return VUB::Taken{header, true};
 		}
 
 		if (held || packet.size() - header > heldBody.size()) {
@@ -630,11 +652,11 @@ struct InOrder {
 
 		heldNumber = packet[0];
 		held = true;
-		return VubTake{header, false};
+		return VUB::Taken{header, false};
 	}
 
 
-	void Process(uint32, const VubOutbox& outbox) {
+	void Process(uint32, const VUB::Outbox& outbox) {
 		if (held && heldNumber == expected) {
 			held = false;
 			expected++;
@@ -657,7 +679,7 @@ inline std::array<uint8, 4> delivered{};
 inline std::size_t deliveredCount = 0;
 
 
-void OnInOrder(const VubMeta&, std::span<const uint8> payload) {
+void OnInOrder(const VUB::Meta&, std::span<const uint8> payload) {
 	if (deliveredCount < delivered.size() && !payload.empty()) {
 		delivered[deliveredCount] = payload[0];
 	}
@@ -668,7 +690,7 @@ void OnInOrder(const VubMeta&, std::span<const uint8> payload) {
 
 // A packet link. The interrupt gives it packets with FeedPacket.
 struct InOrderLink {
-	static constexpr VubLinkTraits traits = VubLinkTraits().Framed().MaxPacket(64).FullDuplex();
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64).FullDuplex();
 
 	ResultStatus Send(std::span<const uint8> packet) {
 		(void)packet;
@@ -677,8 +699,8 @@ struct InOrderLink {
 };
 
 
-using InOrderStack = Vub<+[] {
-	return VubBuilder()
+using InOrderStack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<InOrder>()
 		.Link<InOrderLink>()
 		.MaxPayload(8)
@@ -747,7 +769,7 @@ struct XorKey {
 	explicit XorKey(const Options& options) : key(options.key) {
 	}
 
-	Result<std::size_t> Encode(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Encode(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		if (out.size() < in.size()) {
 			return ResultStatus::invalidParameter;
 		}
@@ -759,7 +781,7 @@ struct XorKey {
 		return in.size();
 	}
 
-	Result<std::size_t> Decode(const VubMeta&, std::span<uint8> packet) {
+	Result<std::size_t> Decode(const VUB::Meta&, std::span<uint8> packet) {
 		for (std::size_t index = 0; index < packet.size(); index++) {
 			packet[index] = static_cast<uint8>(packet[index] ^ key);
 		}
@@ -768,8 +790,8 @@ struct XorKey {
 	}
 };
 
-using Board = Vub<+[] {
-	return VubBuilder()
+using Board = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Transform<XorKey>().Key(0x5A)
 		.Link<BoardLink>()
 		.MaxPayload(32)

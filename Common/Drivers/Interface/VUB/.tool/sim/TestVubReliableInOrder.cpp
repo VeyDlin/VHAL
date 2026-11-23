@@ -1,11 +1,11 @@
 #include "SimCheck.h"
-#include "VubReliableChains.h"
-#include <Drivers/Interface/VUB/Layer/VubReliable.h>
-#include <Drivers/Interface/VUB/TestKit/VubLoopback.h>
-#include <Drivers/Interface/VUB/TestKit/VubWire.h>
-#include <Drivers/Interface/VUB/VubBytes.h>
-#include <Drivers/Interface/VUB/VubMeta.h>
-#include <Drivers/Interface/VUB/VubOutbox.h>
+#include "ReliableChains.h"
+#include <Drivers/Interface/VUB/Layer/Reliable.h>
+#include <Drivers/Interface/VUB/TestKit/Loopback.h>
+#include <Drivers/Interface/VUB/TestKit/Wire.h>
+#include <Drivers/Interface/VUB/Bytes.h>
+#include <Drivers/Interface/VUB/Meta.h>
+#include <Drivers/Interface/VUB/Outbox.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -13,15 +13,15 @@
 #include <cstddef>
 #include <span>
 
-// The in-order option of the delivery layer: VubReliableOf with InOrder = true. A packet inside the window is held until the packets
+// The in-order option of the delivery layer: VUB::ReliableOf with InOrder = true. A packet inside the window is held until the packets
 // before it have gone up; it is passed up from Process through the outbox's Deliver, and it is acknowledged when it goes up. The sessions
 // use the sender's numbers: the sync is number 0, the data starts at 1. The session tag of boot 0x2020 is 0x20 for counter 0. The
 // payloads are two bytes, the id, little-endian.
 
 
-using OrderLayer = VubReliableOf<40, 4, true>;
-using PlainOrderLayer = VubReliableOf<40, 4>;
-using BigSenderLayer = VubReliableOf<64, 4>;
+using OrderLayer = VUB::ReliableOf<40, 4, true>;
+using PlainOrderLayer = VUB::ReliableOf<40, 4>;
+using BigSenderLayer = VUB::ReliableOf<64, 4>;
 
 
 // The packets a side sent, kept as bytes, and the payloads the side passed up, by id.
@@ -44,8 +44,8 @@ inline uint32 orderOkCount = 0;
 inline uint32 orderNotOkCount = 0;
 
 
-void OrderOutcome(const VubOutcome& outcome) {
-	uint16 id = VubGetLe16(outcome.payload.data());
+void OrderOutcome(const VUB::Outcome& outcome) {
+	uint16 id = VUB::GetLe16(outcome.payload.data());
 	if (id < orderStatus.size()) {
 		orderStatus[id] = outcome.status;
 		orderOutcomes[id]++;
@@ -75,7 +75,7 @@ PlainOrderLayer::Options OutcomeOptions() {
 }
 
 
-ResultStatus OrderSend(void* owner, std::span<const uint8> packet, const VubMeta&) {
+ResultStatus OrderSend(void* owner, std::span<const uint8> packet, const VUB::Meta&) {
 	OrderSide* side = static_cast<OrderSide*>(owner);
 	if (side->count < side->packets.size()) {
 		for (std::size_t index = 0; index < packet.size(); index++) {
@@ -93,7 +93,7 @@ ResultStatus OrderSend(void* owner, std::span<const uint8> packet, const VubMeta
 ResultStatus OrderDeliver(void* owner, std::span<const uint8> packet) {
 	OrderSide* side = static_cast<OrderSide*>(owner);
 	if (side->upCount < side->up.size()) {
-		side->up[side->upCount] = VubGetLe16(packet.data());
+		side->up[side->upCount] = VUB::GetLe16(packet.data());
 	}
 
 	side->upCount++;
@@ -101,8 +101,8 @@ ResultStatus OrderDeliver(void* owner, std::span<const uint8> packet) {
 }
 
 
-VubOutbox OrderOutbox(OrderSide& side) {
-	return VubOutbox(&side, &OrderSend, nullptr, &OrderDeliver);
+VUB::Outbox OrderOutbox(OrderSide& side) {
+	return VUB::Outbox(&side, &OrderSend, nullptr, &OrderDeliver);
 }
 
 
@@ -111,9 +111,9 @@ VubOutbox OrderOutbox(OrderSide& side) {
 template<typename Layer>
 bool SendOrder(Layer& layer, uint16 id, OrderSide& side, std::size_t payloadBytes = 2) {
 	std::array<uint8, 64> payload{};
-	VubPutLe16(payload.data(), id);
+	VUB::PutLe16(payload.data(), id);
 	std::array<uint8, 64> out{};
-	Result<std::size_t> added = layer.Add(VubMeta{}, std::span<const uint8>(payload.data(), payloadBytes),
+	Result<std::size_t> added = layer.Add(VUB::Meta{}, std::span<const uint8>(payload.data(), payloadBytes),
 		std::span<uint8>(out.data(), out.size()));
 	if (added.IsErr()) {
 		return false;
@@ -136,7 +136,7 @@ bool SendOrder(Layer& layer, uint16 id, OrderSide& side, std::size_t payloadByte
 template<typename Layer>
 bool CarryAt(const OrderSide& from, std::size_t index, Layer& to) {
 	std::span<const uint8> packet(from.packets[index].data(), from.lengths[index]);
-	return to.Take(VubMeta{}, packet).IsOk();
+	return to.Take(VUB::Meta{}, packet).IsOk();
 }
 
 
@@ -365,7 +365,7 @@ inline std::array<uint16, 512> lineOrder{};
 inline std::size_t lineOrderCount = 0;
 
 
-void LineOrderReceive(const VubMeta& meta, std::span<const uint8> payload) {
+void LineOrderReceive(const VUB::Meta& meta, std::span<const uint8> payload) {
 	ReliableReceive(meta, payload);
 	if (lineOrderCount < lineOrder.size()) {
 		lineOrder[lineOrderCount] = ReliableIdOf(payload);
@@ -375,9 +375,9 @@ void LineOrderReceive(const VubMeta& meta, std::span<const uint8> payload) {
 }
 
 
-using InOrderPacket = Vub<+[] {
-	return VubBuilder()
-		.Layer<VubReliableOf<40, 4, true>>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&ReliableOutcome>().OnRestart<&ReliableRestart>()
+using InOrderPacket = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Layer<VUB::ReliableOf<40, 4, true>>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&ReliableOutcome>().OnRestart<&ReliableRestart>()
 		.Transform<XorTransform>()
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
@@ -424,7 +424,7 @@ void TestFaultyLineComesUpInOrderEachOnce() {
 	ResetReliableState();
 	lineOrder.fill(0);
 	lineOrderCount = 0;
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.seed = 0x2B2B;
 	faults.dropPercent = 20;
 	faults.corruptPercent = 10;

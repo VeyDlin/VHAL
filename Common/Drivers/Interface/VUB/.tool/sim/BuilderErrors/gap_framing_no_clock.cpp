@@ -1,13 +1,13 @@
 // expect: a block needs time and the chain has no clock
 #include "SnippetSupport.h"
-#include <Drivers/Interface/VUB/Framing/VubGap.h>
+#include <Drivers/Interface/VUB/Framing/Gap.h>
 
 
-using Stack = Vub<+[] {
-	return VubBuilder()
-		.Framing<VubGap>()
+using Stack = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Framing<VUB::Gap>()
 		.GapUs(1750)
-		.Link<VubStreamEnd<64, 16>>()
+		.Link<VUB::StreamEnd<64, 16>>()
 		.MaxPayload(40)
 		.OnReceive<&SnippetReceive>();
 }>;

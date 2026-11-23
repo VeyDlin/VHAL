@@ -11,26 +11,26 @@ struct PeerLayer {
 	static constexpr bool reportsPeer = true;
 
 
-	Result<std::size_t> Add(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		return in.size() + header + out.size() * 0;
 	}
 
 
-	Result<VubTake> Take(const VubMeta&, std::span<const uint8> packet) {
-		return VubTake{header, true};
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8> packet) {
+		return VUB::Taken{header, true};
 	}
 
 
-	void Process(uint32, const VubOutbox&) {
+	void Process(uint32, const VUB::Outbox&) {
 	}
 };
 
 
-using Stack = Vub<+[] {
-	return VubBuilder()
+using Stack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<PeerLayer>()
 		.Layer<StepLayer>()
-		.Link<VubPacketEnd<64, 16>>()
+		.Link<VUB::PacketEnd<64, 16>>()
 		.MaxPayload(40)
 		.OnReceive<&SnippetReceive>()
 		.Clock<&SnippetClock>();

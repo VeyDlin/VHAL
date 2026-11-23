@@ -1,7 +1,7 @@
 #include "SimCheck.h"
-#include <Drivers/Interface/VUB/Framing/VubCobs.h>
-#include <Drivers/Interface/VUB/TestKit/VubContracts.h>
-#include <Drivers/Interface/VUB/VubMeta.h>
+#include <Drivers/Interface/VUB/Framing/Cobs.h>
+#include <Drivers/Interface/VUB/TestKit/Contracts.h>
+#include <Drivers/Interface/VUB/Meta.h>
 #include <array>
 #include <cstddef>
 #include <span>
@@ -14,8 +14,8 @@
 // Encodes payload and compares the result with the expected wire bytes.
 template<std::size_t Expected, std::size_t Payload>
 void ExpectFrame(const std::array<uint8, Payload>& payload, const std::array<uint8, Expected>& expected) {
-	VubCobs framing;
-	VubMeta meta{};
+	VUB::Cobs framing;
+	VUB::Meta meta{};
 	std::array<uint8, 300> frame{};
 	Result<std::size_t> framed = framing.Frame(meta, std::span<const uint8>(payload.data(), payload.size()), frame);
 	SIM_EXPECT(framed.IsOk());
@@ -95,15 +95,15 @@ void TestFull255ByHand() {
 
 // A frame of the wire, pushed a byte at a time, gives the packet again: 03 11 22 02 33 00 -> 11 22 00 33.
 void TestDecodeByHand() {
-	VubCobs framing;
+	VUB::Cobs framing;
 	const std::array<uint8, 6> wire = {0x03, 0x11, 0x22, 0x02, 0x33, 0x00};
 	std::array<uint8, 16> out{};
 	std::size_t packets = 0;
 	std::size_t length = 0;
 	for (uint8 byte : wire) {
 		std::size_t current = 0;
-		VubFrame state = framing.Push(byte, out, current);
-		if (state == VubFrame::packet) {
+		VUB::FrameStatus state = framing.Push(byte, out, current);
+		if (state == VUB::FrameStatus::packet) {
 			packets++;
 			length = current;
 		}
@@ -121,13 +121,13 @@ void TestDecodeByHand() {
 // The 255 byte frame decodes back: the code 255 gives no zero, the code 02 gives the 255th byte, and the zero after it is not
 // appended because the frame ends there.
 void TestDecodeFull255() {
-	VubCobs framing;
+	VUB::Cobs framing;
 	std::array<uint8, 255> payload{};
 	for (std::size_t index = 0; index < 255; index++) {
 		payload[index] = static_cast<uint8>(index % 254 + 1);
 	}
 
-	VubMeta meta{};
+	VUB::Meta meta{};
 	std::array<uint8, 300> frame{};
 	Result<std::size_t> framed = framing.Frame(meta, std::span<const uint8>(payload.data(), payload.size()), frame);
 	SIM_EXPECT(framed.IsOk());
@@ -137,8 +137,8 @@ void TestDecodeFull255() {
 	bool same = true;
 	for (std::size_t index = 0; index < framed.Value(); index++) {
 		std::size_t current = 0;
-		VubFrame state = framing.Push(frame[index], out, current);
-		if (state == VubFrame::packet) {
+		VUB::FrameStatus state = framing.Push(frame[index], out, current);
+		if (state == VUB::FrameStatus::packet) {
 			packets++;
 			length = current;
 			for (std::size_t byteIndex = 0; byteIndex < current; byteIndex++) {
@@ -156,7 +156,7 @@ void TestDecodeFull255() {
 // A frame whose block is cut short by a zero is broken: 03 11 00 has a block of two data bytes with one. The next frame, 02 11 00,
 // comes out after it.
 void TestBrokenThenResync() {
-	VubCobs framing;
+	VUB::Cobs framing;
 	const std::array<uint8, 3> damaged = {0x03, 0x11, 0x00};
 	const std::array<uint8, 3> clean = {0x02, 0x11, 0x00};
 	std::array<uint8, 16> out{};
@@ -165,14 +165,14 @@ void TestBrokenThenResync() {
 	std::size_t length = 0;
 	for (uint8 byte : damaged) {
 		std::size_t current = 0;
-		if (framing.Push(byte, out, current) == VubFrame::broken) {
+		if (framing.Push(byte, out, current) == VUB::FrameStatus::broken) {
 			broken++;
 		}
 	}
 
 	for (uint8 byte : clean) {
 		std::size_t current = 0;
-		if (framing.Push(byte, out, current) == VubFrame::packet) {
+		if (framing.Push(byte, out, current) == VUB::FrameStatus::packet) {
 			packets++;
 			length = current;
 		}
@@ -187,7 +187,7 @@ void TestBrokenThenResync() {
 
 // A frame with more bytes than the output holds is tooLong at its delimiter, and the next frame still comes out.
 void TestTooLongThenResync() {
-	VubCobs framing;
+	VUB::Cobs framing;
 	const std::array<uint8, 6> first = {0x05, 0x11, 0x22, 0x33, 0x44, 0x00};
 	const std::array<uint8, 3> second = {0x02, 0x55, 0x00};
 	std::array<uint8, 2> out{};
@@ -196,14 +196,14 @@ void TestTooLongThenResync() {
 	std::size_t length = 0;
 	for (uint8 byte : first) {
 		std::size_t current = 0;
-		if (framing.Push(byte, out, current) == VubFrame::tooLong) {
+		if (framing.Push(byte, out, current) == VUB::FrameStatus::tooLong) {
 			tooLong++;
 		}
 	}
 
 	for (uint8 byte : second) {
 		std::size_t current = 0;
-		if (framing.Push(byte, out, current) == VubFrame::packet) {
+		if (framing.Push(byte, out, current) == VUB::FrameStatus::packet) {
 			packets++;
 			length = current;
 		}
@@ -218,7 +218,7 @@ void TestTooLongThenResync() {
 
 // Reset in the middle of a frame drops the partial frame: the bytes after it start a frame.
 void TestResetDropsPartialFrame() {
-	VubCobs framing;
+	VUB::Cobs framing;
 	std::array<uint8, 16> out{};
 	const std::array<uint8, 2> partial = {0x03, 0x11};
 	for (uint8 byte : partial) {
@@ -232,7 +232,7 @@ void TestResetDropsPartialFrame() {
 	std::size_t length = 0;
 	for (uint8 byte : next) {
 		std::size_t current = 0;
-		if (framing.Push(byte, out, current) == VubFrame::packet) {
+		if (framing.Push(byte, out, current) == VUB::FrameStatus::packet) {
 			packets++;
 			length = current;
 		}
@@ -246,17 +246,17 @@ void TestResetDropsPartialFrame() {
 
 // Growth is the COBS worst case plus the delimiter: n + n / 254 + 2. The frames above fit it: 254 bytes give 256, 255 give 258.
 void TestGrowth() {
-	SIM_EXPECT(VubCobs::Growth(254) == 257);
-	SIM_EXPECT(VubCobs::Growth(255) == 258);
-	SIM_EXPECT(VubCobs::Growth(0) == 2);
-	SIM_EXPECT(VubCobs::Growth(1) == 3);
+	SIM_EXPECT(VUB::Cobs::Growth(254) == 257);
+	SIM_EXPECT(VUB::Cobs::Growth(255) == 258);
+	SIM_EXPECT(VUB::Cobs::Growth(0) == 2);
+	SIM_EXPECT(VUB::Cobs::Growth(1) == 3);
 }
 
 
 // The leading delimiter adds one byte in front of each frame: 11 -> 00 02 11 00.
 void TestLeadingDelimiterByHand() {
-	VubCobsFlushed framing;
-	VubMeta meta{};
+	VUB::CobsFlushed framing;
+	VUB::Meta meta{};
 	const std::array<uint8, 1> payload = {0x11};
 	std::array<uint8, 8> frame{};
 	Result<std::size_t> framed = framing.Frame(meta, std::span<const uint8>(payload.data(), payload.size()), frame);
@@ -267,14 +267,14 @@ void TestLeadingDelimiterByHand() {
 		SIM_EXPECT(frame[index] == expected[index]);
 	}
 
-	SIM_EXPECT(VubCobsFlushed::Growth(1) == 4);
+	SIM_EXPECT(VUB::CobsFlushed::Growth(1) == 4);
 }
 
 
 // An empty packet is refused: the frame would carry no payload.
 void TestEmptyRefused() {
-	VubCobs framing;
-	VubMeta meta{};
+	VUB::Cobs framing;
+	VUB::Meta meta{};
 	std::array<uint8, 8> frame{};
 	SIM_EXPECT(framing.Frame(meta, std::span<const uint8>(), frame).IsErr());
 }
@@ -282,19 +282,19 @@ void TestEmptyRefused() {
 
 // The framing contract with no loss: every packet comes out exactly, with random chunking of the frame's bytes.
 void TestFramingContractNoLoss() {
-	VubCobs framing;
-	SIM_EXPECT(VubCheckFraming(framing, 3, 200, 32, 0));
-	VubCobsFlushed flushed;
-	SIM_EXPECT(VubCheckFraming(flushed, 4, 200, 32, 0));
+	VUB::Cobs framing;
+	SIM_EXPECT(VUB::CheckFraming(framing, 3, 200, 32, 0));
+	VUB::CobsFlushed flushed;
+	SIM_EXPECT(VUB::CheckFraming(flushed, 4, 200, 32, 0));
 }
 
 
 // With loss, COBS has no check of its own, so a damaged frame can come out as a different packet. The framing still resynchronises:
 // after the lossy part, the clean frames come out exactly.
 void TestResyncContractWithLoss() {
-	VubCobs framing;
-	SIM_EXPECT(VubCheckResync(framing, 5, 200, 32, 10));
-	SIM_EXPECT(VubCheckResync(framing, 8, 200, 32, 25));
+	VUB::Cobs framing;
+	SIM_EXPECT(VUB::CheckResync(framing, 5, 200, 32, 10));
+	SIM_EXPECT(VUB::CheckResync(framing, 8, 200, 32, 25));
 }
 
 

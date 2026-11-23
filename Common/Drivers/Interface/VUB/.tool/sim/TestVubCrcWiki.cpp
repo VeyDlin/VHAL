@@ -1,10 +1,10 @@
 #include "SimCheck.h"
-#include <Drivers/Interface/VUB/Engine/VubCrcBitwise.h>
-#include <Drivers/Interface/VUB/Transform/VubCrc.h>
-#include <Drivers/Interface/VUB/Vub.h>
-#include <Drivers/Interface/VUB/VubBlocks.h>
-#include <Drivers/Interface/VUB/VubLinkTraits.h>
-#include <Drivers/Interface/VUB/VubMeta.h>
+#include <Drivers/Interface/VUB/Engine/CrcBitwise.h>
+#include <Drivers/Interface/VUB/Transform/Crc.h>
+#include <Drivers/Interface/VUB/Stack.h>
+#include <Drivers/Interface/VUB/Blocks.h>
+#include <Drivers/Interface/VUB/LinkTraits.h>
+#include <Drivers/Interface/VUB/Meta.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/ResultStatus.h>
 #include <array>
@@ -12,11 +12,11 @@
 #include <span>
 
 
-// Every code snippet of the VubCrc wiki page compiles here. The snippet is copied from .wiki/Common/Drivers/Interface/VUB/Transform/VubCrc.md.
+// Every code snippet of the VUB::Crc wiki page compiles here. The snippet is copied from .wiki/Common/Drivers/Interface/VUB/Transform/Crc.md.
 namespace WikiCrc {
 // A packet link that sends whole packets: it takes each packet, or reports busy.
 struct BoardLink {
-	static constexpr VubLinkTraits traits = VubLinkTraits().Framed().MaxPacket(64).FullDuplex();
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64).FullDuplex();
 
 	ResultStatus Send(std::span<const uint8> packet) {
 		(void)packet;
@@ -24,23 +24,23 @@ struct BoardLink {
 	}
 };
 
-void OnPacket(const VubMeta&, std::span<const uint8> payload) {
+void OnPacket(const VUB::Meta&, std::span<const uint8> payload) {
 	(void)payload;
 }
 
 // The packets of the board carry a CRC-16/MODBUS, high byte first. The table engine is the default.
-using Board = Vub<+[] {
-	return VubBuilder()
-		.Transform<VubCrc16ModbusHighByteFirst>()
+using Board = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Transform<VUB::Crc16ModbusHighByteFirst>()
 		.Link<BoardLink>()
 		.MaxPayload(32)
 		.OnReceive<&OnPacket>();
 }>;
 
 // The same CRC with the bitwise engine, for a product with no flash to spare for the table.
-using Small = Vub<+[] {
-	return VubBuilder()
-		.Transform<VubCrc<VubCrc16Modbus::parameters, VubCrcBitwise>>()
+using Small = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Transform<VUB::Crc<VUB::Crc16Modbus::parameters, VUB::CrcBitwise>>()
 		.Link<BoardLink>()
 		.MaxPayload(32)
 		.OnReceive<&OnPacket>();

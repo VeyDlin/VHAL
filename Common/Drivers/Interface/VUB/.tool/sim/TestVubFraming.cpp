@@ -1,7 +1,7 @@
 #include "SimCheck.h"
-#include "VubDoubles.h"
-#include <Drivers/Interface/VUB/TestKit/VubContracts.h>
-#include <Drivers/Interface/VUB/VubMeta.h>
+#include "Doubles.h"
+#include <Drivers/Interface/VUB/TestKit/Contracts.h>
+#include <Drivers/Interface/VUB/Meta.h>
 #include <array>
 #include <cstddef>
 #include <span>
@@ -11,7 +11,7 @@
 // The frame is 7E 01 7D 5E 7F 7F 7E.
 void TestFrameByHand() {
 	FlagFraming framing;
-	VubMeta meta{};
+	VUB::Meta meta{};
 	std::array<uint8, 2> payload = {0x01, 0x7E};
 	std::array<uint8, 16> frame{};
 	Result<std::size_t> framed = framing.Frame(meta, std::span<const uint8>(payload.data(), payload.size()), frame);
@@ -33,8 +33,8 @@ void TestPushByHand() {
 	std::size_t packets = 0;
 	for (uint8 byte : wire) {
 		std::size_t current = 0;
-		VubFrame state = framing.Push(byte, out, current);
-		if (state == VubFrame::packet) {
+		VUB::FrameStatus state = framing.Push(byte, out, current);
+		if (state == VUB::FrameStatus::packet) {
 			packets++;
 			length = current;
 		}
@@ -57,16 +57,16 @@ void TestResync() {
 	std::size_t broken = 0;
 	for (uint8 byte : damaged) {
 		std::size_t current = 0;
-		VubFrame state = framing.Push(byte, out, current);
-		if (state == VubFrame::broken) {
+		VUB::FrameStatus state = framing.Push(byte, out, current);
+		if (state == VUB::FrameStatus::broken) {
 			broken++;
 		}
 	}
 
 	for (uint8 byte : clean) {
 		std::size_t current = 0;
-		VubFrame state = framing.Push(byte, out, current);
-		if (state == VubFrame::packet) {
+		VUB::FrameStatus state = framing.Push(byte, out, current);
+		if (state == VUB::FrameStatus::packet) {
 			packets++;
 		}
 	}
@@ -80,9 +80,9 @@ void TestResync() {
 // part come out again.
 void TestFramingContract() {
 	FlagFraming framing;
-	SIM_EXPECT(VubCheckFraming(framing, 3, 200, 32, 0));
-	SIM_EXPECT(VubCheckFraming(framing, 5, 200, 32, 10));
-	SIM_EXPECT(VubCheckFraming(framing, 8, 200, 32, 25));
+	SIM_EXPECT(VUB::CheckFraming(framing, 3, 200, 32, 0));
+	SIM_EXPECT(VUB::CheckFraming(framing, 5, 200, 32, 10));
+	SIM_EXPECT(VUB::CheckFraming(framing, 8, 200, 32, 25));
 }
 
 
@@ -97,7 +97,7 @@ struct LyingGrowthFraming : FlagFraming {
 
 void TestLyingGrowthFailsContract() {
 	LyingGrowthFraming framing;
-	SIM_EXPECT(!VubCheckFraming(framing, 3, 200, 32, 0));
+	SIM_EXPECT(!VUB::CheckFraming(framing, 3, 200, 32, 0));
 }
 
 

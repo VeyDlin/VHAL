@@ -2,8 +2,8 @@
 #include "SnippetSupport.h"
 
 
-using Stack = Vub<+[] {
-	return VubBuilder()
+using Stack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<TestLayer>()
 		.MaxPayload(40)
 		.OnReceive<&SnippetReceive>()

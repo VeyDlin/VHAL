@@ -1,10 +1,10 @@
 #include "SimCheck.h"
-#include "VubChains.h"
-#include "VubDoubles.h"
-#include <Drivers/Interface/VUB/VubBlocks.h>
-#include <Drivers/Interface/VUB/VubBuilder.h>
-#include <Drivers/Interface/VUB/VubOutbox.h>
-#include <Drivers/Interface/VUB/Vub.h>
+#include "Chains.h"
+#include "Doubles.h"
+#include <Drivers/Interface/VUB/Blocks.h>
+#include <Drivers/Interface/VUB/Builder.h>
+#include <Drivers/Interface/VUB/Outbox.h>
+#include <Drivers/Interface/VUB/Stack.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -31,7 +31,7 @@ struct RecordLayer {
 	static constexpr bool makesBulk = false;
 
 
-	Result<std::size_t> Add(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		if (out.size() < in.size()) {
 			return ResultStatus::invalidParameter;
 		}
@@ -44,7 +44,7 @@ struct RecordLayer {
 	}
 
 
-	Result<VubTake> Take(const VubMeta&, std::span<const uint8> packet) {
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8> packet) {
 		if (packet.empty()) {
 			return ResultStatus::invalidData;
 		}
@@ -54,11 +54,11 @@ struct RecordLayer {
 		}
 
 		testSeenCount++;
-		return VubTake{0, true};
+		return VUB::Taken{0, true};
 	}
 
 
-	void Process(uint32, const VubOutbox&) {
+	void Process(uint32, const VUB::Outbox&) {
 	}
 };
 
@@ -75,7 +75,7 @@ struct HoldLayer {
 	static constexpr std::size_t SlotBytes = 8;
 
 
-	Result<std::size_t> Add(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		if (out.size() < in.size() + header) {
 			return ResultStatus::invalidParameter;
 		}
@@ -90,7 +90,7 @@ struct HoldLayer {
 	}
 
 
-	Result<VubTake> Take(const VubMeta&, std::span<const uint8> packet) {
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8> packet) {
 		if (packet.empty()) {
 			return ResultStatus::invalidData;
 		}
@@ -98,7 +98,7 @@ struct HoldLayer {
 		uint8 number = packet[0];
 		if (number == expected) {
 			expected++;
-			return VubTake{header, true};
+			return VUB::Taken{header, true};
 		}
 
 		for (std::size_t slot = 0; slot < Slots; slot++) {
@@ -115,11 +115,11 @@ struct HoldLayer {
 			}
 		}
 
-		return VubTake{header, false};
+		return VUB::Taken{header, false};
 	}
 
 
-	void Process(uint32, const VubOutbox& outbox) {
+	void Process(uint32, const VUB::Outbox& outbox) {
 		bool released = true;
 		while (released) {
 			released = false;
@@ -155,7 +155,7 @@ struct PlainUpLayer {
 	static constexpr bool makesBulk = false;
 
 
-	Result<std::size_t> Add(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		if (out.size() < in.size()) {
 			return ResultStatus::invalidParameter;
 		}
@@ -168,12 +168,12 @@ struct PlainUpLayer {
 	}
 
 
-	Result<VubTake> Take(const VubMeta&, std::span<const uint8>) {
-		return VubTake{0, true};
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
 	}
 
 
-	void Process(uint32, const VubOutbox& outbox) {
+	void Process(uint32, const VUB::Outbox& outbox) {
 		std::array<uint8, 1> packet = {0x07};
 		testPlainDeliverStatus = outbox.Deliver(std::span<const uint8>(packet.data(), packet.size()));
 	}
@@ -185,15 +185,15 @@ struct TooLongUpLayer : PlainUpLayer {
 	static constexpr bool passesUp = true;
 
 
-	void Process(uint32, const VubOutbox& outbox) {
+	void Process(uint32, const VUB::Outbox& outbox) {
 		std::array<uint8, 65> packet{};
 		testPlainDeliverStatus = outbox.Deliver(std::span<const uint8>(packet.data(), packet.size()));
 	}
 };
 
 
-using HoldStack = Vub<+[] {
-	return VubBuilder()
+using HoldStack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<RecordLayer>()
 		.Transform<XorTransform>()
 		.Layer<HoldLayer>()
@@ -205,8 +205,8 @@ using HoldStack = Vub<+[] {
 }>;
 
 
-using PlainUpStack = Vub<+[] {
-	return VubBuilder()
+using PlainUpStack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<PlainUpLayer>()
 		.Link<PacketEnd>()
 		.MaxPayload(4)
@@ -216,8 +216,8 @@ using PlainUpStack = Vub<+[] {
 }>;
 
 
-using TooLongUpStack = Vub<+[] {
-	return VubBuilder()
+using TooLongUpStack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<TooLongUpLayer>()
 		.Link<PacketEnd>()
 		.MaxPayload(4)
@@ -232,7 +232,7 @@ using TooLongUpStack = Vub<+[] {
 void TestHeldPacketGoesUpFromProcess() {
 	ResetTestState();
 	testSeenCount = 0;
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	HoldStack stack(line.a);
 	std::array<uint8, 4> second = {0x02, 0xA7, 0xA7, 0xA7};
 	std::array<uint8, 4> first = {0x00, 0xA5, 0xA5, 0xA5};
@@ -265,7 +265,7 @@ void TestHeldPacketGoesUpFromProcess() {
 void TestDeliveredPacketIsDecodedOrCounted() {
 	ResetTestState();
 	testSeenCount = 0;
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	HoldStack stack(line.a);
 	std::array<uint8, 4> badSecond = {0x02, 0xA7, 0xA7, 0xA8};
 	std::array<uint8, 4> first = {0x00, 0xA5, 0xA5, 0xA5};
@@ -289,7 +289,7 @@ void TestDeliveredPacketIsDecodedOrCounted() {
 void TestTooLongDeliveryIsRefused() {
 	ResetTestState();
 	testPlainDeliverStatus = ResultStatus::ok;
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	TooLongUpStack stack(line.a);
 	stack.Process();
 	SIM_EXPECT(testPlainDeliverStatus == ResultStatus::messageTooLong);
@@ -302,7 +302,7 @@ void TestTooLongDeliveryIsRefused() {
 void TestUndeclaredLayerCannotDeliver() {
 	ResetTestState();
 	testPlainDeliverStatus = ResultStatus::ok;
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	PlainUpStack stack(line.a);
 	stack.Process();
 	SIM_EXPECT(testPlainDeliverStatus == ResultStatus::notSupported);

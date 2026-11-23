@@ -1,9 +1,9 @@
 #include "SimCheck.h"
-#include "VubChains.h"
-#include "VubDoubles.h"
-#include <Drivers/Interface/VUB/Layer/VubKeepAlive.h>
-#include <Drivers/Interface/VUB/TestKit/VubLoopback.h>
-#include <Drivers/Interface/VUB/Vub.h>
+#include "Chains.h"
+#include "Doubles.h"
+#include <Drivers/Interface/VUB/Layer/KeepAlive.h>
+#include <Drivers/Interface/VUB/TestKit/Loopback.h>
+#include <Drivers/Interface/VUB/Stack.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -15,9 +15,9 @@
 // The keep-alive layer on a silent packet line: the link does not report its state, so the layer is the only source of the peer's state.
 // Every chain here has a quiet time of 1000 us and a down time of 3000 us. The runs step the clock by 100 us, so every time below is a
 // multiple of 100.
-using KeepAliveStack = Vub<+[] {
-	return VubBuilder()
-		.Layer<VubKeepAlive>()
+using KeepAliveStack = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Layer<VUB::KeepAlive>()
 		.QuietTime(1000)
 		.DownTime(3000)
 		.Link<PacketEnd>()
@@ -29,24 +29,24 @@ using KeepAliveStack = Vub<+[] {
 
 
 // The same chain under WhileDown(Fail): the application's queued packets are dropped on a down, and Send is refused while it is down.
-using KeepAliveFailStack = Vub<+[] {
-	return VubBuilder()
-		.Layer<VubKeepAlive>()
+using KeepAliveFailStack = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Layer<VUB::KeepAlive>()
 		.QuietTime(1000)
 		.DownTime(3000)
 		.Link<PacketEnd>()
 		.MaxPayload(40)
 		.ReceiveQueue(4)
-		.WhileDown(VubDown::Fail)
+		.WhileDown(VUB::Down::Fail)
 		.OnReceive<&TestReceive>()
 		.Clock<&TestClock>();
 }>;
 
 
 // The same chain with the default times: a quiet time of one second and a down time of three seconds.
-using KeepAliveDefaultStack = Vub<+[] {
-	return VubBuilder()
-		.Layer<VubKeepAlive>()
+using KeepAliveDefaultStack = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Layer<VUB::KeepAlive>()
 		.Link<PacketEnd>()
 		.MaxPayload(40)
 		.ReceiveQueue(4)
@@ -111,7 +111,7 @@ struct PongingPeer {
 // that, and at 3000 us with the down. A packet received after the down (here a pong) declares the peer up again at once.
 void TestDeclaresPeerDownAfterDownTime() {
 	ResetTestState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	KeepAliveStack a(line.a);
 	for (uint32 now = 0; now < 3000; now += 100) {
 		testNowUs = now;
@@ -141,7 +141,7 @@ void TestDeclaresPeerDownAfterDownTime() {
 // there are 30 of them up to 30000 us.
 void TestDeadPeerGoesDownAndStaysDown() {
 	ResetTestState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	KeepAliveStack a(line.a);
 	for (uint32 now = 0; now <= 30000; now += 100) {
 		testNowUs = now;
@@ -161,7 +161,7 @@ void TestDeadPeerGoesDownAndStaysDown() {
 // us after the last one: the pings are at 1000 us, then every 1200 us, 16 of them up to 20000 us. The peer stays up all the time.
 void TestQuietPeerGetsPingsAndStaysUp() {
 	ResetTestState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	KeepAliveStack a(line.a);
 	PongingPeer<PacketEnd> peer;
 	peer.end = &line.b;
@@ -185,7 +185,7 @@ void TestQuietPeerGetsPingsAndStaysUp() {
 // it sends all reach the handler: the sends at 500 us up to 19500 us, 39 of them, arrive by 20000 us.
 void TestBusyPeerGetsNoPing() {
 	ResetTestState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	KeepAliveStack a(line.a);
 	std::array<uint8, 2> data = {0x00, 0x31};
 	for (uint32 now = 0; now <= 20000; now += 100) {
@@ -211,7 +211,7 @@ void TestBusyPeerGetsNoPing() {
 // us, and both were down once.
 void TestBothEndsRecoverAfterAnOutage() {
 	ResetTestState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	KeepAliveStack a(line.a);
 	KeepAliveStack b(line.b);
 	for (uint32 now = 0; now <= 20000; now += 100) {
@@ -244,7 +244,7 @@ void TestBothEndsRecoverAfterAnOutage() {
 // up, and then it goes once. The outage is the same as in TestBothEndsRecoverAfterAnOutage.
 void TestQueuedPacketWaitsWhileDownAndGoesAfterUp() {
 	ResetTestState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	KeepAliveStack a(line.a);
 	KeepAliveStack b(line.b);
 	std::array<uint8, 2> payload = {0x31, 0x32};
@@ -280,7 +280,7 @@ void TestQueuedPacketWaitsWhileDownAndGoesAfterUp() {
 // stays queued; the peer is declared down at 3000 us, with nothing ever received.
 void TestQueuedPacketIsRefusedAndCountedUnderFail() {
 	ResetTestState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	KeepAliveFailStack a(line.a);
 	std::array<uint8, 2> payload = {0x31, 0x32};
 	a.Process();
@@ -322,7 +322,7 @@ void TestQueuedPacketIsRefusedAndCountedUnderFail() {
 // time run from 2500 us: the peer is still up at 3000 us, and is down at 5500 us.
 void TestRefusedPacketCountsAsLife() {
 	ResetTestState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	KeepAliveStack a(line.a);
 	std::array<uint8, 1> junk = {0x07};
 	for (uint32 now = 0; now <= 5500; now += 100) {
@@ -347,7 +347,7 @@ void TestRefusedPacketCountsAsLife() {
 // with 02, and it counts as life at 600 us. The next ping waits for the quiet time from that: it goes at 1600 us, as 01.
 void TestWireBytesOfDataPingAndPong() {
 	ResetTestState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	KeepAliveStack a(line.a);
 	PacketLog log;
 	std::array<uint8, 2> payload = {0x31, 0x32};
@@ -378,9 +378,9 @@ void TestWireBytesOfDataPingAndPong() {
 
 
 // The same chain over a reporting packet line, for the link's state to reach the layer.
-using ReportingKeepAliveStack = Vub<+[] {
-	return VubBuilder()
-		.Layer<VubKeepAlive>()
+using ReportingKeepAliveStack = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Layer<VUB::KeepAlive>()
 		.QuietTime(1000)
 		.DownTime(3000)
 		.Link<ReportingPacketEnd>()
@@ -398,7 +398,7 @@ using ReportingKeepAliveStack = Vub<+[] {
 // and 19600 us: each one is answered, and the next one waits the round trip of 200 us and the quiet time.
 void TestLinkDownPingsWaitAndNoBurstOnReportingLine() {
 	ResetTestState();
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	ReportingKeepAliveStack a(line.a);
 	PongingPeer<ReportingPacketEnd> peer;
 	peer.end = &line.b;
@@ -479,7 +479,7 @@ struct PingWatch {
 // comes up at 10000 us. The peer answers the pings from then on.
 void TestLinkDownFromStartSendsNothingUntilUp() {
 	ResetTestState();
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	ReportingKeepAliveStack a(line.a);
 	PongingPeer<ReportingPacketEnd> peer;
 	peer.end = &line.b;
@@ -515,7 +515,7 @@ void TestLinkDownFromStartSendsNothingUntilUp() {
 // after the line is up. The peer is up again, and the connection is up.
 void TestLinkDownAfterPeerDeclaredDownSendsNothing() {
 	ResetTestState();
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	ReportingKeepAliveStack a(line.a);
 	PongingPeer<ReportingPacketEnd> peer;
 	peer.end = &line.b;
@@ -566,7 +566,7 @@ void TestLinkDownAfterPeerDeclaredDownSendsNothing() {
 // declared down.
 void TestDefaultTimesAreOneAndThreeSeconds() {
 	ResetTestState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	KeepAliveDefaultStack a(line.a);
 	testNowUs = 0;
 	line.SetNow(0);
@@ -582,11 +582,11 @@ void TestDefaultTimesAreOneAndThreeSeconds() {
 }
 
 
-// Every snippet of the keep-alive wiki page compiles here. The snippet is copied from .wiki/Common/Drivers/Interface/VUB/Layer/VubKeepAlive.md.
+// Every snippet of the keep-alive wiki page compiles here. The snippet is copied from .wiki/Common/Drivers/Interface/VUB/Layer/KeepAlive.md.
 namespace WikiKeepAlive {
 // A board on a packet link that cannot report its state. Quiet for half a second, declared down after two seconds.
 struct BoardUart {
-	static constexpr VubLinkTraits traits = VubLinkTraits().Framed().MaxPacket(64).FullDuplex();
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64).FullDuplex();
 
 
 	ResultStatus Send(std::span<const uint8> packet) {
@@ -596,7 +596,7 @@ struct BoardUart {
 };
 
 
-void OnBoardPacket(const VubMeta&, std::span<const uint8> payload) {
+void OnBoardPacket(const VUB::Meta&, std::span<const uint8> payload) {
 	(void)payload;
 }
 
@@ -607,9 +607,9 @@ uint32 BoardClock() {
 }
 
 
-using Board = Vub<+[] {
-	return VubBuilder()
-		.Layer<VubKeepAlive>()
+using Board = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Layer<VUB::KeepAlive>()
 		.QuietTime(500000)
 		.DownTime(2000000)
 		.Link<BoardUart>()

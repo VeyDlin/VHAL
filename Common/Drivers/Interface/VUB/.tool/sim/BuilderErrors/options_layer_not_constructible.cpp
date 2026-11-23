@@ -3,10 +3,10 @@
 
 
 // TestLayer is built from TestLayerOptions, so an unsigned value is not an options value of the layer.
-using Stack = Vub<+[] {
-	return VubBuilder()
+using Stack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<TestLayer>(7u)
-		.Link<VubPacketEnd<64, 16>>()
+		.Link<VUB::PacketEnd<64, 16>>()
 		.MaxPayload(40)
 		.OnReceive<&SnippetReceive>()
 		.Clock<&SnippetClock>();

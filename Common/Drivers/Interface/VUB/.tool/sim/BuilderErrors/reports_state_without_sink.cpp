@@ -4,7 +4,7 @@
 
 // A link that says it reports its state, but has no SetStateSink for the stack to give its state object to.
 struct SilentReporter {
-	static constexpr VubLinkTraits traits = VubLinkTraits().MaxPacket(64).FullDuplex().Framed().ReportsState();
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().MaxPacket(64).FullDuplex().Framed().ReportsState();
 
 	ResultStatus Send(std::span<const uint8> packet) {
 		(void)packet;
@@ -13,8 +13,8 @@ struct SilentReporter {
 };
 
 
-using Stack = Vub<+[] {
-	return VubBuilder()
+using Stack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<TestLayer>()
 		.Link<SilentReporter>()
 		.MaxPayload(40)

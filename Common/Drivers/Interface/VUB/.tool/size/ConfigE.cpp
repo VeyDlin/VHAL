@@ -1,15 +1,15 @@
 // Configuration (e): a byte-stream link with a one-byte length prefix and the CRC-8 transform that uses the bitwise engine.
 #include "SizeWire.h"
-#include <Drivers/Interface/VUB/Engine/VubCrcBitwise.h>
-#include <Drivers/Interface/VUB/Framing/VubLengthPrefix.h>
-#include <Drivers/Interface/VUB/Transform/VubCrc.h>
-#include <Drivers/Interface/VUB/Vub.h>
+#include <Drivers/Interface/VUB/Engine/CrcBitwise.h>
+#include <Drivers/Interface/VUB/Framing/LengthPrefix.h>
+#include <Drivers/Interface/VUB/Transform/Crc.h>
+#include <Drivers/Interface/VUB/Stack.h>
 
 
-using SizeStack = Vub<+[] {
-	return VubBuilder()
-		.Transform<VubCrc<VubCrc8Smbus::parameters, VubCrcBitwise>>()
-		.Framing<VubLengthPrefix<1>>()
+using SizeStack = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Transform<VUB::Crc<VUB::Crc8Smbus::parameters, VUB::CrcBitwise>>()
+		.Framing<VUB::LengthPrefix<1>>()
 		.Link<SizeStreamLink>()
 		.MaxPayload(32)
 		.OnReceive<&SizeReceive>()

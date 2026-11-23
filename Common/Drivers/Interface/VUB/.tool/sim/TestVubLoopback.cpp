@@ -1,7 +1,7 @@
 #include "SimCheck.h"
-#include "VubChains.h"
-#include <Drivers/Interface/VUB/TestKit/VubLoopback.h>
-#include <Drivers/Interface/VUB/TestKit/VubWire.h>
+#include "Chains.h"
+#include <Drivers/Interface/VUB/TestKit/Loopback.h>
+#include <Drivers/Interface/VUB/TestKit/Wire.h>
 #include <Utilities/DataTypes.h>
 #include <array>
 #include <cstddef>
@@ -20,8 +20,8 @@ std::array<uint8, 64> Sequence(std::size_t count) {
 
 // Without faults every byte arrives once, in order.
 void TestCleanStream() {
-	VubFaults faults;
-	VubStreamWire<128> wire(faults, 1);
+	VUB::Faults faults;
+	VUB::StreamWire<128> wire(faults, 1);
 	std::array<uint8, 64> bytes = Sequence(20);
 	wire.Push(std::span<const uint8>(bytes.data(), 20));
 	RecordSink sink;
@@ -35,9 +35,9 @@ void TestCleanStream() {
 
 // Every byte dropped: nothing arrives, and every drop is counted.
 void TestDropAll() {
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.dropPercent = 100;
-	VubStreamWire<128> wire(faults, 1);
+	VUB::StreamWire<128> wire(faults, 1);
 	std::array<uint8, 30> bytes{};
 	wire.Push(std::span<const uint8>(bytes.data(), 30));
 	RecordSink sink;
@@ -49,9 +49,9 @@ void TestDropAll() {
 
 // Every byte duplicated: each arrives twice.
 void TestDuplicateAll() {
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.duplicatePercent = 100;
-	VubStreamWire<128> wire(faults, 1);
+	VUB::StreamWire<128> wire(faults, 1);
 	std::array<uint8, 10> bytes{};
 	wire.Push(std::span<const uint8>(bytes.data(), 10));
 	RecordSink sink;
@@ -63,10 +63,10 @@ void TestDuplicateAll() {
 
 // Every byte corrupted: each arrives with exactly one bit different from the byte sent.
 void TestCorruptAll() {
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.corruptPercent = 100;
 	faults.seed = 42;
-	VubStreamWire<128> wire(faults, 42);
+	VUB::StreamWire<128> wire(faults, 42);
 	std::array<uint8, 64> bytes = Sequence(20);
 	wire.Push(std::span<const uint8>(bytes.data(), 20));
 	RecordSink sink;
@@ -85,10 +85,10 @@ void TestCorruptAll() {
 
 // With delays, later bytes can arrive first: the wire reorders. Nothing is lost, and every byte arrives once the time has come.
 void TestDelayReorders() {
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.maxDelayUs = 50;
 	faults.seed = 9;
-	VubStreamWire<128> wire(faults, 9);
+	VUB::StreamWire<128> wire(faults, 9);
 	std::array<uint8, 64> bytes = Sequence(64);
 	wire.SetNow(0);
 	wire.Push(std::span<const uint8>(bytes.data(), 64));
@@ -127,10 +127,10 @@ void TestDelayReorders() {
 // all have arrived at 100, some but not all by 125, and after 150 every packet has arrived whole. So the delay applies and is
 // spread over its range.
 void TestPacketDelayed() {
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.maxDelayUs = 50;
 	faults.seed = 5;
-	VubPacketWire<32, 32> wire(faults, 5);
+	VUB::PacketWire<32, 32> wire(faults, 5);
 	wire.SetNow(100);
 	for (std::size_t index = 0; index < 32; index++) {
 		std::array<uint8, 2> packet = {static_cast<uint8>(index), 0x55};
@@ -165,9 +165,9 @@ void TestPacketDelayed() {
 
 // Every packet dropped: nothing arrives, and every drop is counted.
 void TestPacketDropAll() {
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.dropPercent = 100;
-	VubPacketWire<16, 32> wire(faults, 1);
+	VUB::PacketWire<16, 32> wire(faults, 1);
 	std::array<uint8, 3> packet = {1, 2, 3};
 	for (std::size_t index = 0; index < 10; index++) {
 		wire.Push(std::span<const uint8>(packet.data(), packet.size()));
@@ -182,9 +182,9 @@ void TestPacketDropAll() {
 
 // Every packet duplicated: each arrives twice, in the order sent, so the lengths come out in pairs.
 void TestPacketDuplicateAll() {
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.duplicatePercent = 100;
-	VubPacketWire<16, 32> wire(faults, 1);
+	VUB::PacketWire<16, 32> wire(faults, 1);
 	for (std::size_t index = 0; index < 5; index++) {
 		std::array<uint8, 8> packet{};
 		wire.Push(std::span<const uint8>(packet.data(), index + 1));
@@ -204,7 +204,7 @@ void TestPacketDuplicateAll() {
 // A packet longer than the line's MaxPacket is refused by Send with an error, and the wire carries nothing. A packet of exactly
 // MaxPacket bytes goes through whole.
 void TestPacketSendRefusesTooLong() {
-	VubPacketLine<64, 16> line(VubFaults{});
+	VUB::PacketLine<64, 16> line(VUB::Faults{});
 	std::array<uint8, 100> big{};
 	SIM_EXPECT(line.a.Send(std::span<const uint8>(big.data(), big.size())) == ResultStatus::messageTooLong);
 	SIM_EXPECT(line.toB.Counts().pushed == 0);
@@ -234,10 +234,10 @@ void TestByteWireRates() {
 	const uint32 total = 20000;
 	std::array<uint8, 1> one{};
 
-	VubFaults dropFaults;
+	VUB::Faults dropFaults;
 	dropFaults.dropPercent = 10;
 	dropFaults.seed = 3;
-	VubStreamWire<128> dropWire(dropFaults, 3);
+	VUB::StreamWire<128> dropWire(dropFaults, 3);
 	RecordSink dropSink;
 	for (uint32 index = 0; index < total; index++) {
 		dropWire.Push(std::span<const uint8>(one.data(), 1));
@@ -247,10 +247,10 @@ void TestByteWireRates() {
 	SIM_EXPECT(dropWire.Counts().pushed == total);
 	SIM_EXPECT(NearPercent(dropWire.Counts().dropped, total, 10));
 
-	VubFaults corruptFaults;
+	VUB::Faults corruptFaults;
 	corruptFaults.corruptPercent = 20;
 	corruptFaults.seed = 4;
-	VubStreamWire<128> corruptWire(corruptFaults, 4);
+	VUB::StreamWire<128> corruptWire(corruptFaults, 4);
 	RecordSink corruptSink;
 	for (uint32 index = 0; index < total; index++) {
 		corruptWire.Push(std::span<const uint8>(one.data(), 1));
@@ -259,10 +259,10 @@ void TestByteWireRates() {
 
 	SIM_EXPECT(NearPercent(corruptWire.Counts().corrupted, total, 20));
 
-	VubFaults duplicateFaults;
+	VUB::Faults duplicateFaults;
 	duplicateFaults.duplicatePercent = 15;
 	duplicateFaults.seed = 5;
-	VubStreamWire<128> duplicateWire(duplicateFaults, 5);
+	VUB::StreamWire<128> duplicateWire(duplicateFaults, 5);
 	RecordSink duplicateSink;
 	for (uint32 index = 0; index < total; index++) {
 		duplicateWire.Push(std::span<const uint8>(one.data(), 1));
@@ -278,10 +278,10 @@ void TestPacketWireRates() {
 	const uint32 total = 10000;
 	std::array<uint8, 4> packet = {1, 2, 3, 4};
 
-	VubFaults dropFaults;
+	VUB::Faults dropFaults;
 	dropFaults.dropPercent = 10;
 	dropFaults.seed = 3;
-	VubPacketWire<128, 8> dropWire(dropFaults, 3);
+	VUB::PacketWire<128, 8> dropWire(dropFaults, 3);
 	RecordSink dropSink;
 	for (uint32 index = 0; index < total; index++) {
 		dropWire.Push(std::span<const uint8>(packet.data(), packet.size()));
@@ -291,10 +291,10 @@ void TestPacketWireRates() {
 	SIM_EXPECT(dropWire.Counts().pushed == total);
 	SIM_EXPECT(NearPercent(dropWire.Counts().dropped, total, 10));
 
-	VubFaults corruptFaults;
+	VUB::Faults corruptFaults;
 	corruptFaults.corruptPercent = 20;
 	corruptFaults.seed = 4;
-	VubPacketWire<128, 8> corruptWire(corruptFaults, 4);
+	VUB::PacketWire<128, 8> corruptWire(corruptFaults, 4);
 	RecordSink corruptSink;
 	for (uint32 index = 0; index < total; index++) {
 		corruptWire.Push(std::span<const uint8>(packet.data(), packet.size()));
@@ -303,10 +303,10 @@ void TestPacketWireRates() {
 
 	SIM_EXPECT(NearPercent(corruptWire.Counts().corrupted, total, 20));
 
-	VubFaults duplicateFaults;
+	VUB::Faults duplicateFaults;
 	duplicateFaults.duplicatePercent = 15;
 	duplicateFaults.seed = 5;
-	VubPacketWire<128, 8> duplicateWire(duplicateFaults, 5);
+	VUB::PacketWire<128, 8> duplicateWire(duplicateFaults, 5);
 	RecordSink duplicateSink;
 	for (uint32 index = 0; index < total; index++) {
 		duplicateWire.Push(std::span<const uint8>(packet.data(), packet.size()));
@@ -347,13 +347,13 @@ struct DigestSink {
 
 // A byte wire run of 400 steps, each with a byte and the faults of the seed, then delivered.
 DigestSink RunByteWire(uint32 seed) {
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.dropPercent = 10;
 	faults.corruptPercent = 10;
 	faults.duplicatePercent = 10;
 	faults.maxDelayUs = 30;
 	faults.seed = seed;
-	VubStreamWire<256> wire(faults, seed);
+	VUB::StreamWire<256> wire(faults, seed);
 	DigestSink sink;
 	for (uint32 now = 0; now < 400; now++) {
 		wire.SetNow(now);
@@ -370,13 +370,13 @@ DigestSink RunByteWire(uint32 seed) {
 
 // A packet wire run of 400 steps, each with a packet and the faults of the seed, then delivered.
 DigestSink RunPacketWire(uint32 seed) {
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.dropPercent = 10;
 	faults.corruptPercent = 10;
 	faults.duplicatePercent = 10;
 	faults.maxDelayUs = 30;
 	faults.seed = seed;
-	VubPacketWire<256, 8> wire(faults, seed);
+	VUB::PacketWire<256, 8> wire(faults, seed);
 	DigestSink sink;
 	for (uint32 now = 0; now < 400; now++) {
 		wire.SetNow(now);
@@ -411,8 +411,8 @@ void TestWireRepeatsBySeed() {
 
 // A stream end accepts a round budget of bytes and reports how many it took; the rest stays with the caller.
 void TestStreamEndBudget() {
-	VubFaults faults;
-	VubStreamLine<64, 128> line(faults);
+	VUB::Faults faults;
+	VUB::StreamLine<64, 128> line(faults);
 	line.a.StartRound(5);
 	std::array<uint8, 64> bytes = Sequence(9);
 	Result<std::size_t> first = line.a.Write(std::span<const uint8>(bytes.data(), 9));
@@ -426,8 +426,8 @@ void TestStreamEndBudget() {
 
 // A packet end takes one packet per budget unit and returns busy after that.
 void TestPacketEndBudget() {
-	VubFaults faults;
-	VubPacketLine<64, 16> line(faults);
+	VUB::Faults faults;
+	VUB::PacketLine<64, 16> line(faults);
 	line.a.StartRound(1);
 	std::array<uint8, 3> packet = {1, 2, 3};
 	SIM_EXPECT(line.a.Send(std::span<const uint8>(packet.data(), packet.size())) == ResultStatus::ok);

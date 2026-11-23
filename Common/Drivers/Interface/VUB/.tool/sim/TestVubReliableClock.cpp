@@ -1,6 +1,6 @@
 #include "SimCheck.h"
-#include "VubReliableChains.h"
-#include <Drivers/Interface/VUB/TestKit/VubLoopback.h>
+#include "ReliableChains.h"
+#include <Drivers/Interface/VUB/TestKit/Loopback.h>
 #include <Utilities/DataTypes.h>
 #include <array>
 #include <cstddef>
@@ -27,7 +27,7 @@ void TestResendTimerCrossesTheClockWrap() {
 	ResetReliableState();
 	const uint32 start = 0xFFFE0000u;
 	testNowUs = start;
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	ReliableWire near(line.a);
 	GiveSession(near);
 	ReliableWire far(line.b);

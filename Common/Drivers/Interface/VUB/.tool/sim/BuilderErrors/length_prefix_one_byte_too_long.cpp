@@ -1,12 +1,12 @@
 // expect: a one byte length holds packets of 255 bytes at most
 #include "SnippetSupport.h"
-#include <Drivers/Interface/VUB/Framing/VubLengthPrefix.h>
+#include <Drivers/Interface/VUB/Framing/LengthPrefix.h>
 
 
-using Stack = Vub<+[] {
-	return VubBuilder()
-		.Framing<VubLengthPrefix<1>>()
-		.Link<VubStreamEnd<64, 16>>()
+using Stack = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Framing<VUB::LengthPrefix<1>>()
+		.Link<VUB::StreamEnd<64, 16>>()
 		.MaxPayload(300)
 		.OnReceive<&SnippetReceive>()
 		.Clock<&SnippetClock>();

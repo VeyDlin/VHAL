@@ -1,7 +1,7 @@
 #include "SimCheck.h"
-#include "VubChains.h"
-#include <Drivers/Interface/VUB/TestKit/VubLoopback.h>
-#include <Drivers/Interface/VUB/TestKit/VubWire.h>
+#include "Chains.h"
+#include <Drivers/Interface/VUB/TestKit/Loopback.h>
+#include <Drivers/Interface/VUB/TestKit/Wire.h>
 #include <Utilities/DataTypes.h>
 #include <array>
 #include <cstddef>
@@ -14,8 +14,8 @@
 
 // A down wire loses what is pushed into it and counts it. What was pushed before it went down still arrives.
 void TestDownWireLosesWhatIsSent() {
-	VubFaults faults;
-	VubStreamWire<128> wire(faults, 1);
+	VUB::Faults faults;
+	VUB::StreamWire<128> wire(faults, 1);
 	std::array<uint8, 4> bytes = {1, 2, 3, 4};
 	wire.Push(std::span<const uint8>(bytes.data(), 2));
 	wire.SetDown(true);
@@ -34,8 +34,8 @@ void TestDownWireLosesWhatIsSent() {
 
 // The same for a packet wire: a packet sent while it is down is lost and counted; one sent before it went down arrives whole.
 void TestDownPacketWireLosesWhatIsSent() {
-	VubFaults faults;
-	VubPacketWire<16, 32> wire(faults, 1);
+	VUB::Faults faults;
+	VUB::PacketWire<16, 32> wire(faults, 1);
 	std::array<uint8, 3> packet = {1, 2, 3};
 	wire.Push(std::span<const uint8>(packet.data(), packet.size()));
 	wire.SetDown(true);
@@ -50,7 +50,7 @@ void TestDownPacketWireLosesWhatIsSent() {
 // A line that reports tells both ends when it goes down and up, at the next Process of each.
 void TestLineTellsBothEnds() {
 	ResetTestState();
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	ReportingPacketStack near(line.a);
 	ReportingPacketStack far(line.b);
 	near.Process();
@@ -74,7 +74,7 @@ void TestLineTellsBothEnds() {
 // queued packets go in order. Nothing is counted as lost.
 void TestWaitKeepsQueuedPackets() {
 	ResetTestState();
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	ReportingPacketStack sender(line.a);
 	ReportingPacketStack receiver(line.b);
 	sender.Process();
@@ -112,7 +112,7 @@ void TestWaitKeepsQueuedPackets() {
 // down and does not count it, and a packet sent after up goes through.
 void TestFailDropsQueuedPackets() {
 	ResetTestState();
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	FailingPacketStack sender(line.a);
 	FailingPacketStack receiver(line.b);
 	sender.Process();
@@ -147,7 +147,7 @@ void TestFailDropsQueuedPackets() {
 // sender writes its frame again from its first byte after up. The first frame after up arrives whole, with no framing error.
 void TestWaitResetsHalfReceivedFrame() {
 	ResetTestState();
-	ReportingStreamLine line(VubFaults{});
+	ReportingStreamLine line(VUB::Faults{});
 	ReportingLengthStack sender(line.a);
 	ReportingLengthStack receiver(line.b);
 	sender.Process();
@@ -185,7 +185,7 @@ void TestWaitResetsHalfReceivedFrame() {
 // reset. A frame sent after up arrives whole.
 void TestFailDropsHalfWrittenFrame() {
 	ResetTestState();
-	ReportingStreamLine line(VubFaults{});
+	ReportingStreamLine line(VUB::Faults{});
 	FailingLengthStack sender(line.a);
 	FailingLengthStack receiver(line.b);
 	sender.Process();
@@ -223,7 +223,7 @@ void TestFailDropsHalfWrittenFrame() {
 // frame boundaries again, so the frames sent after the outage arrive whole.
 void TestSilentLineRecoversFraming() {
 	ResetTestState();
-	StreamLine line(VubFaults{});
+	StreamLine line(VUB::Faults{});
 	SilentStreamStack sender(line.a);
 	SilentStreamStack receiver(line.b);
 	for (std::size_t index = 0; index < 3; index++) {
@@ -270,7 +270,7 @@ void TestSilentLineRecoversFraming() {
 // packet arrives once and in order, and the link went down more than once.
 void TestScheduledOutagesLoseNothingWhenReported() {
 	ResetTestState();
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.seed = 17;
 	faults.outageEveryUs = 300;
 	faults.outageForUs = 120;
@@ -311,7 +311,7 @@ void TestScheduledOutagesLoseNothingWhenReported() {
 // the rebuilt far stack takes the packets.
 void TestPeerRebootSilentLine() {
 	ResetTestState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	PacketStack near(line.a);
 	std::optional<PacketStack> far;
 	far.emplace(line.b);
@@ -345,7 +345,7 @@ void TestPeerRebootSilentLine() {
 // far stack exists reports into nothing, and the rebuilt far stack reports up when it is built.
 void TestPeerRebootReportingLine() {
 	ResetTestState();
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	ReportingPacketStack near(line.a);
 	std::optional<ReportingPacketStack> far;
 	far.emplace(line.b);
@@ -384,7 +384,7 @@ void TestPeerRebootReportingLine() {
 // not joined to them, and the bytes are counted as linkDown.
 void TestDownDiscardsReceiveRing() {
 	ResetTestState();
-	ReportingStreamLine line(VubFaults{});
+	ReportingStreamLine line(VUB::Faults{});
 	ReportingLengthStack sender(line.a);
 	ReportingLengthStack receiver(line.b);
 	sender.Process();
@@ -413,7 +413,7 @@ void TestDownDiscardsReceiveRing() {
 // A down keeps the packets the receive queue holds: they are whole, and they still go up.
 void TestDownKeepsReceivedPackets() {
 	ResetTestState();
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	ReportingPacketStack receiver(line.b);
 	receiver.Process();
 	std::array<uint8, 2> first = {0x01, 0x02};
@@ -430,8 +430,8 @@ void TestDownKeepsReceivedPackets() {
 
 
 // The faults of a line with a schedule of outages: down for 500 microseconds, then up for up to 1000.
-VubFaults ScheduledFaults() {
-	VubFaults faults;
+VUB::Faults ScheduledFaults() {
+	VUB::Faults faults;
 	faults.outageEveryUs = 1000;
 	faults.outageForUs = 500;
 	return faults;
@@ -441,7 +441,7 @@ VubFaults ScheduledFaults() {
 // A line taken down by hand stays down through SetNow, with or without a schedule. A packet or byte sent while it is down is lost. Once
 // the line is taken up by hand, and the schedule is up at the same time, the line carries what is sent again.
 template<typename Line, typename Stack>
-void CheckManualDownHoldsThroughSetNow(const VubFaults& faults) {
+void CheckManualDownHoldsThroughSetNow(const VUB::Faults& faults) {
 	ResetTestState();
 	Line line(faults);
 	Stack sender(line.a);
@@ -485,9 +485,9 @@ int main() {
 	TestScheduledOutagesLoseNothingWhenReported();
 	TestPeerRebootSilentLine();
 	TestPeerRebootReportingLine();
-	CheckManualDownHoldsThroughSetNow<PacketLine, PacketStack>(VubFaults{});
+	CheckManualDownHoldsThroughSetNow<PacketLine, PacketStack>(VUB::Faults{});
 	CheckManualDownHoldsThroughSetNow<PacketLine, PacketStack>(ScheduledFaults());
-	CheckManualDownHoldsThroughSetNow<StreamLine, StreamStack>(VubFaults{});
+	CheckManualDownHoldsThroughSetNow<StreamLine, StreamStack>(VUB::Faults{});
 	CheckManualDownHoldsThroughSetNow<StreamLine, StreamStack>(ScheduledFaults());
 	return SimFinish("TestVubOutage");
 }

@@ -1,17 +1,17 @@
 #include "SimCheck.h"
-#include <Drivers/Interface/VUB/Layer/VubReliable.h>
-#include <Drivers/Interface/VUB/Vub.h>
+#include <Drivers/Interface/VUB/Layer/Reliable.h>
+#include <Drivers/Interface/VUB/Stack.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/ResultStatus.h>
 #include <array>
 #include <cstddef>
 #include <span>
 
-// The snippet of the wiki page Layer/VubReliable, as it is written there: it must compile, and its code runs once.
+// The snippet of the wiki page Layer/VUB::Reliable, as it is written there: it must compile, and its code runs once.
 
 // The packet link of the board: it sends a whole packet, or reports busy when its transmitter has no room.
 struct BoardLink {
-	static constexpr VubLinkTraits traits = VubLinkTraits().Framed().MaxPacket(64).FullDuplex();
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64).FullDuplex();
 
 	ResultStatus Send(std::span<const uint8> packet) {
 		(void)packet;
@@ -25,20 +25,20 @@ uint32 BoardClockUs() {
 }
 
 // Called once for each packet sent with delivery. The payload is valid only during the call.
-void OnBoardOutcome(const VubOutcome& outcome) {
+void OnBoardOutcome(const VUB::Outcome& outcome) {
 	(void)outcome;
 }
 
 void OnBoardRestart() {
 }
 
-void OnBoardPacket(const VubMeta&, std::span<const uint8> payload) {
+void OnBoardPacket(const VUB::Meta&, std::span<const uint8> payload) {
 	(void)payload;
 }
 
-using Board = Vub<+[] {
-	return VubBuilder()
-		.Layer<VubReliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
+using Board = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
 		.OnOutcome<&OnBoardOutcome>()
 		.OnRestart<&OnBoardRestart>()
 		.Link<BoardLink>()
@@ -59,13 +59,13 @@ void BoardSend() {
 // The application gives the board's layer its session value once per boot, before the first send. The layer is reached with Find<Block>().
 // The value differs for each boot: a random number, or the chip's identifier mixed with a boot counter.
 void BoardStartSession(uint16 bootValue) {
-	board.Find<VubReliable>().SetSession(bootValue);
+	board.Find<VUB::Reliable>().SetSession(bootValue);
 }
 
 
 // The same chain, with a link that keeps the first packet it sends, so the test can read the bytes that the session value gave.
 struct ProbeLink {
-	static constexpr VubLinkTraits traits = VubLinkTraits().Framed().MaxPacket(64).FullDuplex();
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64).FullDuplex();
 
 	std::array<uint8, 16> first{};
 	std::size_t firstLength = 0;
@@ -84,9 +84,9 @@ struct ProbeLink {
 	}
 };
 
-using Probe = Vub<+[] {
-	return VubBuilder()
-		.Layer<VubReliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
+using Probe = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
 		.OnOutcome<&OnBoardOutcome>()
 		.OnRestart<&OnBoardRestart>()
 		.Link<ProbeLink>()
@@ -101,7 +101,7 @@ int main() {
 	BoardSend();
 	ProbeLink probeLink;
 	Probe probe(probeLink);
-	probe.Find<VubReliable>().SetSession(0x5A5A);
+	probe.Find<VUB::Reliable>().SetSession(0x5A5A);
 	std::array<uint8, 3> hello = {1, 2, 3};
 	SIM_EXPECT(probe.Send(std::span<const uint8>(hello.data(), hello.size())) == ResultStatus::busy);
 	probe.Process();

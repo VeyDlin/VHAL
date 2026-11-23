@@ -1,11 +1,11 @@
 #include "SimCheck.h"
-#include "VubChains.h"
-#include "VubDoubles.h"
-#include <Drivers/Interface/VUB/TestKit/VubContracts.h>
-#include <Drivers/Interface/VUB/TestKit/VubLoopback.h>
-#include <Drivers/Interface/VUB/Transform/VubCrc.h>
-#include <Drivers/Interface/VUB/Vub.h>
-#include <Drivers/Interface/VUB/VubMeta.h>
+#include "Chains.h"
+#include "Doubles.h"
+#include <Drivers/Interface/VUB/TestKit/Contracts.h>
+#include <Drivers/Interface/VUB/TestKit/Loopback.h>
+#include <Drivers/Interface/VUB/Transform/Crc.h>
+#include <Drivers/Interface/VUB/Stack.h>
+#include <Drivers/Interface/VUB/Meta.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -21,8 +21,8 @@ const std::array<uint8, 9> digits = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0
 
 // Encode of the digits by hand: the nine bytes, then 37 4B (the check value 4B37, low byte first).
 void TestModbusEncodesLowByteFirst() {
-	VubCrc16Modbus transform;
-	VubMeta meta{};
+	VUB::Crc16Modbus transform;
+	VUB::Meta meta{};
 	std::array<uint8, 11> wire{};
 	Result<std::size_t> encoded = transform.Encode(meta, std::span<const uint8>(digits.data(), digits.size()), wire);
 	SIM_EXPECT(encoded.IsOk());
@@ -34,8 +34,8 @@ void TestModbusEncodesLowByteFirst() {
 
 // The high byte first variant sends the same CRC as 4B 37.
 void TestModbusEncodesHighByteFirst() {
-	VubCrc16ModbusHighByteFirst transform;
-	VubMeta meta{};
+	VUB::Crc16ModbusHighByteFirst transform;
+	VUB::Meta meta{};
 	std::array<uint8, 11> wire{};
 	SIM_EXPECT(transform.Encode(meta, std::span<const uint8>(digits.data(), digits.size()), wire).IsOk());
 	const std::array<uint8, 11> expected = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x4B, 0x37};
@@ -45,8 +45,8 @@ void TestModbusEncodesHighByteFirst() {
 
 // The CRC-8 preset of the digits is F4, one byte.
 void TestCrc8SmbusEncodes() {
-	VubCrc8Smbus transform;
-	VubMeta meta{};
+	VUB::Crc8Smbus transform;
+	VUB::Meta meta{};
 	std::array<uint8, 10> wire{};
 	SIM_EXPECT(transform.Encode(meta, std::span<const uint8>(digits.data(), digits.size()), wire).IsOk());
 	const std::array<uint8, 10> expected = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0xF4};
@@ -56,8 +56,8 @@ void TestCrc8SmbusEncodes() {
 
 // The CRC-32 preset of the digits is CBF43926, low byte first: 26 39 F4 CB.
 void TestCrc32IsoHdlcEncodes() {
-	VubCrc32IsoHdlc transform;
-	VubMeta meta{};
+	VUB::Crc32IsoHdlc transform;
+	VUB::Meta meta{};
 	std::array<uint8, 13> wire{};
 	SIM_EXPECT(transform.Encode(meta, std::span<const uint8>(digits.data(), digits.size()), wire).IsOk());
 	const std::array<uint8, 13> expected = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x26, 0x39, 0xF4, 0xCB};
@@ -67,8 +67,8 @@ void TestCrc32IsoHdlcEncodes() {
 
 // Decode of the wire bytes by hand gives the digits back, in place, and the length of the body.
 void TestModbusDecodesWireBytes() {
-	VubCrc16Modbus transform;
-	VubMeta meta{};
+	VUB::Crc16Modbus transform;
+	VUB::Meta meta{};
 	std::array<uint8, 11> wire = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x37, 0x4B};
 	Result<std::size_t> decoded = transform.Decode(meta, std::span<uint8>(wire.data(), wire.size()));
 	SIM_EXPECT(decoded.IsOk());
@@ -81,8 +81,8 @@ void TestModbusDecodesWireBytes() {
 
 // The same bytes read as high byte first carry 374B, not 4B37: a crcError, and the byte order is part of the wire.
 void TestModbusByteOrderIsChecked() {
-	VubCrc16ModbusHighByteFirst transform;
-	VubMeta meta{};
+	VUB::Crc16ModbusHighByteFirst transform;
+	VUB::Meta meta{};
 	std::array<uint8, 11> wire = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x37, 0x4B};
 	Result<std::size_t> decoded = transform.Decode(meta, std::span<uint8>(wire.data(), wire.size()));
 	SIM_EXPECT(decoded.IsErr());
@@ -92,8 +92,8 @@ void TestModbusByteOrderIsChecked() {
 
 // One changed payload byte is a crcError, and a packet shorter than the CRC is an invalid data error.
 void TestDamagedPacketsAreRefused() {
-	VubCrc16Modbus transform;
-	VubMeta meta{};
+	VUB::Crc16Modbus transform;
+	VUB::Meta meta{};
 	std::array<uint8, 11> wire = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x37, 0x4B};
 	wire[4] = 0x25;
 	Result<std::size_t> decoded = transform.Decode(meta, std::span<uint8>(wire.data(), wire.size()));
@@ -109,25 +109,25 @@ void TestDamagedPacketsAreRefused() {
 
 // The contract passes for the presets with the table engine, and for one of them with the bitwise engine.
 void TestPresetsPassContract() {
-	VubCrc16Modbus modbus;
-	SIM_EXPECT(VubCheckTransform(modbus, 7, 500, 40));
-	VubCrc<VubCrc16Modbus::parameters, VubCrcBitwise> modbusBitwise;
-	SIM_EXPECT(VubCheckTransform(modbusBitwise, 8, 500, 40));
-	VubCrc8Smbus smbus;
-	SIM_EXPECT(VubCheckTransform(smbus, 9, 500, 40));
-	VubCrc32IsoHdlc isoHdlc;
-	SIM_EXPECT(VubCheckTransform(isoHdlc, 10, 500, 255));
-	VubCrc16ModbusHighByteFirst modbusHighFirst;
-	SIM_EXPECT(VubCheckTransform(modbusHighFirst, 11, 500, 40));
-	VubCrc16Riello riello;
-	SIM_EXPECT(VubCheckTransform(riello, 12, 500, 40));
+	VUB::Crc16Modbus modbus;
+	SIM_EXPECT(VUB::CheckTransform(modbus, 7, 500, 40));
+	VUB::Crc<VUB::Crc16Modbus::parameters, VUB::CrcBitwise> modbusBitwise;
+	SIM_EXPECT(VUB::CheckTransform(modbusBitwise, 8, 500, 40));
+	VUB::Crc8Smbus smbus;
+	SIM_EXPECT(VUB::CheckTransform(smbus, 9, 500, 40));
+	VUB::Crc32IsoHdlc isoHdlc;
+	SIM_EXPECT(VUB::CheckTransform(isoHdlc, 10, 500, 255));
+	VUB::Crc16ModbusHighByteFirst modbusHighFirst;
+	SIM_EXPECT(VUB::CheckTransform(modbusHighFirst, 11, 500, 40));
+	VUB::Crc16Riello riello;
+	SIM_EXPECT(VUB::CheckTransform(riello, 12, 500, 40));
 }
 
 
 // The custom set of the presets test, high byte first: 45 74 after the digits. The bytes come from the reference's CRC 4574.
 void TestCustomHighByteFirstEncodes() {
-	VubCrcHighByteFirst<VubCrcParameters{16, 0x1021, 0x1D0F, 0x00FF, true, false, 0x4574}> transform;
-	VubMeta meta{};
+	VUB::CrcHighByteFirst<VUB::CrcParameters{16, 0x1021, 0x1D0F, 0x00FF, true, false, 0x4574}> transform;
+	VUB::Meta meta{};
 	std::array<uint8, 11> wire{};
 	SIM_EXPECT(transform.Encode(meta, std::span<const uint8>(digits.data(), digits.size()), wire).IsOk());
 	const std::array<uint8, 11> expected = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x45, 0x74};
@@ -137,12 +137,12 @@ void TestCustomHighByteFirstEncodes() {
 
 // A stack over the faulty loopback with flag framing: every payload the handler gets is one that was sent, whole, and the lost or
 // changed frames are counted. A corrupted frame that the framing lets through is a transformError, and none reaches the handler.
-using CrcStreamEnd = VubStreamEnd<64, 512>;
+using CrcStreamEnd = VUB::StreamEnd<64, 512>;
 
 
-using CrcStream = Vub<+[] {
-	return VubBuilder()
-		.Transform<VubCrc16Modbus>()
+using CrcStream = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Transform<VUB::Crc16Modbus>()
 		.Framing<FlagFraming>()
 		.Link<CrcStreamEnd>()
 		.MaxPayload(40)
@@ -154,7 +154,7 @@ using CrcStream = Vub<+[] {
 
 void TestFaultyLoopbackNeverDeliversCorruptedPayloads() {
 	ResetTestState();
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.seed = 33;
 	faults.dropPercent = 5;
 	faults.corruptPercent = 8;
@@ -180,7 +180,7 @@ void TestFaultyLoopbackNeverDeliversCorruptedPayloads() {
 		receiver.Process();
 	}
 
-	VubWireCounts counts = line.toB.Counts();
+	VUB::WireCounts counts = line.toB.Counts();
 	SIM_EXPECT(counts.corrupted > 0);
 	for (std::size_t index = 0; index < testReceivedCount && index < 256; index++) {
 		SIM_EXPECT(testReceivedLength[index] == 4);
@@ -190,16 +190,16 @@ void TestFaultyLoopbackNeverDeliversCorruptedPayloads() {
 		SIM_EXPECT(testReceived[index][3] == 0x30);
 	}
 
-	VubDrops drops = receiver.Drops();
+	VUB::DropCounters drops = receiver.Drops();
 	SIM_EXPECT(drops.transformError + drops.framingError > 0);
 }
 
 
 // The same CRC over a packet link with faults: a packet the wire corrupts reaches the CRC, so each one is a transformError, and the
 // packets the handler gets are whole. Every packet the wire delivers ends in the handler or in one counted reason.
-using CrcPacketStack = Vub<+[] {
-	return VubBuilder()
-		.Transform<VubCrc16Modbus>()
+using CrcPacketStack = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Transform<VUB::Crc16Modbus>()
 		.Link<PacketEnd>()
 		.MaxPayload(40)
 		.ReceiveQueue(4)
@@ -210,7 +210,7 @@ using CrcPacketStack = Vub<+[] {
 
 void TestPacketFaultsCountTransformErrors() {
 	ResetTestState();
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.seed = 41;
 	faults.dropPercent = 10;
 	faults.corruptPercent = 10;
@@ -236,9 +236,9 @@ void TestPacketFaultsCountTransformErrors() {
 		receiver.Process();
 	}
 
-	VubWireCounts counts = line.toB.Counts();
+	VUB::WireCounts counts = line.toB.Counts();
 	SIM_EXPECT(counts.corrupted > 0);
-	VubDrops drops = receiver.Drops();
+	VUB::DropCounters drops = receiver.Drops();
 	SIM_EXPECT(drops.transformError > 0);
 	for (std::size_t index = 0; index < testReceivedCount && index < 256; index++) {
 		SIM_EXPECT(testReceivedLength[index] == 4);
@@ -257,12 +257,12 @@ void TestPacketFaultsCountTransformErrors() {
 // the framing double: the digits, then 00 00 where the CRC of the digits (37 4B) belongs.
 void TestWrongCrcIsCountedAsTransformError() {
 	ResetTestState();
-	StreamLine line(VubFaults{});
+	StreamLine line(VUB::Faults{});
 	CrcStream receiver(line.b);
 
 	std::array<uint8, 11> packet = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x00, 0x00};
 	FlagFraming framing;
-	VubMeta meta{};
+	VUB::Meta meta{};
 	std::array<uint8, 64> frame{};
 	Result<std::size_t> framed = framing.Frame(meta, std::span<const uint8>(packet.data(), packet.size()), frame);
 	SIM_EXPECT(framed.IsOk());
@@ -272,16 +272,16 @@ void TestWrongCrcIsCountedAsTransformError() {
 
 	receiver.Process();
 	SIM_EXPECT(testReceivedCount == 0);
-	VubDrops drops = receiver.Drops();
+	VUB::DropCounters drops = receiver.Drops();
 	SIM_EXPECT(drops.transformError == 1);
 	SIM_EXPECT(drops.framingError == 0);
 }
 
 
 // A chain with the high byte first variant puts 4B 37 after the digits on the wire; the byte after the flag is the first digit.
-using HighFirstStream = Vub<+[] {
-	return VubBuilder()
-		.Transform<VubCrc16ModbusHighByteFirst>()
+using HighFirstStream = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Transform<VUB::Crc16ModbusHighByteFirst>()
 		.Framing<FlagFraming>()
 		.Link<CrcStreamEnd>()
 		.MaxPayload(40)
@@ -293,7 +293,7 @@ using HighFirstStream = Vub<+[] {
 
 void TestChainByteOrderReachesTheWire() {
 	ResetTestState();
-	StreamLine line(VubFaults{});
+	StreamLine line(VUB::Faults{});
 	HighFirstStream sender(line.a);
 	SIM_EXPECT(sender.Send(std::span<const uint8>(digits.data(), digits.size())) == ResultStatus::ok);
 	sender.Process();

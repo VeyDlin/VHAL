@@ -1,7 +1,9 @@
 #include "SimCheck.h"
-#include <Drivers/Interface/VUB/TestKit/VubContracts.h>
-#include <Drivers/Interface/VUB/TestKit/VubLoopback.h>
-#include <Drivers/Interface/VUB/Vub.h>
+#include <Drivers/Interface/VUB/Layer/Reliable.h>
+#include <Drivers/Interface/VUB/Stack.h>
+#include <Drivers/Interface/VUB/TestKit/Contracts.h>
+#include <Drivers/Interface/VUB/TestKit/Loopback.h>
+#include <Drivers/Interface/VUB/Transform/Crc.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -19,7 +21,7 @@ struct SumCheck {
 	static constexpr std::size_t growth = 1;
 	static constexpr uint32 fingerprint = 0x53554D31;
 
-	Result<std::size_t> Encode(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Encode(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		if (out.size() < in.size() + growth) {
 			return ResultStatus::invalidParameter;
 		}
@@ -34,7 +36,7 @@ struct SumCheck {
 		return in.size() + growth;
 	}
 
-	Result<std::size_t> Decode(const VubMeta&, std::span<uint8> packet) {
+	Result<std::size_t> Decode(const VUB::Meta&, std::span<uint8> packet) {
 		if (packet.empty()) {
 			return ResultStatus::invalidData;
 		}
@@ -55,7 +57,7 @@ struct SumCheck {
 
 // The packet link of the board: it sends a whole packet, or reports busy when its transmitter has no room.
 struct BoardLink {
-	static constexpr VubLinkTraits traits = VubLinkTraits().Framed().MaxPacket(64).FullDuplex();
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64).FullDuplex();
 
 	ResultStatus Send(std::span<const uint8> packet) {
 		(void)packet;
@@ -63,12 +65,12 @@ struct BoardLink {
 	}
 };
 
-void OnPacket(const VubMeta&, std::span<const uint8> payload) {
+void OnPacket(const VUB::Meta&, std::span<const uint8> payload) {
 	(void)payload;
 }
 
-using Board = Vub<+[] {
-	return VubBuilder()
+using Board = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Transform<SumCheck>()
 		.Link<BoardLink>()
 		.MaxPayload(32)
@@ -86,7 +88,7 @@ void BoardSend() {
 
 void CheckContract() {
 	SumCheck sumCheck;
-	bool passes = VubCheckTransform(sumCheck, 7, 500, 32);
+	bool passes = VUB::CheckTransform(sumCheck, 7, 500, 32);
 	SIM_EXPECT(passes);
 }
 }  // namespace WikiWriting
@@ -98,14 +100,40 @@ using WikiWriting::BoardLink;
 using WikiWriting::OnPacket;
 using WikiWriting::SumCheck;
 
-using Board = Vub<+[] {
-	return VubBuilder()
+using Board = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Transform<SumCheck>()
 		.Link<BoardLink>()
 		.MaxPayload(32)
 		.OnReceive<&OnPacket>();
 }>;
 }  // namespace WikiChain
+
+
+// The short names of the Names section: the namespace is opened inside the lambda only.
+namespace WikiNames {
+using WikiWriting::BoardLink;
+using WikiWriting::OnPacket;
+
+uint32 BoardClockUs() {
+	return 0;
+}
+
+
+using Board = VUB::Stack<+[] {
+	using namespace VUB;
+	return Builder()
+		.Layer<Reliable>().Retries(3).TimeoutMs(200)
+		.Transform<Crc16Modbus>()
+		.Link<BoardLink>()
+		.MaxPayload(32)
+		.OnReceive<&OnPacket>()
+		.Clock<&BoardClockUs>();
+}>;
+
+BoardLink boardLink;
+Board board(boardLink);
+}  // namespace WikiNames
 
 
 // A block with options and a Step, written only against the documented contract: its options are a nested type, its Step gives the
@@ -143,7 +171,7 @@ struct XorKey {
 	explicit XorKey(const Options& options) : key(options.key) {
 	}
 
-	Result<std::size_t> Encode(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Encode(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		if (out.size() < in.size()) {
 			return ResultStatus::invalidParameter;
 		}
@@ -155,7 +183,7 @@ struct XorKey {
 		return in.size();
 	}
 
-	Result<std::size_t> Decode(const VubMeta&, std::span<uint8> packet) {
+	Result<std::size_t> Decode(const VUB::Meta&, std::span<uint8> packet) {
 		for (std::size_t index = 0; index < packet.size(); index++) {
 			packet[index] = static_cast<uint8>(packet[index] ^ key);
 		}
@@ -164,17 +192,17 @@ struct XorKey {
 	}
 };
 
-using Board = Vub<+[] {
-	return VubBuilder()
+using Board = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Transform<XorKey>().Key(0x5A)
 		.Link<BoardLink>()
 		.MaxPayload(32)
 		.OnReceive<&OnPacket>();
 }>;
 
-static_assert(VubBuilder().Transform<XorKey>().Key(0x5A).LastOptions().key == 0x5A);
-static_assert(VubBuilder().Transform<XorKey>(XorKey::Options{0x5A}).LastOptions().key == 0x5A);
-static_assert(VubBuilder().Transform<XorKey>().LastOptions().key == 0);
+static_assert(VUB::Builder().Transform<XorKey>().Key(0x5A).LastOptions().key == 0x5A);
+static_assert(VUB::Builder().Transform<XorKey>(XorKey::Options{0x5A}).LastOptions().key == 0x5A);
+static_assert(VUB::Builder().Transform<XorKey>().LastOptions().key == 0);
 }  // namespace WikiSteps
 
 
@@ -185,10 +213,10 @@ using WikiWriting::OnPacket;
 
 // A packet link that reports its state, as a USB device does. The stack gives its sink here; the interrupt reports the connection.
 struct UsbLink {
-	static constexpr VubLinkTraits traits = VubLinkTraits().Framed().MaxPacket(64).FullDuplex().ReportsState();
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64).FullDuplex().ReportsState();
 
 	// The stack gives its sink here, and the link reports its current state through it at once.
-	void SetStateSink(VubStateSink value) {
+	void SetStateSink(VUB::StateSink value) {
 		sink = value;
 		sink.Report(configured);
 	}
@@ -204,16 +232,16 @@ struct UsbLink {
 		return ResultStatus::ok;
 	}
 
-	VubStateSink sink;
+	VUB::StateSink sink;
 	bool configured = false;
 };
 
 
-using Usb = Vub<+[] {
-	return VubBuilder()
+using Usb = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Link<UsbLink>()
 		.MaxPayload(32)
-		.WhileDown(VubDown::Fail)
+		.WhileDown(VUB::Down::Fail)
 		.OnReceive<&OnPacket>();
 }>;
 
@@ -243,7 +271,7 @@ struct LineFraming {
 	}
 
 
-	Result<std::size_t> Frame(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Frame(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		if (in.size() + 1 > out.size()) {
 			return ResultStatus::messageTooLong;
 		}
@@ -257,24 +285,24 @@ struct LineFraming {
 	}
 
 
-	VubFrame Push(uint8 byte, std::span<uint8> out, std::size_t& length) {
+	VUB::FrameStatus Push(uint8 byte, std::span<uint8> out, std::size_t& length) {
 		if (byte != 0x0A) {
 			if (count < body.size()) {
 				body[count] = byte;
 			}
 
 			count++;
-			return VubFrame::pending;
+			return VUB::FrameStatus::pending;
 		}
 
 		std::size_t frame = count;
 		count = 0;
 		if (frame == 0) {
-			return VubFrame::pending;
+			return VUB::FrameStatus::pending;
 		}
 
 		if (frame > body.size() || frame > out.size()) {
-			return VubFrame::tooLong;
+			return VUB::FrameStatus::tooLong;
 		}
 
 		for (std::size_t index = 0; index < frame; index++) {
@@ -282,7 +310,7 @@ struct LineFraming {
 		}
 
 		length = frame;
-		return VubFrame::packet;
+		return VUB::FrameStatus::packet;
 	}
 
 
@@ -297,10 +325,10 @@ struct LineFraming {
 };
 
 
-using Lines = Vub<+[] {
-	return VubBuilder()
+using Lines = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Framing<LineFraming>()
-		.Link<VubStreamEnd<64, 512, true>>()
+		.Link<VUB::StreamEnd<64, 512, true>>()
 		.MaxPayload(32)
 		.ReceiveRing(128)
 		.OnReceive<&OnPacket>();
@@ -318,7 +346,7 @@ struct PeerWatch {
 	static constexpr bool reportsPeer = true;
 
 
-	Result<std::size_t> Add(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		if (out.size() < in.size()) {
 			return ResultStatus::invalidParameter;
 		}
@@ -331,12 +359,12 @@ struct PeerWatch {
 	}
 
 
-	Result<VubTake> Take(const VubMeta&, std::span<const uint8>) {
-		return VubTake{0, true};
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
 	}
 
 
-	void Process(uint32 nowUs, const VubOutbox& outbox) {
+	void Process(uint32 nowUs, const VUB::Outbox& outbox) {
 		outbox.SetPeer(nowUs - heardUs < 1000);
 	}
 
@@ -364,10 +392,10 @@ inline uint32 Now() {
 }
 
 
-using Watched = Vub<+[] {
-	return VubBuilder()
+using Watched = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<PeerWatch>()
-		.Link<VubPacketEnd<64, 512>>()
+		.Link<VUB::PacketEnd<64, 512>>()
 		.MaxPayload(32)
 		.OnReceive<&OnPacket>()
 		.Clock<&Now>();
@@ -379,20 +407,20 @@ static_assert(Watched::count == 2);
 
 // The test kit's outages, and the pattern for a peer that reboots.
 namespace WikiOutage {
-using WikiLine = VubPacketLine<64, 512, true>;
+using WikiLine = VUB::PacketLine<64, 512, true>;
 
-using Near = Vub<+[] {
-	return VubBuilder()
-		.Link<VubPacketEnd<64, 512, true>>()
+using Near = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Link<VUB::PacketEnd<64, 512, true>>()
 		.MaxPayload(32)
-		.WhileDown(VubDown::Fail)
+		.WhileDown(VUB::Down::Fail)
 		.OnReceive<&WikiWriting::OnPacket>()
 		.Clock<&WikiLinkState::Now>();
 }>;
 
 
 void RebootPattern() {
-	WikiLine line(VubFaults{});
+	WikiLine line(VUB::Faults{});
 	Near near(line.a);
 	std::optional<Near> far;
 	far.emplace(line.b);
@@ -409,7 +437,7 @@ void RebootPattern() {
 
 
 void OutageSample() {
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.seed = 7;
 	faults.outageEveryUs = 500;
 	faults.outageForUs = 100;
@@ -431,7 +459,7 @@ struct InOrder {
 	static constexpr bool passesUp = true;
 
 
-	Result<std::size_t> Add(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		if (out.size() < in.size() + header) {
 			return ResultStatus::invalidParameter;
 		}
@@ -446,14 +474,14 @@ struct InOrder {
 	}
 
 
-	Result<VubTake> Take(const VubMeta&, std::span<const uint8> packet) {
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8> packet) {
 		if (packet.empty()) {
 			return ResultStatus::invalidData;
 		}
 
 		if (packet[0] == expected) {
 			expected++;
-			return VubTake{header, true};
+			return VUB::Taken{header, true};
 		}
 
 		if (held || packet.size() - header > heldBody.size()) {
@@ -467,11 +495,11 @@ struct InOrder {
 
 		heldNumber = packet[0];
 		held = true;
-		return VubTake{header, false};
+		return VUB::Taken{header, false};
 	}
 
 
-	void Process(uint32, const VubOutbox& outbox) {
+	void Process(uint32, const VUB::Outbox& outbox) {
 		if (held && heldNumber == expected) {
 			held = false;
 			expected++;
@@ -494,7 +522,7 @@ inline std::array<uint8, 4> delivered{};
 inline std::size_t deliveredCount = 0;
 
 
-void OnInOrder(const VubMeta&, std::span<const uint8> payload) {
+void OnInOrder(const VUB::Meta&, std::span<const uint8> payload) {
 	if (deliveredCount < delivered.size() && !payload.empty()) {
 		delivered[deliveredCount] = payload[0];
 	}
@@ -505,7 +533,7 @@ void OnInOrder(const VubMeta&, std::span<const uint8> payload) {
 
 // A packet link. The interrupt gives it packets with FeedPacket.
 struct InOrderLink {
-	static constexpr VubLinkTraits traits = VubLinkTraits().Framed().MaxPacket(64).FullDuplex();
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64).FullDuplex();
 
 	ResultStatus Send(std::span<const uint8> packet) {
 		(void)packet;
@@ -514,8 +542,8 @@ struct InOrderLink {
 };
 
 
-using InOrderStack = Vub<+[] {
-	return VubBuilder()
+using InOrderStack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<InOrder>()
 		.Link<InOrderLink>()
 		.MaxPayload(8)

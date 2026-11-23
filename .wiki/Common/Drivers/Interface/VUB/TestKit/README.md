@@ -7,10 +7,10 @@ block uses it to check the block on a PC before it goes onto a board.
 
 | Header | What it gives |
 |---|---|
-| `VubRandom.h` | a deterministic generator (xorshift32): the same seed gives the same run |
-| `VubWire.h` | `VubStreamWire` and `VubPacketWire`: one direction of a line that drops, corrupts, duplicates and delays items from a seed (`VubFaults`) |
-| `VubLoopback.h` | link objects over the wires: `VubStreamEnd` (a byte stream, `Write` takes what the round budget allows) and `VubPacketEnd` (`Send` returns `busy` when the round budget is used, and `messageTooLong` for a packet longer than the line's `MaxPacket`); `VubStreamLine` and `VubPacketLine` join two ends; a third parameter `true` makes the ends report the line's state, and `SetLinkUp` takes the line down and up (see [outages and reboots](#outages-and-reboots)) |
-| `VubContracts.h` | `VubCheckTransform` and `VubCheckFraming`, the contract checks |
+| `Random.h` | a deterministic generator (xorshift32): the same seed gives the same run |
+| `Wire.h` | `VUB::StreamWire` and `VUB::PacketWire`: one direction of a line that drops, corrupts, duplicates and delays items from a seed (`VUB::Faults`) |
+| `Loopback.h` | link objects over the wires: `VUB::StreamEnd` (a byte stream, `Write` takes what the round budget allows) and `VUB::PacketEnd` (`Send` returns `busy` when the round budget is used, and `messageTooLong` for a packet longer than the line's `MaxPacket`); `VUB::StreamLine` and `VUB::PacketLine` join two ends; a third parameter `true` makes the ends report the line's state, and `SetLinkUp` takes the line down and up (see [outages and reboots](#outages-and-reboots)) |
+| `Contracts.h` | `VUB::CheckTransform` and `VUB::CheckFraming`, the contract checks |
 
 ## The loopback
 
@@ -18,14 +18,14 @@ A line has two directions. A stack on end `a` sends into one wire, and the stack
 `DeliverToB`:
 
 ```cpp
-VubFaults faults;
+VUB::Faults faults;
 faults.dropPercent = 5;
 faults.corruptPercent = 5;
 faults.duplicatePercent = 5;
 faults.maxDelayUs = 50;
 faults.seed = 7;
 
-VubPacketLine<64, 512> line(faults);
+VUB::PacketLine<64, 512> line(faults);
 // the stacks are built on line.a and line.b; each step sets the time and delivers
 line.SetNow(now);
 line.DeliverToB(receiverStack);
@@ -47,20 +47,20 @@ repeats.
 
 ```cpp
 XorTransform transform;
-bool transformOk = VubCheckTransform(transform, 7, 500, 40);
+bool transformOk = VUB::CheckTransform(transform, 7, 500, 40);
 
 FlagFraming framing;
-bool framingOk = VubCheckFraming(framing, 3, 200, 32, 10);
+bool framingOk = VUB::CheckFraming(framing, 3, 200, 32, 10);
 ```
 
-`VubCheckTransform(transform, seed, rounds, maxPayload)` checks, on random packets of 0 to `maxPayload` bytes (at most 255):
+`VUB::CheckTransform(transform, seed, rounds, maxPayload)` checks, on random packets of 0 to `maxPayload` bytes (at most 255):
 
 - `Decode(Encode(x))` gives `x` back, and the encoded size is at most the length plus `growth`;
 - a flipped bit in the encoded bytes makes `Decode` return an error;
 - `Encode` and `Decode` write nothing past their spans: `Encode` gets a span of exactly the length plus `growth`, `Decode` a span of
   exactly the encoded length, and the guard bytes right after each span are checked after every call.
 
-`VubCheckFraming(framing, seed, rounds, maxPayload, lossPercent)` frames random packets of 1 to `maxPayload` bytes (at most 32), pushes
+`VUB::CheckFraming(framing, seed, rounds, maxPayload, lossPercent)` frames random packets of 1 to `maxPayload` bytes (at most 32), pushes
 the bytes one at a time, and loses `lossPercent` of them:
 
 - every framed packet is at most its length plus `Growth(length)`, the size the stack sizes its framed buffer from;
@@ -68,15 +68,15 @@ the bytes one at a time, and loses `lossPercent` of them:
 - after the lossy part, three clean frames are sent, and the last two come out exactly.
 
 A framing with no check of its own (COBS, the length prefix) cannot promise whole packets with loss: a damaged frame can come out as
-another packet. `VubCheckResync(framing, seed, rounds, maxPayload, lossPercent)` checks what such a framing can promise. It checks
+another packet. `VUB::CheckResync(framing, seed, rounds, maxPayload, lossPercent)` checks what such a framing can promise. It checks
 the length of every packet against `maxPayload`, and after the lossy part it checks that the clean frames come out exactly: the first
-one may be merged with the lossy part, and is not checked. Without loss, use `VubCheckFraming`.
+one may be merged with the lossy part, and is not checked. Without loss, use `VUB::CheckFraming`.
 
-A framing that uses time (the gap framing) is checked by `VubCheckTimedFraming(framing, seed, rounds, maxPayload, lossPercent, gapUs)`.
+A framing that uses time (the gap framing) is checked by `VUB::CheckTimedFraming(framing, seed, rounds, maxPayload, lossPercent, gapUs)`.
 Each frame comes after a silence of three gaps, its bytes are spaced by less than a gap, and the check polls the framing at random
-between them. Without loss every packet comes out whole and in order; with loss it is checked as `VubCheckResync` checks it.
+between them. Without loss every packet comes out whole and in order; with loss it is checked as `VUB::CheckResync` checks it.
 
-The checks of the blocks, `VubRequire` in the library, are declared and not defined. The test kit defines `VubError` as a no-op, so a
+The checks of the blocks, `VUB::Require` in the library, are declared and not defined. The test kit defines `VUB::CheckFailed` as a no-op, so a
 block's `Growth` can be called at run time by the checks; a failed check stays a compile error in a constant expression.
 
 A link is checked by running a stack over a line with faults: the packets that the handler gets, plus the drops that the stack counts,
@@ -85,7 +85,7 @@ must account for every item the wire delivered.
 ## Outages and reboots
 
 `SetLinkUp(false)` takes a line down and `SetLinkUp(true)` brings it up. While it is down, both wires lose what is sent, and `Counts()`
-counts it as `outaged`. A line with the state trait (the `true` parameter, as in `VubPacketLine<64, 512, true>`) tells both ends, so
+counts it as `outaged`. A line with the state trait (the `true` parameter, as in `VUB::PacketLine<64, 512, true>`) tells both ends, so
 their stacks learn of the outage at their next `Process`. A line without it is silent, as a UART is: its stacks learn nothing, and what
 is sent meanwhile is lost.
 
@@ -94,11 +94,11 @@ it is up before the next outage (the up time is drawn from the seed). The schedu
 
 ```cpp
 // A line that reports its state, and a schedule of outages from the seed.
-VubFaults faults;
+VUB::Faults faults;
 faults.seed = 7;
 faults.outageEveryUs = 500;
 faults.outageForUs = 100;
-VubPacketLine<64, 512, true> scheduled(faults);
+VUB::PacketLine<64, 512, true> scheduled(faults);
 scheduled.SetNow(0);
 ```
 
@@ -114,16 +114,16 @@ back when its stack is destroyed, so an outage that comes while the peer is gone
 
 ```cpp
 // A peer that reboots: the far stack is destroyed and built again, and the near stack keeps working.
-using Near = Vub<+[] {
-	return VubBuilder()
-		.Link<VubPacketEnd<64, 512, true>>()
+using Near = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Link<VUB::PacketEnd<64, 512, true>>()
 		.MaxPayload(32)
-		.WhileDown(VubDown::Fail)
+		.WhileDown(VUB::Down::Fail)
 		.OnReceive<&OnPacket>()
 		.Clock<&Now>();
 }>;
 
-VubPacketLine<64, 512, true> line(VubFaults{});
+VUB::PacketLine<64, 512, true> line(VUB::Faults{});
 Near near(line.a);
 std::optional<Near> far;
 far.emplace(line.b);
@@ -136,7 +136,7 @@ near.Process();              // near.LinkUp() is true again
 far->Process();
 ```
 
-With `WhileDown(VubDown::Fail)` the packets the near stack has queued while the line is down are dropped and counted as `linkDown`. The
+With `WhileDown(VUB::Down::Fail)` the packets the near stack has queued while the line is down are dropped and counted as `linkDown`. The
 [link state](../README#link-state) section has the rules.
 
 ## What the checks do not do

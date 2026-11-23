@@ -1,6 +1,6 @@
 #include "SimCheck.h"
-#include "VubReliableChains.h"
-#include <Drivers/Interface/VUB/TestKit/VubLoopback.h>
+#include "ReliableChains.h"
+#include <Drivers/Interface/VUB/TestKit/Loopback.h>
 #include <Utilities/DataTypes.h>
 #include <cstddef>
 #include <span>
@@ -25,7 +25,7 @@ void PacketRoundOnce(Line& line, Stack& near, Stack& far) {
 // acknowledged. Nothing is sent or counted while the line is down, nothing fails, and on up the packet is resent at once.
 void TestOutagePausesRetriesAndResendsOnUp() {
 	ResetReliableState();
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	ReliablePacket near(line.a);
 	GiveSession(near);
 	ReliablePacket far(line.b);
@@ -79,7 +79,7 @@ void TestOutagePausesRetriesAndResendsOnUp() {
 // its outcome is ok.
 void TestPacketSentWhileDownIsDeliveredOnceOnUp() {
 	ResetReliableState();
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	ReliablePacket near(line.a);
 	GiveSession(near);
 	ReliablePacket far(line.b);
@@ -126,7 +126,7 @@ void TestPacketSentWhileDownIsDeliveredOnceOnUp() {
 // an acknowledgement lost in each of four tries in a row would fail a packet, and the test does not claim that cannot happen.
 void TestRandomOutagesKeepExactlyOnce() {
 	ResetReliableState();
-	VubFaults faults;
+	VUB::Faults faults;
 	faults.seed = 0x7777;
 	faults.dropPercent = 2;
 	faults.maxDelayUs = 100;

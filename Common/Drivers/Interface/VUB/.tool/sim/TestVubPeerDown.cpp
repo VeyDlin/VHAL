@@ -1,10 +1,10 @@
 #include "SimCheck.h"
-#include "VubChains.h"
-#include "VubDoubles.h"
-#include <Drivers/Interface/VUB/VubBlocks.h>
-#include <Drivers/Interface/VUB/VubLinkTraits.h>
-#include <Drivers/Interface/VUB/VubOutbox.h>
-#include <Drivers/Interface/VUB/Vub.h>
+#include "Chains.h"
+#include "Doubles.h"
+#include <Drivers/Interface/VUB/Blocks.h>
+#include <Drivers/Interface/VUB/LinkTraits.h>
+#include <Drivers/Interface/VUB/Outbox.h>
+#include <Drivers/Interface/VUB/Stack.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -55,7 +55,7 @@ struct OwnPeerLayer {
 	static constexpr bool reportsPeer = true;
 
 
-	Result<std::size_t> Add(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		if (out.size() < in.size()) {
 			return ResultStatus::invalidParameter;
 		}
@@ -68,12 +68,12 @@ struct OwnPeerLayer {
 	}
 
 
-	Result<VubTake> Take(const VubMeta&, std::span<const uint8>) {
-		return VubTake{0, true};
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
 	}
 
 
-	void Process(uint32, const VubOutbox& outbox) {
+	void Process(uint32, const VUB::Outbox& outbox) {
 		if (testPeerCall != 0) {
 			outbox.SetPeer(testPeerCall > 0);
 			testPeerCall = 0;
@@ -89,8 +89,8 @@ struct OwnPeerLayer {
 
 
 // The same layer over a framed stream line: a frame is the payload with its checks, between flags (FlagFraming).
-using FramedOwnStack = Vub<+[] {
-	return VubBuilder()
+using FramedOwnStack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<OwnPeerLayer>()
 		.Framing<FlagFraming>()
 		.Link<ReportingStreamEnd>()
@@ -102,8 +102,8 @@ using FramedOwnStack = Vub<+[] {
 
 
 // A chain whose application packets wait while the connection is down, over a line that reports its state.
-using OwnStack = Vub<+[] {
-	return VubBuilder()
+using OwnStack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<OwnPeerLayer>()
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
@@ -113,13 +113,13 @@ using OwnStack = Vub<+[] {
 }>;
 
 
-using OwnFailStack = Vub<+[] {
-	return VubBuilder()
+using OwnFailStack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<OwnPeerLayer>()
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
 		.ReceiveQueue(4)
-		.WhileDown(VubDown::Fail)
+		.WhileDown(VUB::Down::Fail)
 		.OnReceive<&TestReceive>()
 		.Clock<&TestClock>();
 }>;
@@ -137,7 +137,7 @@ struct RecoverLayer {
 	static constexpr uint8 KindData = 1;
 
 
-	Result<std::size_t> Add(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
 		if (out.size() < in.size() + header) {
 			return ResultStatus::invalidParameter;
 		}
@@ -151,17 +151,17 @@ struct RecoverLayer {
 	}
 
 
-	Result<VubTake> Take(const VubMeta&, std::span<const uint8> packet) {
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8> packet) {
 		if (packet.size() < header) {
 			return ResultStatus::invalidData;
 		}
 
 		heard = true;
-		return VubTake{header, packet[0] == KindData};
+		return VUB::Taken{header, packet[0] == KindData};
 	}
 
 
-	void Process(uint32, const VubOutbox& outbox) {
+	void Process(uint32, const VUB::Outbox& outbox) {
 		if (!started) {
 			started = true;
 			outbox.SetPeer(false);
@@ -186,8 +186,8 @@ struct RecoverLayer {
 };
 
 
-using RecoverStack = Vub<+[] {
-	return VubBuilder()
+using RecoverStack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<RecoverLayer>()
 		.Link<PacketEnd>()
 		.MaxPayload(40)
@@ -203,7 +203,7 @@ void TestOwnPacketGoesWhilePeerDown() {
 	ResetTestState();
 	testSendOwn = false;
 	testPeerCall = 0;
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	OwnStack stack(line.a);
 	PacketLog log;
 	stack.Process();
@@ -242,7 +242,7 @@ void TestOwnPacketGoesUnderFailWhilePeerDown() {
 	ResetTestState();
 	testSendOwn = false;
 	testPeerCall = 0;
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	OwnFailStack stack(line.a);
 	PacketLog log;
 	stack.Process();
@@ -267,7 +267,7 @@ void TestNothingGoesWhileLinkDown() {
 	ResetTestState();
 	testSendOwn = false;
 	testPeerCall = 0;
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	OwnStack stack(line.a);
 	PacketLog log;
 	stack.Process();
@@ -299,7 +299,7 @@ void TestPartlyWrittenAppFrameWaitsWhilePeerDown() {
 	ResetTestState();
 	testSendOwn = false;
 	testPeerCall = 0;
-	ReportingStreamLine line(VubFaults{});
+	ReportingStreamLine line(VUB::Faults{});
 	FramedOwnStack stack(line.a);
 	RecordSink sink;
 	stack.Process();
@@ -340,7 +340,7 @@ void TestPartlyWrittenOwnFrameGoesWhilePeerDown() {
 	ResetTestState();
 	testSendOwn = false;
 	testPeerCall = 0;
-	ReportingStreamLine line(VubFaults{});
+	ReportingStreamLine line(VUB::Faults{});
 	FramedOwnStack stack(line.a);
 	RecordSink sink;
 	stack.Process();
@@ -373,7 +373,7 @@ void TestOwnPacketQueuedBeforePeerDownGoesUnderFail() {
 	ResetTestState();
 	testSendOwn = false;
 	testPeerCall = 0;
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	OwnFailStack stack(line.a);
 	PacketLog log;
 	stack.Process();
@@ -402,7 +402,7 @@ void TestOwnPacketQueuedBeforePeerDownGoesUnderFail() {
 // application packet goes end to end.
 void TestPeersRecoverWhenEachSendsItsOwn() {
 	ResetTestState();
-	PacketLine line(VubFaults{});
+	PacketLine line(VUB::Faults{});
 	RecoverStack a(line.a);
 	RecoverStack b(line.b);
 	a.Process();

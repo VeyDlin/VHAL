@@ -1,6 +1,6 @@
 #include "SimCheck.h"
-#include "VubReliableChains.h"
-#include <Drivers/Interface/VUB/TestKit/VubLoopback.h>
+#include "ReliableChains.h"
+#include <Drivers/Interface/VUB/TestKit/Loopback.h>
 #include <Utilities/DataTypes.h>
 #include <cstddef>
 #include <optional>
@@ -41,7 +41,7 @@ bool SendWhenReady(ReportingPacketLine& line, Stack& near, Stack& far, uint16 id
 // once, on the sender.
 void TestFarRebootIsReportedAndDeliveryResumes() {
 	ResetReliableState();
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	std::optional<ReliablePacket> farStack;
 	farStack.emplace(line.b);
 	ReliablePacket near(line.a);
@@ -91,7 +91,7 @@ void TestFarRebootIsReportedAndDeliveryResumes() {
 void TestNearRebootIsReportedOnTheReceiver() {
 	ResetReliableState();
 	testNowUs = 0x0100;
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	ReliablePacket far(line.b);
 	std::optional<ReliablePacket> nearStack;
 	nearStack.emplace(line.a);
@@ -128,7 +128,7 @@ void TestNearRebootIsReportedOnTheReceiver() {
 void TestResentSyncIsADuplicateNotARestart() {
 	ResetReliableState();
 	testNowUs = 0x0100;
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	ReliablePacket near(line.a);
 	GiveSession(near);
 	ReliablePacket far(line.b);
@@ -168,7 +168,7 @@ void TestResentSyncIsADuplicateNotARestart() {
 void TestRebootAfterDeliveryBeforeAckIsResetNotDelivered() {
 	ResetReliableState();
 	testNowUs = 0x0100;
-	ReportingPacketLine line(VubFaults{});
+	ReportingPacketLine line(VUB::Faults{});
 	std::optional<ReliablePacket> farStack;
 	farStack.emplace(line.b);
 	ReliablePacket near(line.a);

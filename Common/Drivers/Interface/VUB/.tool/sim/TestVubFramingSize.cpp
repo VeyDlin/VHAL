@@ -1,9 +1,9 @@
 #include "SimCheck.h"
-#include "VubChains.h"
+#include "Chains.h"
 #include <cstddef>
 
 
-// The size of every chain of VubChains.h is pinned at the value it had before the time-aware framings came in: the receive time of a
+// The size of every chain of Chains.h is pinned at the value it had before the time-aware framings came in: the receive time of a
 // byte is kept only for a chain whose framing uses time, so no other chain may grow. A change of one of these numbers is a change of
 // the RAM of a chain, and it has to be made on purpose.
 

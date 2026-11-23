@@ -1,8 +1,8 @@
 #include "SimCheck.h"
-#include <Drivers/Interface/VUB/Framing/VubCobs.h>
-#include <Drivers/Interface/VUB/Framing/VubGap.h>
-#include <Drivers/Interface/VUB/Framing/VubLengthPrefix.h>
-#include <Drivers/Interface/VUB/Vub.h>
+#include <Drivers/Interface/VUB/Framing/Cobs.h>
+#include <Drivers/Interface/VUB/Framing/Gap.h>
+#include <Drivers/Interface/VUB/Framing/LengthPrefix.h>
+#include <Drivers/Interface/VUB/Stack.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <array>
@@ -15,7 +15,7 @@
 
 namespace CobsSnippet {
 struct Uart {
-	static constexpr VubLinkTraits traits = VubLinkTraits().MaxPacket(64).FullDuplex();
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().MaxPacket(64).FullDuplex();
 
 
 	Result<std::size_t> Write(std::span<const uint8> bytes) {
@@ -24,14 +24,14 @@ struct Uart {
 };
 
 
-void OnPacket(const VubMeta&, std::span<const uint8> payload) {
+void OnPacket(const VUB::Meta&, std::span<const uint8> payload) {
 	(void)payload;
 }
 
 
-using Stack = Vub<+[] {
-	return VubBuilder()
-		.Framing<VubCobs>()
+using Stack = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Framing<VUB::Cobs>()
 		.Link<Uart>()
 		.MaxPayload(64)
 		.OnReceive<&OnPacket>();
@@ -52,7 +52,7 @@ void Run() {
 
 namespace LengthSnippet {
 struct Uart {
-	static constexpr VubLinkTraits traits = VubLinkTraits().MaxPacket(64).FullDuplex();
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().MaxPacket(64).FullDuplex();
 
 
 	Result<std::size_t> Write(std::span<const uint8> bytes) {
@@ -61,14 +61,14 @@ struct Uart {
 };
 
 
-void OnPacket(const VubMeta&, std::span<const uint8> payload) {
+void OnPacket(const VUB::Meta&, std::span<const uint8> payload) {
 	(void)payload;
 }
 
 
-using Stack = Vub<+[] {
-	return VubBuilder()
-		.Framing<VubLengthPrefix<1>>()
+using Stack = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Framing<VUB::LengthPrefix<1>>()
 		.Link<Uart>()
 		.MaxPayload(64)
 		.OnReceive<&OnPacket>();
@@ -89,7 +89,7 @@ void Run() {
 
 namespace GapSnippet {
 struct Uart {
-	static constexpr VubLinkTraits traits = VubLinkTraits().MaxPacket(64).FullDuplex();
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().MaxPacket(64).FullDuplex();
 
 
 	Result<std::size_t> Write(std::span<const uint8> bytes) {
@@ -98,7 +98,7 @@ struct Uart {
 };
 
 
-void OnPacket(const VubMeta&, std::span<const uint8> payload) {
+void OnPacket(const VUB::Meta&, std::span<const uint8> payload) {
 	(void)payload;
 }
 
@@ -109,9 +109,9 @@ uint32 MicrosecondClock() {
 }
 
 
-using Stack = Vub<+[] {
-	return VubBuilder()
-		.Framing<VubGap>()
+using Stack = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Framing<VUB::Gap>()
 		.GapCharacters(35, 9600)
 		.Link<Uart>()
 		.MaxPayload(64)
@@ -132,7 +132,7 @@ void OnUartByte(uint8 byte) {
 
 // After the UART's parameters change, the framing is given the rate the UART is set to.
 void OnBaudChanged(uint32 baud) {
-	stack.Find<VubGap>().SetBaud(baud);
+	stack.Find<VUB::Gap>().SetBaud(baud);
 }
 
 
@@ -145,9 +145,9 @@ void Run() {
 
 
 // Growth is a compile-time check as well as a value, so the wiki's growth figures are checked in constant expressions.
-static_assert(VubCobs::Growth(3) == 5);
-static_assert(VubLengthPrefix<1>::Growth(3) == 3);
-static_assert(VubGap::Growth(3) == 0);
+static_assert(VUB::Cobs::Growth(3) == 5);
+static_assert(VUB::LengthPrefix<1>::Growth(3) == 3);
+static_assert(VUB::Gap::Growth(3) == 0);
 
 
 void TestCobsSnippet() {
@@ -167,7 +167,7 @@ void TestGapSnippet() {
 	GapSnippet::OnUartByte(0x55);
 	GapSnippet::Run();
 	SIM_EXPECT(GapSnippet::stack.Drops().framingError == 0);
-	SIM_EXPECT(GapSnippet::stack.Find<VubGap>().SetBaud(9600) == ResultStatus::ok);
+	SIM_EXPECT(GapSnippet::stack.Find<VUB::Gap>().SetBaud(9600) == ResultStatus::ok);
 }
 
 

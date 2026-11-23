@@ -3,10 +3,10 @@
 
 
 // The link's packets are at most 65535 bytes: the received lengths are 16-bit.
-using Stack = Vub<+[] {
-	return VubBuilder()
+using Stack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<TestLayer>()
-		.Link<VubPacketEnd<65536, 16>>()
+		.Link<VUB::PacketEnd<65536, 16>>()
 		.MaxPayload(40)
 		.OnReceive<&SnippetReceive>()
 		.Clock<&SnippetClock>();

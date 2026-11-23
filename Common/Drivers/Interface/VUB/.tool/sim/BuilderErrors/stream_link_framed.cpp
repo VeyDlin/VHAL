@@ -3,7 +3,7 @@
 
 
 struct FramedStreamLink {
-	static constexpr VubLinkTraits traits = VubLinkTraits().Framed().MaxPacket(64).HalfDuplex();
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64).HalfDuplex();
 
 
 	Result<std::size_t> Write(std::span<const uint8> bytes) {
@@ -12,8 +12,8 @@ struct FramedStreamLink {
 };
 
 
-using Stack = Vub<+[] {
-	return VubBuilder()
+using Stack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<TestLayer>()
 		.Framing<FlagFraming>()
 		.Link<FramedStreamLink>()

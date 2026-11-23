@@ -3,10 +3,10 @@
 
 
 // The packet is 65536 bytes (65533 payload and the 3-byte layer header): its length does not fit the 16-bit length fields.
-using Stack = Vub<+[] {
-	return VubBuilder()
+using Stack = VUB::Stack<+[] {
+	return VUB::Builder()
 		.Layer<TestLayer>()
-		.Link<VubPacketEnd<65535, 16>>()
+		.Link<VUB::PacketEnd<65535, 16>>()
 		.MaxPayload(65533)
 		.OnReceive<&SnippetReceive>()
 		.Clock<&SnippetClock>();
