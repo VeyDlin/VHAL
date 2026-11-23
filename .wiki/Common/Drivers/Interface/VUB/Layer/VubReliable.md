@@ -270,7 +270,7 @@ The options are set by the methods right after the block. Each has a default.
 |---|---|---|
 | `Retries(n)` | resends before `retryExhausted`; 0 is a compile error with the in-order option (an options value built by hand is not checked) | 3 |
 | `TimeoutMs(ms)` | timeout before the first resend, in milliseconds | 200 |
-| `Window(n)` | packets unsettled at once: 1 to `WindowCapacity`, and at most 32 | 4 |
+| `Window(n)` | packets unsettled at once: 1 to `WindowCapacity`, and at most 32 | 4, or `WindowCapacity` when that is smaller |
 | `SequenceBits(bits)` | width of the sequence and acknowledgement numbers: 8 or 16. Use 8 only on a path that keeps the send order. | 16 |
 | `BackoffMaxMs(ms)` | the timeout doubles after each try, up to this cap; 0 keeps it fixed | 0 |
 | `PayloadBytes(n)` | the largest payload; larger payloads are refused with `messageTooLong` | `PayloadCapacity` |
@@ -328,6 +328,29 @@ The text of the layer is measured on a unit that constructs the layer with optio
 The in-order code exists only in the unit with the option: the plain unit's object has no symbol of `ReleaseInOrder`, `HoldPacket` or `ShiftBase`, and the in-order unit's object has `ShiftBase` as a separate function. The counter reply is protocol, not an option, so its code is in every unit; its text is not measured on its own here. The figures are the sum of the `.text` sections of each object file (`arm-none-eabi-size -A`). In the in-order unit `PushOwed` and `ShiftBase` are separate functions; the rest of the in-order code is inlined into `Process` and the unit's own code.
 
 The options that are off are not removed at compile time. The layer holds its options as values, given to it at run time, so its checks stay in the code. A compile-time null would need the handler in the layer's type, and the builder does not give the layer a type that carries it in this version.
+
+The cost of the run-time options is measured on configuration (i) of the size table (COBS, CRC-8, window 1, Retries 3). Its options set the window, the retries and the timeout. The sequence width (16 bits by default), the backoff and the two handlers are left at their defaults, but their code stays in the image. A copy of the layer's header in which the sequence width is fixed to 16 bits, the backoff to 0 and both handlers to none gives an image 324 bytes smaller on the Cortex-M4 (3952 against 4276 bytes of text, linked with `--gc-sections` and read with `arm-none-eabi-size`, the same flags as the size script). Removing that code needs the options as template arguments, which this version of the builder does not pass.
+
+With `WindowCapacity` 1 the window is 1, and the layer has no code for the packets ahead of its base: its default is 1, the receiving side keeps no bits for packets ahead, and the sender does not search the window for a span. The in-order option keeps its bit for the packet at the base. An options value built by hand with a window above 1 is not supported with `WindowCapacity` 1: a packet ahead of the base is then not acknowledged and not passed up.
+
+The out-of-line functions of the layer in configuration (i), on the Cortex-M4 (`arm-none-eabi-nm --size-sort -S -C` on the linked image, bytes of text):
+
+| Function | Bytes | What it serves |
+|---|---:|---|
+| `Process` | 286 | the sync start, the resync request and the counter reply that are owed, the outcomes, the timers and the owed acknowledgements |
+| `Transmit` | 200 | a resend of a packet or of its sync, with an owed acknowledgement that rides on it |
+| `RunTimers` | 134 | the due resends, retryExhausted, and the sync given up without an outcome |
+| `PutHeader` | 122 | the header of every packet: the sequence fields, the sync fields and the acknowledgement fields, written once |
+| `FlushAcknowledgements` | 114 | the owed acknowledgements that did not ride on a packet |
+| `Settle` | 66 | the outcome report and the release of a slot |
+| `SenderBase` | 38 | the window base that a packet's delta is taken from |
+| `ReceiveAcknowledgement` | 38 | an acknowledgement of the current session; the acknowledgement of a sync establishes the session |
+| `PushOwed` | 38 | the ring of owed acknowledgements |
+| `PopOwed` | 18 | the same ring, when an acknowledgement is sent |
+| `CopyBytes` | 18 | the byte copies of the packet and the slot |
+| `SyncInFlight` | 16 | whether a sync is waiting for its acknowledgement |
+
+The in-order functions (`HoldPacket`, `ReleaseInOrder`, `ShiftBase`) have no symbol in configuration (i), since the option is off. The receiving path (the take of a packet, the session and the window) has no symbol of its own in the image: it is inlined into the stack's functions.
 
 ## Limits
 
