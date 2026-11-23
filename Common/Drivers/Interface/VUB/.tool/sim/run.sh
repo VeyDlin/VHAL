@@ -40,7 +40,9 @@ for source in "$simDir"/Test*.cpp; do
 done
 
 # Every header compiles alone: it is the first header of a translation unit that has nothing else in it.
-for header in "$vubDir"/*.h "$vubDir/TestKit"/*.h "$vubDir/Framing"/*.h; do
+# Every header of every block folder; a folder that does not exist yet adds nothing.
+shopt -s nullglob
+for header in "$vubDir"/*.h "$vubDir"/{TestKit,Link,Framing,Transform,Engine,Layer}/*.h; do
     if ! "$cxx" -std=c++20 -Wall -Wextra -Werror -fsyntax-only \
         -I "$vhalRoot/Common" \
         -include "$header" -x c++ /dev/null; then
