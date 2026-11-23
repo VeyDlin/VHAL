@@ -25,6 +25,29 @@ struct VubOutcome {
 };
 
 
+// Plain helpers of the delivery layer. They do not depend on the layer's template arguments, so each is one function in the program,
+// whatever the number of layers.
+namespace VubReliableWire {
+	// The session tag: the counter plus the low byte of the boot value. Sessions of one boot have different tags for 256 sessions.
+	inline uint8 TagOf(uint16 boot, uint8 counter) {
+		return static_cast<uint8>(counter + static_cast<uint8>(boot & 0xFF));
+	}
+
+
+	// True when the clock has reached due. The difference is taken with wrap, so a clock that wraps still compares right.
+	inline bool Due(uint32 nowUs, uint32 dueUs) {
+		return static_cast<int32>(nowUs - dueUs) >= 0;
+	}
+
+
+	inline void CopyBytes(const uint8* from, std::size_t count, uint8* to) {
+		for (std::size_t index = 0; index < count; index++) {
+			to[index] = from[index];
+		}
+	}
+}
+
+
 // The delivery layer. Each packet carries a sequence number, the session tag of its sender and the sender's window base. The receiver
 // acknowledges each packet (with InOrder, a held packet when it goes up), and the sender resends it after a timeout, up to a number of
 // times, then reports retryExhausted. A session starts with a sync packet, which carries the sender's boot value and the session
@@ -52,7 +75,7 @@ public:
 	struct Options {
 		uint8 retries = 3;
 		uint16 timeoutMs = 200;
-		uint8 window = 4;
+		uint8 window = WindowCapacity < 4 ? static_cast<uint8>(WindowCapacity) : static_cast<uint8>(4);
 		uint8 sequenceBits = 16;
 		uint16 backoffMaxMs = 0;
 		uint16 payloadBytes = PayloadCapacity;
@@ -87,7 +110,8 @@ public:
 		}
 
 
-		// The packets that may be unacknowledged at once. The receiver accepts packets this far ahead of its oldest gap.
+		// The packets that may be unacknowledged at once. The receiver accepts packets this far ahead of its oldest gap. The default is 4,
+		// or WindowCapacity when that is smaller: with WindowCapacity 1 the window is 1.
 		constexpr Step Window(uint8 count) const {
 			VubRequire<"Window() is zero, or larger than the layer's WindowCapacity or 32">(
 				count >= 1 && count <= WindowCapacity && count <= 32);
@@ -230,6 +254,11 @@ private:
 	};
 
 
+	// The receiving side keeps bits for the packets ahead of the base. A window of 1 has none, unless the in-order option holds a packet at
+	// the base. Without the bits the code for them is not in the layer.
+	static constexpr bool TracksAhead = WindowCapacity > 1 || InOrder;
+
+
 	Options options;
 	Peer peer;
 	[[no_unique_address]] std::conditional_t<InOrder, HeldStore, NoHeldStore> held{};
@@ -273,8 +302,8 @@ public:
 				return ResultStatus::invalidParameter;
 			}
 
-			CopyBytes(head.data(), headLength, out.data());
-			CopyBytes(in.data(), in.size(), out.data() + headLength);
+			VubReliableWire::CopyBytes(head.data(), headLength, out.data());
+			VubReliableWire::CopyBytes(in.data(), in.size(), out.data() + headLength);
 			if (piggyback) {
 				PopOwed();
 			}
@@ -290,7 +319,8 @@ public:
 			return ResultStatus::busy;
 		}
 
-		if (peer.inFlight >= options.window || SpanExceeded(peer.nextSequence)) {
+		// With one slot, a pending packet already takes the only free slot, so the span check adds nothing.
+		if (peer.inFlight >= options.window || (WindowCapacity > 1 && SpanExceeded(peer.nextSequence))) {
 			return ResultStatus::busy;
 		}
 
@@ -321,9 +351,9 @@ public:
 		slot->dueUs = lastNowUs + TimeoutUs(1);
 		slot->state = SlotState::pending;
 		peer.inFlight++;
-		CopyBytes(in.data(), in.size(), slot->bytes.data() + header);
-		CopyBytes(head.data(), headLength, out.data());
-		CopyBytes(in.data(), in.size(), out.data() + headLength);
+		VubReliableWire::CopyBytes(in.data(), in.size(), slot->bytes.data() + header);
+		VubReliableWire::CopyBytes(head.data(), headLength, out.data());
+		VubReliableWire::CopyBytes(in.data(), in.size(), out.data() + headLength);
 		if (piggyback) {
 			PopOwed();
 		}
@@ -418,7 +448,7 @@ public:
 			at += 1 + seqBytes;
 		}
 
-		if (sync && (packet.size() != at || sequence != 0 || delta != 0 || tag != TagOf(boot, counter))) {
+		if (sync && (packet.size() != at || sequence != 0 || delta != 0 || tag != VubReliableWire::TagOf(boot, counter))) {
 			return ResultStatus::invalidData;
 		}
 
@@ -512,12 +542,6 @@ private:
 	}
 
 
-	// The session tag: the counter plus the low byte of the boot value. Sessions of one boot have different tags for 256 sessions.
-	static uint8 TagOf(uint16 boot, uint8 counter) {
-		return static_cast<uint8>(counter + static_cast<uint8>(boot & 0xFF));
-	}
-
-
 	// The timeout before try number attempts. It doubles after each try up to the backoff cap, when there is one.
 	uint32 TimeoutUs(uint16 attempts) const {
 		uint32 timeout = static_cast<uint32>(options.timeoutMs) * 1000u;
@@ -532,12 +556,6 @@ private:
 		}
 
 		return timeout;
-	}
-
-
-	// True when the clock has reached due. The difference is taken with wrap, so a clock that wraps still compares right.
-	static bool Due(uint32 nowUs, uint32 dueUs) {
-		return static_cast<int32>(nowUs - dueUs) >= 0;
 	}
 
 
@@ -615,13 +633,6 @@ private:
 		}
 
 		return static_cast<uint16>(at[0]);
-	}
-
-
-	static void CopyBytes(const uint8* from, std::size_t count, uint8* to) {
-		for (std::size_t index = 0; index < count; index++) {
-			to[index] = from[index];
-		}
 	}
 
 
@@ -757,7 +768,7 @@ private:
 		peer.open = true;
 		peer.heldBoot = boot;
 		peer.heldCounter = counter;
-		peer.receiveTag = TagOf(boot, counter);
+		peer.receiveTag = VubReliableWire::TagOf(boot, counter);
 		peer.base = 0;
 		peer.seen = 0;
 		peer.owesResync = false;
@@ -819,8 +830,7 @@ private:
 		}
 
 		uint16 ahead = static_cast<uint16>((sequence - peer.base) & mask);
-		if (ahead < options.window) {
-			uint32 bit = 1u << ahead;
+		if (ahead < options.window && ahead < WindowCapacity) {
 			if constexpr (InOrder) {
 				if (!sync) {
 					return HoldPacket(ahead, payload);
@@ -828,14 +838,19 @@ private:
 			}
 
 			PushOwed(sequence, tag);
-			if ((peer.seen & bit) != 0) {
-				return false;
-			}
+			if constexpr (TracksAhead) {
+				uint32 bit = 1u << ahead;
+				if ((peer.seen & bit) != 0) {
+					return false;
+				}
 
-			if (ahead == 0) {
-				AdvanceBase();
+				if (ahead == 0) {
+					AdvanceBase();
+				} else {
+					peer.seen |= bit;
+				}
 			} else {
-				peer.seen |= bit;
+				AdvanceBase();
 			}
 
 			return !sync;
@@ -858,13 +873,15 @@ private:
 			if (advance != 0 && advance < ((Mask() >> 1) + 1)) {
 				held.settled = target;
 			}
-		} else {
+		} else if constexpr (TracksAhead) {
 			uint16 shift = static_cast<uint16>((target - peer.base) & Mask());
 			peer.seen = shift >= 32 ? 0 : (peer.seen >> shift);
 			peer.base = target;
 			if ((peer.seen & 1u) != 0) {
 				AdvanceBase();
 			}
+		} else {
+			peer.base = target;
 		}
 	}
 
@@ -873,14 +890,16 @@ private:
 	void AdvanceBase() {
 		uint16 mask = Mask();
 		peer.base = static_cast<uint16>((peer.base + 1) & mask);
-		peer.seen >>= 1;
-		if constexpr (InOrder) {
-			held.head = static_cast<uint8>((held.head + 1) % WindowCapacity);
+		if constexpr (TracksAhead) {
+			peer.seen >>= 1;
+			while ((peer.seen & 1u) != 0) {
+				peer.base = static_cast<uint16>((peer.base + 1) & mask);
+				peer.seen >>= 1;
+			}
 		}
 
-		while ((peer.seen & 1u) != 0) {
-			peer.base = static_cast<uint16>((peer.base + 1) & mask);
-			peer.seen >>= 1;
+		if constexpr (InOrder) {
+			held.head = static_cast<uint8>((held.head + 1) % WindowCapacity);
 		}
 	}
 
@@ -895,7 +914,7 @@ private:
 		}
 
 		std::size_t slot = (static_cast<std::size_t>(held.head) + ahead) % WindowCapacity;
-		CopyBytes(payload.data(), payload.size(), held.payloads[slot].data());
+		VubReliableWire::CopyBytes(payload.data(), payload.size(), held.payloads[slot].data());
 		held.lengths[slot] = static_cast<uint16>(payload.size());
 		peer.seen |= bit;
 		return false;
@@ -1005,7 +1024,7 @@ private:
 		if (peer.newSession) {
 			peer.counter = peer.nextCounter;
 			peer.nextCounter = static_cast<uint8>(peer.nextCounter + 1);
-			peer.tag = TagOf(peer.bootValue, peer.counter);
+			peer.tag = VubReliableWire::TagOf(peer.bootValue, peer.counter);
 			peer.newSession = false;
 		}
 
@@ -1045,7 +1064,7 @@ private:
 	// its tries is dropped without an outcome: the next Send starts the session again, with the same counter.
 	void RunTimers(uint32 nowUs, const VubOutbox& outbox) {
 		for (Slot& slot : peer.slots) {
-			if (slot.state != SlotState::pending || !Due(nowUs, slot.dueUs)) {
+			if (slot.state != SlotState::pending || !VubReliableWire::Due(nowUs, slot.dueUs)) {
 				continue;
 			}
 
@@ -1095,7 +1114,7 @@ private:
 		std::array<uint8, header> head{};
 		std::size_t headLength = PutHeader(head, fields);
 		std::size_t at = header - headLength;
-		CopyBytes(head.data(), headLength, slot.bytes.data() + at);
+		VubReliableWire::CopyBytes(head.data(), headLength, slot.bytes.data() + at);
 		if (outbox.Send(std::span<const uint8>(slot.bytes.data() + at, headLength + slot.length)) == ResultStatus::busy) {
 			return false;
 		}
