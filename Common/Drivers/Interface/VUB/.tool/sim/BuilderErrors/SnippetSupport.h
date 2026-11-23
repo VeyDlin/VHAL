@@ -1,5 +1,6 @@
 #pragma once
 #include "../VubDoubles.h"
+#include "../VubStepDoubles.h"
 #include <Drivers/Interface/VUB/TestKit/VubLoopback.h>
 #include <Drivers/Interface/VUB/Vub.h>
 #include <Drivers/Interface/VUB/VubMeta.h>

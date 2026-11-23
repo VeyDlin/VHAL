@@ -235,6 +235,81 @@ A block that uses time declares `usesTime = true` and gets the clock from `Proce
 
 The receive interrupt of a packet link calls `board.FeedPacket(packet)`; a byte-stream link calls `board.Feed(byte)` for each byte.
 
+### Options
+
+A block given options takes them as a value: `.Layer<T>(options)`, `.Transform<T>(options)` and `.Framing<T>(options)` pass the
+value to the block's constructor.
+
+A block can take its options flat, as methods right after it. It declares a member template `Step` that derives from the builder
+it is given. The `Layer`, `Transform` and `Framing` calls of the block then return the Step, so the option methods follow the block
+and the chain goes on with every builder method. Each option method reads the options with `LastOptions()`, changes one field and
+returns the Step over `WithLastOptions(...)`. A block with a Step names its options `Options` and has a constructor that takes
+them; a call with no options gives it `Options{}`. The option methods exist only on the Step, so after any other block they do not
+compile.
+
+```cpp
+// A transform that XORs each byte with a key. Its options give the key, and its Step gives the key as a method right after it.
+struct XorKey {
+	struct Options {
+		uint8 key = 0;
+	};
+
+
+	template<typename Builder>
+	struct Step : Builder {
+		explicit constexpr Step(const Builder& base) : Builder(base) {
+		}
+
+		constexpr Step Key(uint8 value) const {
+			Options options = this->LastOptions();
+			options.key = value;
+			return Step(this->WithLastOptions(options));
+		}
+	};
+
+	static constexpr std::size_t growth = 0;
+	static constexpr uint32 fingerprint = 0x584B4559;
+
+	uint8 key = 0;
+
+	XorKey() = default;
+
+	explicit XorKey(const Options& options) : key(options.key) {
+	}
+
+	Result<std::size_t> Encode(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = static_cast<uint8>(in[index] ^ key);
+		}
+
+		return in.size();
+	}
+
+	Result<std::size_t> Decode(const VubMeta&, std::span<uint8> packet) {
+		for (std::size_t index = 0; index < packet.size(); index++) {
+			packet[index] = static_cast<uint8>(packet[index] ^ key);
+		}
+
+		return packet.size();
+	}
+};
+
+using Board = Vub<+[] {
+	return VubBuilder()
+		.Transform<XorKey>().Key(0x5A)
+		.Link<BoardLink>()
+		.MaxPayload(32)
+		.OnReceive<&OnPacket>();
+}>;
+```
+
+`Key(0x5A)` sets the key of the transform. A transform without `.Key(...)` gets key 0, and `.Transform<XorKey>(XorKey::Options{0x5A})`
+gives the same key as a value.
+
 ## Status
 
 Stage 1a: the core, the test kit and the host tests. The built-in blocks (CRC, COBS, length prefix, gap framing, delivery, links for

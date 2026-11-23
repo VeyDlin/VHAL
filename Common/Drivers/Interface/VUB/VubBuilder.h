@@ -211,12 +211,50 @@ constexpr typename VubNth<Index, VubList<Entries...>>::type& VubGet(VubList<Entr
 }
 
 
+// A block that declares the member template Step has option methods that come right after it in a chain. The concept checks the name
+// only; the Step is not instantiated here.
+template<typename Block>
+concept VubHasStep = requires {
+	typename Block::template Step<VubNone>;
+};
+
+
+// The builder that follows a block. A block with a Step gives its Step over the next builder, so its option methods are callable right
+// after it; a block without one gives the next builder.
+template<typename Block, typename NextBuilder, bool HasStep = VubHasStep<Block>>
+struct VubStepOf {
+	using type = NextBuilder;
+};
+
+
+template<typename Block, typename NextBuilder>
+struct VubStepOf<Block, NextBuilder, true> {
+	using type = typename Block::template Step<NextBuilder>;
+};
+
+
+// The options a block is given when it is added without options. A block with a Step is given its own Options type, default-constructed,
+// so that its option methods have a value to change. Any other block is given none.
+template<typename Block, bool HasStep = VubHasStep<Block>>
+struct VubDefaultOptionsOf {
+	using type = VubNone;
+};
+
+
+template<typename Block>
+struct VubDefaultOptionsOf<Block, true> {
+	using type = typename Block::Options;
+};
+
+
 // The fluent builder of a chain. Each method that adds a block returns a builder whose type lists the blocks, so the chain is a type
 // with a constexpr value of the options. The settings methods return the same type.
 //
 // Options of a block that come after it: the builder can read and replace the options of its last block with LastOptions and
 // WithLastOptions. A sugar method for a built-in block checks the block with LastIs and then sets the options, so for example
 // Retries(n) after Reliable() is a method on the builder that calls WithLastOptions. A user block gets the same by its type alone.
+// A user block that declares a Step gets its option methods flat after it: the Step derives from the builder, so every builder method
+// continues the chain, and the option methods exist only on the Step, so they are not callable after another block.
 template<typename... Entries>
 class VubBuilder {
 public:
@@ -225,6 +263,11 @@ public:
 	using LastEntry = typename VubLastEntry<Entries...>::type;
 	using LinkType = typename VubLinkOf<Entries...>::type;
 	static constexpr std::size_t count = sizeof...(Entries);
+
+
+	// The builder a block method returns: the next builder with the entry added, or the block's Step over it.
+	template<typename Block, typename Entry>
+	using BuilderAfter = typename VubStepOf<Block, VubBuilder<Entries..., Entry>>::type;
 
 
 	VubList<Entries...> entries;
@@ -247,46 +290,49 @@ public:
 
 
 	template<typename Block>
-	constexpr VubBuilder<Entries..., VubEntry<VubKind::framing, Block, VubNone>> Framing() const {
+	constexpr BuilderAfter<Block, VubEntry<VubKind::framing, Block, typename VubDefaultOptionsOf<Block>::type>> Framing() const {
 		static_assert(VubFraming<Block>, "the framing does not satisfy VubFraming: it needs usesTime, Growth(length), Frame and Push");
-		return Append(VubEntry<VubKind::framing, Block, VubNone>{});
+		using Options = typename VubDefaultOptionsOf<Block>::type;
+		return Extend<Block>(VubEntry<VubKind::framing, Block, Options>{});
 	}
 
 
 	template<typename Block, typename Options>
-	constexpr VubBuilder<Entries..., VubEntry<VubKind::framing, Block, Options>> Framing(const Options& options) const {
+	constexpr BuilderAfter<Block, VubEntry<VubKind::framing, Block, Options>> Framing(const Options& options) const {
 		static_assert(VubFraming<Block>, "the framing does not satisfy VubFraming: it needs usesTime, Growth(length), Frame and Push");
-		return Append(VubEntry<VubKind::framing, Block, Options>{options});
+		return Extend<Block>(VubEntry<VubKind::framing, Block, Options>{options});
 	}
 
 
 	template<typename Block>
-	constexpr VubBuilder<Entries..., VubEntry<VubKind::transform, Block, VubNone>> Transform() const {
+	constexpr BuilderAfter<Block, VubEntry<VubKind::transform, Block, typename VubDefaultOptionsOf<Block>::type>> Transform() const {
 		static_assert(VubTransform<Block>, "the transform does not satisfy VubTransform: it needs growth, fingerprint, Encode and Decode");
-		return Append(VubEntry<VubKind::transform, Block, VubNone>{});
+		using Options = typename VubDefaultOptionsOf<Block>::type;
+		return Extend<Block>(VubEntry<VubKind::transform, Block, Options>{});
 	}
 
 
 	template<typename Block, typename Options>
-	constexpr VubBuilder<Entries..., VubEntry<VubKind::transform, Block, Options>> Transform(const Options& options) const {
+	constexpr BuilderAfter<Block, VubEntry<VubKind::transform, Block, Options>> Transform(const Options& options) const {
 		static_assert(VubTransform<Block>, "the transform does not satisfy VubTransform: it needs growth, fingerprint, Encode and Decode");
-		return Append(VubEntry<VubKind::transform, Block, Options>{options});
+		return Extend<Block>(VubEntry<VubKind::transform, Block, Options>{options});
 	}
 
 
 	template<typename Block>
-	constexpr VubBuilder<Entries..., VubEntry<VubKind::layer, Block, VubNone>> Layer() const {
+	constexpr BuilderAfter<Block, VubEntry<VubKind::layer, Block, typename VubDefaultOptionsOf<Block>::type>> Layer() const {
 		static_assert(VubLayer<Block>,
 			"the layer does not satisfy VubLayer: it needs header, fingerprint, usesTime, makesBulk, Add, Take and Process");
-		return Append(VubEntry<VubKind::layer, Block, VubNone>{});
+		using Options = typename VubDefaultOptionsOf<Block>::type;
+		return Extend<Block>(VubEntry<VubKind::layer, Block, Options>{});
 	}
 
 
 	template<typename Block, typename Options>
-	constexpr VubBuilder<Entries..., VubEntry<VubKind::layer, Block, Options>> Layer(const Options& options) const {
+	constexpr BuilderAfter<Block, VubEntry<VubKind::layer, Block, Options>> Layer(const Options& options) const {
 		static_assert(VubLayer<Block>,
 			"the layer does not satisfy VubLayer: it needs header, fingerprint, usesTime, makesBulk, Add, Take and Process");
-		return Append(VubEntry<VubKind::layer, Block, Options>{options});
+		return Extend<Block>(VubEntry<VubKind::layer, Block, Options>{options});
 	}
 
 
@@ -554,5 +600,18 @@ private:
 	template<typename Entry>
 	constexpr VubBuilder<Entries..., Entry> Append(Entry entry) const {
 		return VubBuilder<Entries..., Entry>(VubAppend(entries, entry), settings);
+	}
+
+
+	// Adds the entry of a block and returns the builder after it. A block with a Step gets the Step, so its option methods follow.
+	template<typename Block, typename Entry>
+	constexpr BuilderAfter<Block, Entry> Extend(const Entry& entry) const {
+		using Next = VubBuilder<Entries..., Entry>;
+		using AfterBlock = BuilderAfter<Block, Entry>;
+		if constexpr (std::is_same_v<AfterBlock, Next>) {
+			return Append(entry);
+		} else {
+			return AfterBlock(Append(entry));
+		}
 	}
 };
