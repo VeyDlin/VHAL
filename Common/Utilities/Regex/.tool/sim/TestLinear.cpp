@@ -7,8 +7,10 @@
 
 
 // Growth of the match time with the input length. The patterns (a*)*b and (a|aa)*c on runs of 'a' have no match, so each call scans the
-// whole input. The times of 1000, 2000, 4000 and 8000 bytes are measured, five runs each, and the median at 8000 must be under three times
-// the median at 4000. Host timing is noisy, so only this ratio is checked. The medians are printed.
+// whole input. The times of 1000, 2000, 4000 and 8000 bytes are measured, five runs each, and the fastest run of each length is kept,
+// because a loaded host only ever makes a run slower. Eight times the input takes eight times as long in linear time and 64 times as long
+// in quadratic time, so the time at 8000 must be under 20 times the time at 1000. A ratio of neighbouring lengths is not checked: one
+// disturbed run moves it past any useful bound. The times are printed.
 
 
 namespace {
@@ -26,27 +28,23 @@ volatile bool sink = false;
 int failures = 0;
 
 
-// The median of the five runs, by insertion sort.
-long long Median(std::array<long long, Runs> values) {
-	for (std::size_t outer = 1; outer < Runs; outer++) {
-		long long item = values[outer];
-		std::size_t inner = outer;
-		while (inner > 0 && values[inner - 1] > item) {
-			values[inner] = values[inner - 1];
-			inner--;
+// The fastest of the runs.
+long long Fastest(const std::array<long long, Runs>& values) {
+	long long fastest = values[0];
+	for (std::size_t index = 1; index < Runs; index++) {
+		if (values[index] < fastest) {
+			fastest = values[index];
 		}
-
-		values[inner] = item;
 	}
 
-	return values[Runs / 2];
+	return fastest;
 }
 
 
 template<RegexBuilder (*Make)()>
 void MeasureContains(const char* name, bool useFind) {
 	using Pattern = Regex<Make>;
-	std::array<long long, Lengths> medians{};
+	std::array<long long, Lengths> fastest{};
 	for (std::size_t length = 0; length < Lengths; length++) {
 		std::array<long long, Runs> times{};
 		std::string_view text(run.data(), Sizes[length]);
@@ -65,16 +63,25 @@ void MeasureContains(const char* name, bool useFind) {
 			times[repeat] = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
 		}
 
-		medians[length] = Median(times);
+		fastest[length] = Fastest(times);
 	}
 
-	double ratio = static_cast<double>(medians[3]) / static_cast<double>(medians[2]);
-	bool ok = ratio < 3.0;
+	double ratio = static_cast<double>(fastest[3]) / static_cast<double>(fastest[0]);
+	bool ok = ratio < 20.0;
 	if (!ok) {
 		failures++;
 	}
 
-	std::printf("%s: median ns 1000=%lld 2000=%lld 4000=%lld 8000=%lld, ratio 8000/4000=%.2f %s\n", name, medians[0], medians[1], medians[2], medians[3], ratio, ok ? "ok" : "FAILED");
+	std::printf(
+		"%s: fastest ns 1000=%lld 2000=%lld 4000=%lld 8000=%lld, ratio 8000/1000=%.2f %s\n",
+		name,
+		fastest[0],
+		fastest[1],
+		fastest[2],
+		fastest[3],
+		ratio,
+		ok ? "ok" : "FAILED"
+	);
 }
 
 
