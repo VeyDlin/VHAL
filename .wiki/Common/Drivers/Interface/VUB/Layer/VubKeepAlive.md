@@ -110,7 +110,8 @@ default queues and the default times:
 The cost of a chain with the layer is all of what it adds to the chain without it. The first row of the cost table is the cost of a layer
 that does nothing, and it is measured with the same queues. The table's keep-alive row includes the layer's own state and code, the
 own-packet queue and link record of the peer report, and the layer's header byte in the queue slots. The shares of those parts of the
-348 bytes were not measured, and the peer report row is measured with different queues, so the rows are not added up.
+348 bytes were not measured. The peer report row uses the default times, 1 s and 3 s (1000000 us and 3000000 us), and the cost rows use
+1000 us and 3000 us, so the rows are not added up.
 
 A chain whose layers do not declare `usesLinkState` is unchanged by the query: with a packet link, with a link that reports its state, and
 with a layer that declares `reportsPeer`, the `sizeof` and `text` are the same as before the query was added. Those chains were measured

@@ -73,8 +73,7 @@ measure() {
 	sizes[$key]="$text $data $bss"
 }
 
-# The rows: the label, the baseline, and the configuration. The keep-alive row goes here, with its configuration file, when its page
-# is merged.
+# The rows: the label, the baseline, and the configuration.
 rows=(
 	"(a) packet link only|BaselinePacket.cpp|ConfigA.cpp"
 	"(b) stream link, COBS|BaselineStream.cpp|ConfigB.cpp"
@@ -87,6 +86,8 @@ rows=(
 	"(i) COBS, CRC-8, VubReliableOf window 1, Retries 3|BaselineStream.cpp|ConfigI.cpp"
 	"breakdown of (i): the same without VubReliableOf|BaselineStream.cpp|ConfigIPlain.cpp"
 	"CompactStreamingProtocol<20, 4> (bootloader use)|BaselinePacket.cpp|ConfigCompact.cpp"
+	"(j) stream link, COBS, CRC-16/MODBUS table, VubKeepAlive (default times)|BaselineStream.cpp|ConfigJ.cpp"
+	"(k) (g) + VubKeepAlive (default times)|BaselineStream.cpp|ConfigK.cpp"
 )
 
 baselines=(BaselinePacket.cpp BaselineStream.cpp)

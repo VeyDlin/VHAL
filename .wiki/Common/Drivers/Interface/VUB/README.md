@@ -5,8 +5,9 @@ time. Each block has a small contract. The built-in blocks use only that contrac
 
 Stage 1 is the core: the five block contracts, the builder and its checks, the stack at run time, drop counters, a test kit, and the
 built-in blocks of stage 1: the CRC transform ([CRC](Transform/VubCrc)), the framings ([COBS](Framing/VubCobs),
-[length prefix](Framing/VubLengthPrefix) and [gap framing](Framing/VubGap)), and the delivery layer
-([VubReliable](Layer/VubReliable)). A chain is made of these, of user blocks, and of the test kit's loopback.
+[length prefix](Framing/VubLengthPrefix) and [gap framing](Framing/VubGap)), the delivery layer
+([VubReliable](Layer/VubReliable)), and the keep-alive layer for a link that cannot report its state
+([VubKeepAlive](Layer/VubKeepAlive)). A chain is made of these, of user blocks, and of the test kit's loopback.
 
 ## The chain
 
@@ -214,13 +215,13 @@ ring, and a link with `MaxPacket(64)`.
 | (d) (b) + CRC-16/MODBUS bitwise | 1144 | 700 | 1432 | 700 |
 | (e) stream link, length prefix 1, CRC-8 bitwise | 1080 | 672 | 1360 | 672 |
 | (f) stream link, gap framing, CRC-16 table | 2724 | 1728 | 2916 | 1728 |
-| (g) (c) + VubReliable (Retries 3, Window 4) | 4612 | 1136 | 5120 | 1136 |
-| (h) (g) with the in-order option | 4944 | 1272 | 5508 | 1272 |
-| (i) COBS, CRC-8, VubReliableOf window 1, Retries 3 | 3844 | 932 | 4328 | 932 |
+| (g) (c) + VubReliable (Retries 3, Window 4) | 4616 | 1136 | 5124 | 1136 |
+| (h) (g) with the in-order option | 4948 | 1272 | 5508 | 1272 |
+| (i) COBS, CRC-8, VubReliableOf window 1, Retries 3 | 3844 | 932 | 4332 | 932 |
 | breakdown of (i): the same without VubReliableOf | 1096 | 692 | 1388 | 692 |
-| CompactStreamingProtocol<20, 4> (bootloader use) | 2184 | 1112 | 2768 | 1112 |
-
-<!-- The row for the keep-alive layer goes here when its page is merged. -->
+| CompactStreamingProtocol<20, 4> (bootloader use) | 2292 | 1116 | 2880 | 1116 |
+| (j) stream link, COBS, CRC-16/MODBUS table, VubKeepAlive (default times) | 2616 | 940 | 2984 | 940 |
+| (k) (g) + VubKeepAlive (default times) | 5632 | 1428 | 6236 | 1428 |
 
 Measured with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203` on Windows 11, through Git Bash,
 with `Common/Drivers/Interface/VUB/.tool/size/size.sh`.
@@ -252,8 +253,10 @@ build output goes to a temporary folder outside the repository.
 #### Against CompactStreamingProtocol
 
 `CompactStreamingProtocol<20, 4>` is the bootloader's protocol (`Common/Utilities/Bootloader/Communication/BLECommunication.h`). Its row
-is the bootloader's use of it: the transmit, receive and stream callbacks, a packet link, and a 32-byte payload, against the packet
-baseline. Its caveats:
+is the bootloader's use of it: the four callbacks the bootloader passes (transmit, data received, stream complete and receive reset),
+with bodies of the same kind, a packet link, and a 32-byte payload, against the packet baseline. The probe runs one protocol object as
+both ends. `SizeRun` sends the payload, then feeds the wire back to the protocol and processes it, again and again, until the wire holds
+no new bytes. Every fragment and every acknowledgement goes through the wire, so the message completes and the handler runs. Its caveats:
 
 - The protocol cuts a message into fragments of 16 bytes (a 20-byte packet less a 3-byte header and a CRC byte). The 32-byte payload is
   two fragments. VUB sends one packet of 32 bytes. Cutting large messages into fragments is part of stage 5 (large data), and the VUB
@@ -266,8 +269,8 @@ baseline. Its caveats:
 - Configuration (i) uses the default ring of 256 bytes. The protocol's ring is 80 bytes. A bootloader that sets `ReceiveRing` smaller
   is not measured here.
 
-Against the protocol, configuration (i) is 1660 bytes larger in text on the M4 (3844 against 2184) and 1560 bytes larger on the M0+
-(4328 against 2768). Its RAM is 180 bytes smaller on the M4 (932 against 1112) and on the M0+ (932 against 1112). The design asks for
+Against the protocol, configuration (i) is 1552 bytes larger in text on the M4 (3844 against 2292) and 1452 bytes larger on the M0+
+(4332 against 2880). Its RAM is 184 bytes smaller on the M4 (932 against 1116) and on the M0+ (932 against 1116). The design asks for
 a stack with the protocol's properties to be no larger than the protocol on the same target, so this stage does not meet it in text.
 The breakdown row shows where the text goes: without `VubReliableOf`, configuration (i) is 1096 bytes of text on the M4, and the layer
 adds 2748 bytes. The layer carries what the protocol does not: sequence numbers with sessions and a sync, a window, a ring of owed
@@ -761,5 +764,5 @@ gives the same key as a value.
 
 ## Status
 
-Stage 1: the core, the link state, the test kit, the host tests, the built-in blocks (CRC, COBS, length prefix, gap framing, delivery) and
+Stage 1: the core, the link state, the test kit, the host tests, the built-in blocks (CRC, COBS, length prefix, gap framing, delivery, keep-alive) and
 the size table. The links for the boards, addressing and requests are later stages. Nothing is built for a board yet.
