@@ -85,40 +85,18 @@ the application's packets wait:
 
 ## Cost
 
-Measured with one method, for a Cortex-M4:
+The times are template arguments of the layer, so they take no RAM: `sizeof` of `VUB::KeepAlive` is 12 bytes on the Cortex-M4.
 
-- Compiler: `arm-none-eabi-g++` 15.2.1 with `-std=c++20 -Os -mcpu=cortex-m4 -mthumb -fno-exceptions -fno-rtti`.
-- One translation unit that holds a global stack, and calls `Send`, `Process` and `FeedPacket` on it, so the code of the stack is in the
-  object. Each chain is built alone.
-- `sizeof` is the size of the global stack's symbol, from `arm-none-eabi-nm -S`. `text`, `data` and `bss` are from `arm-none-eabi-size`
-  of the object file.
-- The base chain is a packet link that does not report its state, `MaxPayload(40)`, `ReceiveQueue(4)`, the default `SendQueue`,
-  `WhileDown(Wait)` and a clock. The layer chains are the same unless a row says otherwise.
+The size table of the [VUB page](../README#size) has two rows with the layer, measured by `size.sh` with the method stated there. Each is
+compared with the same chain without the layer:
 
-Cost of the layer in the base chain:
+| Chain | Cortex-M4 text | Cortex-M4 RAM | Cortex-M0+ text | Cortex-M0+ RAM |
+|---|---:|---:|---:|---:|
+| (j) stream link, COBS, CRC-16/MODBUS table, `VUB::KeepAlive`, against (c) | +980 | +232 | +1044 | +232 |
+| (k) (g) plus `VUB::KeepAlive`, against (g) | +1052 | +284 | +1072 | +284 |
 
-| Chain | `sizeof` | `text` | `bss` |
-|---|---|---|---|
-| no layer | 648 | 624 | 660 |
-| a layer that does nothing (no peer report, no link query) | 736 | 725 | 748 |
-| `VUB::KeepAlive` (quiet 1000 us, down 3000 us) | 996 | 1313 | 1008 |
-| cost of `VUB::KeepAlive` over no layer | +348 | +689 | +348 |
-| `VUB::KeepAlive` (quiet 1000 us, down 3000 us) on a link that reports its state | 1000 | 1403 | 1009 |
-
-The peer report alone, on the same layer type with `reportsPeer` cleared and set. This chain has a packet link, `MaxPayload(40)`, the
-default queues and the default times:
-
-| Chain | `sizeof` | `text` | `bss` |
-|---|---|---|---|
-| `VUB::KeepAlive` with `reportsPeer` cleared | 756 | 1087 | 768 |
-| `VUB::KeepAlive` with `reportsPeer` set | 996 | 1317 | 1008 |
-| the peer report | +240 | +230 | +240 |
-
-The cost of a chain with the layer is all of what it adds to the chain without it. The first row of the cost table is the cost of a layer
-that does nothing, and it is measured with the same queues. The table's keep-alive row includes the layer's own state and code, the
-own-packet queue and link record of the peer report, and the layer's header byte in the queue slots. The shares of those parts of the
-348 bytes were not measured. The peer report row uses the default times, 1 s and 3 s (1000000 us and 3000000 us), and the cost rows use
-1000 us and 3000 us, so the rows are not added up.
+The cost is all of what the layer adds to the chain: its own state and code, and the peer report, which brings the own-packet queue
+and the link record into the stack. Both rows use the default times, 1 s and 3 s.
 
 A chain whose layers do not declare `usesLinkState` is unchanged by the query: with a packet link, with a link that reports its state, and
 with a layer that declares `reportsPeer`, the `sizeof` and `text` are the same as before the query was added. Those chains were measured

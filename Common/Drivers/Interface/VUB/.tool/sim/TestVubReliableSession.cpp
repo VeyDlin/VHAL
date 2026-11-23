@@ -81,7 +81,8 @@ void RecordById(const VUB::Outcome& outcome) {
 
 
 // Adds a packet with the id as its payload. Returns true when the layer took it; false when it is busy, and then nothing is sent.
-bool SendId(SessionLayer& layer, uint16 id, SessionWire& wire) {
+template<typename Layer>
+bool SendId(Layer& layer, uint16 id, SessionWire& wire) {
 	std::array<uint8, 2> payload{};
 	VUB::PutLe16(payload.data(), id);
 	std::array<uint8, 64> out{};
@@ -105,7 +106,8 @@ bool SendId(SessionLayer& layer, uint16 id, SessionWire& wire) {
 
 
 // Hands every packet of from to the layer to. The payloads that go up are recorded in received; from is emptied.
-void Carry(SessionWire& from, SessionLayer& to, SessionReceived& received) {
+template<typename Layer>
+void Carry(SessionWire& from, Layer& to, SessionReceived& received) {
 	for (std::size_t index = 0; index < from.count && index < from.packets.size(); index++) {
 		std::span<const uint8> packet(from.packets[index].data(), from.lengths[index]);
 		Result<VUB::Taken> taken = to.Take(VUB::Meta{}, packet);
@@ -121,8 +123,8 @@ void Carry(SessionWire& from, SessionLayer& to, SessionReceived& received) {
 
 
 // One round between two layers at the same time: each side runs, and its packets reach the other.
-void Exchange(SessionLayer& near, SessionWire& nearWire, SessionLayer& far, SessionWire& farWire, SessionReceived& received,
-	uint32 nowUs) {
+template<typename NearType, typename FarType>
+void Exchange(NearType& near, SessionWire& nearWire, FarType& far, SessionWire& farWire, SessionReceived& received, uint32 nowUs) {
 	near.Process(nowUs, Outbox(nearWire));
 	Carry(nearWire, far, received);
 	far.Process(nowUs, Outbox(farWire));
@@ -132,8 +134,8 @@ void Exchange(SessionLayer& near, SessionWire& nearWire, SessionLayer& far, Sess
 
 
 // Starts a session: the first Send is busy and starts it, and rounds carry the sync and its acknowledgement. Then the layer is ready.
-void StartSession(SessionLayer& near, SessionWire& nearWire, SessionLayer& far, SessionWire& farWire, SessionReceived& received,
-	uint32 nowUs) {
+template<typename NearType, typename FarType>
+void StartSession(NearType& near, SessionWire& nearWire, FarType& far, SessionWire& farWire, SessionReceived& received, uint32 nowUs) {
 	near.Process(nowUs, Outbox(nearWire));
 	SIM_EXPECT(!SendId(near, 0xFFFF, nearWire));
 	for (std::size_t round = 0; round < 3; round++) {
@@ -142,23 +144,16 @@ void StartSession(SessionLayer& near, SessionWire& nearWire, SessionLayer& far, 
 }
 
 
-SessionLayer::Options FarOptions() {
-	SessionLayer::Options options{};
-	options.restartFn = &CountRestart;
-	return options;
-}
-
-
-SessionLayer::Options SendingOptions() {
-	SessionLayer::Options options{};
-	options.outcomeFn = &RecordById;
-	return options;
-}
+// The options of the far side and of the sending side. The layer takes them as its template argument, so they are constants of it.
+constexpr VUB::ReliableOptions<40, 4> FarOptions{.restartFn = &CountRestart};
+constexpr VUB::ReliableOptions<40, 4> SendingOptions{.outcomeFn = &RecordById};
+using FarLayer = VUB::ReliableOf<40, 4, false, FarOptions>;
+using SendingLayer = VUB::ReliableOf<40, 4, false, SendingOptions>;
 
 
 // Takes a packet given as bytes, as the receiving side gets it.
-template<std::size_t Size>
-Result<VUB::Taken> TakeBytes(SessionLayer& layer, const std::array<uint8, Size>& bytes) {
+template<typename Layer, std::size_t Size>
+Result<VUB::Taken> TakeBytes(Layer& layer, const std::array<uint8, Size>& bytes) {
 	return layer.Take(VUB::Meta{}, std::span<const uint8>(bytes.data(), bytes.size()));
 }
 
@@ -233,7 +228,7 @@ void TestSessionsWithSameClockAndDifferentValuesAreARestart() {
 	SessionWire nearWire{};
 	SessionWire farWire{};
 	SessionReceived received{};
-	SessionLayer far(FarOptions());
+	FarLayer far;
 	std::optional<SessionLayer> near;
 	near.emplace();
 	near->SetSession(0x1111);
@@ -267,7 +262,7 @@ void TestResentSyncOfTheSameSessionIsNotARestart() {
 	SessionWire nearWire{};
 	SessionWire farWire{};
 	SessionReceived received{};
-	SessionLayer far(FarOptions());
+	FarLayer far;
 	SessionLayer near;
 	near.SetSession(0x3333);
 	SIM_EXPECT(!SendId(near, 0, nearWire));
@@ -302,7 +297,7 @@ void TestResentSyncOfTheSameSessionIsNotARestart() {
 void TestOldSessionPacketCannotSlideTheWindow() {
 	testRestartCount = 0;
 	SessionWire farWire{};
-	SessionLayer far(FarOptions());
+	FarLayer far;
 	far.Process(0x0100, Outbox(farWire));
 	std::array<uint8, 8> sync = {0x05, 0x34, 0x00, 0x00, 0x00, 0x34, 0x12, 0x00};
 	SIM_EXPECT(TakeBytes(far, sync).IsOk());
@@ -330,7 +325,7 @@ void TestOldSessionPacketCannotSlideTheWindow() {
 void TestDataOfAnotherSessionIsNotDelivered() {
 	testRestartCount = 0;
 	SessionWire farWire{};
-	SessionLayer far(FarOptions());
+	FarLayer far;
 	std::array<uint8, 8> sync = {0x05, 0x34, 0x00, 0x00, 0x00, 0x34, 0x12, 0x00};
 	SIM_EXPECT(TakeBytes(far, sync).IsOk());
 	far.Process(0x0100, Outbox(farWire));
@@ -367,8 +362,8 @@ void TestResyncOfAnotherSessionIsIgnored() {
 	SessionWire nearWire{};
 	SessionWire farWire{};
 	SessionReceived received{};
-	SessionLayer far(FarOptions());
-	SessionLayer near(SendingOptions());
+	FarLayer far;
+	SendingLayer near;
 	near.SetSession(0x1234);
 	StartSession(near, nearWire, far, farWire, received, 0x0100);
 	SIM_EXPECT(SendId(near, 3, nearWire));
@@ -395,8 +390,8 @@ void TestDelayedResyncOfTheCurrentSessionIsSafe() {
 	SessionWire nearWire{};
 	SessionWire farWire{};
 	SessionReceived received{};
-	SessionLayer far(FarOptions());
-	SessionLayer near(SendingOptions());
+	FarLayer far;
+	SendingLayer near;
 	near.SetSession(0x1234);
 	StartSession(near, nearWire, far, farWire, received, 0x0100);
 	SIM_EXPECT(SendId(near, 0, nearWire));
@@ -447,8 +442,8 @@ void TestStaleAcknowledgementDoesNotAcknowledge() {
 	SessionWire nearWire{};
 	SessionWire farWire{};
 	SessionReceived received{};
-	SessionLayer far(FarOptions());
-	SessionLayer near(SendingOptions());
+	FarLayer far;
+	SendingLayer near;
 	near.SetSession(0x1234);
 	StartSession(near, nearWire, far, farWire, received, 0x0100);
 	SIM_EXPECT(SendId(near, 0, nearWire));
@@ -477,7 +472,7 @@ void TestCounterReplyMovesTheSenderPastTheHeldCounter() {
 	SessionWire nearWire{};
 	SessionWire farWire{};
 	SessionReceived received{};
-	SessionLayer far(FarOptions());
+	FarLayer far;
 	// A sync of boot 0x0100 with counter 2 and tag 0x02, from an earlier life of the sender.
 	std::array<uint8, 8> earlier = {0x05, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02};
 	SIM_EXPECT(TakeBytes(far, earlier).IsOk());
@@ -486,7 +481,7 @@ void TestCounterReplyMovesTheSenderPastTheHeldCounter() {
 	std::array<uint8, 4> earlierAck = {0x12, 0x02, 0x00, 0x00};
 	SIM_EXPECT(SentOnly(farWire, earlierAck));
 	farWire.count = 0;
-	SessionLayer near(SendingOptions());
+	SendingLayer near;
 	near.SetSession(0x0100);
 	SIM_EXPECT(!SendId(near, 1, nearWire));
 	near.Process(0x0100, Outbox(nearWire));
@@ -534,8 +529,8 @@ void TestStaleSyncOfLiveSenderDoesNotDisturb() {
 	SessionWire nearWire{};
 	SessionWire farWire{};
 	SessionReceived received{};
-	SessionLayer far(FarOptions());
-	SessionLayer near(SendingOptions());
+	FarLayer far;
+	SendingLayer near;
 	near.SetSession(0x0100);
 	StartSession(near, nearWire, far, farWire, received, 0x0100);
 	SIM_EXPECT(SendId(near, 0, nearWire));
@@ -570,7 +565,7 @@ void TestStaleSyncOfLiveSenderDoesNotDisturb() {
 // A counter reply for another boot value is not for this sender: its sync is not moved, and the same sync goes out again when it times out.
 void TestCounterReplyOfAnotherBootIsIgnored() {
 	SessionWire wire{};
-	SessionLayer near(SendingOptions());
+	SendingLayer near;
 	near.SetSession(0x0200);
 	SIM_EXPECT(!SendId(near, 0, wire));
 	near.Process(0x0100, Outbox(wire));

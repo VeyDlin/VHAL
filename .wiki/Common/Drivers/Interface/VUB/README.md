@@ -69,8 +69,10 @@ block methods take the block's type, and optionally an options value:
 - `.Framing<T>()` or `.Framing<T>(options)`
 - `.Link<T>()` (the link takes no options; its object is built by the user)
 
-The options value is passed to the block's constructor when the stack is built. A block given options must have a constructor that takes
-them; otherwise the chain does not compile. A block given no options is default-constructed.
+The options value of a block is passed to the block's constructor when the stack is built, unless the block declares `Configured` (see
+[writing a block, options](#options)). Then the stack stores the block with the options as template arguments, and the block needs no
+constructor. A block given options that does not declare `Configured` must have a constructor that takes them; otherwise the chain does
+not compile. A block given no options is default-constructed.
 
 Settings are set anywhere in the chain:
 
@@ -247,15 +249,15 @@ ring, and a link with `MaxPacket(64)`.
 | (b) stream link, COBS | 932 | 620 | 1212 | 620 |
 | (c) (b) + CRC-16/MODBUS table | 1624 | 700 | 1912 | 700 |
 | (d) (b) + CRC-16/MODBUS bitwise | 1144 | 700 | 1432 | 700 |
-| (e) stream link, length prefix 1, CRC-8 bitwise | 1084 | 672 | 1376 | 672 |
-| (f) stream link, gap framing, CRC-16 table | 2724 | 1728 | 2916 | 1728 |
-| (g) (c) + VUB::Reliable (Retries 3, Window 4) | 4708 | 1136 | 5216 | 1136 |
-| (h) (g) with the in-order option | 5044 | 1272 | 5576 | 1272 |
-| (i) COBS, CRC-8, VUB::ReliableOf window 1, Retries 3 | 3780 | 932 | 4296 | 932 |
+| (e) stream link, length prefix 1, CRC-8 bitwise | 1056 | 672 | 1348 | 672 |
+| (f) stream link, gap framing, CRC-16 table | 2716 | 1720 | 2868 | 1720 |
+| (g) (c) + VUB::Reliable (Retries 3, Window 4) | 4096 | 1116 | 4580 | 1116 |
+| (h) (g) with the in-order option | 4404 | 1252 | 4920 | 1252 |
+| (i) COBS, CRC-8, VUB::ReliableOf window 1, Retries 3 | 3200 | 912 | 3676 | 912 |
 | breakdown of (i): the same without VUB::ReliableOf | 1096 | 692 | 1388 | 692 |
 | CompactStreamingProtocol<20, 4> (bootloader use) | 2292 | 1116 | 2880 | 1116 |
-| (j) stream link, COBS, CRC-16/MODBUS table, VUB::KeepAlive (default times) | 2616 | 940 | 2984 | 940 |
-| (k) (g) + VUB::KeepAlive (default times) | 5724 | 1428 | 6332 | 1428 |
+| (j) stream link, COBS, CRC-16/MODBUS table, VUB::KeepAlive (default times) | 2604 | 932 | 2956 | 932 |
+| (k) (g) + VUB::KeepAlive (default times) | 5148 | 1400 | 5652 | 1400 |
 
 Measured with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203` on Windows 11, through Git Bash,
 with `Common/Drivers/Interface/VUB/.tool/size/size.sh`.
@@ -309,11 +311,11 @@ the wire that has not been fed. Every fragment and every acknowledgement goes th
 - Configuration (i) uses the default ring of 256 bytes. The protocol's ring is 80 bytes. A bootloader that sets `ReceiveRing` smaller
   is not measured here.
 
-Against the protocol, configuration (i) is 1488 bytes larger in text on the M4 (3780 against 2292) and 1416 bytes larger on the M0+
-(4296 against 2880). Its RAM is 184 bytes smaller on the M4 (932 against 1116) and on the M0+ (932 against 1116). The design asks for
+Against the protocol, configuration (i) is 908 bytes larger in text on the M4 (3200 against 2292) and 796 bytes larger on the M0+
+(3676 against 2880). Its RAM is 204 bytes smaller on the M4 (912 against 1116) and on the M0+ (912 against 1116). The design asks for
 a stack with the protocol's properties to be no larger than the protocol on the same target, so this stage does not meet it in text.
 The breakdown row shows where the text goes: without `VUB::ReliableOf`, configuration (i) is 1096 bytes of text on the M4, and the layer
-adds 2684 bytes. The layer carries what the protocol does not: sequence numbers with sessions and a sync, a window, a ring of owed
+adds 2104 bytes. The layer carries what the protocol does not: sequence numbers with sessions and a sync, a window, a ring of owed
 acknowledgements, retries with timeouts, and outcome reporting (see [VUB::Reliable](Layer/Reliable)). The measurement gives the size of
 the layer as a whole; it does not split the layer's code further.
 
@@ -730,13 +732,14 @@ change. The probe was built with `arm-none-eabi-g++` 15.2, `-Os`, Cortex-M4, and
 ### Options
 
 A block given options takes them as a value: `.Layer<T>(options)`, `.Transform<T>(options)` and `.Framing<T>(options)` pass the
-value to the block's constructor.
+value. A block that declares `Configured` takes them as template arguments, and any other block takes them in its constructor. The
+two ways are below, after the example of the constructor.
 
 A block can take its options flat, as methods right after it. It declares a member template `Step` that derives from the builder
 it is given. The `Layer`, `Transform` and `Framing` calls of the block then return the Step, so the option methods follow the block
 and the chain goes on with every builder method. Each option method reads the options with `LastOptions()`, changes one field and
-returns the Step over `WithLastOptions(...)`. A block with a Step names its options `Options` and has a constructor that takes
-them; a call with no options gives it `Options{}`. The option methods exist only on the Step, so after any other block they do not
+returns the Step over `WithLastOptions(...)`. A block with a Step names its options `Options`; a block with `Configured` needs no
+constructor for them, and any other block has a constructor that takes them. A call with no options gives it `Options{}`. The option methods exist only on the Step, so after any other block they do not
 compile.
 
 ```cpp
@@ -801,6 +804,87 @@ using Board = VUB::Stack<+[] {
 
 `Key(0x5A)` sets the key of the transform. A transform without `.Key(...)` gets key 0, and `.Transform<XorKey>(XorKey::Options{0x5A})`
 gives the same key as a value.
+
+#### Two ways to take options
+
+The stack builds each block in one of two ways, and a block declares which one it takes:
+
+- A block that declares `template<Options value> using Configured = ...;` takes its options as template arguments. The stack stores
+  `Block::Configured<value>`, default-constructed, with the options of its chain entry. Every option is a constant of the stored block, so
+  `if constexpr` removes the code of a feature that the value turns off, and the options take no RAM. The built-in blocks with options
+  (`VUB::Reliable`, `VUB::KeepAlive` and `VUB::Gap`) take them this way. Use it when the chain fixes the options, which is the usual case
+  for a block of a board's chain.
+- A block without `Configured` is built from its options with its constructor, when the stack is built. The options are values, and the
+  block keeps them at run time, so a feature that is off still has its code. Use it when the block needs a value that is not a constant
+  (for example a pointer to an object of the program that is not known until run time), or when the block is kept by a program that does
+  not give it to a stack. A user block without `Configured` keeps working as it did.
+
+The options of a `Configured` block are a structural type: its members are integers, `bool` values and function pointers, public, with
+default values. The option methods of the block (its Step) read and write the options the same way in both cases.
+
+The example below is `XorKey` with the key as a template argument. Its option method is the same; the key is a constant of the stored
+transform.
+
+```cpp
+// A transform that XORs each byte with a key given as a template argument. The stack stores it as Configured, so the key is a constant
+// of the stored transform.
+struct XorKeyOptions {
+	uint8 key = 0;
+};
+
+
+template<XorKeyOptions Value = XorKeyOptions{}>
+struct XorKeyOf {
+	using Options = XorKeyOptions;
+
+	template<Options value>
+	using Configured = XorKeyOf<value>;
+
+	template<typename Builder>
+	struct Step : Builder {
+		explicit constexpr Step(const Builder& base) : Builder(base) {
+		}
+
+		constexpr Step Key(uint8 value) const {
+			Options options = this->LastOptions();
+			options.key = value;
+			return Step(this->WithLastOptions(options));
+		}
+	};
+
+	static constexpr std::size_t growth = 0;
+	static constexpr uint32 fingerprint = 0x584B4559;
+	static constexpr uint8 key = Value.key;
+
+	Result<std::size_t> Encode(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = static_cast<uint8>(in[index] ^ key);
+		}
+
+		return in.size();
+	}
+
+	Result<std::size_t> Decode(const VUB::Meta&, std::span<uint8> packet) {
+		for (std::size_t index = 0; index < packet.size(); index++) {
+			packet[index] = static_cast<uint8>(packet[index] ^ key);
+		}
+
+		return packet.size();
+	}
+};
+
+using ConfiguredBoard = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Transform<XorKeyOf<>>().Key(0x5A)
+		.Link<BoardLink>()
+		.MaxPayload(32)
+		.OnReceive<&OnPacket>();
+}>;
+```
 
 ## Status
 

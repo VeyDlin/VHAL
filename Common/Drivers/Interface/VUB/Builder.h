@@ -116,6 +116,57 @@ struct BlockEntry {
 };
 
 
+// The default value of an options type, for a template argument that asks whether a block declares Configured.
+template<typename Options>
+inline constexpr Options DefaultValueOf{};
+
+
+// Whether a block declares Configured for the options value: the stack then stores it as Configured<value>, with the options as constants.
+// A block that does not declare it is built from its options at run time.
+template<typename Entry, auto Value>
+concept ConfiguredEntry = requires {
+	typename Entry::BlockType::template Configured<Value>;
+};
+
+
+// Whether a block declares Configured for some options: the builder then does not need a constructor that takes them.
+template<typename Entry>
+concept DeclaresConfigured = ConfiguredEntry<Entry, DefaultValueOf<typename Entry::OptionsType>>;
+
+
+// The type a stack stores for an entry, given the value of its options: the block's Configured alias with those options, or the entry's
+// Stored type when the block does not declare Configured.
+template<typename Entry, auto Value, bool IsConfigured = ConfiguredEntry<Entry, Value>>
+struct StoredOf {
+	using type = typename Entry::Stored;
+};
+
+
+template<typename Entry, auto Value>
+struct StoredOf<Entry, Value, true> {
+	using type = typename Entry::BlockType::template Configured<Value>;
+};
+
+
+// The position of the first block of type Block in the entries of a chain, or the number of entries when there is none.
+template<typename Tuple, typename Block, std::size_t Index = 0>
+constexpr std::size_t BlockIndexOf() {
+	if constexpr (Index >= std::tuple_size_v<Tuple>) {
+		return Index;
+	} else if constexpr (std::is_same_v<typename std::tuple_element_t<Index, Tuple>::BlockType, Block>) {
+		return Index;
+	} else {
+		return BlockIndexOf<Tuple, Block, Index + 1>();
+	}
+}
+
+
+// The element of a storage at index, or None when the index is past the storage: Find reports a block that is not in the chain.
+template<std::size_t Index, typename Storage>
+using StoredElement = std::conditional_t<(Index < std::tuple_size_v<Storage>),
+	std::tuple_element_t<(Index < std::tuple_size_v<Storage> ? Index : 0), Storage>, None>;
+
+
 // The settings of a chain that are not blocks. They are checked when the stack is instantiated.
 struct Settings {
 	std::size_t maxPayload = 0;
@@ -305,7 +356,6 @@ template<typename... Entries>
 class Builder {
 public:
 	using Tuple = std::tuple<Entries...>;
-	using Storage = std::tuple<typename Entries::Stored...>;
 	using LastEntry = typename LastBlockEntry<Entries...>::type;
 	using LinkType = typename LinkOf<Entries...>::type;
 	static constexpr std::size_t count = sizeof...(Entries);
@@ -563,12 +613,6 @@ public:
 	}
 
 
-	// Builds the stored blocks from the entries, at run time. A block is moved into the tuple.
-	static Storage MakeStorage(const List<Entries...>& values) {
-		return MakeStorageAt(values, std::index_sequence_for<Entries...>{});
-	}
-
-
 	// Checks the chain. Every rule that is not met is a compile error with its message.
 	static constexpr bool Check(const Settings& values) {
 		(CheckOptions<Entries>(), ...);
@@ -660,36 +704,19 @@ public:
 
 
 private:
-	template<std::size_t... Index>
-	static Storage MakeStorageAt(const List<Entries...>& values, std::index_sequence<Index...>) {
-		return Storage(MakeStored(ListAt<Index>(values))...);
-	}
-
-
-	// A block given options is built from them: Check has refused a block whose constructor does not take them. A block given no options
-	// is default-constructed.
-	template<typename Entry>
-	static typename Entry::Stored MakeStored(const Entry& entry) {
-		if constexpr (Entry::kind == BlockKind::link) {
-			return None{};
-		} else if constexpr (std::is_same_v<typename Entry::OptionsType, None>) {
-			return typename Entry::BlockType{};
-		} else {
-			return typename Entry::BlockType(entry.options);
-		}
-	}
-
-
-	// A block given options must be built from them. The message names the block's kind; a link and a block with no options pass.
+	// A block given options must be built from them, unless it declares Configured: then its options are template arguments and it needs no
+	// constructor. The message names the block's kind; a link and a block with no options pass.
 	template<typename Entry>
 	static constexpr void CheckOptions() {
-		if constexpr (Entry::kind == BlockKind::layer && !std::is_same_v<typename Entry::OptionsType, None>) {
+		if constexpr (Entry::kind == BlockKind::layer && !std::is_same_v<typename Entry::OptionsType, None> && !DeclaresConfigured<Entry>) {
 			Require<"the layer cannot be built from its options: give it a constructor that takes them">(
 				std::is_constructible_v<typename Entry::BlockType, const typename Entry::OptionsType&>);
-		} else if constexpr (Entry::kind == BlockKind::transform && !std::is_same_v<typename Entry::OptionsType, None>) {
+		} else if constexpr (Entry::kind == BlockKind::transform && !std::is_same_v<typename Entry::OptionsType, None>
+				&& !DeclaresConfigured<Entry>) {
 			Require<"the transform cannot be built from its options: give it a constructor that takes them">(
 				std::is_constructible_v<typename Entry::BlockType, const typename Entry::OptionsType&>);
-		} else if constexpr (Entry::kind == BlockKind::framing && !std::is_same_v<typename Entry::OptionsType, None>) {
+		} else if constexpr (Entry::kind == BlockKind::framing && !std::is_same_v<typename Entry::OptionsType, None>
+				&& !DeclaresConfigured<Entry>) {
 			Require<"the framing cannot be built from its options: give it a constructor that takes them">(
 				std::is_constructible_v<typename Entry::BlockType, const typename Entry::OptionsType&>);
 		}

@@ -73,13 +73,30 @@ public:
 	using Builder = decltype(Make());
 	using Tuple = typename Builder::Tuple;
 	using LinkType = typename Builder::LinkType;
-	using Storage = typename Builder::Storage;
 
 
 	static constexpr Builder built = Make();
 	static constexpr std::size_t count = Builder::count;
 	static constexpr bool checked = Builder::Check(built.settings);
 	static_assert(checked, "the chain was not checked");
+
+
+	// The options of entry Index of the chain, as a constant value.
+	template<std::size_t Index>
+	static constexpr auto OptionsAt = ListAt<Index>(built.entries).options;
+
+
+	// The type stored for entry Index. A block that declares Configured is stored as that alias, with its options as constants; any other
+	// block is stored as its Stored type and built from its options.
+	template<std::size_t Index>
+	using StoredAt = typename StoredOf<std::tuple_element_t<Index, Tuple>, OptionsAt<Index>>::type;
+
+
+	template<std::size_t... Index>
+	static std::tuple<StoredAt<Index>...> StorageOf(std::index_sequence<Index...>);
+
+
+	using Storage = decltype(StorageOf(std::make_index_sequence<count>{}));
 
 
 	static constexpr LinkTraits linkTraits = Builder::ChainLinkTraits();
@@ -107,7 +124,7 @@ public:
 	static constexpr uint32 (*clockFn)() = built.settings.clockFn;
 
 
-	explicit Stack(LinkType& linkObject) : link(&linkObject), detach(link), blocks(Builder::MakeStorage(built.entries)) {
+	explicit Stack(LinkType& linkObject) : link(&linkObject), detach(link), blocks(MakeBlocks(std::make_index_sequence<count>{})) {
 		if constexpr (hasLinkState) {
 			LinkRecord& record = linkRecord.Get();
 			record.reportedUp = !linkReports;
@@ -190,8 +207,8 @@ public:
 	// type: a chain with two of them is a compile error, since Find would have to pick one. Only a block that is in the chain has a member
 	// here, so a chain without it has no code.
 	template<typename Block>
-	Block& Find() {
-		constexpr std::size_t index = BlockIndexOf<Block>();
+	StoredElement<BlockIndexOf<Tuple, Block>(), Storage>& Find() {
+		constexpr std::size_t index = BlockIndexOf<Tuple, Block>();
 		static_assert(index < count, "the chain has no block of this type");
 		static_assert(CountBlocksOf<Block>(std::make_index_sequence<count>{}) <= 1,
 			"the chain has more than one block of this type: Find cannot tell them apart, so the chain holds each type once");
@@ -473,15 +490,25 @@ private:
 	}
 
 
-	// The position of the first block of type Block in the chain, or count when there is none.
-	template<typename Block, std::size_t Index = 0>
-	static constexpr std::size_t BlockIndexOf() {
-		if constexpr (Index >= count) {
-			return count;
-		} else if constexpr (std::is_same_v<typename std::tuple_element_t<Index, Tuple>::BlockType, Block>) {
-			return Index;
+	// The stored blocks, built in chain order. A block that declares Configured is default-constructed, since its options are in its type.
+	// Any other block is built from its options, which are read from the chain value, so a configured block never reads the chain.
+	template<std::size_t... Index>
+	static Storage MakeBlocks(std::index_sequence<Index...>) {
+		return Storage(MakeStored<Index>()...);
+	}
+
+
+	template<std::size_t Index>
+	static StoredAt<Index> MakeStored() {
+		using Entry = std::tuple_element_t<Index, Tuple>;
+		if constexpr (Entry::kind == BlockKind::link) {
+			return None{};
+		} else if constexpr (ConfiguredEntry<Entry, OptionsAt<Index>>) {
+			return StoredAt<Index>{};
+		} else if constexpr (std::is_same_v<typename Entry::OptionsType, None>) {
+			return typename Entry::BlockType{};
 		} else {
-			return BlockIndexOf<Block, Index + 1>();
+			return typename Entry::BlockType(ListAt<Index>(built.entries).options);
 		}
 	}
 

@@ -65,9 +65,12 @@ or down.
 
 ## RAM
 
-The framing object is 44 bytes on a 32-bit target: the gap, the rate, the timeout, the times of the last byte received and of the end of the last send,
-and the packet being received. A chain whose framing uses time keeps the time of each received byte in the receive ring, 4 bytes per
-slot: 1024 bytes for the default ring of 256 slots. A chain without a time-using framing keeps no time and pays nothing for it.
+The framing object is 36 bytes on the Cortex-M4 (`sizeof` of `VUB::Gap`, measured with `arm-none-eabi-g++` 15.2.1, `-std=c++20`). It holds the
+gap, the baud rate that `SetBaud` changes, the times of the last byte received and of the end of the last send, the wait and the
+carried byte, and the packet being received. The options that do not change, the wait timeout and the character count of a gap given in
+character times, are template arguments of the framing, so they take no RAM. A chain whose framing uses time keeps the time of each
+received byte in the receive ring, 4 bytes per slot: 1024 bytes for the default ring of 256 slots. A chain without a time-using framing
+keeps no time and pays nothing for it.
 
 ## Example
 

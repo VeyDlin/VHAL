@@ -203,6 +203,69 @@ using Board = VUB::Stack<+[] {
 static_assert(VUB::Builder().Transform<XorKey>().Key(0x5A).LastOptions().key == 0x5A);
 static_assert(VUB::Builder().Transform<XorKey>(XorKey::Options{0x5A}).LastOptions().key == 0x5A);
 static_assert(VUB::Builder().Transform<XorKey>().LastOptions().key == 0);
+
+
+// A transform that XORs each byte with a key given as a template argument. The stack stores it as Configured, so the key is a constant
+// of the stored transform.
+struct XorKeyOptions {
+	uint8 key = 0;
+};
+
+
+template<XorKeyOptions Value = XorKeyOptions{}>
+struct XorKeyOf {
+	using Options = XorKeyOptions;
+
+	template<Options value>
+	using Configured = XorKeyOf<value>;
+
+	template<typename Builder>
+	struct Step : Builder {
+		explicit constexpr Step(const Builder& base) : Builder(base) {
+		}
+
+		constexpr Step Key(uint8 value) const {
+			Options options = this->LastOptions();
+			options.key = value;
+			return Step(this->WithLastOptions(options));
+		}
+	};
+
+	static constexpr std::size_t growth = 0;
+	static constexpr uint32 fingerprint = 0x584B4559;
+	static constexpr uint8 key = Value.key;
+
+	Result<std::size_t> Encode(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = static_cast<uint8>(in[index] ^ key);
+		}
+
+		return in.size();
+	}
+
+	Result<std::size_t> Decode(const VUB::Meta&, std::span<uint8> packet) {
+		for (std::size_t index = 0; index < packet.size(); index++) {
+			packet[index] = static_cast<uint8>(packet[index] ^ key);
+		}
+
+		return packet.size();
+	}
+};
+
+using ConfiguredBoard = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Transform<XorKeyOf<>>().Key(0x5A)
+		.Link<BoardLink>()
+		.MaxPayload(32)
+		.OnReceive<&OnPacket>();
+}>;
+
+static_assert(VUB::Builder().Transform<XorKeyOf<>>().Key(0x5A).LastOptions().key == 0x5A);
+static_assert(std::is_same_v<std::tuple_element_t<0, ConfiguredBoard::Storage>, XorKeyOf<XorKeyOptions{0x5A}>>);
 }  // namespace WikiSteps
 
 
