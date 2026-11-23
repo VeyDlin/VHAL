@@ -47,6 +47,12 @@ public:
 	}
 
 
+	// True when the receiver has a stack behind it. A default receiver, or the one a destroyed stack left in its link, is not attached.
+	bool Attached() const {
+		return feedBytesFn != nullptr || feedPacketFn != nullptr;
+	}
+
+
 	// How many bytes (a byte-stream link) or packets (a packet link) the stack takes at the time of the call.
 	std::size_t Room() const {
 		if (roomFn != nullptr) {

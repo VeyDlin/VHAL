@@ -25,8 +25,17 @@ for source in "$simDir"/Test*.cpp; do
     name="$(basename "$source" .cpp)"
     exe="$buildDir/$name$exeSuffix"
 
-    if ! "$cxx" -std=c++20 -Wall -Wextra -Werror ${CXXFLAGS:-} \
+    # The test of the real USB functions needs the USB module's simulation shim, which defines VHAL.h and the assertions of its own.
+    # Its flags come first, so its VHAL.h is the one that test gets.
+    extraFlags=()
+    if [ "$name" = "TestVubLinkUsb" ] || [ "$name" = "TestVubLinkWiki" ]; then
+        usbSim="$vhalRoot/Common/Drivers/Interface/USB/.tool/sim"
+        extraFlags=(-I "$usbSim/shim" -I "$usbSim" -I "$vhalRoot/Common/Drivers/Interface/USB/.tool/common" -I "$vhalRoot/.demo/STM32G4/Application")
+    fi
+
+    if ! "$cxx" -std=c++20 -Wall -Wextra -Werror ${CXXFLAGS:-} ${extraFlags[@]+"${extraFlags[@]}"} \
         -I "$vhalRoot/Common" -I "$simDir" \
+        -I "$vhalRoot/Periphery/Adapter/.tool/sim/shim" -I "$vhalRoot/Periphery" \
         -o "$exe" "$source"; then
         echo "BUILD FAILED: $name"
         failures=$((failures + 1))
