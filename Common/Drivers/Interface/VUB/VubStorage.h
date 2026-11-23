@@ -80,6 +80,36 @@ struct VubRingStorage<false, Slots, Tag> {
 };
 
 
+// The receive time of each byte of a ring of Slots slots, or nothing. Only a chain whose framing uses time has it.
+template<bool Enabled, std::size_t Slots, std::size_t Tag>
+struct VubStampStorage {
+	std::array<uint32, Slots> stamps{};
+
+
+	std::span<uint32> Span() {
+		return std::span<uint32>(stamps);
+	}
+
+
+	std::span<const uint32> Span() const {
+		return std::span<const uint32>(stamps);
+	}
+};
+
+
+template<std::size_t Slots, std::size_t Tag>
+struct VubStampStorage<false, Slots, Tag> {
+	std::span<uint32> Span() {
+		return std::span<uint32>();
+	}
+
+
+	std::span<const uint32> Span() const {
+		return std::span<const uint32>();
+	}
+};
+
+
 // A packet queue of Slots slots of SlotBytes bytes each (Slots - 1 packets are held), or nothing.
 template<bool Enabled, std::size_t Slots, std::size_t SlotBytes, std::size_t Tag>
 struct VubQueueStorage {

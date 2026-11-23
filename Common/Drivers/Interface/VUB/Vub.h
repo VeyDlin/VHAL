@@ -48,6 +48,19 @@
 //
 // Sizes: the buffers are the packet size of the chain, computed at compile time. A block or a feature that the chain does not use
 // has no member: the storage of a disabled part is an empty type, and its code is not instantiated.
+// Whether the framing of a chain uses time. Has is false when the chain has no framing, and Entry is then not read.
+template<bool Has, typename Entry>
+struct VubFramingUsesTime {
+	static constexpr bool value = false;
+};
+
+
+template<typename Entry>
+struct VubFramingUsesTime<true, Entry> {
+	static constexpr bool value = Entry::BlockType::usesTime;
+};
+
+
 template<auto (*Make)()>
 class Vub {
 public:
@@ -73,6 +86,9 @@ public:
 	static constexpr std::size_t framedBytes = Builder::FramedBound(built.settings);
 	static constexpr std::size_t framingIndex = Builder::FramingIndex();
 	static constexpr bool hasFraming = framingIndex < count;
+	using FramingEntry = std::tuple_element_t<(framingIndex < count ? framingIndex : 0), Tuple>;
+	// A framing that uses time gets the time of each received byte, and the ring keeps it. Any other chain keeps no time.
+	static constexpr bool framingTimed = streamLink && VubFramingUsesTime<hasFraming, FramingEntry>::value;
 	static constexpr bool hasSteps = Builder::StepCount() > 0;
 	static constexpr bool hasBulk = Builder::BulkCount() > 0;
 	static constexpr std::size_t receiveBytes = linkTraits.maxPacket;
@@ -134,7 +150,7 @@ public:
 		}
 
 		if constexpr (streamLink) {
-			DrainRing();
+			DrainRing(now);
 		} else {
 			DrainQueue();
 		}
@@ -144,15 +160,33 @@ public:
 			ApplyConnection(now, false, linkRecord.Get().linkUp);
 		}
 
-		Egress();
+		Egress(now);
 	}
 
 
-	// Takes one received byte. Called from the receive interrupt of a byte-stream link. A full ring drops the byte and counts it.
+	// Takes one received byte. Called from the receive interrupt of a byte-stream link. A full ring drops the byte and counts it. A
+	// framing that uses time gets the time of the byte from the clock, here, so the byte keeps the time it arrived at.
 	void Feed(uint8 byte) requires (streamLink) {
-		if (!VubByteRingPush(ring.indexes, ring.Span(), byte)) {
-			VubCountIsr(ringFullIsr);
+		if constexpr (framingTimed) {
+			uint32 stamp = clockFn();
+			if (!VubTimedRingPush(ring.indexes, ring.Span(), stamps.Span(), byte, stamp)) {
+				VubCountIsr(ringFullIsr);
+			}
+		} else {
+			if (!VubByteRingPush(ring.indexes, ring.Span(), byte)) {
+				VubCountIsr(ringFullIsr);
+			}
 		}
+	}
+
+
+	// The block of type Block in the chain, for the settings it changes at run time (a baud rate). The chain names each block once; the
+	// first block of that type is returned. Only a block that is in the chain has a member here, so a chain without it has no code.
+	template<typename Block>
+	Block& Find() {
+		constexpr std::size_t index = BlockIndexOf<Block>();
+		static_assert(index < count, "the chain has no block of this type");
+		return std::get<index>(blocks);
 	}
 
 
@@ -225,6 +259,7 @@ private:
 	[[no_unique_address]] VubQueueStorage<true, sendSlots, packetBytes, 8> control;
 	[[no_unique_address]] VubBuffer<true, receiveBytes, 9> rx;
 	[[no_unique_address]] VubRingStorage<streamLink, ringSlots, 10> ring;
+	[[no_unique_address]] VubStampStorage<framingTimed, ringSlots, 13> stamps;
 	[[no_unique_address]] VubQueueStorage<!streamLink, receiveSlots, receiveBytes, 11> rxQueue;
 	[[no_unique_address]] VubState<hasLinkState, VubLinkRecord, 12> linkRecord;
 	VubDropCounts drops;
@@ -375,27 +410,60 @@ private:
 	}
 
 
-	// Takes the received bytes out of the ring, through the framing. A byte-stream link only.
-	void DrainRing() {
+	// Takes the received bytes out of the ring, through the framing. A byte-stream link only. A framing that uses time gets each byte with
+	// its time, and is then polled with the time of this call, so a frame that ends in silence comes out.
+	void DrainRing(uint32 now) {
 		if constexpr (streamLink) {
 			uint8 value = 0;
-			while (VubByteRingPop(ring.indexes, ring.Span(), value)) {
+			if constexpr (framingTimed) {
+				uint32 stamp = 0;
+				while (VubTimedRingPop(ring.indexes, ring.Span(), stamps.Span(), value, stamp)) {
+					std::size_t length = 0;
+					VubFrame state = std::get<framingIndex>(blocks).Push(value, stamp, rx.Span(), length);
+					HandleFrame(state, length);
+				}
+
 				std::size_t length = 0;
-				VubFrame state = std::get<framingIndex>(blocks).Push(value, rx.Span(), length);
-				switch (state) {
-					case VubFrame::packet:
-						ReceivePacket(rx.Span().first(length));
-						break;
-					case VubFrame::broken:
-						VubCountDrop(drops.framingError);
-						break;
-					case VubFrame::tooLong:
-						VubCountDrop(drops.tooLong);
-						break;
-					case VubFrame::pending:
-						break;
+				VubFrame state = std::get<framingIndex>(blocks).Poll(now, rx.Span(), length);
+				HandleFrame(state, length);
+			} else {
+				while (VubByteRingPop(ring.indexes, ring.Span(), value)) {
+					std::size_t length = 0;
+					VubFrame state = std::get<framingIndex>(blocks).Push(value, rx.Span(), length);
+					HandleFrame(state, length);
 				}
 			}
+		}
+	}
+
+
+	// Acts on what the framing reports for a byte: a packet goes up the chain, a broken frame and a frame too long are counted.
+	void HandleFrame(VubFrame state, std::size_t length) {
+		switch (state) {
+			case VubFrame::packet:
+				ReceivePacket(rx.Span().first(length));
+				break;
+			case VubFrame::broken:
+				VubCountDrop(drops.framingError);
+				break;
+			case VubFrame::tooLong:
+				VubCountDrop(drops.tooLong);
+				break;
+			case VubFrame::pending:
+				break;
+		}
+	}
+
+
+	// The position of the first block of type Block in the chain, or count when there is none.
+	template<typename Block, std::size_t Index = 0>
+	static constexpr std::size_t BlockIndexOf() {
+		if constexpr (Index >= count) {
+			return count;
+		} else if constexpr (std::is_same_v<typename std::tuple_element_t<Index, Tuple>::BlockType, Block>) {
+			return Index;
+		} else {
+			return BlockIndexOf<Block, Index + 1>();
 		}
 	}
 
@@ -584,11 +652,18 @@ private:
 	}
 
 
-	// Gives one packet to the link. On a byte-stream link the packet is framed into the framed buffer, and WriteFramed sends it. Returns
-	// false when a packet link is busy: the packet stays where it is.
-	bool Offer(std::span<const uint8> packet, uint8 flags) {
+	// Gives one packet to the link. On a byte-stream link the packet is framed into the framed buffer, and WriteFramed sends it. A framing
+	// that uses time may first ask to wait for the gap: then the packet stays where it is, and the call returns false. Returns false too
+	// when a packet link is busy.
+	bool Offer(std::span<const uint8> packet, uint8 flags, uint32 now) {
 		if constexpr (streamLink) {
 			if constexpr (hasFraming) {
+				if constexpr (framingTimed) {
+					if (!std::get<framingIndex>(blocks).Ready(now)) {
+						return false;
+					}
+				}
+
 				VubMeta meta{};
 				meta.flags = flags;
 				Result<std::size_t> length = std::get<framingIndex>(blocks).Frame(meta, packet, framed.Span());
@@ -618,8 +693,9 @@ private:
 	}
 
 
-	// Writes the rest of the framed packet. Returns true when the packet is complete, false when the link took less than the rest.
-	bool WriteFramed() {
+	// Writes the rest of the framed packet. Returns true when the packet is complete, false when the link took less than the rest. A framing
+	// that uses time is told how many bytes the link took, so it can keep the gap after them.
+	bool WriteFramed(uint32 now) {
 		if constexpr (streamLink && hasFraming) {
 			FramedState& state = framedState.Get();
 			std::span<const uint8> rest = std::span<const uint8>(framed.Span()).subspan(state.sent, state.length - state.sent);
@@ -631,6 +707,10 @@ private:
 			}
 
 			std::size_t taken = written.Value() < rest.size() ? written.Value() : rest.size();
+			if constexpr (framingTimed) {
+				std::get<framingIndex>(blocks).Sent(now, taken);
+			}
+
 			state.sent = static_cast<uint16>(state.sent + taken);
 			if (state.sent < state.length) {
 				return false;
@@ -685,7 +765,7 @@ private:
 	// Sends from the queues while the link accepts: control first, then the held bulk packet, then a new bulk packet from a layer. Every
 	// packet taken from a queue or a layer counts toward PerProcess, whether the link took it or refused it, so one call stops within
 	// PerProcess packets. Nothing is offered while the connection is down.
-	void Egress() {
+	void Egress(uint32 now) {
 		std::size_t sentPackets = 0;
 		while (sentPackets < perProcess) {
 			if constexpr (hasLinkState) {
@@ -696,7 +776,7 @@ private:
 
 			if constexpr (streamLink && hasFraming) {
 				if (framedState.Get().valid) {
-					if (!WriteFramed()) {
+					if (!WriteFramed(now)) {
 						return;
 					}
 
@@ -707,7 +787,7 @@ private:
 			std::span<const uint8> packet;
 			uint8 flags = 0;
 			if (VubQueueFront(control.indexes, control.View(), packet, flags)) {
-				if (!Offer(packet, flags)) {
+				if (!Offer(packet, flags, now)) {
 					return;
 				}
 
@@ -719,7 +799,7 @@ private:
 			if constexpr (hasBulk) {
 				if (heldState.Get().valid) {
 					std::span<const uint8> bulk(held.Span().data(), heldState.Get().length);
-					if (!Offer(bulk, heldState.Get().flags)) {
+					if (!Offer(bulk, heldState.Get().flags, now)) {
 						return;
 					}
 

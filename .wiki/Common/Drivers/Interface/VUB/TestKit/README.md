@@ -67,6 +67,18 @@ the bytes one at a time, and loses `lossPercent` of them:
 - every packet that comes out is one of the packets sent, in the order sent, and whole;
 - after the lossy part, three clean frames are sent, and the last two come out exactly.
 
+A framing with no check of its own (COBS, the length prefix) cannot promise whole packets with loss: a damaged frame can come out as
+another packet. `VubCheckResync(framing, seed, rounds, maxPayload, lossPercent)` checks what such a framing can promise. It checks
+the length of every packet against `maxPayload`, and after the lossy part it checks that the clean frames come out exactly: the first
+one may be merged with the lossy part, and is not checked. Without loss, use `VubCheckFraming`.
+
+A framing that uses time (the gap framing) is checked by `VubCheckTimedFraming(framing, seed, rounds, maxPayload, lossPercent, gapUs)`.
+Each frame comes after a silence of three gaps, its bytes are spaced by less than a gap, and the check polls the framing at random
+between them. Without loss every packet comes out whole and in order; with loss it is checked as `VubCheckResync` checks it.
+
+The checks of the blocks, `VubRequire` in the library, are declared and not defined. The test kit defines `VubError` as a no-op, so a
+block's `Growth` can be called at run time by the checks; a failed check stays a compile error in a constant expression.
+
 A link is checked by running a stack over a line with faults: the packets that the handler gets, plus the drops that the stack counts,
 must account for every item the wire delivered.
 

@@ -40,7 +40,7 @@ for source in "$simDir"/Test*.cpp; do
 done
 
 # Every header compiles alone: it is the first header of a translation unit that has nothing else in it.
-for header in "$vubDir"/*.h "$vubDir/TestKit"/*.h; do
+for header in "$vubDir"/*.h "$vubDir/TestKit"/*.h "$vubDir/Framing"/*.h; do
     if ! "$cxx" -std=c++20 -Wall -Wextra -Werror -fsyntax-only \
         -I "$vhalRoot/Common" \
         -include "$header" -x c++ /dev/null; then

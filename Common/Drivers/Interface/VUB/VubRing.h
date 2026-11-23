@@ -36,6 +36,39 @@ inline bool VubByteRingPush(VubIndexes& indexes, std::span<uint8> slots, uint8 v
 }
 
 
+// Pushes one byte and the time it was received, for a chain whose framing uses time. Called from the receive interrupt. Returns false
+// when the ring is full.
+inline bool VubTimedRingPush(VubIndexes& indexes, std::span<uint8> slots, std::span<uint32> stamps, uint8 value, uint32 stamp) {
+	uint16 head = indexes.head;
+	uint16 next = static_cast<uint16>((head + 1) % slots.size());
+	if (next == indexes.tail) {
+		return false;
+	}
+
+	slots[head] = value;
+	stamps[head] = stamp;
+	std::atomic_signal_fence(std::memory_order_release);
+	indexes.head = next;
+	return true;
+}
+
+
+// Pops the oldest byte of a timed ring into value, with its time. Called from the main context. Returns false when the ring is empty.
+inline bool VubTimedRingPop(VubIndexes& indexes, std::span<const uint8> slots, std::span<const uint32> stamps, uint8& value,
+	uint32& stamp) {
+	uint16 tail = indexes.tail;
+	if (tail == indexes.head) {
+		return false;
+	}
+
+	value = slots[tail];
+	stamp = stamps[tail];
+	std::atomic_signal_fence(std::memory_order_acquire);
+	indexes.tail = static_cast<uint16>((tail + 1) % slots.size());
+	return true;
+}
+
+
 // Drops the bytes the ring holds, and returns how many there were. Called from the main context when the link goes down: the receive
 // interrupt keeps writing the head, the main context moves the tail up to it.
 inline std::size_t VubByteRingClear(VubIndexes& indexes, std::size_t slotCount) {
