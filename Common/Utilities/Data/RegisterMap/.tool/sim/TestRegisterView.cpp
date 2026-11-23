@@ -298,7 +298,266 @@ void TestPackedBitsRefused() {
 }
 
 
+std::array<bool, 8> coilBlock{};
+std::array<uint16, 3> firstBlock{ 1, 2, 3 };
+std::array<uint16, 2> secondBlock{ 4, 5 };
+std::array<uint16, 3> computedBlock{ 10, 11, 12 };
+std::array<uint16, 3> computedSeen{};
+int computedGets = 0;
+std::array<bool, 3> coilComputed{ true, false, true };
+int coilComputedGets = 0;
+uint32 wideValue = 0;
+std::array<uint16, 2> checkedBlock{ 1, 2 };
+int checkedSets = 0;
+
+
+std::array<bool, 3> ReadCoilComputed() {
+	coilComputedGets++;
+	return coilComputed;
+}
+
+
+ResultStatus SetCoilComputed(std::array<bool, 3> value) {
+	coilComputed = value;
+	return ResultStatus::ok;
+}
+
+
+std::array<uint16, 2> ReadCheckedBlock() {
+	return checkedBlock;
+}
+
+
+ResultStatus SetCheckedBlock(std::array<uint16, 2> value) {
+	checkedSets++;
+	checkedBlock = value;
+	return ResultStatus::ok;
+}
+
+
+bool CheckCheckedBlock(std::array<uint16, 2> value) {
+	return value[1] != 0x0BAD;
+}
+
+
+bool CheckFirstBlock(std::array<uint16, 3> value) {
+	return value[1] != 0x0BAD;
+}
+
+
+bool CheckSecondBlock(std::array<uint16, 2> value) {
+	return value[0] != 0x0BAD;
+}
+
+
+std::array<uint16, 2> ReadFixedBlock() {
+	return std::array<uint16, 2>{ 3, 4 };
+}
+
+
+std::array<uint16, 3> ReadComputedBlock() {
+	computedGets++;
+	return computedBlock;
+}
+
+
+ResultStatus SetComputedBlock(std::array<uint16, 3> value) {
+	computedSeen = value;
+	computedBlock = value;
+	return ResultStatus::ok;
+}
+
+
+using PartialTable = RegisterView<+[] {
+	return RegisterViewBuilder()
+		.Coils(0x0100, Variable(&coilBlock))
+		.HoldingRegisters(0x0200, Variable(&firstBlock, &CheckFirstBlock))
+		.HoldingRegisters(0x0203, Variable(&secondBlock, &CheckSecondBlock))
+		.HoldingRegisters(0x0210, Computed(&ReadFixedBlock))
+		.HoldingRegisters(0x0220, Computed(&ReadComputedBlock, &SetComputedBlock))
+		.HoldingRegisters(0x0223, Variable(&wideValue))
+		.HoldingRegisters(0x0240, Computed(&ReadCheckedBlock, &SetCheckedBlock, &CheckCheckedBlock))
+		.Coils(0x0300, Computed(&ReadCoilComputed, &SetCoilComputed));
+}>;
+
+
+// One coil in the middle of an eight-coil block: only coil 3 changes.
+void TestWritePartialCoilBlock() {
+	coilBlock = {};
+	std::array<bool, 1> one{ true };
+	SimCheck(PartialTable::WriteBits(RegisterTable::Coil, 0x0103, one) == ResultStatus::ok);
+	for (std::size_t index = 0; index < coilBlock.size(); index++) {
+		SimCheck(coilBlock[index] == (index == 3));
+	}
+}
+
+
+// One register in the middle of a three-register block: only element 1 changes.
+void TestWritePartialHoldingBlock() {
+	firstBlock = { 1, 2, 3 };
+	std::array<uint16, 1> one{ 0x1234 };
+	SimCheck(PartialTable::WriteWords(RegisterTable::Holding, 0x0201, one) == ResultStatus::ok);
+	SimCheck(firstBlock[0] == 1);
+	SimCheck(firstBlock[1] == 0x1234);
+	SimCheck(firstBlock[2] == 3);
+}
+
+
+// Three words from 0x0201: the last two of the first block and the first of the second. Each block changes in the covered part only.
+void TestWritePartialAcrossArrays() {
+	firstBlock = { 1, 2, 3 };
+	secondBlock = { 4, 5 };
+	std::array<uint16, 3> values{ 0x00A1, 0x00B2, 0x00C3 };
+	SimCheck(PartialTable::WriteWords(RegisterTable::Holding, 0x0201, values) == ResultStatus::ok);
+	SimCheck(firstBlock[0] == 1);
+	SimCheck(firstBlock[1] == 0x00A1);
+	SimCheck(firstBlock[2] == 0x00B2);
+	SimCheck(secondBlock[0] == 0x00C3);
+	SimCheck(secondBlock[1] == 5);
+}
+
+
+// The merged value of the second block is rejected: invalidData, and the first block, which would be accepted, keeps its values.
+void TestWritePartialRejectedInThisEntry() {
+	firstBlock = { 1, 2, 3 };
+	secondBlock = { 4, 5 };
+	std::array<uint16, 2> values{ 1, 0x0BAD };
+	SimCheck(PartialTable::WriteWords(RegisterTable::Holding, 0x0202, values) == ResultStatus::invalidData);
+	SimCheck(firstBlock[2] == 3);
+	SimCheck(secondBlock[0] == 4);
+}
+
+
+// The merged value of the first block is rejected while the second block would be accepted: invalidData, nothing changes.
+void TestWritePartialRejectedInEarlierEntry() {
+	firstBlock = { 1, 2, 3 };
+	secondBlock = { 4, 5 };
+	std::array<uint16, 3> values{ 0x0BAD, 7, 8 };
+	SimCheck(PartialTable::WriteWords(RegisterTable::Holding, 0x0201, values) == ResultStatus::invalidData);
+	SimCheck(firstBlock[0] == 1);
+	SimCheck(firstBlock[1] == 2);
+	SimCheck(firstBlock[2] == 3);
+	SimCheck(secondBlock[0] == 4);
+	SimCheck(secondBlock[1] == 5);
+}
+
+
+// The request covers the last element of the second block and address 0x0205, which has no entry: badAddress, nothing changes.
+void TestWritePartialWithUnmappedAddress() {
+	secondBlock = { 4, 5 };
+	std::array<uint16, 2> values{ 9, 9 };
+	SimCheck(PartialTable::WriteWords(RegisterTable::Holding, 0x0204, values) == ResultStatus::badAddress);
+	SimCheck(secondBlock[0] == 4);
+	SimCheck(secondBlock[1] == 5);
+}
+
+
+// A partial write of a read-only array is accessError. The block keeps its read value.
+void TestWritePartialReadOnlyArray() {
+	std::array<uint16, 1> one{ 9 };
+	SimCheck(PartialTable::WriteWords(RegisterTable::Holding, 0x0211, one) == ResultStatus::accessError);
+
+	std::array<uint16, 2> readBack{ 0, 0 };
+	SimCheck(PartialTable::ReadWords(RegisterTable::Holding, 0x0210, readBack) == ResultStatus::ok);
+	SimCheck(readBack[0] == 3);
+	SimCheck(readBack[1] == 4);
+}
+
+
+// A partial write of a computed array: get runs once in the check pass and once in the write pass, and set gets the merged value.
+void TestWritePartialComputedArray() {
+	computedBlock = { 10, 11, 12 };
+	computedGets = 0;
+	std::array<uint16, 1> one{ 0x0077 };
+	SimCheck(PartialTable::WriteWords(RegisterTable::Holding, 0x0221, one) == ResultStatus::ok);
+	SimCheck(computedGets == 2);
+	SimCheck(computedSeen[0] == 10);
+	SimCheck(computedSeen[1] == 0x0077);
+	SimCheck(computedSeen[2] == 12);
+}
+
+
+// A write that covers the whole computed array does not call get.
+void TestWriteWholeComputedArrayNoGet() {
+	computedGets = 0;
+	std::array<uint16, 3> whole{ 1, 2, 3 };
+	SimCheck(PartialTable::WriteWords(RegisterTable::Holding, 0x0220, whole) == ResultStatus::ok);
+	SimCheck(computedGets == 0);
+	SimCheck(computedSeen[0] == 1);
+	SimCheck(computedSeen[2] == 3);
+}
+
+
+// A partial write of a computed coil array: get runs once in each pass, and set gets the merged coils.
+void TestWritePartialComputedCoilsGets() {
+	coilComputed = { true, false, true };
+	coilComputedGets = 0;
+	std::array<bool, 1> one{ true };
+	SimCheck(PartialTable::WriteBits(RegisterTable::Coil, 0x0301, one) == ResultStatus::ok);
+	SimCheck(coilComputedGets == 2);
+	SimCheck(coilComputed[0]);
+	SimCheck(coilComputed[1]);
+	SimCheck(coilComputed[2]);
+}
+
+
+// A write that covers the whole computed coil array does not call get.
+void TestWriteWholeComputedCoilsNoGet() {
+	coilComputed = { true, true, true };
+	coilComputedGets = 0;
+	std::array<bool, 3> whole{ false, true, false };
+	SimCheck(PartialTable::WriteBits(RegisterTable::Coil, 0x0300, whole) == ResultStatus::ok);
+	SimCheck(coilComputedGets == 0);
+	SimCheck(!coilComputed[0]);
+	SimCheck(coilComputed[1]);
+	SimCheck(!coilComputed[2]);
+}
+
+
+// One request: element 2 of a computed array (partial) and a 32-bit number (whole). Both are stored.
+void TestWritePartialWithWholeNumberInOneRequest() {
+	computedBlock = { 10, 11, 12 };
+	computedGets = 0;
+	wideValue = 0;
+	std::array<uint16, 3> values{ 0x0077, 0x1111, 0x2222 };
+	SimCheck(PartialTable::WriteWords(RegisterTable::Holding, 0x0222, values) == ResultStatus::ok);
+	SimCheck(computedGets == 2);
+	SimCheck(computedBlock[0] == 10);
+	SimCheck(computedBlock[1] == 11);
+	SimCheck(computedBlock[2] == 0x0077);
+
+	std::array<uint16, 2> wideBack{ 0, 0 };
+	SimCheck(PartialTable::ReadWords(RegisterTable::Holding, 0x0223, wideBack) == ResultStatus::ok);
+	SimCheck(wideBack[0] == 0x1111);
+	SimCheck(wideBack[1] == 0x2222);
+}
+
+
+// The merged value of a computed array is rejected by its check: invalidData, and set is not called.
+void TestWritePartialRejectedByComputedCheck() {
+	checkedBlock = { 1, 2 };
+	checkedSets = 0;
+	std::array<uint16, 1> bad{ 0x0BAD };
+	SimCheck(PartialTable::WriteWords(RegisterTable::Holding, 0x0241, bad) == ResultStatus::invalidData);
+	SimCheck(checkedSets == 0);
+	SimCheck(checkedBlock[1] == 2);
+}
+
+
 int main() {
+	TestWritePartialComputedCoilsGets();
+	TestWriteWholeComputedCoilsNoGet();
+	TestWritePartialWithWholeNumberInOneRequest();
+	TestWritePartialRejectedByComputedCheck();
+	TestWritePartialCoilBlock();
+	TestWritePartialHoldingBlock();
+	TestWritePartialAcrossArrays();
+	TestWritePartialRejectedInThisEntry();
+	TestWritePartialRejectedInEarlierEntry();
+	TestWritePartialWithUnmappedAddress();
+	TestWritePartialReadOnlyArray();
+	TestWritePartialComputedArray();
+	TestWriteWholeComputedArrayNoGet();
 	TestPackedBitsAcrossEntries();
 	TestPackedBitsRefused();
 	TestReadTwoWordValue();

@@ -456,7 +456,104 @@ void TestCoilReadsReadEachEntryOnce() {
 }
 
 
+std::array<bool, 8> coilBank{};
+std::array<uint16, 3> holdingBank{ 1, 2, 3 };
+
+
+using BlockView = RegisterView<+[] {
+	return RegisterViewBuilder()
+		.Coils(0x0000, Variable(&coilBank))
+		.HoldingRegisters(0x0000, Variable(&holdingBank));
+}>;
+
+
+using BlockServer = ModbusServer<Link, RtuFramer, BlockView, +[] {
+	return ServerBuilder()
+		.SlaveAddress(1);
+}>;
+
+
+// FC05 to coil 3 of an eight-coil block: the reply echoes the request (value FF00 is on), and only coil 3 is set.
+void TestWriteSingleCoilOfABlock() {
+	ResetState();
+	coilBank = {};
+	FakeLine line;
+	SetLine(line);
+	Link link(line);
+	SIM_EXPECT(link.Begin() == ResultStatus::ok);
+	BlockServer server(link);
+
+	Served single = Serve(line, server, ScriptedSeal({0x01, 0x05, 0x00, 0x03, 0xFF, 0x00}));
+	SIM_EXPECT(single.status == ResultStatus::ok);
+	SIM_EXPECT((single.reply == ScriptedSeal({0x01, 0x05, 0x00, 0x03, 0xFF, 0x00})));
+	SIM_EXPECT(!coilBank[0] && !coilBank[1] && !coilBank[2]);
+	SIM_EXPECT(coilBank[3]);
+	SIM_EXPECT(!coilBank[4] && !coilBank[5] && !coilBank[6] && !coilBank[7]);
+}
+
+
+// FC06 to element 1 of a three-register block: the reply echoes the request, and only element 1 changes.
+void TestWriteSingleRegisterOfABlock() {
+	ResetState();
+	holdingBank = { 1, 2, 3 };
+	FakeLine line;
+	SetLine(line);
+	Link link(line);
+	SIM_EXPECT(link.Begin() == ResultStatus::ok);
+	BlockServer server(link);
+
+	Served single = Serve(line, server, ScriptedSeal({0x01, 0x06, 0x00, 0x01, 0x12, 0x34}));
+	SIM_EXPECT(single.status == ResultStatus::ok);
+	SIM_EXPECT((single.reply == ScriptedSeal({0x01, 0x06, 0x00, 0x01, 0x12, 0x34})));
+	SIM_EXPECT(holdingBank[0] == 1);
+	SIM_EXPECT(holdingBank[1] == 0x1234);
+	SIM_EXPECT(holdingBank[2] == 3);
+}
+
+
+// FC15 to coil 3 of an eight-coil block: the reply echoes the start and the count, and only coil 3 is set.
+void TestWriteMultipleCoilsOfABlock() {
+	ResetState();
+	coilBank = {};
+	FakeLine line;
+	SetLine(line);
+	Link link(line);
+	SIM_EXPECT(link.Begin() == ResultStatus::ok);
+	BlockServer server(link);
+
+	Served multiple = Serve(line, server, ScriptedSeal({0x01, 0x0F, 0x00, 0x03, 0x00, 0x01, 0x01, 0x01}));
+	SIM_EXPECT(multiple.status == ResultStatus::ok);
+	SIM_EXPECT((multiple.reply == ScriptedSeal({0x01, 0x0F, 0x00, 0x03, 0x00, 0x01})));
+	SIM_EXPECT(!coilBank[0] && !coilBank[1] && !coilBank[2]);
+	SIM_EXPECT(coilBank[3]);
+	SIM_EXPECT(!coilBank[4] && !coilBank[5] && !coilBank[6] && !coilBank[7]);
+}
+
+
+// FC16 to element 1 of a three-register block: the reply echoes the start and the count, and only element 1 changes.
+void TestWriteMultipleRegistersOfABlock() {
+	ResetState();
+	holdingBank = { 1, 2, 3 };
+	FakeLine line;
+	SetLine(line);
+	Link link(line);
+	SIM_EXPECT(link.Begin() == ResultStatus::ok);
+	BlockServer server(link);
+
+	Served multiple = Serve(line, server, ScriptedSeal({0x01, 0x10, 0x00, 0x01, 0x00, 0x01, 0x02, 0x12, 0x34}));
+	SIM_EXPECT(multiple.status == ResultStatus::ok);
+	SIM_EXPECT((multiple.reply == ScriptedSeal({0x01, 0x10, 0x00, 0x01, 0x00, 0x01})));
+	SIM_EXPECT(holdingBank[0] == 1);
+	SIM_EXPECT(holdingBank[1] == 0x1234);
+	SIM_EXPECT(holdingBank[2] == 3);
+}
+
+
 int main() {
+	TestWriteSingleCoilOfABlock();
+	TestWriteSingleRegisterOfABlock();
+	TestWriteMultipleCoilsOfABlock();
+	TestWriteMultipleRegistersOfABlock();
 	TestCoilReadsReadEachEntryOnce();
 	TestWideEntryIsReadOnce();
 	TestReadsAnswerWithTheViewValues();

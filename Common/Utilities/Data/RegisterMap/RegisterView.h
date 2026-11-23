@@ -33,7 +33,13 @@
 //   - input registers and discrete inputs are read only: a Computed with a set function is an error there.
 //
 // The static functions are the lookup the Modbus server uses. A write is all or nothing: the whole request is checked first,
-// and each entry must be covered completely by the request.
+// and nothing is stored unless every entry passes the check pass, which runs over all entries before the write pass.
+//
+// An array entry takes a write of part of it: the entry's current value is read, the covered elements are replaced, and the
+// merged value is checked and stored. The entry is read once in the check pass and once in the write pass. The second read keeps
+// an uncovered element that the device changed in between (an interrupt, another task), so the stored value can differ from the
+// checked one in those elements only. The merge builds a temporary the size of the entry's array on the stack. A number or a
+// single bool is always written whole.
 
 
 // The traits of an array value, such as std::array<uint16, 4> or std::array<bool, 8>.
@@ -262,6 +268,7 @@ constexpr ComputedSource<ValueType, true> Computed(ValueType (*get)(), ResultSta
 // The lookup data of one entry: table, first address and register or coil count. The view keeps one per entry, in a constexpr array.
 struct RegisterViewSlot {
 	RegisterTable table;
+	bool allowsPartial;
 	std::size_t address;
 	std::size_t count;
 };
@@ -276,13 +283,14 @@ struct RegisterViewEntry {
 	static constexpr std::size_t count = RegisterViewCount<Value>();
 	static constexpr bool isWords = Table == RegisterTable::Holding || Table == RegisterTable::Input;
 	static constexpr bool writable = (Table == RegisterTable::Holding || Table == RegisterTable::Coil) && Source::kWritable;
+	static constexpr bool allowsPartial = RegisterViewArray<Value>::value;
 
 	uint16 address;
 	Source source;
 
 
 	constexpr RegisterViewSlot Slot() const {
-		return RegisterViewSlot{ table, address, count };
+		return RegisterViewSlot{ table, allowsPartial, address, count };
 	}
 
 
@@ -334,50 +342,88 @@ struct RegisterViewEntry {
 	}
 
 
-	// Checks the words of the whole entry: writable, and accepted by the check.
-	ResultStatus CheckWords(std::span<const uint16> words) const {
+	// The value a write stores. The request covers the words from first (an address inside the entry). A whole entry is the request
+	// alone, and source.Get is not called. An array entry that is covered in part is read once here, and the covered elements are
+	// replaced in that value. A number is always covered whole, so it never takes this path.
+	Value MergeWords([[maybe_unused]] std::size_t first, std::span<const uint16> words) const {
+		if constexpr (RegisterViewArray<Value>::value) {
+			if (words.size() == count) {
+				return RegisterViewFromWords<Value>(words);
+			}
+			std::array<uint16, count> current = RegisterViewToWords<Value>(source.Get());
+			std::size_t offset = first - address;
+			for (std::size_t index = 0; index < words.size(); index++) {
+				current[offset + index] = words[index];
+			}
+			return RegisterViewFromWords<Value>(current);
+		} else {
+			return RegisterViewFromWords<Value>(words);
+		}
+	}
+
+
+	// The value a write stores, for coils. The same rule as MergeWords.
+	Value MergeBits([[maybe_unused]] std::size_t first, std::span<const bool> bits) const {
+		if constexpr (RegisterViewArray<Value>::value) {
+			if (bits.size() == count) {
+				return RegisterViewFromBits<Value>(bits);
+			}
+			std::array<bool, count> current = RegisterViewToBits<Value>(source.Get());
+			std::size_t offset = first - address;
+			for (std::size_t index = 0; index < bits.size(); index++) {
+				current[offset + index] = bits[index];
+			}
+			return RegisterViewFromBits<Value>(current);
+		} else {
+			return RegisterViewFromBits<Value>(bits);
+		}
+	}
+
+
+	// Checks the words covered from first: writable, and accepted by the check once merged. Call before WriteWords.
+	ResultStatus CheckWords(std::size_t first, std::span<const uint16> words) const {
 		if constexpr (isWords) {
 			if (!writable) {
 				return ResultStatus::accessError;
 			}
-			return source.Accepts(RegisterViewFromWords<Value>(words)) ? ResultStatus::ok : ResultStatus::invalidData;
+			return source.Accepts(MergeWords(first, words)) ? ResultStatus::ok : ResultStatus::invalidData;
 		} else {
 			return ResultStatus::notSupported;
 		}
 	}
 
 
-	ResultStatus CheckBits(std::span<const bool> bits) const {
+	ResultStatus CheckBits(std::size_t first, std::span<const bool> bits) const {
 		if constexpr (!isWords) {
 			if (!writable) {
 				return ResultStatus::accessError;
 			}
-			return source.Accepts(RegisterViewFromBits<Value>(bits)) ? ResultStatus::ok : ResultStatus::invalidData;
+			return source.Accepts(MergeBits(first, bits)) ? ResultStatus::ok : ResultStatus::invalidData;
 		} else {
 			return ResultStatus::notSupported;
 		}
 	}
 
 
-	// Stores the words of the whole entry. Call only after CheckWords.
-	ResultStatus WriteWords(std::span<const uint16> words) const {
+	// Stores the words covered from first. Call only after CheckWords.
+	ResultStatus WriteWords(std::size_t first, std::span<const uint16> words) const {
 		if constexpr (isWords) {
 			if (!writable) {
 				return ResultStatus::accessError;
 			}
-			return source.Set(RegisterViewFromWords<Value>(words));
+			return source.Set(MergeWords(first, words));
 		} else {
 			return ResultStatus::notSupported;
 		}
 	}
 
 
-	ResultStatus WriteBits(std::span<const bool> bits) const {
+	ResultStatus WriteBits(std::size_t first, std::span<const bool> bits) const {
 		if constexpr (!isWords) {
 			if (!writable) {
 				return ResultStatus::accessError;
 			}
-			return source.Set(RegisterViewFromBits<Value>(bits));
+			return source.Set(MergeBits(first, bits));
 		} else {
 			return ResultStatus::notSupported;
 		}
@@ -518,12 +564,26 @@ constexpr bool RegisterViewCheck(const std::array<RegisterViewSlot, Size>& slots
 }
 
 
+// True when some entry is an array, which a write may cover in part.
+template<std::size_t Size>
+constexpr bool RegisterViewHasPartial(const std::array<RegisterViewSlot, Size>& slots) {
+	for (std::size_t index = 0; index < Size; index++) {
+		if (slots[index].allowsPartial) {
+			return true;
+		}
+	}
+	return false;
+}
+
+
 // The view. Make is a captureless lambda that returns a RegisterViewBuilder. The entries are checked when the view is instantiated.
 //
 // Reads return ok, or badAddress when a register or coil of the range has no entry. A read may cover part of an entry.
-// Writes check the whole request first and return badAddress (a range that is not covered by whole entries, or wraps past
-// 0xFFFF), accessError (a read-only entry), or invalidData (a check rejected a value); nothing is written then. A set function
-// that fails during the write returns error, and the entries before it stay written.
+// Writes check the whole request first and return badAddress (a range with no entry, a number or bool entry that is not covered
+// whole, or a range that wraps past 0xFFFF), accessError (a read-only entry), or invalidData (a check rejected a value); nothing
+// is written then. An array entry may be covered in part: its current value is read in the check pass and again in the write pass,
+// so a partial write calls the source's get twice. A set function that fails during the write returns error, and the entries
+// before it stay written.
 template<auto (*Make)()>
 struct RegisterView {
 	using Built = decltype(Make());
@@ -533,6 +593,7 @@ struct RegisterView {
 	static constexpr std::size_t slotCount = Built::count;
 	static constexpr std::array<RegisterViewSlot, slotCount> slots = RegisterViewSlotsOf<slotCount>(built.list);
 	static constexpr bool checked = RegisterViewCheck(slots);
+	static constexpr bool hasPartial = RegisterViewHasPartial(slots);
 
 
 	static_assert(checked, "the view entries were not checked");
@@ -597,14 +658,14 @@ struct RegisterView {
 		}
 
 		status = Walk(table, start, values.size(), [&](const auto& entry, std::size_t first, std::size_t last) {
-			return entry.CheckWords(values.subspan(first - start, last - first));
+			return entry.CheckWords(first, values.subspan(first - start, last - first));
 		});
 		if (status != ResultStatus::ok) {
 			return status;
 		}
 
 		status = Walk(table, start, values.size(), [&](const auto& entry, std::size_t first, std::size_t last) {
-			return entry.WriteWords(values.subspan(first - start, last - first));
+			return entry.WriteWords(first, values.subspan(first - start, last - first));
 		});
 		return status == ResultStatus::ok ? ResultStatus::ok : ResultStatus::error;
 	}
@@ -618,14 +679,14 @@ struct RegisterView {
 		}
 
 		status = Walk(table, start, values.size(), [&](const auto& entry, std::size_t first, std::size_t last) {
-			return entry.CheckBits(values.subspan(first - start, last - first));
+			return entry.CheckBits(first, values.subspan(first - start, last - first));
 		});
 		if (status != ResultStatus::ok) {
 			return status;
 		}
 
 		status = Walk(table, start, values.size(), [&](const auto& entry, std::size_t first, std::size_t last) {
-			return entry.WriteBits(values.subspan(first - start, last - first));
+			return entry.WriteBits(first, values.subspan(first - start, last - first));
 		});
 		return status == ResultStatus::ok ? ResultStatus::ok : ResultStatus::error;
 	}
@@ -644,7 +705,8 @@ private:
 	}
 
 
-	// Checks that each address of the range has an entry. With whole set, each entry must lie inside the range.
+	// Checks that each address of the range has an entry. With whole set, each entry that does not allow a partial write must lie
+	// inside the range. A view with no array entry compiles without the partial test.
 	static ResultStatus Cover(RegisterTable table, std::size_t address, std::size_t count, bool whole) {
 		std::size_t end = address + count;
 		if (end > 0x10000) {
@@ -660,7 +722,13 @@ private:
 
 			const RegisterViewSlot& slot = slots[index];
 			if (whole && (slot.address < address || slot.address + slot.count > end)) {
-				return ResultStatus::badAddress;
+				if constexpr (hasPartial) {
+					if (!slot.allowsPartial) {
+						return ResultStatus::badAddress;
+					}
+				} else {
+					return ResultStatus::badAddress;
+				}
 			}
 			position = slot.address + slot.count;
 		}

@@ -60,7 +60,7 @@ exception 01.
 | Exception | When |
 |---|---|
 | 01 | Function code not enabled by the view |
-| 02 | A register or coil outside the view, a read-only entry in a write, or a range that wraps past 0xFFFF |
+| 02 | A register or coil outside the view, a number or single bool entry that a write does not cover whole, a read-only entry in a write, or a range that wraps past 0xFFFF |
 | 03 | Quantity of zero or over the limit, a bad byte count, a value 05 does not accept (only 0xFF00 and 0x0000), or a value a check rejects |
 | 04 | A set function failed in the middle of a write |
 
@@ -70,7 +70,10 @@ Before a write changes anything, the view checks the whole request: the range is
 check accepts its value. A failure in those checks changes nothing. A set function can still fail after an earlier entry was written, and
 then the reply is exception 04. A device has no rollback, so the entries before the failure stay written.
 
-A write must cover each entry it touches whole. A multi-register write that stops in the middle of a 32-bit entry gets exception 02.
+A write must cover each number or single bool entry it touches whole. A multi-register write that stops in the middle of a 32-bit entry
+gets exception 02. An array entry may be written in part: FC05 to one coil of a coil block, or FC06 to one element of a register block,
+changes that element only. A partial write of an array reads the entry twice, once per pass, so a computed value runs twice. An
+uncovered element that the device changes between the two reads keeps its new value (see RegisterView).
 
 ## Broadcast and other slaves
 

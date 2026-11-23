@@ -87,12 +87,21 @@ status = Table::WriteBits(RegisterTable::Coil, 0x0000, coils);
 A read may cover part of an entry, and it returns `badAddress` when an address of the range has no entry. Nothing is read
 into the output then, because the check runs before the copy.
 
-A write is all or nothing, and the whole request is checked first. The request must cover each entry it touches completely.
+A write is all or nothing, and the whole request is checked first. A number or a single bool entry must be covered completely by
+the request. An array entry may be covered in part: the covered elements are replaced and the other elements keep their values.
+
+A partial write of an array entry reads the entry twice, once in the check pass and once in the write pass, so a `Computed` get
+runs twice. A write that covers the whole entry does not read it. The check runs on the merged value, the entry's current value
+with the covered elements replaced.
+
+The second read keeps an uncovered element that the device changed between the two passes, for example from an interrupt or
+another task. The stored value then differs from the checked one in those uncovered elements only, and the covered elements are
+the ones the check accepted. A check that relates covered and uncovered elements sees the value of the first read.
 
 | Status | Meaning, nothing written |
 |---|---|
 | `ok` | every entry was written |
-| `badAddress` | an address has no entry, a range starts or ends inside an entry, or the range runs past 0xFFFF |
+| `badAddress` | an address has no entry, a number or bool entry is not covered completely, or the range runs past 0xFFFF |
 | `accessError` | the entry is read only |
 | `invalidData` | an entry's check rejected a value |
 | `error` | a set function failed during the write. The entries before it stay written |
