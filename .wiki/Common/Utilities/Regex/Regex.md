@@ -186,6 +186,8 @@ static_assert(Token::PlainStackBytes <= 1024);
 static_assert(Token::CapturesStackBytes <= 1024);
 ```
 
+Each call's workspace is in the frame of that call, and `Matches`, `Contains` and `Find` are not inlined for that reason. A caller therefore needs the largest workspace of the calls it makes, plus the frames of the call chain above the entry points: the caller's own frame and the loop frames that are not inlined. The frame of each entry point, with and without its workspace, and the frames of the loops are listed in the README, under Memory.
+
 ---
 
 ## Limits

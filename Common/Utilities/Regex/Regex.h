@@ -28,7 +28,8 @@ constexpr std::size_t RegexMaxFindInput = 65534;
 // Matches and Contains run the plain loop only. Find runs the captures loop, so a program that never calls Find has no capture code.
 //
 // Stack. Each member function checks the workspace of its own loop against StackLimit, with a static_assert through the Require helpers.
-// The workspace is a local of the function, so the caller pays for the workspace of the functions it calls only.
+// The workspace is a local of the function, so the caller pays for the workspace of the functions it calls only. The member functions
+// are noinline, so the optimizer cannot fold two of them into one frame, which would add their workspaces.
 //
 // Closure stack of the captures loop. The loop checks a pc when it pops it, so each pc is processed once per closure. Processing a pc
 // pushes a few frames, and the frames pending at any time are never more than the frames pushed in one closure. RegexCaptureFrames adds
@@ -108,7 +109,7 @@ public:
 
 
 	// True when the whole text matches the pattern, as std::regex_match does.
-	static bool Matches(std::string_view text) {
+	static _ANoinline bool Matches(std::string_view text) {
 		static constexpr bool checked = (RegexRequirePlainStack<PlainStackBytes, Program::StackLimit>(), true);
 		static_cast<void>(checked);
 		RegexPlainWorkspace<Program::Count> work;
@@ -119,7 +120,7 @@ public:
 
 	// True when some part of the text matches the pattern, as std::regex_search does. For a text up to RegexMaxFindInput bytes, the same answer
 // as Find(text).IsOk().
-	static bool Contains(std::string_view text) {
+	static _ANoinline bool Contains(std::string_view text) {
 		static constexpr bool checked = (RegexRequirePlainStack<PlainStackBytes, Program::StackLimit>(), true);
 		static_cast<void>(checked);
 		RegexPlainWorkspace<Program::Count> work;
@@ -131,7 +132,7 @@ public:
 	// The leftmost-first match that starts at offset from or later. The result is noMatches when nothing matches, invalidParameter when
 	// from is past the end of the text, and outOfRange when the text is longer than RegexMaxFindInput. The start of the text stays at
 	// offset 0, so ^ still means the start of the whole text.
-	static Result<Captures> Find(std::string_view text, std::size_t from = 0) {
+	static _ANoinline Result<Captures> Find(std::string_view text, std::size_t from = 0) {
 		static constexpr bool checked = (RegexRequireCapturesStack<CapturesStackBytes, Program::StackLimit>(), true);
 		static_cast<void>(checked);
 		if (from > text.size()) {

@@ -105,9 +105,24 @@ The stack that a call takes is set by the pattern:
 | `Matches` and `Contains` | `PlainStackBytes = 8W + 2N` |
 | `Find` | `CapturesStackBytes = 2 * (2N + 2NS + 4W) + 4F` |
 
-`N` is the instruction count, `W = ceil(N / 32)`, `S = 2 * (groups + 1)` and `F` is `CaptureFrames`, the most frames the closure stack of the capture loop can hold. `F` is counted from the program: 1 for the start, then for each instruction 1 for a jump, begin or end, 2 for a split or a save, and 1 plus the number of slots for a clear. A consuming instruction and the match count nothing. The count is an upper bound, so the real stack use can be smaller. A pattern's stack must fit its `StackLimit()`, which is 4096 bytes by default. A pattern that does not fit is a compile error. The workspace is a local of the function that calls the loop, so a caller pays only for the functions it calls.
+`N` is the instruction count, `W = ceil(N / 32)`, `S = 2 * (groups + 1)` and `F` is `CaptureFrames`, the most frames the closure stack of the capture loop can hold. `F` is counted from the program: 1 for the start, then for each instruction 1 for a jump, begin or end, 2 for a split or a save, and 1 plus the number of slots for a clear. A consuming instruction and the match count nothing. The count is an upper bound, so the real stack use can be smaller. A pattern's stack must fit its `StackLimit()`, which is 4096 bytes by default. A pattern that does not fit is a compile error. Each call's workspace is a local of that call, so it lives in the frame of that call and nowhere else. The entry points `Matches`, `Contains` and `Find` are marked `_ANoinline`, so the optimizer cannot fold two of them into one frame. Without that, the workspaces of the calls in one function add up in a single frame. The stack a caller needs is the largest workspace of the calls it makes, plus the frames of the call chain: the caller, the entry point's own frame without its workspace, and the loop frames that are not inlined into it. An interrupt can arrive at the deepest point, so add its exception frame (32 bytes on a Cortex-M, 104 bytes on a Cortex-M4F when the FPU context is stacked) and the handler's own frame.
 
-Stack on the board is not measured in this revision. The demo paints the free RAM and prints the stack used, which is the figure to set against the budget (`PlainStackBytes` for `Matches`, `CapturesStackBytes` for `Find`, plus 256 bytes for the frames of the calls).
+The frames of the matching loops and of the entry points, from `-fstack-usage` at `-O3` for the Cortex-M4 (`-mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard`). The loops are the out-of-line copies, so their frames are the cost when GCC does not inline them. The entry points are the frames of the calls with the status-line pattern (workspace 50 bytes for `Matches`, 480 bytes for `Find`) and the URL pattern (96 bytes and 1952 bytes):
+
+| Function | Frame | Note |
+|---|---|---|
+| `RegexRunPlain` | 104 bytes | plain loop, out of line |
+| `RegexAddPlainThread` | 32 bytes | plain closure, out of line |
+| `RegexRunCaptures` | 152 bytes | captures loop, out of line |
+| `RegexAddCaptureThread` | 56 bytes | captures closure, out of line |
+| `Matches`, status line | 120 bytes | workspace 50 bytes |
+| `Matches`, URL | 176 bytes | workspace 96 bytes |
+| `Contains`, status line | 128 bytes | workspace 50 bytes |
+| `Contains`, URL | 160 bytes | workspace 96 bytes |
+| `Find`, status line | 648 bytes | workspace 480 bytes |
+| `Find`, URL | 2176 bytes | workspace 1952 bytes |
+
+Stack on the board is checked by the demo, which paints the free RAM and prints the stack used. The budget is the largest workspace of the calls it makes plus the margin of the chain: 288 bytes for `Matches` (`main` 8, `Run` 56, the entry point without its workspace 80) and 480 bytes for `Find` (`main` 8, `Run` 112, the entry point without its workspace 224). Both margins add 104 bytes for the exception frame of an interrupt with the FPU context and 32 bytes for the handler's own frame, see `StackMarginBytes` in `DemoRegex.cpp`. On the STM32G431 the demo measured 344 bytes for `Matches` (96 of workspace) and 2400 bytes for `Find` (1952 of workspace): in both, the chain's frames plus 104 bytes, with all 40 rows matching.
 
 ---
 
@@ -128,6 +143,6 @@ The host tests compare the matcher with `std::regex` (ECMAScript). These differ:
 
 ## Tests
 
-`Common/Utilities/Regex/.tool/sim/run.sh` runs the host checks: the syntax table, the generated patterns compared with `std::regex`, the linear-time ratio, the no-heap run, the stack formulas, the edge cases, the compile-time error snippets, the wiki snippets, and the board fixtures. The board fixtures (`fixtures/Board.inc`) are written from `std::regex` by `fixtures/WriteBoardFixtures.cpp`.
+`Common/Utilities/Regex/.tool/sim/run.sh` runs the host checks: the syntax table, the generated patterns compared with `std::regex`, the linear-time ratio, the no-heap run, the stack formulas, the edge cases, the compile-time error snippets, the wiki snippets, and the board fixtures. When `arm-none-eabi-g++` is on the PATH it also runs the frame check (`CheckFrames.sh`), which compiles one caller of six calls for the Cortex-M4 and checks the frame sizes from `-fstack-usage`. The board fixtures (`fixtures/Board.inc`) are written from `std::regex` by `fixtures/WriteBoardFixtures.cpp`.
 
 The snippets on this page and on the other two pages are compiled by `CheckWikiSnippets.sh`, so every example here builds.

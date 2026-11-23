@@ -119,6 +119,17 @@ if ! bash "$simDir/CheckBoardFixtures.sh"; then
     failures=$((failures + 1))
 fi
 
+# The frame check compiles for the device, so it runs only when the ARM toolchain is on the PATH. Otherwise the skip is printed.
+frameCheck=1
+if command -v arm-none-eabi-g++ > /dev/null 2>&1; then
+    if ! bash "$simDir/CheckFrames.sh"; then
+        failures=$((failures + 1))
+    fi
+else
+    frameCheck=0
+    echo "SKIPPED: frame check (arm-none-eabi-g++ is not on the PATH)"
+fi
+
 if ! bash "$simDir/CheckWikiSnippets.sh"; then
     failures=$((failures + 1))
 fi
@@ -128,8 +139,17 @@ if [ "$failures" -ne 0 ]; then
     exit 1
 fi
 
-if [ "$sanitizers" -eq 1 ]; then
-    echo "all regex checks passed"
+skipped=""
+if [ "$sanitizers" -eq 0 ]; then
+    skipped="sanitizers skipped"
+fi
+
+if [ "$frameCheck" -eq 0 ]; then
+    skipped="${skipped:+$skipped, }frame check skipped"
+fi
+
+if [ -n "$skipped" ]; then
+    echo "all regex checks passed ($skipped)"
 else
-    echo "all regex checks passed (sanitizers skipped)"
+    echo "all regex checks passed"
 fi

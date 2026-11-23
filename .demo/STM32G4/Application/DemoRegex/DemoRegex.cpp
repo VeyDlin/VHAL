@@ -47,8 +47,22 @@ using Url = Regex<+[] {
 
 
 constexpr uint8 PaintByte = 0xA5;
-// The stack bytes kept between the paint top and the stack pointer, for the frames of the calls that the measure does not count.
-constexpr std::size_t StackMarginBytes = 256;
+// The stack bytes that the budget allows on top of the workspace, from the frames above and below the stack pointer of MeasureRun. The
+// frames are from -fstack-usage at -O3 for the Cortex-M4 build of this file, and the sum is rounded up to the next 32 bytes:
+//   main                                                     8 bytes
+//   Run, with MeasureRun, CheckRows and CheckRowWith inlined   56 bytes Matches, 112 bytes Find
+//   the entry point of the largest pattern, without its workspace (Url)
+//                                                            80 bytes Matches, 224 bytes Find
+//   an interrupt at the deepest point: the exception frame with the FPU context (26 words, the build uses the hard-float ABI)
+//                                                            104 bytes
+//   the interrupt handler's own frame (SysTick tail-calls the tick counter and has none; the allowance covers a deeper handler)
+//                                                            32 bytes
+// Matches sums to 280 bytes and rounds up to 288. Find sums to 480 bytes.
+#if defined(VHAL_REGEX_FIND)
+constexpr std::size_t StackMarginBytes = 480;
+#else
+constexpr std::size_t StackMarginBytes = 288;
+#endif
 
 // The stack budget of the variant: the larger of the two patterns' workspaces for the calls the variant makes.
 #if defined(VHAL_REGEX_FIND)
