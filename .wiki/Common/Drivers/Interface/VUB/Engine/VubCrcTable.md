@@ -23,4 +23,4 @@ register as the index and shifts the register right; a normal input takes the to
 ## Use
 
 `VubCrc<parameters>` uses this engine. It is stateless: `Supports` says yes for every width the transform takes, and `Run` computes the
-whole CRC of the bytes it is given. The code size of this engine is in the size table of the [VUB page](../README).
+whole CRC of the bytes it is given. The code size of this engine is in the size table of the [VUB page](../README#size).

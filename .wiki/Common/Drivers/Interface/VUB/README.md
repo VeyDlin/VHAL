@@ -3,9 +3,10 @@
 VUB is a protocol stack built from blocks. A product's protocol is a chain of blocks, written in one builder and checked at compile
 time. Each block has a small contract. The built-in blocks use only that contract, so a user block goes into the chain the same way.
 
-Stage 1 is the core: the five block contracts, the builder and its checks, the stack at run time, drop counters, and a test kit. The
-built-in blocks come in the later stages: the CRC transform is in ([CRC](Transform/VubCrc)); COBS, the length prefix, gap framing and
-delivery are not yet. Until then a chain is made of user blocks, the CRC, and the test kit's loopback.
+Stage 1 is the core: the five block contracts, the builder and its checks, the stack at run time, drop counters, a test kit, and the
+built-in blocks of stage 1: the CRC transform ([CRC](Transform/VubCrc)), the framings ([COBS](Framing/VubCobs),
+[length prefix](Framing/VubLengthPrefix) and [gap framing](Framing/VubGap)), and the delivery layer
+([VubReliable](Layer/VubReliable)). A chain is made of these, of user blocks, and of the test kit's loopback.
 
 ## The chain
 
@@ -154,7 +155,8 @@ The test kit can take a line down and up, see the [test kit](TestKit/README).
 `VubMeta` has a `flags` field. The block that makes a packet sets it: the application through the `meta` argument of `Send`, a layer
 in `Next`, a layer in `Process` through the outbox. Every block below the producer reads it through the `const VubMeta&` it is given:
 the layers' `Add`, the transforms' `Encode` and `Decode`, and the framing's `Frame`. Links do not get it: a link carries bytes or
-packets, not flags. `VubMeta::NoAcknowledgeFlag` is defined; the delivery layer that honours it is a later stage.
+packets, not flags. `VubMeta::NoAcknowledgeFlag` is defined, and the delivery layer honours it: a packet with the flag has no sequence
+number and is not acknowledged (see [VubReliable](Layer/VubReliable)).
 
 ## Drop counters
 
@@ -186,8 +188,82 @@ payload plus the layer headers and transform growths, and the framed size adds t
 empty type. The code that works on the buffers is plain inline functions on spans and indexes, shared by every stack in one image.
 
 The defaults take most of the RAM of a small chain: the receive queue holds `ReceiveQueue` packets of the link's `MaxPacket` bytes, and
-the ring holds `ReceiveRing` bytes. A bootloader sets `ReceiveQueue(1)` or a smaller ring. The size check of each configuration on the
-target is a later stage.
+the ring holds `ReceiveRing` bytes. A bootloader sets `ReceiveQueue(1)` or a smaller ring. The costs of the configurations on the target
+are in the table below.
+
+### Measured configurations
+
+Each row is one program built for a Cortex-M4 and a Cortex-M0+, minus its baseline. The costs are in bytes. Text is the flash of the
+code and read-only data. RAM is the data and bss of the program. Every configuration has `MaxPayload(32)` and the default queues and
+ring, and a link with `MaxPacket(64)`.
+
+| Configuration | M4 text | M4 RAM | M0+ text | M0+ RAM |
+|---|---:|---:|---:|---:|
+| (a) packet link only | 676 | 616 | 956 | 616 |
+| (b) stream link, COBS | 932 | 620 | 1212 | 620 |
+| (c) (b) + CRC-16/MODBUS table | 1624 | 700 | 1912 | 700 |
+| (d) (b) + CRC-16/MODBUS bitwise | 1144 | 700 | 1432 | 700 |
+| (e) stream link, length prefix 1, CRC-8 bitwise | 1080 | 672 | 1360 | 672 |
+| (f) stream link, gap framing, CRC-16 table | 2724 | 1728 | 2916 | 1728 |
+| (g) (c) + VubReliable (Retries 3, Window 4) | 4612 | 1136 | 5120 | 1136 |
+| (h) (g) with the in-order option | 4944 | 1272 | 5508 | 1272 |
+| (i) COBS, CRC-8, VubReliableOf window 1, Retries 3 | 3844 | 932 | 4328 | 932 |
+| breakdown of (i): the same without VubReliableOf | 1096 | 692 | 1388 | 692 |
+| CompactStreamingProtocol<20, 4> (bootloader use) | 2184 | 1112 | 2768 | 1112 |
+
+<!-- The row for the keep-alive layer goes here when its page is merged. -->
+
+Measured with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203` on Windows 11, through Git Bash,
+with `Common/Drivers/Interface/VUB/.tool/size/size.sh`.
+
+The flags of each compile are `-std=c++20 -mcpu=cortex-m4 -mthumb -Os -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti
+-Wall -Wextra -Werror`, with `-mcpu=cortex-m0plus` for the M0+. Each program is linked with `-Wl,--gc-sections --specs=nano.specs
+--specs=nosys.specs`, and `arm-none-eabi-size --format=berkeley` reads it. The include paths are the script's `shim` folder (a
+stand-in for the VHAL umbrella header), the script's folder, `Common` and `Periphery`.
+
+Each configuration is one file that defines the stack and `SizeRun`, compiled with the shared `SizeMain.cpp` (which has `main`). Both
+include the shared `SizeWire.h`, which has the link classes, the clock and the handler. `SizeRun` sends a 32-byte payload, processes,
+feeds back what the link wrote (the bytes one by one on a stream link, the packet on a packet link), and processes again.
+
+The baseline makes the same calls with no VUB: `BaselineStream.cpp` writes the payload to a stream link and hands the bytes it took to
+the handler, and `BaselinePacket.cpp` sends the payload on a packet link and hands the packet to the handler. Each baseline has the same
+link class, clock, handler and fill of the payload as the configurations. Both baselines measure, for Cortex-M4, text 552 bytes and data
+plus bss 180 bytes (data 8, bss 172), and for Cortex-M0+, text 568 bytes and data plus bss 180 bytes.
+
+To run it, from the repository root:
+
+```bash
+bash Common/Drivers/Interface/VUB/.tool/size/size.sh
+```
+
+The script prints the table, then the toolchain and the baseline sizes. It needs `arm-none-eabi-g++` and `arm-none-eabi-size` on the
+PATH, or `CXX` and `SIZE` set to other tools. Without the toolchain it says so and exits 0. It exits 1 when a program does not build. The
+build output goes to a temporary folder outside the repository.
+
+#### Against CompactStreamingProtocol
+
+`CompactStreamingProtocol<20, 4>` is the bootloader's protocol (`Common/Utilities/Bootloader/Communication/BLECommunication.h`). Its row
+is the bootloader's use of it: the transmit, receive and stream callbacks, a packet link, and a 32-byte payload, against the packet
+baseline. Its caveats:
+
+- The protocol cuts a message into fragments of 16 bytes (a 20-byte packet less a 3-byte header and a CRC byte). The 32-byte payload is
+  two fragments. VUB sends one packet of 32 bytes. Cutting large messages into fragments is part of stage 5 (large data), and the VUB
+  rows here have none of it.
+- The probe stubs the System port functions the protocol reaches: `GetMs` returns the probe tick, and `CriticalSection` and `Abort`
+  are empty. The bootloader's own implementations are not counted.
+- The protocol's callbacks are `std::function` members, and the row includes their code.
+- Configuration (i) is over a byte-stream link with COBS, and the protocol's row is over a packet link, as on BLE. Both baselines have
+  the same size, so the difference between the rows is the protocol and the stack, not the baseline.
+- Configuration (i) uses the default ring of 256 bytes. The protocol's ring is 80 bytes. A bootloader that sets `ReceiveRing` smaller
+  is not measured here.
+
+Against the protocol, configuration (i) is 1660 bytes larger in text on the M4 (3844 against 2184) and 1560 bytes larger on the M0+
+(4328 against 2768). Its RAM is 180 bytes smaller on the M4 (932 against 1112) and on the M0+ (932 against 1112). The design asks for
+a stack with the protocol's properties to be no larger than the protocol on the same target, so this stage does not meet it in text.
+The breakdown row shows where the text goes: without `VubReliableOf`, configuration (i) is 1096 bytes of text on the M4, and the layer
+adds 2748 bytes. The layer carries what the protocol does not: sequence numbers with sessions and a sync, a window, a ring of owed
+acknowledgements, retries with timeouts, and outcome reporting (see [VubReliable](Layer/VubReliable)). The measurement gives the size of
+the layer as a whole; it does not split the layer's code further.
 
 ## Writing a block
 
@@ -676,5 +752,5 @@ gives the same key as a value.
 
 ## Status
 
-Stage 1a: the core, the link state, the test kit and the host tests. The built-in blocks (CRC, COBS, length prefix, gap framing, delivery, links for
-the boards, addressing, requests) are later stages. Nothing is built for a board yet.
+Stage 1: the core, the link state, the test kit, the host tests, the built-in blocks (CRC, COBS, length prefix, gap framing, delivery) and
+the size table. The links for the boards, addressing and requests are later stages. Nothing is built for a board yet.

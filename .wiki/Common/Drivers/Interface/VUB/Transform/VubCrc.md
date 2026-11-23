@@ -94,7 +94,7 @@ An engine says what it computes, through `Supports<Algorithm>()`. An engine that
 cannot compute this CRC"). Both built-in engines compute every CRC of width 8, 16 and 32.
 
 The table engine's flash cost is its table, given above: 256 times the width in bytes. The bitwise engine has no table. The code size
-of each engine is in the size table of the [VUB page](../README).
+of each engine is in the size table of the [VUB page](../README#size).
 
 ## Snippet
 
