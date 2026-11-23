@@ -5,6 +5,9 @@
 #
 # CXXFLAGS adds flags to the test builds, for example CXXFLAGS="-fsanitize=address,undefined" where the toolchain has the sanitizer
 # libraries. The default run does not use sanitizers.
+#
+# A test names the libraries it links on each system in one of its first three lines: "// libs-windows: ws2_32 setupapi" and
+# "// libs-linux: usb-1.0". Each name is passed to the linker as -l<name>, on the system the script runs on.
 set -u
 
 simDir="$(cd "$(dirname "$0")" && pwd)"
@@ -15,8 +18,9 @@ buildDir="$(mktemp -d)"
 trap 'rm -rf "$buildDir"' EXIT
 
 case "$(uname -s)" in
-    MINGW*|MSYS*|CYGWIN*) exeSuffix=".exe" ;;
-    *) exeSuffix="" ;;
+    MINGW*|MSYS*|CYGWIN*) exeSuffix=".exe"; platform="windows" ;;
+    Linux*) exeSuffix=""; platform="linux" ;;
+    *) exeSuffix=""; platform="other" ;;
 esac
 
 failures=0
@@ -25,9 +29,23 @@ for source in "$simDir"/Test*.cpp; do
     name="$(basename "$source" .cpp)"
     exe="$buildDir/$name$exeSuffix"
 
+    linkLibs=""
+    lineNumber=0
+    while [ "$lineNumber" -lt 3 ] && IFS= read -r line; do
+        lineNumber=$((lineNumber + 1))
+        case "$line" in
+            "// libs-$platform:"*) linkLibs="${line#"// libs-$platform:"}" ;;
+        esac
+    done < "$source"
+
+    linkFlags=()
+    for lib in $linkLibs; do
+        linkFlags+=("-l$lib")
+    done
+
     if ! "$cxx" -std=c++20 -Wall -Wextra -Werror ${CXXFLAGS:-} \
         -I "$vhalRoot/Common" -I "$simDir" \
-        -o "$exe" "$source"; then
+        -o "$exe" "$source" ${linkFlags[@]+"${linkFlags[@]}"}; then
         echo "BUILD FAILED: $name"
         failures=$((failures + 1))
         continue
@@ -40,9 +58,10 @@ for source in "$simDir"/Test*.cpp; do
 done
 
 # Every header compiles alone: it is the first header of a translation unit that has nothing else in it.
-# Every header of every block folder; a folder that does not exist yet adds nothing.
+# Every header of every block folder; a folder that does not exist yet adds nothing. The PC links compile on the system the script
+# runs on: Windows or Linux.
 shopt -s nullglob
-for header in "$vubDir"/*.h "$vubDir"/{TestKit,Link,Framing,Transform,Engine,Layer}/*.h; do
+for header in "$vubDir"/*.h "$vubDir"/{TestKit,Link,Framing,Transform,Engine,Layer,PC}/*.h; do
     if ! "$cxx" -std=c++20 -Wall -Wextra -Werror -fsyntax-only \
         -I "$vhalRoot/Common" \
         -include "$header" -x c++ /dev/null; then
