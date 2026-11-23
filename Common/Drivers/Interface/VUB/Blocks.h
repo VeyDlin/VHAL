@@ -3,6 +3,7 @@
 #include <Drivers/Interface/VUB/LinkTraits.h>
 #include <Drivers/Interface/VUB/Meta.h>
 #include <Drivers/Interface/VUB/Outbox.h>
+#include <Drivers/Interface/VUB/Receiver.h>
 #include <Drivers/Interface/VUB/Require.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
@@ -102,6 +103,28 @@ concept ReportingLink = requires(
 	StateSink sink
 ) {
 	link.SetStateSink(sink);
+};
+
+
+// A link that receives in an interrupt or another thread. SetReceiver gives it the receiver to feed (Receiver::Feed or FeedPacket, from the
+// interrupt). The stack gives a null receiver when it is destroyed. The stack is not copyable for such a link.
+template<typename Link>
+concept ReceivingLink = requires(
+	Link& link,
+	Receiver receiver
+) {
+	link.SetReceiver(receiver);
+};
+
+
+// A link that reads on request. Process calls Poll(receiver) before it drains the receive ring or queue, so what the link feeds is handled
+// in the same Process. Poll must not block, and it feeds at most receiver.Room() bytes or packets.
+template<typename Link>
+concept PollingLink = requires(
+	Link& link,
+	Receiver receiver
+) {
+	link.Poll(receiver);
 };
 
 

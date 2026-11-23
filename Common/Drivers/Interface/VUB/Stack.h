@@ -45,6 +45,11 @@ namespace VUB {
 // Feed (a byte-stream link) and FeedPacket (a packet link) are called from the receive interrupt. Everything else runs in one context:
 // Send, Process and Drops. Another task calling Send needs a lock of its own.
 //
+// How a link hands its data over. A link with SetReceiver gets a Receiver in its constructor, and feeds it from its interrupt; the stack
+// takes it back in its destructor, so such a stack is not copyable. A link with Poll is polled by Process before the drain, and feeds the
+// receiver what it reads, up to the receiver's Room. A link with neither is fed by the application through Feed or FeedPacket. A link with
+// both is a compile error.
+//
 // The connection. A link with ReportsState() in its traits tells the stack up and down through the sink it is given; a layer that
 // declares reportsPeer tells it the peer's state from Process. Each change is applied in Process, in this order: the framing's partial
 // frame is reset, a down discards the bytes in the receive ring and the packets in flight, the layers' OnLink are called. The connection
@@ -102,6 +107,8 @@ public:
 	static constexpr LinkTraits linkTraits = Builder::ChainLinkTraits();
 	static constexpr bool streamLink = Builder::IsStreamLink();
 	static constexpr bool linkReports = linkTraits.reportsState;
+	static constexpr bool linkReceives = ReceivingLink<LinkType>;
+	static constexpr bool linkPolled = PollingLink<LinkType>;
 	static constexpr bool peersReport = Builder::PeersReport();
 	static constexpr bool hasLinkState = linkReports || peersReport;
 	static constexpr Down whileDown = built.settings.whileDown;
@@ -124,7 +131,7 @@ public:
 	static constexpr uint32 (*clockFn)() = built.settings.clockFn;
 
 
-	explicit Stack(LinkType& linkObject) : link(&linkObject), detach(link), blocks(MakeBlocks(std::make_index_sequence<count>{})) {
+	explicit Stack(LinkType& linkObject) : link(&linkObject), detach(link), receiverDetach(link), blocks(MakeBlocks(std::make_index_sequence<count>{})) {
 		if constexpr (hasLinkState) {
 			LinkRecord& record = linkRecord.Get();
 			record.reportedUp = !linkReports;
@@ -134,6 +141,10 @@ public:
 
 		if constexpr (linkReports) {
 			link->SetStateSink(StateSink(this, &Stack::ReportLinkThunk));
+		}
+
+		if constexpr (linkReceives) {
+			link->SetReceiver(MakeReceiver());
 		}
 	}
 
@@ -160,12 +171,16 @@ public:
 	}
 
 
-	// The main loop call. Reads the clock, applies the link's state, takes the received bytes and packets up the chain, runs the layers'
-	// Process, and sends.
+	// The main loop call. Reads the clock, polls the link if it has Poll, applies the link's state, takes the received bytes and packets up
+	// the chain, runs the layers' Process, and sends.
 	void Process() {
 		uint32 now = 0;
 		if (clockFn != nullptr) {
 			now = clockFn();
+		}
+
+		if constexpr (linkPolled) {
+			link->Poll(MakeReceiver());
 		}
 
 		if constexpr (hasLinkState) {
@@ -275,6 +290,7 @@ private:
 
 	LinkType* link;
 	[[no_unique_address]] Detach<linkReports, LinkType> detach;
+	[[no_unique_address]] ReceiverDetach<linkReceives, LinkType> receiverDetach;
 	[[no_unique_address]] Storage blocks;
 	[[no_unique_address]] Buffer<hasSteps, packetBytes, 1> sendA;
 	[[no_unique_address]] Buffer<hasSteps, packetBytes, 2> sendB;
@@ -666,6 +682,44 @@ private:
 	static bool LinkUpThunk(void* owner) {
 		Stack* self = static_cast<Stack*>(owner);
 		return self->linkRecord.Get().linkUp;
+	}
+
+
+	// The receiver of this stack, for a link that receives in an interrupt or is polled. Its functions are the stack's Feed and FeedPacket
+	// and its room, so a byte or a packet that does not fit counts as it does for the application.
+	Receiver MakeReceiver() {
+		if constexpr (streamLink) {
+			return Receiver(this, &Stack::ReceiveBytesThunk, nullptr, &Stack::RoomThunk);
+		} else {
+			return Receiver(this, nullptr, &Stack::ReceivePacketThunk, &Stack::RoomThunk);
+		}
+	}
+
+
+	// Feeds the bytes of a byte-stream link through Feed, one by one.
+	static void ReceiveBytesThunk(void* owner, std::span<const uint8> bytes) {
+		Stack* self = static_cast<Stack*>(owner);
+		for (uint8 value : bytes) {
+			self->Feed(value);
+		}
+	}
+
+
+	// Feeds one packet of a packet link through FeedPacket.
+	static void ReceivePacketThunk(void* owner, std::span<const uint8> packet) {
+		Stack* self = static_cast<Stack*>(owner);
+		self->FeedPacket(packet);
+	}
+
+
+	// The room of the receive ring (a byte-stream link) or of the receive queue (a packet link).
+	static std::size_t RoomThunk(void* owner) {
+		Stack* self = static_cast<Stack*>(owner);
+		if constexpr (streamLink) {
+			return SlotsFree(self->ring.indexes, ringSlots);
+		} else {
+			return SlotsFree(self->rxQueue.indexes, receiveSlots);
+		}
 	}
 
 

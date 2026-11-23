@@ -1,5 +1,7 @@
 #include "SimCheck.h"
+#include <Drivers/Interface/VUB/Framing/Cobs.h>
 #include <Drivers/Interface/VUB/Layer/Reliable.h>
+#include <Drivers/Interface/VUB/Receiver.h>
 #include <Drivers/Interface/VUB/Stack.h>
 #include <Drivers/Interface/VUB/TestKit/Contracts.h>
 #include <Drivers/Interface/VUB/TestKit/Loopback.h>
@@ -636,7 +638,105 @@ void CheckInOrder() {
 }  // namespace WikiDeliver
 
 
+// How a link hands received data to the stack: SetReceiver for a link that receives in an interrupt, Poll for a polled link.
+namespace WikiReceive {
+// A byte-stream link that receives in an interrupt. The stack gives it a receiver, and the interrupt feeds the receiver a byte at a time.
+struct UartLink {
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().MaxPacket(64).HalfDuplex().Starts(VUB::Initiator::Either);
+
+	// The stack gives its receiver here, and takes it back with a null receiver when it is destroyed.
+	void SetReceiver(VUB::Receiver value) {
+		receiver = value;
+	}
+
+	Result<std::size_t> Write(std::span<const uint8> bytes) {
+		return bytes.size();
+	}
+
+	// Called from the receive interrupt. A byte that the ring has no room for is dropped and counted under ringFull.
+	void OnByte(uint8 byte) {
+		receiver.Feed(std::span<const uint8>(&byte, 1));
+	}
+
+	VUB::Receiver receiver;
+};
+
+
+// A packet link that is polled. Poll feeds the packets it has while the receive queue has room for them.
+struct PollLink {
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64).FullDuplex();
+
+	// Called from Process, before the stack takes its received packets. Room is the number of free slots of the receive queue.
+	void Poll(VUB::Receiver receiver) {
+		while (packetsWaiting > 0 && receiver.Room() > 0) {
+			std::array<uint8, 2> packet = {0x01, 0x02};
+			receiver.FeedPacket(packet);
+			packetsWaiting--;
+		}
+	}
+
+	ResultStatus Send(std::span<const uint8> packet) {
+		(void)packet;
+		return ResultStatus::ok;
+	}
+
+	std::size_t packetsWaiting = 0;
+};
+
+
+std::size_t receivedCount = 0;
+
+
+void OnReceived(const VUB::Meta&, std::span<const uint8>) {
+	receivedCount++;
+}
+
+
+using Uart = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Framing<VUB::Cobs>()
+		.Link<UartLink>()
+		.MaxPayload(32)
+		.ReceiveRing(64)
+		.OnReceive<&OnReceived>();
+}>;
+
+
+using Polled = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Link<PollLink>()
+		.MaxPayload(32)
+		.ReceiveQueue(2)
+		.OnReceive<&OnReceived>();
+}>;
+
+
+UartLink uartLink;
+Uart uart(uartLink);
+PollLink pollLink;
+Polled polled(pollLink);
+
+
+// The interrupt feeds one COBS frame of the payload 01: the frame is 02 01 00. Process hands it up in the same call.
+// The poll link has three packets and the queue holds two: Process polls two of them and takes them at once.
+void ReceiveSample() {
+	uartLink.OnByte(0x02);
+	uartLink.OnByte(0x01);
+	uartLink.OnByte(0x00);
+	uart.Process();
+	SIM_EXPECT(receivedCount == 1);
+
+	pollLink.packetsWaiting = 3;
+	polled.Process();
+	SIM_EXPECT(pollLink.packetsWaiting == 1);
+	SIM_EXPECT(receivedCount == 3);
+	SIM_EXPECT(polled.Drops().queueFull == 0);
+}
+}  // namespace WikiReceive
+
+
 int main() {
+	WikiReceive::ReceiveSample();
 	WikiWriting::CheckContract();
 	WikiWriting::BoardSend();
 	SIM_EXPECT(WikiWriting::board.Drops().sendError == 0);

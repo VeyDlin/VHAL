@@ -685,6 +685,8 @@ public:
 
 		Require<"a link with ReportsState() needs SetStateSink(VUB::StateSink): the stack gives its state object there">(
 			!traits.reportsState || ReportingLink<LinkType>);
+		Require<"a link has both SetReceiver and Poll: a link receives in an interrupt or is polled, not both, since two writers would share the receive ring or queue">(
+			!(ReceivingLink<LinkType> && PollingLink<LinkType>));
 		Require<"WhileDown(VUB::Down::Fail) needs a connection that can go down: the link needs ReportsState(), or a layer needs reportsPeer">(
 			values.whileDown != Down::Fail || CanReportDown());
 

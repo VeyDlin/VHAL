@@ -51,13 +51,15 @@ using Board = VUB::Stack<+[] {
 
 | Kind | Concept | What it does | Members the concept needs |
 |---|---|---|---|
-| Link | `VUB::StreamLink`, `VUB::PacketLink` | the wire at the bottom | `traits`; `Write(span)` returning `Result<size_t>` (a byte stream), or `Send(span)` returning `ResultStatus` (whole packets) |
+| Link | `VUB::StreamLink`, `VUB::PacketLink` | the wire at the bottom | `traits`; `Write(span)` returning `Result<size_t>` (a byte stream), or `Send(span)` returning `ResultStatus` (whole packets). Optional, not both: `SetReceiver(Receiver)` for a link that receives in an interrupt (`VUB::ReceivingLink`), or `Poll(Receiver)` for a link that is polled from `Process` (`VUB::PollingLink`); see [receiving from a link](#receiving-from-a-link) |
 | Framing | `VUB::FramingBlock` | finds packet boundaries in a byte stream | `usesTime`, `Growth(length)`, `Frame(meta, packet, out)`, `Push(byte, out, length)`; with `usesTime`: `Push(byte, nowUs, out, length)`, `Poll(nowUs, out, length)`, `Ready(nowUs)` and `Sent(nowUs, count)` (see [gap framing](Framing/Gap)) |
 | Transform | `VUB::TransformBlock` | one packet into another, and back | `growth`, `fingerprint`, `Encode(meta, in, out)`, `Decode(meta, packet)` |
 | Engine | `VUB::EngineBlock`, `VUB::EngineFor` | computes what a transform describes (a CRC, AES) | `synchronous`; `Supports<Algorithm>()` and `Run<Algorithm>(data)` for `VUB::EngineFor` (see [engines](Engine/README)) |
 | Layer | `VUB::LayerBlock` | a header, state, time; may send packets of its own and make bulk packets | `header`, `fingerprint`, `usesTime`, `makesBulk`, `Add`, `Take`, `Process`, and `Next` when `makesBulk` is true |
 
 A block that misses a member is a compile error. The message names the concept it does not satisfy, for example `the transform does not satisfy VUB::TransformBlock`, and the concept's notes follow it.
+
+The link has two optional members, and the stack has no code for one it does not use. A link with `SetReceiver` feeds its data from an interrupt; a link with `Poll` is polled for its data by `Process`. A link with both is a compile error (see [receiving from a link](#receiving-from-a-link)).
 
 ## The builder
 
@@ -92,7 +94,7 @@ traits with `Framed()` only when it is a packet link, `HalfDuplex()` or `FullDup
 from the payload, the headers and the growths fits the link's `MaxPacket`; the sizes and the handler are given; a block that uses time
 has a clock. The lengths and indexes are 16-bit: a packet, a framed packet and a link's `MaxPacket` are at most 65535 bytes, and the
 ring and the queues hold at most 65535 entries. Each rule is a compile error with its message. A link with `ReportsState()` must take `SetStateSink`, and `WhileDown(VUB::Down::Fail)` needs
-something that can report the connection down.
+something that can report the connection down. A link with both `SetReceiver` and `Poll` is a compile error (see [receiving from a link](#receiving-from-a-link)).
 
 Options after a block: `LastIs<Block>()`, `LastOptions()` and `WithLastOptions(value)` read and replace the options of the last block.
 A built-in block that has options after it (for example `.Reliable().Retries(3)`) is a method on the builder that checks `LastIs` and
@@ -104,10 +106,11 @@ calls `WithLastOptions`. A user block does not need this.
 in the control queue. `Process()` does the rest, in this order:
 
 1. reads the clock (`Process` reads it, and so does `Feed` in a chain whose framing uses time, see below);
-2. takes the received bytes or packets, and decodes them from the bottom up: framing, transforms and layers (each layer removes its
+2. polls the link, when the link has `Poll` (see [receiving from a link](#receiving-from-a-link));
+3. takes the received bytes or packets, and decodes them from the bottom up: framing, transforms and layers (each layer removes its
    header), then the handler;
-3. calls every layer's `Process(now, outbox)`, which may queue packets of its own, or pass a packet up (see [passing a packet up](#passing-a-packet-up-from-process));
-4. sends.
+4. calls every layer's `Process(now, outbox)`, which may queue packets of its own, or pass a packet up (see [passing a packet up](#passing-a-packet-up-from-process));
+5. sends.
 
 `Feed(byte)` (byte-stream link) and `FeedPacket(packet)` (packet link) are called from the receive interrupt. They store the data;
 everything else runs in `Process`. A chain whose framing uses time stores the time of each byte in `Feed`, so the clock is read there too.
@@ -115,6 +118,113 @@ everything else runs in `Process`. A chain whose framing uses time stores the ti
 `Find<Block>()` returns the block of that type in the chain, for the settings that change at run time, such as the gap framing's baud
 rate: `stack.Find<VUB::Gap>().SetBaud(19200)`. A chain without that block does not compile the call. A chain with two blocks of that type
 is allowed, but `Find` does not compile for it: it cannot tell the two apart, and the message says so.
+
+## Receiving from a link
+
+A link hands its received data to the stack in one of three ways. The stack has code only for the way its link uses:
+
+- `SetReceiver(VUB::Receiver)`: the link receives in an interrupt or another thread. The stack gives the link a receiver in its
+  constructor and a null receiver in its destructor, so the link does not feed a stack that is gone; a stack with such a link is not
+  copyable. The link calls `receiver.Feed(bytes)` (a byte-stream link) or `receiver.FeedPacket(packet)` (a packet link) from its
+  interrupt. A UART is this kind.
+- `Poll(VUB::Receiver)`: the link reads on request. `Process` calls `Poll` first, before it takes the received bytes or packets, so
+  what the link feeds is handled in the same `Process`. `Poll` must not block, and it feeds no more than `receiver.Room()`. A USB class
+  or a TCP connection is this kind.
+- Neither: the application feeds the stack itself, with `Feed(byte)` or `FeedPacket(packet)`, from the receive interrupt or before
+  `Process`. Such a link has no receiver and no code for one.
+
+A link with both `SetReceiver` and `Poll` is a compile error: two writers would share the receive ring or queue.
+
+`Room()` says how much the stack takes at the time of the call: the free bytes of the receive ring of a byte-stream link, or the free slots of the receive
+queue of a packet link. A byte or a packet that does not fit is dropped and counted as `Feed` and `FeedPacket` count it (`ringFull`,
+`queueFull`, `tooLong`). A receiver with no stack behind it, a default one or the one a destroyed stack left in its link, has no room
+and drops what it is given.
+
+The snippet below has an interrupt link and a polled link. The interrupt feeds one COBS frame, `02 01 00`, one byte at a time, and
+`Process` hands up its packet. The polled link has three packets and its queue holds two, so the first `Process` polls two of them
+and takes them at once, and the third waits for the next call. The sample is in the test of the wiki snippets, with its checks.
+
+```cpp
+// A byte-stream link that receives in an interrupt. The stack gives it a receiver, and the interrupt feeds the receiver a byte at a time.
+struct UartLink {
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().MaxPacket(64).HalfDuplex().Starts(VUB::Initiator::Either);
+
+	// The stack gives its receiver here, and takes it back with a null receiver when it is destroyed.
+	void SetReceiver(VUB::Receiver value) {
+		receiver = value;
+	}
+
+	Result<std::size_t> Write(std::span<const uint8> bytes) {
+		return bytes.size();
+	}
+
+	// Called from the receive interrupt. A byte that the ring has no room for is dropped and counted under ringFull.
+	void OnByte(uint8 byte) {
+		receiver.Feed(std::span<const uint8>(&byte, 1));
+	}
+
+	VUB::Receiver receiver;
+};
+
+
+// A packet link that is polled. Poll feeds the packets it has while the receive queue has room for them.
+struct PollLink {
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64).FullDuplex();
+
+	// Called from Process, before the stack takes its received packets. Room is the number of free slots of the receive queue.
+	void Poll(VUB::Receiver receiver) {
+		while (packetsWaiting > 0 && receiver.Room() > 0) {
+			std::array<uint8, 2> packet = {0x01, 0x02};
+			receiver.FeedPacket(packet);
+			packetsWaiting--;
+		}
+	}
+
+	ResultStatus Send(std::span<const uint8> packet) {
+		(void)packet;
+		return ResultStatus::ok;
+	}
+
+	std::size_t packetsWaiting = 0;
+};
+
+
+std::size_t receivedCount = 0;
+
+
+void OnReceived(const VUB::Meta&, std::span<const uint8>) {
+	receivedCount++;
+}
+
+
+using Uart = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Framing<VUB::Cobs>()
+		.Link<UartLink>()
+		.MaxPayload(32)
+		.ReceiveRing(64)
+		.OnReceive<&OnReceived>();
+}>;
+
+
+using Polled = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Link<PollLink>()
+		.MaxPayload(32)
+		.ReceiveQueue(2)
+		.OnReceive<&OnReceived>();
+}>;
+
+
+UartLink uartLink;
+Uart uart(uartLink);
+PollLink pollLink;
+Polled polled(pollLink);
+```
+
+A chain whose link has neither member is the same size as before the receiver was added. Measured with `sizeof` on g++ (x86-64), the
+packet stack of the link with neither member is 656 bytes and the stream stack 952 bytes (`TestVubReceiver.cpp` checks both). With
+`size.sh`, every row of the [size table](#size) is unchanged.
 
 ## Backpressure and order
 

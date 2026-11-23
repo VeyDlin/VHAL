@@ -118,6 +118,14 @@ inline bool QueueEmpty(const Indexes& indexes) {
 }
 
 
+// How many more entries a ring or a queue of slotCount slots takes: its slots less one, less the entries it holds. It reads both indexes
+// and writes none, so either context may call it.
+inline std::size_t SlotsFree(const Indexes& indexes, std::size_t slotCount) {
+	std::size_t held = (static_cast<std::size_t>(indexes.head) + slotCount - indexes.tail) % slotCount;
+	return slotCount - 1 - held;
+}
+
+
 // Puts a packet at the back of the queue. messageTooLong when it is longer than a slot, busy when the queue is full. Called from the
 // receive interrupt (for received packets) or the main context (for packets to send).
 inline ResultStatus QueuePush(Indexes& indexes, const QueueView& view, std::span<const uint8> packet, uint8 packetFlags) {
