@@ -34,17 +34,20 @@
 // The stack is given its link object: Link link(uart); Link stack(link);
 //
 // Send encodes a packet at once, through the layers and transforms, into the control queue. Process reads the clock, takes the bytes
-// and packets received, decodes them up the chain, runs every layer's Process, and then sends: control packets first, then the bulk
-// packets of a layer's Next, while the link accepts, at most PerProcess packets a call. A packet the link refuses is kept for the next
-// call; nothing is dropped for a busy link.
+// and packets received, decodes them up the chain, runs every layer's Process, and then sends: the layers' own packets first, then the
+// control packets, then the bulk packets of a layer's Next, while the link accepts, at most PerProcess packets a call. A packet the link
+// refuses is kept for the next call; nothing is dropped for a busy link. A layer may pass a packet up from its Process, through its outbox
+// (Deliver): the packet goes through the blocks above the layer, and on to the receive handler.
 //
 // Feed (a byte-stream link) and FeedPacket (a packet link) are called from the receive interrupt. Everything else runs in one context:
 // Send, Process and Drops. Another task calling Send needs a lock of its own.
 //
 // The connection. A link with ReportsState() in its traits tells the stack up and down through the sink it is given; a layer that
 // declares reportsPeer tells it the peer's state from Process. Each change is applied in Process, in this order: the framing's partial
-// frame is reset, a down discards the bytes in the receive ring and the packets in flight, the layers' OnLink are called. While the
-// connection is down, Process offers nothing to the link. A stack without either declaration is always connected and keeps no state.
+// frame is reset, a down discards the bytes in the receive ring and the packets in flight, the layers' OnLink are called. The connection
+// is up when the link is up and the peer is not declared down. While the link is down, Process offers nothing to the link. While only the
+// peer is down, the layers' own packets still go out, and the application's packets and the bulk packets wait. A stack without either
+// declaration is always connected and keeps no state.
 //
 // Sizes: the buffers are the packet size of the chain, computed at compile time. A block or a feature that the chain does not use
 // has no member: the storage of a disabled part is an empty type, and its code is not instantiated.
@@ -236,6 +239,7 @@ private:
 		uint16 length = 0;
 		uint16 sent = 0;
 		bool valid = false;
+		bool own = false;
 	};
 
 
@@ -257,6 +261,7 @@ private:
 	[[no_unique_address]] VubBuffer<streamLink && hasFraming, framedBytes, 6> framed;
 	[[no_unique_address]] VubState<streamLink && hasFraming, FramedState, 7> framedState;
 	[[no_unique_address]] VubQueueStorage<true, sendSlots, packetBytes, 8> control;
+	[[no_unique_address]] VubQueueStorage<peersReport, sendSlots, packetBytes, 14> ownQueue;
 	[[no_unique_address]] VubBuffer<true, receiveBytes, 9> rx;
 	[[no_unique_address]] VubRingStorage<streamLink, ringSlots, 10> ring;
 	[[no_unique_address]] VubStampStorage<framingTimed, ringSlots, 13> stamps;
@@ -335,8 +340,14 @@ private:
 	}
 
 
-	// Puts a finished packet on its lane: the control queue, or the one bulk slot.
+	// Puts a finished packet on its lane: a queue, or the one bulk slot. The own lane is used only by a chain that has an own queue.
 	ResultStatus Stage(std::span<const uint8> packet, const VubMeta& meta, VubLane lane) {
+		if constexpr (peersReport) {
+			if (lane == VubLane::own) {
+				return VubQueuePush(ownQueue.indexes, ownQueue.View(), packet, meta.flags);
+			}
+		}
+
 		if (lane == VubLane::control) {
 			return VubQueuePush(control.indexes, control.View(), packet, meta.flags);
 		}
@@ -487,19 +498,17 @@ private:
 	}
 
 
+	using PeerFunction = void (*)(void*, bool);
+	using DeliverFunction = ResultStatus (*)(void*, std::span<const uint8>);
+
+
 	template<std::size_t Index>
 	void ProcessLayers(uint32 now) {
 		if constexpr (Index < count) {
 			using Entry = std::tuple_element_t<Index, Tuple>;
 			if constexpr (Entry::kind == VubKind::layer) {
-				// A layer that does not declare its peer gets no peer function, so no code for one is made.
-				if constexpr (Entry::ReportsPeer()) {
-					VubOutbox outbox(this, &Vub::template SendThunk<Index + 1>, &Vub::PeerThunk);
-					std::get<Index>(blocks).Process(now, outbox);
-				} else {
-					VubOutbox outbox(this, &Vub::template SendThunk<Index + 1>, nullptr);
-					std::get<Index>(blocks).Process(now, outbox);
-				}
+				VubOutbox outbox(this, &Vub::template SendThunk<Index + 1>, PeerFor<Index>(), DeliverFor<Index>());
+				std::get<Index>(blocks).Process(now, outbox);
 			}
 
 			ProcessLayers<Index + 1>(now);
@@ -507,8 +516,53 @@ private:
 	}
 
 
+	// The peer function of a layer. A layer that does not declare its peer gets none, so no code for one is made.
+	template<std::size_t Index>
+	static PeerFunction PeerFor() {
+		using Entry = std::tuple_element_t<Index, Tuple>;
+		if constexpr (Entry::ReportsPeer()) {
+			return &Vub::PeerThunk;
+		} else {
+			return nullptr;
+		}
+	}
+
+
+	// The deliver function of a layer. A layer that does not declare passesUp gets none, so no code for one is made.
+	template<std::size_t Index>
+	static DeliverFunction DeliverFor() {
+		using Entry = std::tuple_element_t<Index, Tuple>;
+		if constexpr (Entry::PassesUp()) {
+			return &Vub::template DeliverThunk<Index>;
+		} else {
+			return nullptr;
+		}
+	}
+
+
+	// The deliver function of the layer at Index. The packet is copied into the receive buffer, since the blocks above decode in place. The
+	// receive buffer is free in Process: the bytes and packets were taken before the layers ran. The walk starts at the block just above
+	// the layer, ReceiveBelow<Index>, and runs to the handler, as it does for a packet the layer took.
+	template<std::size_t Index>
+	static ResultStatus DeliverThunk(void* owner, std::span<const uint8> packet) {
+		Vub* self = static_cast<Vub*>(owner);
+		if (packet.size() > receiveBytes) {
+			VubCountDrop(self->drops.layerError);
+			return ResultStatus::messageTooLong;
+		}
+
+		std::span<uint8> slot = self->rx.Span();
+		for (std::size_t index = 0; index < packet.size(); index++) {
+			slot[index] = packet[index];
+		}
+
+		return self->template ReceiveBelow<Index>(slot.first(packet.size()));
+	}
+
+
 	// The outbox of a layer. The packet is at the layer's level, so it starts at the step after the layer. A packet with no caller: one
-	// the layer could not send is counted, and busy is not, since the layer keeps the packet and sends it again.
+	// the layer could not send is counted, and busy is not, since the layer keeps the packet and sends it again. Under Fail, a layer's
+	// packet is refused only while the link is down: a down peer does not stop it.
 	template<std::size_t From>
 	static ResultStatus SendThunk(void* owner, std::span<const uint8> packet, const VubMeta& meta) {
 		Vub* self = static_cast<Vub*>(owner);
@@ -518,16 +572,24 @@ private:
 		}
 
 		if constexpr (hasLinkState) {
-			if (whileDown == VubDown::Fail && !self->LinkUp()) {
+			if (whileDown == VubDown::Fail && !self->linkRecord.Get().linkUp) {
 				return ResultStatus::noConnection;
 			}
 		}
 
-		if (VubQueueFull(self->control.indexes, sendSlots)) {
-			return ResultStatus::busy;
-		}
+		if constexpr (peersReport) {
+			if (VubQueueFull(self->ownQueue.indexes, sendSlots)) {
+				return ResultStatus::busy;
+			}
 
-		return self->template SendFrom<From>(packet, meta, VubLane::control, false);
+			return self->template SendFrom<From>(packet, meta, VubLane::own, false);
+		} else {
+			if (VubQueueFull(self->control.indexes, sendSlots)) {
+				return ResultStatus::busy;
+			}
+
+			return self->template SendFrom<From>(packet, meta, VubLane::control, false);
+		}
 	}
 
 
@@ -587,8 +649,9 @@ private:
 
 
 	// On a down. The receive ring's bytes are dropped: a partial frame is useless after a disconnect. The frame being written starts again
-	// from its first byte under Wait, and is dropped under Fail. The packets queued for the link wait under Wait, and are dropped under Fail.
-	// The packets the receive queue holds are kept: they are whole and still go up.
+	// from its first byte under Wait, and is dropped under Fail; a layer's own frame under a peer-only down is kept, since its packets
+	// still go out. The packets queued for the link wait under Wait, and are dropped under Fail. A layer's own packets are kept while the
+	// link is up. The packets the receive queue holds are kept: they are whole and still go up.
 	void DropOnDown() {
 		VubLinkRecord& record = linkRecord.Get();
 		if constexpr (streamLink) {
@@ -596,22 +659,28 @@ private:
 		}
 
 		if constexpr (streamLink && hasFraming) {
-			if (framedState.Get().valid) {
-				if (whileDown == VubDown::Fail) {
-					framedState.Get().valid = false;
+			FramedState& state = framedState.Get();
+			if (state.valid) {
+				bool dropFrame = whileDown == VubDown::Fail;
+				if constexpr (peersReport) {
+					dropFrame = dropFrame && (!state.own || !record.linkUp);
+				}
+
+				if (dropFrame) {
+					state.valid = false;
 					VubAddDrops(record.dropped, 1);
 				} else {
-					framedState.Get().sent = 0;
+					state.sent = 0;
 				}
 			}
 		}
 
 		if (whileDown == VubDown::Fail) {
-			std::span<const uint8> packet;
-			uint8 flags = 0;
-			while (VubQueueFront(control.indexes, control.View(), packet, flags)) {
-				VubQueuePop(control.indexes, sendSlots);
-				VubAddDrops(record.dropped, 1);
+			DropQueued(control.indexes, control.View(), sendSlots);
+			if constexpr (peersReport) {
+				if (!record.linkUp) {
+					DropQueued(ownQueue.indexes, ownQueue.View(), sendSlots);
+				}
 			}
 
 			if constexpr (hasBulk) {
@@ -620,6 +689,17 @@ private:
 					VubAddDrops(record.dropped, 1);
 				}
 			}
+		}
+	}
+
+
+	// Drops every packet a queue holds, and counts each one as dropped.
+	void DropQueued(VubIndexes& indexes, const VubQueueView& view, std::size_t slotCount) {
+		std::span<const uint8> packet;
+		uint8 flags = 0;
+		while (VubQueueFront(indexes, view, packet, flags)) {
+			VubQueuePop(indexes, slotCount);
+			VubAddDrops(linkRecord.Get().dropped, 1);
 		}
 	}
 
@@ -652,10 +732,10 @@ private:
 	}
 
 
-	// Gives one packet to the link. On a byte-stream link the packet is framed into the framed buffer, and WriteFramed sends it. A framing
-	// that uses time may first ask to wait for the gap: then the packet stays where it is, and the call returns false. Returns false too
-	// when a packet link is busy.
-	bool Offer(std::span<const uint8> packet, uint8 flags, uint32 now) {
+	// Gives one packet to the link. On a byte-stream link the packet is framed into the framed buffer, and WriteFramed sends it; own says
+	// whether the packet is a layer's own, which may go on while the peer is down. A framing that uses time may first ask to wait for the
+	// gap: then the packet stays where it is, and the call returns false. Returns false too when a packet link is busy.
+	bool Offer(std::span<const uint8> packet, uint8 flags, uint32 now, [[maybe_unused]] bool own) {
 		if constexpr (streamLink) {
 			if constexpr (hasFraming) {
 				if constexpr (framingTimed) {
@@ -675,6 +755,9 @@ private:
 				framedState.Get().length = static_cast<uint16>(length.Value());
 				framedState.Get().sent = 0;
 				framedState.Get().valid = true;
+				if constexpr (peersReport) {
+					framedState.Get().own = own;
+				}
 			}
 
 			return true;
@@ -762,13 +845,23 @@ private:
 	}
 
 
-	// Sends from the queues while the link accepts: control first, then the held bulk packet, then a new bulk packet from a layer. Every
-	// packet taken from a queue or a layer counts toward PerProcess, whether the link took it or refused it, so one call stops within
-	// PerProcess packets. Nothing is offered while the connection is down.
+	// Sends from the queues while the link accepts: the layers' own packets, then the control packets, then the held bulk packet, then one
+	// bulk packet from a layer. Every packet taken from a queue or a layer counts toward PerProcess, whether the link took it or
+	// refused it, so one call stops within PerProcess packets. Nothing is offered while the link is down. While only the peer is down, the
+	// layers' own packets go, and the control and bulk packets wait. A framed packet that is partly written goes on only when it is a
+	// layer's own while the peer is down.
 	void Egress(uint32 now) {
 		std::size_t sentPackets = 0;
 		while (sentPackets < perProcess) {
-			if constexpr (hasLinkState) {
+			// Without a peer report the connection is the link, so one state is read.
+			bool connected = true;
+			if constexpr (peersReport) {
+				if (!linkRecord.Get().linkUp) {
+					return;
+				}
+
+				connected = linkRecord.Get().connected;
+			} else if constexpr (hasLinkState) {
 				if (!linkRecord.Get().connected) {
 					return;
 				}
@@ -776,6 +869,10 @@ private:
 
 			if constexpr (streamLink && hasFraming) {
 				if (framedState.Get().valid) {
+					if (!connected && !framedState.Get().own) {
+						return;
+					}
+
 					if (!WriteFramed(now)) {
 						return;
 					}
@@ -786,8 +883,24 @@ private:
 
 			std::span<const uint8> packet;
 			uint8 flags = 0;
+			if constexpr (peersReport) {
+				if (VubQueueFront(ownQueue.indexes, ownQueue.View(), packet, flags)) {
+					if (!Offer(packet, flags, now, true)) {
+						return;
+					}
+
+					VubQueuePop(ownQueue.indexes, sendSlots);
+					sentPackets++;
+					continue;
+				}
+			}
+
+			if (!connected) {
+				return;
+			}
+
 			if (VubQueueFront(control.indexes, control.View(), packet, flags)) {
-				if (!Offer(packet, flags, now)) {
+				if (!Offer(packet, flags, now, false)) {
 					return;
 				}
 
@@ -799,7 +912,7 @@ private:
 			if constexpr (hasBulk) {
 				if (heldState.Get().valid) {
 					std::span<const uint8> bulk(held.Span().data(), heldState.Get().length);
-					if (!Offer(bulk, heldState.Get().flags, now)) {
+					if (!Offer(bulk, heldState.Get().flags, now, false)) {
 						return;
 					}
 

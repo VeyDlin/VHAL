@@ -11,13 +11,19 @@
 //
 // SetPeer declares the peer up or down. The stack applies it after the layers have run, as a change of the connection. Only a layer that
 // declares reportsPeer = true has an effect: its outbox is the one that reaches the stack. For any other layer the call does nothing.
+//
+// Deliver hands a packet up the receive path from the layer's own position. The packet is the one the layer would pass up: its header is
+// removed, and the blocks above the layer decode it and take it as they take a packet the layer had just taken. It reaches the receive
+// handler when they have. A layer that holds packets and releases them from Process declares passesUp = true. Deliver returns
+// messageTooLong when the packet is longer than the link's receive buffer, and notSupported for a layer that did not declare passesUp.
 class VubOutbox {
 public:
 	VubOutbox(
 		void* ownerObject,
 		ResultStatus (*sendFunction)(void*, std::span<const uint8>, const VubMeta&),
-		void (*peerFunction)(void*, bool)) :
-		owner(ownerObject), sendFn(sendFunction), peerFn(peerFunction) {
+		void (*peerFunction)(void*, bool),
+		ResultStatus (*deliverFunction)(void*, std::span<const uint8>)) :
+		owner(ownerObject), sendFn(sendFunction), peerFn(peerFunction), deliverFn(deliverFunction) {
 	}
 
 
@@ -34,8 +40,19 @@ public:
 	}
 
 
+	// A stack gives no deliver function to a layer that does not declare passesUp, so the call is refused there.
+	ResultStatus Deliver(std::span<const uint8> packet) const {
+		if (deliverFn == nullptr) {
+			return ResultStatus::notSupported;
+		}
+
+		return deliverFn(owner, packet);
+	}
+
+
 private:
 	void* owner;
 	ResultStatus (*sendFn)(void*, std::span<const uint8>, const VubMeta&);
 	void (*peerFn)(void*, bool);
+	ResultStatus (*deliverFn)(void*, std::span<const uint8>);
 };

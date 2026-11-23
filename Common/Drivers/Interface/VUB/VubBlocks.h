@@ -45,10 +45,13 @@ struct VubNone {
 };
 
 
-// The lane a packet waits in on the send side. Control packets (from the application and from the layers' Process) go before bulk
-// packets, which the stack pulls from the layers' Next only when the link is free.
+// The lane a packet waits in on the send side. Control packets (from the application) go before bulk packets, which the stack pulls
+// from the layers' Next only when the link is free. A layer's own packet (from its Process or its outbox) is on the own lane: it goes
+// before the control packets, and it goes while the peer is down. A chain whose layers do not report their peer keeps the own packets
+// in the control lane.
 enum class VubLane : uint8 {
 	control,
+	own,
 	bulk
 };
 
@@ -195,7 +198,8 @@ concept VubEngineFor = VubEngine<Engine> && requires(std::span<const uint8> data
 // the link is free and no control packet waits. A layer that does not make bulk leaves no Next behind. header, usesTime and makesBulk
 // are constant expressions. Two members are optional. OnLink(bool up, uint32 now) is called on each change of the connection, in chain
 // order, from Process. A layer that declares reportsPeer = true may call outbox.SetPeer(up) from its Process to declare its peer down or
-// up; the stack treats that as a change of the connection.
+// up; the stack treats that as a change of the connection. A layer that declares passesUp = true may call outbox.Deliver(packet) from its
+// Process to pass a packet up the receive path from its own position.
 template<typename Layer>
 concept VubLayer = requires(
 	Layer& layer,

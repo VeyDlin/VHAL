@@ -83,6 +83,20 @@ struct VubEntry {
 			return false;
 		}
 	}
+
+
+	// Whether the block is a layer that passes packets up from its Process (passesUp = true): it may call outbox.Deliver.
+	static constexpr bool PassesUp() {
+		if constexpr (Kind == VubKind::layer) {
+			if constexpr (requires { Block::passesUp; }) {
+				return Block::passesUp;
+			} else {
+				return false;
+			}
+		} else {
+			return false;
+		}
+	}
 };
 
 

@@ -80,7 +80,7 @@ in the control queue. `Process()` does the rest, in this order:
 1. reads the clock (`Process` reads it, and so does `Feed` in a chain whose framing uses time, see below);
 2. takes the received bytes or packets, and decodes them from the bottom up: framing, transforms and layers (each layer removes its
    header), then the handler;
-3. calls every layer's `Process(now, outbox)`, which may queue packets of its own;
+3. calls every layer's `Process(now, outbox)`, which may queue packets of its own, or pass a packet up (see [passing a packet up](#passing-a-packet-up-from-process));
 4. sends.
 
 `Feed(byte)` (byte-stream link) and `FeedPacket(packet)` (packet link) are called from the receive interrupt. They store the data;
@@ -124,14 +124,28 @@ stack treats it as a change of the connection.
 - On a change, `Process` does these, in this order: the framing's partial frame is reset (`Reset()`, when the framing has it); on a
   down, the bytes in the receive ring are discarded and counted under `linkDown`, and the frame being written is dropped (`Fail`) or
   starts again from its first byte (`Wait`); each layer with an `OnLink(up, now)` is told, in chain order.
-- While the connection is down, `Process` offers nothing to the link. Whole packets in the receive queue still go up.
+- A peer that is down is not a link that is down. While the link is up and only the peer is down, the layers' own packets (from their
+  `Process` or their outbox) still go out, so a layer can ping the peer and the peer can come back. The application's packets and the
+  bulk packets wait. While the link is down, nothing goes out, the layers' packets included. Whole packets in the receive queue still go
+  up in every case.
+- A layer's own packets go before the application's queued packets, in a chain with a layer that reports its peer. Any other chain has
+  one queue for both, in the order they were queued.
+- A frame that is partly written when the connection goes down starts again from its first byte under `Wait`. Under `Fail` it is dropped,
+  except a layer's own frame while only the peer is down. While the peer is down, an application's frame is not sent: it waits, and goes
+  from its first byte when the peer is up. A layer's own frame goes on while the peer is down.
 - `WhileDown` sets what happens to the packets waiting to be sent:
   - `Wait` (the default): they stay queued. `Send` queues until the queue is full, then returns `busy`, and the packets go in order
-    after the connection is up.
+    after the connection is up. A layer's own packet waits the same way while the link is down.
   - `Fail`: the queued packets are dropped and counted under `linkDown`, and `Send` returns `noConnection` while the connection is
-    down. A refused `Send` is not counted: the caller has the status.
+    down. When the peer goes down, the application's queued packets are dropped and the layers' own packets are kept; when the link goes
+    down, the layers' own packets are dropped too. A layer's own packet gets `noConnection` only while the link is down. A refused
+    `Send` is not counted: the caller has the status.
 - `WhileDown(VubDown::Fail)` needs something that can report the connection down: a link with `ReportsState()`, or a layer with
   `reportsPeer`. Otherwise it is a compile error.
+- Cost. A chain with a layer that reports its peer has a second send queue for the layers' own packets, of `SendQueue(n) + 1` slots of
+  the packet size, with its lengths, flags and indexes. Measured with `sizeof` on the 64-bit host for a packet link, one layer that
+  reports its peer, `MaxPayload(40)` and the default `SendQueue`: 752 bytes before this queue, 968 after, so 216 bytes. A chain without a
+  layer that reports its peer has no second queue, and its size is the same as before.
 
 The test kit can take a line down and up, see the [test kit](TestKit/README).
 
@@ -153,7 +167,7 @@ Every packet or byte the stack discards is counted under one reason. `Drops()` r
 | `tooLong` | a frame or packet did not fit in the receive buffer (the link's `MaxPacket`) |
 | `framingError` | the bytes did not form a frame, or the frame's checks failed |
 | `transformError` | a transform's `Decode` returned an error, or its `Encode` failed for a packet with no caller (see below) |
-| `layerError` | a layer's `Take` returned an error, or a layer's `Add` or `Next` failed for a packet with no caller, or a layer's packet from `Process` was too long |
+| `layerError` | a layer's `Take` returned an error, or a layer's `Add` or `Next` failed for a packet with no caller, or a layer's packet from `Process` was too long, or a packet it passed up with `Deliver` was too long |
 | `sendError` | the link or the framing refused a packet with an error other than `busy` |
 | `linkDown` | a packet queued when the connection went down under `VubDown::Fail`, or a byte of the receive ring that a down discarded |
 
@@ -447,6 +461,143 @@ using Watched = Vub<+[] {
 		.Clock<&Now>();
 }>;
 ```
+
+### Passing a packet up from Process
+
+A layer that holds packets, for in-order delivery, releases them from `Process` with `outbox.Deliver(packet)`. The packet is the one the
+layer would pass up: its header removed, as its `Take` left it. It goes through the blocks above the layer, as a packet the layer had
+just taken, and reaches the receive handler once. A block above that refuses it counts the drop as it counts a received packet.
+`Deliver` is for `Process`; `Take` passes a packet up by returning it. A layer that calls `Deliver` declares `passesUp = true`. A chain
+whose layers do not declare it has no code for it.
+
+The packet is copied into the receive buffer, since the blocks above decode in place. It must fit the link's `MaxPacket`: a longer one
+is refused with `messageTooLong` and counted under `layerError`. A layer that did not declare `passesUp` gets `notSupported` from
+`Deliver`, and nothing goes up.
+
+This layer holds one early packet. Each packet starts with a sequence byte, then the payload, so the packet with sequence 1 and payload
+0x11 is `01 11` on the wire:
+
+```cpp
+// A layer that delivers in order. Each packet starts with a sequence number, one byte. A packet that comes early is held, and Process
+// passes it up when the gap has filled. The layer holds one packet, for brevity.
+struct InOrder {
+	static constexpr std::size_t header = 1;
+	static constexpr uint32 fingerprint = 0x494F5231;
+	static constexpr bool usesTime = false;
+	static constexpr bool makesBulk = false;
+	static constexpr bool passesUp = true;
+
+
+	Result<std::size_t> Add(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size() + header) {
+			return ResultStatus::invalidParameter;
+		}
+
+		out[0] = sequence;
+		sequence++;
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[header + index] = in[index];
+		}
+
+		return in.size() + header;
+	}
+
+
+	Result<VubTake> Take(const VubMeta&, std::span<const uint8> packet) {
+		if (packet.empty()) {
+			return ResultStatus::invalidData;
+		}
+
+		if (packet[0] == expected) {
+			expected++;
+			return VubTake{header, true};
+		}
+
+		if (held || packet.size() - header > heldBody.size()) {
+			return ResultStatus::busy;
+		}
+
+		heldLength = packet.size() - header;
+		for (std::size_t index = 0; index < heldLength; index++) {
+			heldBody[index] = packet[header + index];
+		}
+
+		heldNumber = packet[0];
+		held = true;
+		return VubTake{header, false};
+	}
+
+
+	void Process(uint32, const VubOutbox& outbox) {
+		if (held && heldNumber == expected) {
+			held = false;
+			expected++;
+			(void)outbox.Deliver(std::span<const uint8>(heldBody.data(), heldLength));
+		}
+	}
+
+
+	uint8 sequence = 0;
+	uint8 expected = 0;
+	bool held = false;
+	uint8 heldNumber = 0;
+	std::size_t heldLength = 0;
+	std::array<uint8, 8> heldBody{};
+};
+
+
+// The payloads the handler got, in order.
+inline std::array<uint8, 4> delivered{};
+inline std::size_t deliveredCount = 0;
+
+
+void OnInOrder(const VubMeta&, std::span<const uint8> payload) {
+	if (deliveredCount < delivered.size() && !payload.empty()) {
+		delivered[deliveredCount] = payload[0];
+	}
+
+	deliveredCount++;
+}
+
+
+// A packet link. The interrupt gives it packets with FeedPacket.
+struct InOrderLink {
+	static constexpr VubLinkTraits traits = VubLinkTraits().Framed().MaxPacket(64).FullDuplex();
+
+	ResultStatus Send(std::span<const uint8> packet) {
+		(void)packet;
+		return ResultStatus::ok;
+	}
+};
+
+
+using InOrderStack = Vub<+[] {
+	return VubBuilder()
+		.Layer<InOrder>()
+		.Link<InOrderLink>()
+		.MaxPayload(8)
+		.ReceiveQueue(4)
+		.OnReceive<&OnInOrder>();
+}>;
+
+
+void InOrderSample() {
+	InOrderLink link;
+	InOrderStack stack(link);
+	std::array<uint8, 2> early = {0x01, 0x11};
+	std::array<uint8, 2> first = {0x00, 0x10};
+	stack.FeedPacket(early);
+	stack.FeedPacket(first);
+	stack.Process();
+}
+```
+
+Packet 0 is taken and reaches the handler at once. Packet 1 was held, and `Process` releases it after packet 0, so the handler gets `0x10`,
+then `0x11`. A second early packet, while one is held, is refused by `Take` with `busy`, which counts it under `layerError`. The release
+of a held packet counts nothing; a block above that refuses it counts its own drop.
+
+Measured: the text of a probe of the test kit's chains, none of which has a `passesUp` layer, is 26 bytes smaller than before the core
+change. The probe was built with `arm-none-eabi-g++` 15.2, `-Os`, Cortex-M4, and sized with `arm-none-eabi-size`.
 
 ### Options
 

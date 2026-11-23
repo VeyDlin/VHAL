@@ -420,6 +420,131 @@ void OutageSample() {
 }  // namespace WikiOutage
 
 
+namespace WikiDeliver {
+// A layer that delivers in order. Each packet starts with a sequence number, one byte. A packet that comes early is held, and Process
+// passes it up when the gap has filled. The layer holds one packet, for brevity.
+struct InOrder {
+	static constexpr std::size_t header = 1;
+	static constexpr uint32 fingerprint = 0x494F5231;
+	static constexpr bool usesTime = false;
+	static constexpr bool makesBulk = false;
+	static constexpr bool passesUp = true;
+
+
+	Result<std::size_t> Add(const VubMeta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size() + header) {
+			return ResultStatus::invalidParameter;
+		}
+
+		out[0] = sequence;
+		sequence++;
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[header + index] = in[index];
+		}
+
+		return in.size() + header;
+	}
+
+
+	Result<VubTake> Take(const VubMeta&, std::span<const uint8> packet) {
+		if (packet.empty()) {
+			return ResultStatus::invalidData;
+		}
+
+		if (packet[0] == expected) {
+			expected++;
+			return VubTake{header, true};
+		}
+
+		if (held || packet.size() - header > heldBody.size()) {
+			return ResultStatus::busy;
+		}
+
+		heldLength = packet.size() - header;
+		for (std::size_t index = 0; index < heldLength; index++) {
+			heldBody[index] = packet[header + index];
+		}
+
+		heldNumber = packet[0];
+		held = true;
+		return VubTake{header, false};
+	}
+
+
+	void Process(uint32, const VubOutbox& outbox) {
+		if (held && heldNumber == expected) {
+			held = false;
+			expected++;
+			(void)outbox.Deliver(std::span<const uint8>(heldBody.data(), heldLength));
+		}
+	}
+
+
+	uint8 sequence = 0;
+	uint8 expected = 0;
+	bool held = false;
+	uint8 heldNumber = 0;
+	std::size_t heldLength = 0;
+	std::array<uint8, 8> heldBody{};
+};
+
+
+// The payloads the handler got, in order.
+inline std::array<uint8, 4> delivered{};
+inline std::size_t deliveredCount = 0;
+
+
+void OnInOrder(const VubMeta&, std::span<const uint8> payload) {
+	if (deliveredCount < delivered.size() && !payload.empty()) {
+		delivered[deliveredCount] = payload[0];
+	}
+
+	deliveredCount++;
+}
+
+
+// A packet link. The interrupt gives it packets with FeedPacket.
+struct InOrderLink {
+	static constexpr VubLinkTraits traits = VubLinkTraits().Framed().MaxPacket(64).FullDuplex();
+
+	ResultStatus Send(std::span<const uint8> packet) {
+		(void)packet;
+		return ResultStatus::ok;
+	}
+};
+
+
+using InOrderStack = Vub<+[] {
+	return VubBuilder()
+		.Layer<InOrder>()
+		.Link<InOrderLink>()
+		.MaxPayload(8)
+		.ReceiveQueue(4)
+		.OnReceive<&OnInOrder>();
+}>;
+
+
+void InOrderSample() {
+	InOrderLink link;
+	InOrderStack stack(link);
+	std::array<uint8, 2> early = {0x01, 0x11};
+	std::array<uint8, 2> first = {0x00, 0x10};
+	stack.FeedPacket(early);
+	stack.FeedPacket(first);
+	stack.Process();
+}
+
+
+// The sample: packet 0 goes up at once, and packet 1 goes up from Process after it.
+void CheckInOrder() {
+	InOrderSample();
+	SIM_EXPECT(deliveredCount == 2);
+	SIM_EXPECT(delivered[0] == 0x10);
+	SIM_EXPECT(delivered[1] == 0x11);
+}
+}  // namespace WikiDeliver
+
+
 int main() {
 	WikiWriting::CheckContract();
 	WikiWriting::BoardSend();
@@ -429,5 +554,6 @@ int main() {
 	WikiLinkState::UsbSample();
 	WikiOutage::RebootPattern();
 	WikiOutage::OutageSample();
+	WikiDeliver::CheckInOrder();
 	return SimFinish("TestVubWikiExamples");
 }
