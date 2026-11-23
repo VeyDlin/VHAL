@@ -2,8 +2,9 @@
 #include <Utilities/DataTypes.h>
 
 
-// Modbus RTU frame gaps in microseconds. A character is 11 bits on the wire (start, 8 data, parity or not, stop), whatever the port
-// is set to, so the parity and the stop bits do not change the gaps. Above 19200 baud the specification fixes the two gaps
+// Modbus RTU frame gaps in microseconds. The gaps are computed from an 11-bit character (start, 8 data, parity or a second stop
+// bit, stop), whatever the port is set to, so the parity and the stop bits do not change the gaps. An 8N1 port sends 10-bit
+// characters, so on the wire its gaps are longer than 1.5 and 3.5 character times. Above 19200 baud the specification fixes the two gaps
 // (Modbus over Serial Line, V1.02, section 2.5.1.1). Every value is in uint32: the largest product, 165 * 100000, is far below 2^32,
 // so no gap wraps at a low baud rate.
 constexpr uint32 RtuFixedBaudLimit = 19200;

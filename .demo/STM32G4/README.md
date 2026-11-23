@@ -18,6 +18,27 @@ time, chosen with the CMake cache variable `VHAL_DEMO`:
 - `Regex`: the regex board check. It is not a USB demo. It runs the fixtures of `Application/DemoRegex` against the matcher,
   prints one line per failed check and the stack the matching used over USART1 (`System::console`), and then stays in a loop.
   Build it with `VHAL_REGEX_FIND` in `CMAKE_CXX_FLAGS_RELEASE` (see below) to check `Find` and its stack too.
+- `Modbus`: the Modbus RTU slave board check (`Application/DemoModbus`). It is slave address 1 on USART1, the console adapter
+  (PA9 and PA10, COM3 on the PC), at 9600 baud, 8 data bits, even parity and one stop bit (8E1). The line is plain TTL with no
+  transceiver and no DE or RE pin. The PC side is `Common/Drivers/Interface/Modbus/.tool/board/ModbusBoardCheck.ps1`, described in
+  `.wiki/Common/Drivers/Interface/Modbus/RTU/README.md` (Board check). The view:
+
+  | Table | Address | Entry | Access |
+  |---|---|---|---|
+  | Holding | 0x0000 | one `uint16` variable; 0xFFFF is refused (exception 03) | read/write |
+  | Holding | 0x0001 to 0x0003 | `std::array<uint16, 3>` | read/write |
+  | Input | 0x0010 | a counter of the good frames the server took in | read |
+  | Coil | 0x0000 to 0x0007 | `std::array<bool, 8>` | read/write |
+  | Discrete input | 0x0000 to 0x0003 | input n is coil n XOR (n is odd) | read |
+
+  The counter counts every frame with a good CRC that `Process()` returns `ok` for. That includes broadcasts and frames for
+  other slaves, which get no reply, because the server reports them as `ok` too.
+
+  USART1 carries only Modbus. Before the server starts, the demo clears `System::console` and the critical error text, so no
+  text reaches the line. The volatile `modbusStatus` block for SWD holds the stage (the last start-up step reached), the console,
+  serial and Begin results, the frames answered and the last status. A critical error is kept there too, for explicit
+  `CriticalError` calls only: `SystemAssert` and `System::Abort()` do not call the handler, so after one of them the stage shows
+  where it stopped. The main loop runs `server.Process()` only.
 
 The demo identities (PIDs, GUIDs, vendor codes and the composite's endpoint map) are in
 `Common/Drivers/Interface/USB/.tool/common/DemoProducts.h`, which the PC tools share too. The IDs are pid.codes test values
@@ -100,6 +121,16 @@ cmake --build build/RelSpeed-RegexFind
 ```
 
 Its outputs are `build/RelSpeed-Regex/RegexG431.elf` and `.bin`, and the same names in `build/RelSpeed-RegexFind`.
+
+The Modbus board check is built the same way:
+
+```sh
+cmake --preset RelSpeed -B build/RelSpeed-Modbus -DVHAL_DEMO=Modbus
+cmake --build build/RelSpeed-Modbus
+```
+
+Its outputs are `build/RelSpeed-Modbus/ModbusG431.elf` and `.bin`. Flash the image with `sh flash.sh build/RelSpeed-Modbus/ModbusG431.bin`,
+then run the PC check as the RTU README describes.
 
 Only the chosen demo folder is compiled and linked (`Application/Application.cpp` and `Application/Application.h` are always
 compiled). An unknown `VHAL_DEMO` stops the configure step with the list of demos. The list is the list of

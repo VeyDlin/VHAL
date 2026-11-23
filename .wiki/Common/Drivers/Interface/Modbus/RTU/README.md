@@ -45,7 +45,7 @@ itself: `Link link(uart);`.
 
 ## Frame gaps
 
-A character is 11 bits on the wire, whatever the port is set to, so parity and stop bits do not change the gaps.
+The gaps are computed from an 11-bit character, whatever the port is set to, so parity and stop bits do not change the gaps. An 8N1 port sends 10-bit characters, so on the wire its gaps are longer than 1.5 and 3.5 character times.
 
 | Gap | Meaning | 9600 baud | 115200 baud |
 |---|---|---|---|
@@ -116,3 +116,47 @@ RTU on ESP32 has not been checked on hardware.
 | `writeError` | The transmit failed, including an adapter timeout after the bytes were handed over. The frame may be on the line, so it is not sent again |
 | `noInit` | `Send` or `Receive` before `Begin` |
 | `invalidParameter` | `Begin` with a baud rate of 0, or `Send` with an empty frame |
+
+## Board check
+
+The board check runs the RTU slave of `.demo/STM32G4` (`Application/DemoModbus`) on a real STM32G431 and a PC script
+(`Common/Drivers/Interface/Modbus/.tool/board/ModbusBoardCheck.ps1`). The line is the console adapter: USART1 on PA9 and PA10 is
+wired to a CH343 USB-serial adapter, which the PC sees as COM3. It is a plain TTL line, so the check needs no RS-485 transceiver.
+
+The line runs at 9600 baud, 8 data bits, even parity, one stop bit (8E1), with slave address 1.
+
+The commands of steps 1 and 2 run in `.demo/STM32G4`, where `CMakePresets.json` and `flash.sh` are.
+
+1. Build the demo:
+
+   ```sh
+   cmake --preset RelSpeed -B build/RelSpeed-Modbus -DVHAL_DEMO=Modbus
+   cmake --build build/RelSpeed-Modbus
+   ```
+
+2. Flash the image:
+
+   ```sh
+   sh flash.sh build/RelSpeed-Modbus/ModbusG431.bin
+   ```
+
+3. Run the check from Windows PowerShell 5.1 (the port defaults to COM3):
+
+   ```sh
+   powershell -NoProfile -File Common/Drivers/Interface/Modbus/.tool/board/ModbusBoardCheck.ps1 -Port COM3
+   ```
+
+   The script runs 14 cases in order and prints each one as PASS or FAIL with the bytes sent and received. It exits with 0 only
+   when every case passes. The CRC and the request frames have a check that needs no board: `-SelfTest` opens no port.
+
+The check covers reads, writes, exceptions 02 and 03, the function codes 0F, 01, 02, 05 and 07, a bad CRC, another slave's address,
+a broadcast write, a frame split by a 30 ms gap, and 500 random reads.
+
+On the STM32G431 all 14 cases pass, the 500 random reads with no wrong value.
+
+The view of the demo writes an array entry in part: a write that covers some of its elements changes only those elements. A number
+entry (a 4 or 8 byte integer) must be covered whole: a write that covers part of one gets exception 02 and changes nothing, even
+when every address of the request exists. A write that reaches an address with no entry also gets exception 02, and changes nothing.
+Case 5 relies on that: FC10 at 0x0002 with count 3 reaches 0x0004, which the view does not have, so it gets exception 02.
+The Modbus specification gives exception 02 for addresses that do not exist. The refusal of a write that splits a number entry
+goes further than that, and is a limit of this view.
