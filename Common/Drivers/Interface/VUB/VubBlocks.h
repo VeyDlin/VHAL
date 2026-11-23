@@ -142,11 +142,22 @@ concept VubTransform = requires(
 };
 
 
-// A synchronous engine computes what a transform describes (a CRC, AES). Version 1 has synchronous engines only; the call shape of an
-// engine is fixed with the first engine that uses it.
+// A synchronous engine computes what a transform describes (a CRC, AES). Version 1 has synchronous engines only. Engine has no state of
+// its own: the transform calls its static members.
 template<typename Engine>
 concept VubEngine = requires {
 	requires Engine::synchronous;
+};
+
+
+// An engine that can compute one algorithm. Algorithm is a type the transform gives, with the algorithm's parameters in
+// Algorithm::parameters (a CRC is VubCrcAlgorithm<parameters>). Supports<Algorithm>() says whether the engine computes it, and
+// Run<Algorithm>(data) computes it over the bytes. The builder refuses a transform whose engine does not support its algorithm: the
+// transform checks it when the transform type is instantiated.
+template<typename Engine, typename Algorithm>
+concept VubEngineFor = VubEngine<Engine> && requires(std::span<const uint8> data) {
+	requires Engine::template Supports<Algorithm>();
+	{ Engine::template Run<Algorithm>(data) };
 };
 
 

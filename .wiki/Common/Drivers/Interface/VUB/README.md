@@ -4,8 +4,8 @@ VUB is a protocol stack built from blocks. A product's protocol is a chain of bl
 time. Each block has a small contract. The built-in blocks use only that contract, so a user block goes into the chain the same way.
 
 Stage 1 is the core: the five block contracts, the builder and its checks, the stack at run time, drop counters, and a test kit. The
-built-in blocks (CRC, COBS, length prefix, gap framing, delivery) come in the later stages. Until then a chain is made of user blocks
-and the test kit's loopback.
+built-in blocks come in the later stages: the CRC transform is in ([CRC](Transform/VubCrc)); COBS, the length prefix, gap framing and
+delivery are not yet. Until then a chain is made of user blocks, the CRC, and the test kit's loopback.
 
 ## The chain
 
@@ -30,7 +30,7 @@ The application sends into the top, and the link is the last block. A block that
 | Link | `VubStreamLink`, `VubPacketLink` | the wire at the bottom | `traits`; `Write(span)` returning `Result<size_t>` (a byte stream), or `Send(span)` returning `ResultStatus` (whole packets) |
 | Framing | `VubFraming` | finds packet boundaries in a byte stream | `usesTime`, `Growth(length)`, `Frame(meta, packet, out)`, `Push(byte, out, length)` |
 | Transform | `VubTransform` | one packet into another, and back | `growth`, `fingerprint`, `Encode(meta, in, out)`, `Decode(meta, packet)` |
-| Engine | `VubEngine` | computes what a transform describes (a CRC, AES) | `synchronous` (the call shape comes with the first engine) |
+| Engine | `VubEngine`, `VubEngineFor` | computes what a transform describes (a CRC, AES) | `synchronous`; `Supports<Algorithm>()` and `Run<Algorithm>(data)` for `VubEngineFor` (see [engines](Engine/README)) |
 | Layer | `VubLayer` | a header, state, time; may send packets of its own and make bulk packets | `header`, `fingerprint`, `usesTime`, `makesBulk`, `Add`, `Take`, `Process`, and `Next` when `makesBulk` is true |
 
 A block that misses a member is a compile error. The message names the concept it does not satisfy, for example `the transform does not satisfy VubTransform`, and the concept's notes follow it.
