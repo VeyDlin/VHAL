@@ -2,12 +2,23 @@
 #include <Drivers/Interface/VUB/TestKit/VubRandom.h>
 #include <Drivers/Interface/VUB/VubBlocks.h>
 #include <Drivers/Interface/VUB/VubMeta.h>
+#include <Drivers/Interface/VUB/VubRequire.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
+#include <Utilities/TextLiteral.h>
 #include <array>
 #include <cstddef>
 #include <span>
+
+
+// The compile-time checks of a block call VubError, which the library declares and never defines. A failed check is still a compile
+// error: a call to a function that is not constexpr is ill-formed in a constant expression, and the diagnostic prints the message. A
+// block's Growth is also called at run time by the checks below, and a call that is not in a constant expression needs a definition, so
+// the test kit gives one. It does nothing.
+template<TextLiteral Message>
+void VubError() {
+}
 
 
 // Contract checks a user runs on their own block. Each returns true when every round passes. They use a fixed seed for the random
@@ -246,4 +257,218 @@ bool VubCheckFraming(Framing& framing, uint32 seed, std::size_t rounds, std::siz
 	}
 
 	return true;
+}
+
+
+// The framing contract of a framing with no check of its own (COBS, the length prefix). With loss, a damaged frame can come out as a
+// different packet, so only the length is checked there. The framing must resynchronise: after the lossy part, three clean frames are
+// sent. The first may be merged with the lossy part and is not checked; the last two must come out exactly.
+template<typename Framing>
+bool VubCheckResync(Framing& framing, uint32 seed, std::size_t rounds, std::size_t maxPayload, uint32 lossPercent) {
+	constexpr std::size_t MaxSent = 256;
+	constexpr std::size_t MaxLength = 32;
+	constexpr std::size_t FrameRoom = 2 * (MaxLength + 2) + 8;
+	VubRandom random(seed);
+	VubMeta meta{};
+
+	if (rounds + 3 > MaxSent || maxPayload == 0 || maxPayload > MaxLength) {
+		return false;
+	}
+
+	std::array<std::array<uint8, MaxLength>, MaxSent> sent{};
+	std::array<std::size_t, MaxSent> sentLength{};
+	std::size_t sentCount = 0;
+	std::array<uint8, MaxLength> received{};
+	std::size_t receivedLength = 0;
+
+	for (std::size_t round = 0; round < rounds + 3; round++) {
+		bool clean = round >= rounds;
+		std::size_t length = 1 + random.Below(static_cast<uint32>(maxPayload));
+		for (std::size_t index = 0; index < length; index++) {
+			sent[sentCount][index] = static_cast<uint8>(random.Next());
+		}
+
+		sentLength[sentCount] = length;
+		sentCount++;
+		std::size_t current = sentCount - 1;
+
+		std::array<uint8, FrameRoom> frame{};
+		Result<std::size_t> framed = framing.Frame(meta, std::span<const uint8>(sent[current].data(), length), frame);
+		if (framed.IsErr() || framed.Value() > length + Framing::Growth(length)) {
+			return false;
+		}
+
+		bool delivered = false;
+		for (std::size_t index = 0; index < framed.Value(); index++) {
+			if (!clean && random.Chance(lossPercent)) {
+				continue;
+			}
+
+			VubFrame state = framing.Push(frame[index], received, receivedLength);
+			if (state == VubFrame::packet) {
+				if (receivedLength > maxPayload) {
+					return false;
+				}
+
+				bool same = receivedLength == sentLength[current];
+				for (std::size_t byteIndex = 0; byteIndex < receivedLength && same; byteIndex++) {
+					same = sent[current][byteIndex] == received[byteIndex];
+				}
+
+				if (clean && round > rounds && !same) {
+					return false;
+				}
+
+				delivered = delivered || same;
+			} else if (clean && round > rounds && state != VubFrame::pending) {
+				return false;
+			}
+		}
+
+		if (clean && round > rounds && !delivered) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+
+// The time-aware framing contract, for the gap framing: a frame is sent after a silence of three gaps, its bytes are spaced by less
+// than a gap, and the test polls the framing at random between the bytes and after each frame. Without loss, every packet comes out
+// whole, in the order sent, and the last one is flushed by the silence after the run. With loss (lossPercent of the bytes lost, the
+// time still runs), the lossy part is checked for length only, and the three clean frames after it are checked as VubCheckResync does.
+template<typename Framing>
+bool VubCheckTimedFraming(Framing& framing, uint32 seed, std::size_t rounds, std::size_t maxPayload, uint32 lossPercent, uint32 gapUs) {
+	constexpr std::size_t MaxSent = 256;
+	constexpr std::size_t MaxLength = 32;
+	constexpr std::size_t FrameRoom = MaxLength + 16;
+	if (rounds + 3 > MaxSent || maxPayload == 0 || maxPayload > MaxLength || gapUs < 8) {
+		return false;
+	}
+
+	VubRandom random(seed);
+	VubMeta meta{};
+	std::array<std::array<uint8, MaxLength>, MaxSent> sent{};
+	std::array<std::size_t, MaxSent> sentLength{};
+	std::size_t sentCount = 0;
+	std::size_t matched = 0;
+	std::array<uint8, MaxLength> received{};
+	std::size_t receivedLength = 0;
+	uint32 now = 0;
+
+	// How a packet that comes out is checked: next means it must be the next packet sent, current means it must be the frame being sent.
+	enum class Check {
+		none,
+		next,
+		current
+	};
+
+	auto sameAs = [&](std::size_t index) -> bool {
+		if (sentLength[index] != receivedLength) {
+			return false;
+		}
+
+		for (std::size_t byteIndex = 0; byteIndex < receivedLength; byteIndex++) {
+			if (sent[index][byteIndex] != received[byteIndex]) {
+				return false;
+			}
+		}
+
+		return true;
+	};
+
+	auto consume = [&](VubFrame state, Check check, std::size_t current, bool& delivered) -> bool {
+		if (state == VubFrame::packet) {
+			if (receivedLength > maxPayload) {
+				return false;
+			}
+
+			if (check == Check::next) {
+				if (matched >= sentCount || !sameAs(matched)) {
+					return false;
+				}
+
+				matched++;
+			} else if (check == Check::current) {
+				if (!sameAs(current)) {
+					return false;
+				}
+
+				delivered = true;
+			}
+
+			return true;
+		}
+
+		return check == Check::none || state == VubFrame::pending;
+	};
+
+	const std::size_t total = rounds + 3;
+	for (std::size_t round = 0; round < total; round++) {
+		bool clean = round >= rounds;
+		bool requireDelivery = lossPercent != 0 && round > rounds;
+		Check check = Check::none;
+		if (lossPercent == 0) {
+			check = Check::next;
+		} else if (round > rounds) {
+			check = Check::current;
+		}
+
+		std::size_t length = 1 + random.Below(static_cast<uint32>(maxPayload));
+		for (std::size_t index = 0; index < length; index++) {
+			sent[sentCount][index] = static_cast<uint8>(random.Next());
+		}
+
+		sentLength[sentCount] = length;
+		sentCount++;
+		std::size_t current = sentCount - 1;
+
+		std::array<uint8, FrameRoom> frame{};
+		Result<std::size_t> framed = framing.Frame(meta, std::span<const uint8>(sent[current].data(), length), frame);
+		if (framed.IsErr() || framed.Value() > length + Framing::Growth(length)) {
+			return false;
+		}
+
+		now += 3 * gapUs;
+		bool delivered = false;
+		for (std::size_t index = 0; index < framed.Value(); index++) {
+			bool lost = !clean && random.Chance(lossPercent);
+			now += 1 + random.Below(gapUs / 8);
+			if (!lost) {
+				VubFrame state = framing.Push(frame[index], now, received, receivedLength);
+				if (!consume(state, check, current, delivered)) {
+					return false;
+				}
+			}
+
+			if (random.Chance(25)) {
+				VubFrame state = framing.Poll(now, received, receivedLength);
+				if (!consume(state, check, current, delivered)) {
+					return false;
+				}
+			}
+		}
+
+		now += 2 * gapUs;
+		if (clean || random.Chance(50)) {
+			VubFrame state = framing.Poll(now, received, receivedLength);
+			if (!consume(state, check, current, delivered)) {
+				return false;
+			}
+		}
+
+		if (requireDelivery && !delivered) {
+			return false;
+		}
+	}
+
+	now += 3 * gapUs;
+	VubFrame last = framing.Poll(now, received, receivedLength);
+	bool ignored = false;
+	if (!consume(last, lossPercent == 0 ? Check::next : Check::none, sentCount - 1, ignored)) {
+		return false;
+	}
+
+	return lossPercent != 0 || matched == sentCount;
 }

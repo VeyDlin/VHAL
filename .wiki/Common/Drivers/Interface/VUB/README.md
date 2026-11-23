@@ -28,7 +28,7 @@ The application sends into the top, and the link is the last block. A block that
 | Kind | Concept | What it does | Members the concept needs |
 |---|---|---|---|
 | Link | `VubStreamLink`, `VubPacketLink` | the wire at the bottom | `traits`; `Write(span)` returning `Result<size_t>` (a byte stream), or `Send(span)` returning `ResultStatus` (whole packets) |
-| Framing | `VubFraming` | finds packet boundaries in a byte stream | `usesTime`, `Growth(length)`, `Frame(meta, packet, out)`, `Push(byte, out, length)` |
+| Framing | `VubFraming` | finds packet boundaries in a byte stream | `usesTime`, `Growth(length)`, `Frame(meta, packet, out)`, `Push(byte, out, length)`; with `usesTime`: `Push(byte, nowUs, out, length)`, `Poll(nowUs, out, length)`, `Ready(nowUs)` and `Sent(nowUs, count)` (see [gap framing](Framing/VubGap)) |
 | Transform | `VubTransform` | one packet into another, and back | `growth`, `fingerprint`, `Encode(meta, in, out)`, `Decode(meta, packet)` |
 | Engine | `VubEngine`, `VubEngineFor` | computes what a transform describes (a CRC, AES) | `synchronous`; `Supports<Algorithm>()` and `Run<Algorithm>(data)` for `VubEngineFor` (see [engines](Engine/README)) |
 | Layer | `VubLayer` | a header, state, time; may send packets of its own and make bulk packets | `header`, `fingerprint`, `usesTime`, `makesBulk`, `Add`, `Take`, `Process`, and `Next` when `makesBulk` is true |
@@ -77,14 +77,17 @@ calls `WithLastOptions`. A user block does not need this.
 `Send(payload, meta)` encodes at once: the payload goes through the layers and transforms, from the top down, and the result is put
 in the control queue. `Process()` does the rest, in this order:
 
-1. reads the clock (`Process` is the only place it is read);
+1. reads the clock (`Process` reads it, and so does `Feed` in a chain whose framing uses time, see below);
 2. takes the received bytes or packets, and decodes them from the bottom up: framing, transforms and layers (each layer removes its
    header), then the handler;
 3. calls every layer's `Process(now, outbox)`, which may queue packets of its own;
 4. sends.
 
-`Feed(byte)` (byte-stream link) and `FeedPacket(packet)` (packet link) are called from the receive interrupt. They only store the data;
-everything else runs in `Process`.
+`Feed(byte)` (byte-stream link) and `FeedPacket(packet)` (packet link) are called from the receive interrupt. They store the data;
+everything else runs in `Process`. A chain whose framing uses time stores the time of each byte in `Feed`, so the clock is read there too.
+
+`Find<Block>()` returns the block of that type in the chain, for the settings that change at run time, such as the gap framing's baud
+rate: `stack.Find<VubGap>().SetBaud(19200)`. A chain without that block does not compile the call.
 
 ## Backpressure and order
 

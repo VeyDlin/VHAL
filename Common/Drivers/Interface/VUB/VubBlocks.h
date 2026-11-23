@@ -105,22 +105,50 @@ concept VubReportingLink = requires(
 // usesTime says whether the framing reads the clock (the gap framing does), so a chain that has one needs a clock. usesTime and
 // Growth are constant expressions: the builder reads them at compile time. An optional Reset() drops a partial frame; the stack calls it
 // when the link changes state (up or down), if the framing has it.
+//
+// A framing with usesTime takes the time of each byte: Push(byte, nowUs, out, length), and Poll(nowUs, out, length) which the stack
+// calls from Process, so a frame that ends in silence comes out without a byte after it. Ready(nowUs) says whether a frame may start
+// on the wire (false while the gap after the last byte, received or sent, has not passed), and Sent(nowUs, count) tells the framing
+// how many bytes the link took. The stack calls Ready before it frames a packet and Sent after each Write.
+template<typename Framing>
+concept VubPushesBytes = requires(
+	Framing& framing,
+	uint8 byte,
+	std::span<uint8> out,
+	std::size_t& length
+) {
+	{ framing.Push(byte, out, length) } -> std::same_as<VubFrame>;
+};
+
+
+template<typename Framing>
+concept VubTimedFraming = requires(
+	Framing& framing,
+	uint8 byte,
+	uint32 nowUs,
+	std::span<uint8> out,
+	std::size_t& length
+) {
+	{ framing.Push(byte, nowUs, out, length) } -> std::same_as<VubFrame>;
+	{ framing.Poll(nowUs, out, length) } -> std::same_as<VubFrame>;
+	{ framing.Ready(nowUs) } -> std::convertible_to<bool>;
+	{ framing.Sent(nowUs, std::size_t{}) } -> std::same_as<void>;
+};
+
+
 template<typename Framing>
 concept VubFraming = requires(
 	Framing& framing,
 	const VubMeta& meta,
 	std::span<const uint8> packet,
-	std::span<uint8> out,
-	uint8 byte,
-	std::size_t& length
+	std::span<uint8> out
 ) {
 	typename VubConstant<Framing::usesTime>;
 	typename VubConstant<Framing::Growth(std::size_t{0})>;
 	{ Framing::usesTime } -> std::convertible_to<bool>;
 	{ Framing::Growth(std::size_t{}) } -> std::convertible_to<std::size_t>;
 	{ framing.Frame(meta, packet, out) } -> std::same_as<Result<std::size_t>>;
-	{ framing.Push(byte, out, length) } -> std::same_as<VubFrame>;
-};
+} && ((Framing::usesTime && VubTimedFraming<Framing>) || (!Framing::usesTime && VubPushesBytes<Framing>));
 
 
 // A block that changes a packet into another packet on send and back on receive. growth is the most bytes Encode adds, and is a
