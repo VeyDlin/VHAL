@@ -1,0 +1,61 @@
+#include <Utilities/Checksum/CRC/Preset/Crc4Itu.h>
+#include <Utilities/Checksum/CRC/Preset/Crc5Epc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc5Itu.h>
+#include <Utilities/Checksum/CRC/Preset/Crc5Usb.h>
+#include <Utilities/Checksum/CRC/Preset/Crc6Cdma2000A.h>
+#include <Utilities/Checksum/CRC/Preset/Crc6Cdma2000B.h>
+#include <Utilities/Checksum/CRC/Preset/Crc6Itu.h>
+#include <Utilities/Checksum/CRC/Preset/Crc7Mmc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc8Ebu.h>
+#include <Utilities/Checksum/CRC/Preset/Crc8Maxim.h>
+#include <Utilities/Checksum/CRC/Preset/Crc8Smbus.h>
+#include <Utilities/Checksum/CRC/Preset/Crc8Wcdma.h>
+#include <Utilities/Checksum/CRC/Preset/Crc10.h>
+#include <Utilities/Checksum/CRC/Preset/Crc10Cdma2000.h>
+#include <Utilities/Checksum/CRC/Preset/Crc11.h>
+#include <Utilities/Checksum/CRC/Preset/Crc12Cdma2000.h>
+#include <Utilities/Checksum/CRC/Preset/Crc12Dect.h>
+#include <Utilities/Checksum/CRC/Preset/Crc12Umts.h>
+#include <Utilities/Checksum/CRC/Preset/Crc13Bbc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc15Can.h>
+#include <Utilities/Checksum/CRC/Preset/Crc15Mpt1327.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Arc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Buypass.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16CcittFalse.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Cdma2000.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Cms.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16DectR.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16DectX.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Dnp.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Genibus.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16IsoIec144433A.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Kermit.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Maxim.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Riello.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16T10Dif.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Tms37157.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Usb.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16X25.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Xmodem.h>
+#include <Utilities/Checksum/CRC/Preset/Crc17Can.h>
+#include <Utilities/Checksum/CRC/Preset/Crc21Can.h>
+#include <Utilities/Checksum/CRC/Preset/Crc24FlexrayA.h>
+#include <Utilities/Checksum/CRC/Preset/Crc24FlexrayB.h>
+#include <Utilities/Checksum/CRC/Preset/Crc24OpenPgp.h>
+#include <Utilities/Checksum/CRC/Preset/Crc30Cdma.h>
+#include <Utilities/Checksum/CRC/Preset/Crc32Bzip2.h>
+#include <Utilities/Checksum/CRC/Preset/Crc32C.h>
+#include <Utilities/Checksum/CRC/Preset/Crc32IsoHdlc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc32Mpeg2.h>
+#include <Utilities/Checksum/CRC/Preset/Crc32Posix.h>
+#include <Utilities/Checksum/CRC/Preset/Crc32Q.h>
+#include <Utilities/Checksum/CRC/Preset/Crc40Gsm.h>
+#include <Utilities/Checksum/CRC/Preset/Crc64Ecma182.h>
+#include <Utilities/DataTypes.h>
+#include <span>
+
+// The entry point of the size image: one CRC of the input, with the preset of the image. The linker keeps it through -e.
+extern "C" uint32 SizePresetsEntry(const uint8* data, uint32 size) {
+	return static_cast<uint32>(Checksum::Crc16Modbus::Calculate(std::span<const uint8>(data, size)));
+}

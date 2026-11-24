@@ -1,6 +1,6 @@
 #include "SimCheck.h"
 #include <Drivers/Interface/Modbus/RTU/RtuFramer.h>
-#include <Utilities/Checksum/CRC/Crc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 #include <array>
 #include <cstddef>
 #include <span>
@@ -38,7 +38,7 @@ void TestCrcAgainstLibrary() {
 			data[index] = static_cast<uint8>(seed >> 24);
 		}
 
-		uint16 expected = Crc::Calculate(data.data(), length, Crc::CRC_16_MODBUS());
+		uint16 expected = Checksum::Crc16Modbus::Calculate(std::span<const uint8>(data.data(), length));
 		uint16 actual = RtuFramer::Crc(std::span<const uint8>(data.data(), length));
 		if (expected != actual) {
 			allMatch = false;
@@ -93,7 +93,7 @@ void TestCheck() {
 
 	// A broadcast frame is accepted by a caller that expects address 0. The CRC comes from the library, not from the framer.
 	std::array<uint8, 6> body = {0x00, 0x03, 0x00, 0x00, 0x00, 0x0A};
-	uint16 bodyCrc = Crc::Calculate(body.data(), body.size(), Crc::CRC_16_MODBUS());
+	uint16 bodyCrc = Checksum::Crc16Modbus::Calculate(body);
 	std::array<uint8, 8> broadcast = {0x00, 0x03, 0x00, 0x00, 0x00, 0x0A, static_cast<uint8>(bodyCrc & 0xFF), static_cast<uint8>(bodyCrc >> 8)};
 	SIM_EXPECT(RtuFramer::Check(broadcast, RtuFramer::BroadcastAddress) == ResultStatus::ok);
 	SIM_EXPECT(RtuFramer::Check(broadcast, 0x01) == ResultStatus::invalidData);

@@ -3,7 +3,7 @@
 #include "ICommunication.h"
 #include <Utilities/Buffer/RingBuffer.h>
 #include <Utilities/DataTypes.h>
-#include <Utilities/Checksum/CRC/Crc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc32IsoHdlc.h>
 #include <Utilities/Crypto/SHA/SHA256.h>
 #include <array>
 #include <algorithm>
@@ -1286,7 +1286,7 @@ protected:
         // Read firmware data in chunks and calculate CRC32
         const uint32 CHUNK_SIZE = 256;  // Read 256 bytes at a time
         std::array<uint8, CHUNK_SIZE> buffer;
-        uint32 currentCrc = 0;
+        Checksum::Crc32IsoHdlc crc;
         uint32 firmwareStart = GetApplicationStartAddress();
         
         for (uint32 offset = 0; offset < size; offset += CHUNK_SIZE) {
@@ -1307,16 +1307,9 @@ protected:
                 return std::nullopt;  // Read error
             }
             
-            // Calculate CRC32 incrementally
-            if (offset == 0) {
-                // First chunk
-                currentCrc = Crc::Calculate<uint32, 32>(buffer.data(), chunkSize, Crc::CRC_32());
-            } else {
-                // Continue with previous CRC
-                currentCrc = Crc::Calculate<uint32, 32>(buffer.data(), chunkSize, Crc::CRC_32(), currentCrc);
-            }
+            crc.Add(chunkSpan);
         }
-        return currentCrc;
+        return crc.Get();
     }
 
 

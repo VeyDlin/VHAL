@@ -3,7 +3,7 @@
 #include "FakeLine.h"
 #include <Drivers/Interface/Modbus/RTU/RtuFramer.h>
 #include <Drivers/Interface/Modbus/RTU/RtuTransport.h>
-#include <Utilities/Checksum/CRC/Crc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 #include <array>
 #include <cstddef>
 #include <span>
@@ -64,7 +64,7 @@ uint64 ScheduleChunk(FakeLine& line, uint64 startUs, std::span<const uint8> byte
 // A 9-byte reply, read holding registers of two registers from slave 1, with the CRC from the library.
 std::array<uint8, 9> NineByteReply() {
 	std::array<uint8, 7> body = {0x01, 0x03, 0x04, 0x00, 0x0A, 0x00, 0x0B};
-	uint16 crc = Crc::Calculate(body.data(), body.size(), Crc::CRC_16_MODBUS());
+	uint16 crc = Checksum::Crc16Modbus::Calculate(body);
 	return {0x01, 0x03, 0x04, 0x00, 0x0A, 0x00, 0x0B, static_cast<uint8>(crc & 0xFF), static_cast<uint8>(crc >> 8)};
 }
 
@@ -72,7 +72,7 @@ std::array<uint8, 9> NineByteReply() {
 // An 8-byte write request (function 06) from slave 1, with the CRC from the library.
 std::array<uint8, 8> EightByteRequest() {
 	std::array<uint8, 6> body = {0x01, 0x06, 0x00, 0x01, 0x00, 0x03};
-	uint16 crc = Crc::Calculate(body.data(), body.size(), Crc::CRC_16_MODBUS());
+	uint16 crc = Checksum::Crc16Modbus::Calculate(body);
 	return {0x01, 0x06, 0x00, 0x01, 0x00, 0x03, static_cast<uint8>(crc & 0xFF), static_cast<uint8>(crc >> 8)};
 }
 
