@@ -1,5 +1,6 @@
 #pragma once
 #include <Drivers/Interface/VUB/Bytes.h>
+#include <Drivers/Interface/VUB/Drops.h>
 #include <Drivers/Interface/VUB/Layer/Reliable.h>
 #include <Drivers/Interface/VUB/Meta.h>
 #include <Drivers/Interface/VUB/Outbox.h>
@@ -98,6 +99,17 @@ struct RequestLink {
 };
 
 
+// The replies that matched no open request, counted by a layer that is Counted(). A layer that is not counted has none.
+struct LateReplyCount {
+	uint16 lateReplies = 0;
+};
+
+
+// The empty stand-in of LateReplyCount for a layer that is not Counted().
+struct NoLateReply {
+};
+
+
 // The requester side of the requests layer: the open requests, their numbers and tags, and the link state of a FailWhileDown command. The
 // layer gives its plan (the counts and flags it was built with), so a part that is off has no member of its own and takes no storage.
 template<typename Commands, typename Plan>
@@ -108,11 +120,25 @@ private:
 	[[no_unique_address]] std::conditional_t<Plan::sends, RequestNumbers, NoStorage> numbers{};
 	[[no_unique_address]] std::conditional_t<Plan::usesLink, RequestLink, NoStorage> link{};
 	[[no_unique_address]] std::conditional_t<(Plan::sends && !Plan::ownerBelow), RequestSession, NoStorage> session{};
+	[[no_unique_address]] std::conditional_t<Plan::counted, LateReplyCount, NoLateReply> late{};
 	static constexpr std::size_t requestBytes = RequestWire::RequestHeader + Commands::largestRequest;
 	static constexpr uint32 SessionStep = 0x9E37;
 
 
 public:
+	// Counts a FINAL or an INTERIM that matches no open request. A layer that is not Counted() builds no code for it.
+	void CountLate() {
+		if constexpr (Plan::counted) {
+			CountDrop(late.lateReplies);
+		}
+	}
+
+
+	// The replies that matched no open request (see CountLate).
+	uint16 LateReplies() const requires (Plan::counted) {
+		return late.lateReplies;
+	}
+
 	// Sets the first number and the first tag of the session, for a layer with no Reliable below. Each boot gives a different value. The first
 	// number is the value times SessionStep, an odd factor: different values give different first numbers, and the first numbers of values
 	// that follow each other are far apart. The first tag is the low byte of the value. The number and the tag advance together, so the
@@ -331,6 +357,8 @@ public:
 				}
 
 				slot->Close(result, status, body);
+			} else {
+				CountLate();
 			}
 		} else {
 			(void)packet;
@@ -346,6 +374,7 @@ public:
 			uint8 index = packet[4];
 			uint8 status = packet[5];
 			if (slot == nullptr) {
+				CountLate();
 				return ResultStatus::ok;
 			}
 

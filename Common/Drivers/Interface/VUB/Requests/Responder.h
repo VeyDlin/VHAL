@@ -165,7 +165,8 @@ public:
 
 
 	// Takes a REQUEST, the responder's side. A request with a reply takes a ticket, or is refused from the ring; a command with no reply runs at
-	// once, after the requests received earlier in the walk. Returns ok when the packet is consumed, and the error of a packet that is not.
+	// once, after the requests received earlier in the walk. Returns ok when the packet is consumed, busy when the refusal ring has no room
+	// for its answer in a Counted() layer (the layer counts that in refused), and the error of a packet that is not consumed.
 	ResultStatus Take(std::span<const uint8> packet) {
 		if (packet.size() < RequestWire::RequestHeader) {
 			return ResultStatus::invalidData;
@@ -184,6 +185,12 @@ public:
 			Slot* open = FindTicketByNumber(number);
 			if (open != nullptr && answers) {
 				if (open->tag != tag) {
+					if constexpr (Plan::counted) {
+						if (RingFull()) {
+							return ResultStatus::busy;
+						}
+					}
+
 					Refuse(number, tag, RequestWire::CodeBusy);
 				}
 
@@ -197,6 +204,12 @@ public:
 		}
 
 		if (answers) {
+			if constexpr (Plan::counted) {
+				if (RingFull()) {
+					return ResultStatus::busy;
+				}
+			}
+
 			Refuse(number, tag, code);
 			return ResultStatus::ok;
 		}
@@ -430,6 +443,16 @@ private:
 		}
 
 		return nullptr;
+	}
+
+
+	// True when the refusal ring has no room. A refusal then is not kept, and a Counted() layer counts it in refused.
+	bool RingFull() const {
+		if constexpr (refusalCount > 0) {
+			return refusals.used == refusalCount;
+		} else {
+			return true;
+		}
 	}
 
 
