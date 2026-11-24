@@ -30,6 +30,20 @@ using DeviceLink = VUB::Stack<+[]() {
 The layer's `Requests()` handle is the application's entry (see Calls). The layer needs a clock (`Clock<&Fn>()`), and the Reliable layer below it
 needs its session value (`SetSession`, see Reliable).
 
+## Files
+
+- `Layer/Requests.h`: the options, the Step methods, the handle, and `Take`, `Process` and the delivery hooks. It composes the two parts.
+- `Requests/Requester.h` (`RequesterOf`): the requester part. It holds the slots, the numbers and tags, the link state, and the calls
+  `Start`, `Fire`, the takes of a final and an interim, the deadlines, the outcomes and the restart.
+- `Requests/Responder.h` (`ResponderOf`): the responder part. It holds the tickets and the refusal ring, and the calls of the received requests,
+  the finals, the interims, the deadlines and the restart.
+- `Requests/Ticket.h`: `RequestId`, `TicketOps` and `Ticket`. `Requests/Wire.h`: the wire kinds, the codes and their results, and the
+  deadline compare.
+- Tests: `TestVubRequestsWire.cpp` (the bytes), `TestVubRequestsRequester.cpp`, `TestVubRequestsResponder.cpp` and `TestVubRequestsPath.cpp`
+  (chains, links and restarts). Their command set and helpers are in `.tool/sim/RequestsChains.h`.
+
+A part that is off has no storage: its member is an empty type.
+
 ## Below the layer
 
 With `VUB::Reliable` directly below, the layer takes the owner of Reliable's outcomes and restarts (`wantsOwner`), so a request learns the
