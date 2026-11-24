@@ -110,7 +110,7 @@ Each run ends with one line on standard output and an exit code:
 The line has this shape, with the values of the run in place of the angle brackets:
 
 ```
-vubcheck link=<link> sent=<n> echoed=<n> ok=<n> retried=<n> dropped=<n> mismatched=<n> duplicate=<n> unknown=<n> restarts=<n> rate=<n>/s seconds=<s> inflight=<n> seed=<seed> result=<PASS|FAIL>
+vubcheck link=<link> sent=<n> echoed=<n> ok=<n> failed=<n> retried=<n> dropped=<n> mismatched=<n> duplicate=<n> unknown=<n> restarts=<n> rate=<n>/s seconds=<s> inflight=<n> seed=<seed> result=<PASS|FAIL>
 ```
 
 | Field | Meaning |
@@ -118,6 +118,7 @@ vubcheck link=<link> sent=<n> echoed=<n> ok=<n> retried=<n> dropped=<n> mismatch
 | `sent` | payloads handed to the stack |
 | `echoed` | payloads that came back with the same number and bytes |
 | `ok` | delivery outcomes reported as ok (the acknowledgement arrived) |
+| `failed` | delivery outcomes that are not ok: `retryExhausted` (no acknowledgement after the last resend) or `reset` |
 | `retried` | outcomes that needed more than one attempt, which is the resends the delivery layer made |
 | `dropped` | frames or packets the `--loss` option dropped on the PC side |
 | `mismatched`, `duplicate`, `unknown` | echoes whose bytes are wrong, echoes that came back twice, and echoes whose number is not a payload of the run; all zero on a pass |
@@ -133,8 +134,12 @@ port that does not open. A `FAIL` run prints its counts on the same line, so the
 
 When echoes are missing (`echoed` is below `sent`) the failed run prints a second line, `board:`, with the board-side meaning. A missing echo
 is either an echo the board dropped, because its echo queue was full (`echoDropped`), or an echo it gave up on, because no acknowledgement
-came after the last resend on its side (`outcomesFailed`, with `retryExhausted`). A payload the board never received leaves no board counter,
-so then the `ok` of the PC is below `sent`. The counters are read as described in What the board shows.
+came after the last resend on its side (`outcomesFailed`, with `retryExhausted`). A payload this side gave up on (`failed`) may never have
+reached the board, and then leaves no board counter. The counters are read as described in What the board shows.
+
+A run ends when every payload has its outcome and every echo is in. When a payload was given up on, its echo may never come, so the run
+ends 3 seconds after the last outcome: the board's echoes still on their way arrive in that time. A payload given up on is no longer
+counted as in flight, so the run goes on sending.
 
 The expected result of a run without `--loss` is `sent=N echoed=N ok=N` with `retried=0`, every other count at zero, and `result=PASS`.
 A run with `--loss 5` is expected to pass with `dropped` above zero. `retried` counts the payloads this side sent again, so it is above
@@ -200,28 +205,31 @@ run needs the counters of the first subtracted, or a reset before it.
 
 ## Results
 
-Measured on 2026-11-24 on an STM32G431 with the RelSpeed image of this demo (112232 bytes of text, 14116 bytes of data and bss), and
-vubcheck built with MinGW g++ 15.2 on Windows 11. USART1 goes through a CH343 adapter (COM3); the CDC port was COM13. Each line is one
-vubcheck run; each run is a new PC stack against the board's running stack, so every run after the first on a link also checks a restart
-of the PC side.
+Measured on 2026-11-24 on an STM32G431 with the RelSpeed image of this demo (113584 bytes of text, 14124 bytes of data and bss), and
+vubcheck built with MinGW g++ 15.2 on Windows 11, with the default `--inflight 4`. USART1 goes through a CH343 adapter (COM3); the CDC port
+was COM13. Each line is one vubcheck run; each run is a new PC stack against the board's running stack, so every run after the first on a
+link also checks a restart of the PC side. After the runs without `--loss 3` the board's status block showed every echo acknowledged
+(`outcomesOk` equal to `received` on each stack) and every drop counter and UART error at zero.
 
-| Run | Sent | Echoed | ok | Retried | Dropped | Rate | Result |
-|---|---:|---:|---:|---:|---:|---:|---|
-| `uart`, twice | 200 | 200 | 200 | 0 | 0 | 256 per second | PASS |
-| `cdc`, twice | 200 | 200 | 200 | 0 | 0 | 263 to 267 per second | PASS |
-| `bulk`, twice | 200 | 200 | 200 | 0 | 0 | 263 to 268 per second | PASS |
-| `uart --count 2000` | 2000 | 2000 | 2000 | 0 | 0 | 258 per second | PASS |
-| `cdc --count 2000` | 2000 | 2000 | 2000 | 0 | 0 | 267 per second | PASS |
-| `bulk --count 2000` | 2000 | 2000 | 2000 | 0 | 0 | 270 per second | PASS |
-| `uart --loss 5` | 200 | 200 | 200 | 51 | 100 | 19 per second | PASS |
-| `cdc --loss 5` | 200 | 200 | 200 | 48 | 100 | 19 per second | PASS |
-| `bulk --loss 5` | 200 | 200 | 200 | 40 | 100 | 17 per second | PASS |
-| `bulk --loss 3 --count 500` | 500 | 498 | 498 | 375 | 498 | 4 per second | FAIL |
+| Run | Sent | Echoed | ok | Failed | Retried | Dropped | Rate | Result |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| `uart --count 2000` | 2000 | 2000 | 2000 | 0 | 0 | 0 | 260 per second | PASS |
+| `cdc --count 2000` | 2000 | 2000 | 2000 | 0 | 0 | 0 | 262 per second | PASS |
+| `bulk --count 2000` | 2000 | 2000 | 2000 | 0 | 0 | 0 | 266 per second | PASS |
+| `hid --count 2000` | 2000 | 2000 | 2000 | 0 | 0 | 0 | 345 per second | PASS |
+| `uart`, `cdc`, `bulk`, `hid` again | 200 | 200 | 200 | 0 | 0 | 0 | 253 to 347 per second | PASS |
+| `uart --loss 5` | 200 | 200 | 200 | 0 | 51 | 100 | 19 per second | PASS |
+| `cdc --loss 5` | 200 | 200 | 200 | 0 | 51 | 100 | 19 per second | PASS |
+| `bulk --loss 5` | 200 | 200 | 200 | 0 | 40 | 100 | 16 per second | PASS |
+| `hid --loss 5` | 200 | 200 | 200 | 0 | 60 | 145 | 16 per second | PASS |
+| `bulk --loss 3 --count 500` | 500 | 483 | 483 | 17 | 179 | 483 | 11 per second | FAIL |
+| `hid --loss 3 --count 500` | 500 | 493 | 493 | 7 | 107 | 599 | 10 per second | FAIL |
 
-With `--loss 3` one frame in three of the PC side is dropped, acknowledgements included, and two payloads lost all four attempts
-(`Retries(3)`): their outcome is `retryExhausted`, which the delivery layer reports for a packet it gave up on. A run at that loss rate
-needs more retries. The rate is limited by the PC loop and the window of 4 payloads in flight, not by the links. The `hid` check was
-not run: it opens the board's HID device on the PC, and waits for the owner's go-ahead.
+With `--loss 5` one frame in five of the PC side is dropped, acknowledgements included, and every payload still arrives once. With
+`--loss 3` one frame in three is dropped, and some payloads lose all four attempts of `Retries(3)`: their outcome is `retryExhausted`,
+which the delivery layer reports for a packet it gave up on, and no payload arrives twice or wrong. The drop is periodic, so a payload's
+resends can fall on dropped frames each time; a path that loses one frame in three needs more retries. The rate is limited by the PC loop
+and the window of 4 payloads in flight.
 
 ## Notes
 

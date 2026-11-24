@@ -28,6 +28,9 @@ namespace VubBoard {
 	constexpr std::uint64_t MaxInflight = 4;
 	// The largest --timeout: one day in seconds, so the run's deadline does not overflow.
 	constexpr std::uint64_t MaxTimeoutSeconds = 86400;
+	// How long a run with a payload given up on waits for the board's last echoes. The board gives an echo up after four sends of
+	// 200 ms and more each, so its echoes still on their way arrive well inside this time.
+	constexpr std::chrono::seconds EchoSettle(3);
 
 
 	struct Options {
@@ -139,8 +142,13 @@ namespace VubBoard {
 		ResultStatus sendError = ResultStatus::ok;
 		std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
 		std::chrono::steady_clock::time_point deadline = start + std::chrono::seconds(options.timeoutSeconds);
+		bool outcomesSeen = false;
+		std::chrono::steady_clock::time_point outcomesTime = start;
 		while (true) {
-			if (nextSend < check.Count() && MaySend(nextSend, check.Echoed(), options.inflight)) {
+			// A payload this side gave up on (retryExhausted) never comes back, so it is no longer in flight. A payload that failed here
+			// but reached the board may still be echoed and is then counted twice, which lets at most one payload more go out.
+			std::size_t done = check.Echoed() + outcomesFailed;
+			if (nextSend < check.Count() && MaySend(nextSend, done, options.inflight)) {
 				ResultStatus status = stack.Send(check.Payload(nextSend));
 				if (status == ResultStatus::ok) {
 					nextSend++;
@@ -156,7 +164,17 @@ namespace VubBoard {
 			}
 
 			received.clear();
-			bool finished = nextSend == check.Count() && check.Echoed() == check.Count() && outcomesOk + outcomesFailed == check.Count();
+			// The run is over when every payload has its outcome and every echo is in. With a payload given up on, its echo may never come,
+			// so the run ends EchoSettle after the last outcome: the board's echoes still on their way (its own retries) arrive in that
+			// time, and the run fails whatever comes after.
+			bool outcomesIn = nextSend == check.Count() && outcomesOk + outcomesFailed == check.Count();
+			if (outcomesIn && !outcomesSeen) {
+				outcomesSeen = true;
+				outcomesTime = std::chrono::steady_clock::now();
+			}
+
+			bool settled = outcomesFailed > 0 && outcomesSeen && std::chrono::steady_clock::now() - outcomesTime >= EchoSettle;
+			bool finished = outcomesIn && (check.Echoed() == check.Count() || settled);
 			if (finished || std::chrono::steady_clock::now() >= deadline) {
 				break;
 			}
@@ -184,16 +202,16 @@ namespace VubBoard {
 		}
 
 		std::printf(
-			"vubcheck link=%s sent=%zu echoed=%zu ok=%zu retried=%zu dropped=%zu mismatched=%zu duplicate=%zu unknown=%zu "
+			"vubcheck link=%s sent=%zu echoed=%zu ok=%zu failed=%zu retried=%zu dropped=%zu mismatched=%zu duplicate=%zu unknown=%zu "
 			"restarts=%zu rate=%.2f/s seconds=%.1f inflight=%zu seed=%lu result=%s\n",
-			options.link.c_str(), check.Count(), check.Echoed(), outcomesOk, retried, static_cast<std::size_t>(link.Dropped()),
+			options.link.c_str(), check.Count(), check.Echoed(), outcomesOk, outcomesFailed, retried, static_cast<std::size_t>(link.Dropped()),
 			check.Mismatched(), check.Duplicate(), check.Unknown(), restarts, rate, seconds, options.inflight,
 			static_cast<unsigned long>(seed), pass ? "PASS" : "FAIL");
 		if (!pass && check.Echoed() < check.Count()) {
 			std::printf(
 				"board: %zu echo(s) missing. Each one is an echo the board dropped (echoDropped in vubStatus: its echo queue of four was "
-				"full) or one it gave up on (outcomesFailed in vubStatus: retryExhausted for the echo on its side). A payload the board "
-				"never received shows no board counter: then the PC's ok is below sent. The guide has the SWD read.\n",
+				"full) or one it gave up on (outcomesFailed in vubStatus: retryExhausted for the echo on its side). A payload this side "
+				"gave up on (failed above) may never have reached the board, and then shows no board counter. The guide has the SWD read.\n",
 				check.Count() - check.Echoed());
 		}
 
