@@ -444,7 +444,90 @@ void TestReliableStackOverTheEspPort() {
 }
 
 
+// A transfer that runs when the receiver is taken back ends after the detach, and the next Write goes out. The port's Irq::Tx is
+// still handled, so the busy mark clears.
+void TestDetachWhileATransferRunsLetsTheNextWriteGoOut() {
+	FakeUart portA;
+	FakeUart portB;
+	portA.peer = &portB;
+	portB.peer = &portA;
+	UartLinkType linkA(portA);
+	UartLinkType linkB(portB);
+	FeedRecord recordA;
+	FeedRecord recordB;
+	linkA.SetReceiver(RecordReceiver(recordA));
+	linkB.SetReceiver(RecordReceiver(recordB));
+
+	std::array<uint8, 4> first = {1, 2, 3, 4};
+	SIM_EXPECT(linkA.Write(first).Value() == 4);
+	linkA.SetReceiver(VUB::Receiver());
+
+	portA.FinishTransmit();
+	std::array<uint8, 4> second = {5, 6, 7, 8};
+	SIM_EXPECT(linkA.Write(second).Value() == 4);
+	SIM_EXPECT(portA.transfersStarted == 2);
+	portA.FinishTransmit();
+	SIM_EXPECT(recordB.byteCount == 8);
+	SIM_EXPECT(recordB.bytes[0] == 1);
+	SIM_EXPECT(recordB.bytes[7] == 8);
+}
+
+
+// The same on the ESP32 port: the transfer ends inside Write, so the detach finds the link idle and the next Write runs again.
+void TestDetachAfterAnEspTransferLetsTheNextWriteGoOut() {
+	FakeUart portA;
+	FakeUart portB;
+	portA.peer = &portB;
+	portB.peer = &portA;
+	portA.completesInWrite = true;
+	portB.completesInWrite = true;
+	UartLinkType linkA(portA);
+	UartLinkType linkB(portB);
+	FeedRecord recordA;
+	FeedRecord recordB;
+	linkA.SetReceiver(RecordReceiver(recordA));
+	linkB.SetReceiver(RecordReceiver(recordB));
+
+	std::array<uint8, 4> first = {1, 2, 3, 4};
+	SIM_EXPECT(linkA.Write(first).Value() == 4);
+	linkA.SetReceiver(VUB::Receiver());
+	SIM_EXPECT(portA.onInterrupt == nullptr);
+
+	std::array<uint8, 4> second = {5, 6, 7, 8};
+	SIM_EXPECT(linkA.Write(second).Value() == 4);
+	SIM_EXPECT(portA.transfersStarted == 2);
+	SIM_EXPECT(recordB.byteCount == 8);
+}
+
+
+// A link that goes while its transfer runs stops the transfer and clears the port's callbacks, so the port calls nothing of it.
+void TestLinkGoneWhileATransferRunsLeavesThePortClear() {
+	FakeUart portA;
+	FakeUart portB;
+	portA.peer = &portB;
+	portB.peer = &portA;
+	{
+		UartLinkType linkA(portA);
+		FeedRecord recordA;
+		linkA.SetReceiver(RecordReceiver(recordA));
+		std::array<uint8, 4> bytes = {1, 2, 3, 4};
+		SIM_EXPECT(linkA.Write(bytes).Value() == 4);
+		linkA.SetReceiver(VUB::Receiver());
+		SIM_EXPECT(portA.onInterrupt != nullptr);
+	}
+
+	SIM_EXPECT(portA.transfersAborted == 1);
+	SIM_EXPECT(portA.onInterrupt == nullptr);
+	SIM_EXPECT(portA.onError == nullptr);
+	portA.FinishTransmit();
+	SIM_EXPECT(portB.bytesLost == 0);
+}
+
+
 int main() {
+	TestLinkGoneWhileATransferRunsLeavesThePortClear();
+	TestDetachWhileATransferRunsLetsTheNextWriteGoOut();
+	TestDetachAfterAnEspTransferLetsTheNextWriteGoOut();
 	TestReceiverAttachedOnlyWhenGiven();
 	TestWriteCopiesUpToTxBytesAndWaitsForTheTransfer();
 	TestEspPortCompletesInsideWrite();

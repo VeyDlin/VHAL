@@ -60,6 +60,21 @@ public:
 	}
 
 
+	// The port's callbacks capture this link, so they go with it: a transfer still running is stopped and the callbacks are cleared,
+	// so no interrupt reaches a link that is gone.
+	~UartLink() {
+		if (txRunning) {
+			uart->AbortTransmit();
+			txRunning = false;
+		}
+
+		if (hooked) {
+			uart->SetContinuousAsyncRxMode(false);
+			RemoveCallbacks();
+		}
+	}
+
+
 	// The port's callbacks capture this link, so it stays where it is.
 	UartLink(const UartLink&) = delete;
 
@@ -68,7 +83,8 @@ public:
 
 
 	// The stack gives its receiver here in its constructor, and an empty one in its destructor. An attached receiver starts the
-	// continuous receive and the callbacks. An empty one stops the receive and clears the callbacks.
+	// continuous receive and the callbacks. An empty one stops the receive. The callbacks are cleared when no transfer runs; a
+	// transfer still running keeps the Irq::Tx handling, so its end clears the busy mark and the next Write goes out.
 	void SetReceiver(Receiver value) {
 		receiver = value;
 		if (receiver.Attached()) {
@@ -76,7 +92,9 @@ public:
 			receiveStatus = uart->SetContinuousAsyncRxMode(true);
 		} else {
 			receiveStatus = uart->SetContinuousAsyncRxMode(false);
-			RemoveCallbacks();
+			if (!txRunning) {
+				RemoveCallbacks();
+			}
 		}
 	}
 

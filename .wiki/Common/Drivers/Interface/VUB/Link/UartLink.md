@@ -42,7 +42,9 @@ ended). The errors are `Error::Parity`, `Error::Noise`, `Error::Frame` and `Erro
 port's two callbacks. From then on each `Irq::Rx` feeds the one byte to the receiver with `Feed`, so the stack counts a byte it has no
 room for as `ringFull`. The link owns the port's callbacks while it has a receiver.
 
-`SetReceiver` with an empty receiver (the stack's destructor does this) stops the continuous receive and clears both callbacks.
+`SetReceiver` with an empty receiver (the stack's destructor does this) stops the continuous receive. When no transfer runs, it clears
+both callbacks. When a transfer runs, the `Irq::Tx` callback stays installed, so the end of that transfer clears the busy mark and a
+later `Write` goes out. The callbacks are cleared by the next empty `SetReceiver` that finds the link idle.
 
 `ReceiveStatus()` returns the status of the last `SetReceiver`: `ok`, or what the port refused the continuous receive with.
 
@@ -118,5 +120,6 @@ its flags and its four error counts.
 
 `TestVubUartLink.cpp` runs the link over `FakeUart`, which derives from the real `UARTAdapter<FakeUartHandle>` base, so the callbacks and
 the transfer state are the base's own. It checks the Write rules on both port behaviours, the receive path, the error counts, the
-callbacks cleared on detach, and two stacks with COBS and with `VUB::Reliable` over two ports, with a busy transfer that keeps packets in
-the stack.
+callbacks cleared on detach, a `Write` after a detach that ends a running transfer on both port behaviours, and two stacks with COBS
+and with `VUB::Reliable` over two ports, with a busy transfer that keeps packets in the stack. `TestVubLinkLoss.cpp` runs `VUB::Reliable`
+over this link with a seeded schedule that drops and flips bytes in each direction.

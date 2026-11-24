@@ -1,4 +1,5 @@
 #pragma once
+#include "LinkFaults.h"
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/ResultStatus.h>
 #include <Utilities/VSTD/utility/Delegate.h>
@@ -50,11 +51,32 @@ private:
 };
 
 
+// Puts bytes on a queue through a loss schedule. A dropped byte is taken, as a wire takes it, and never queued; a flipped one is queued
+// with a bit changed. Stops when the queue is full, and returns how many bytes it took.
+template<std::size_t Capacity>
+std::size_t PushThroughFaults(ByteQueue<Capacity>& queue, LinkFaults& faults, std::span<const uint8> bytes) {
+	std::size_t taken = 0;
+	while (taken < bytes.size() && queue.Count() < Capacity) {
+		uint8 value = bytes[taken];
+		if (faults.Byte(value) != LinkFaults::Fate::drop) {
+			queue.Push(std::span<const uint8>(&value, 1));
+		}
+
+		taken++;
+	}
+
+	return taken;
+}
+
+
 // The members of CdcAcmFunction that a link uses: Write (count queued, 0 when not configured), Read (count copied, 0 when not
 // configured), IsConfigured and IsTerminalOpen (DTR).
 template<std::size_t Capacity>
 class FakeCdc {
 public:
+	LinkFaults faults;
+
+
 	FakeCdc(ByteQueue<Capacity>& outgoingQueue, ByteQueue<Capacity>& incomingQueue) : outgoing(&outgoingQueue), incoming(&incomingQueue) {
 	}
 
@@ -64,7 +86,7 @@ public:
 			return 0;
 		}
 
-		return static_cast<uint16>(outgoing->Push(data));
+		return static_cast<uint16>(PushThroughFaults(*outgoing, faults, data));
 	}
 
 
@@ -109,6 +131,9 @@ private:
 template<std::size_t Capacity>
 class FakeBulk {
 public:
+	LinkFaults faults;
+
+
 	FakeBulk(ByteQueue<Capacity>& outgoingQueue, ByteQueue<Capacity>& incomingQueue) : outgoing(&outgoingQueue), incoming(&incomingQueue) {
 	}
 
@@ -118,7 +143,7 @@ public:
 			return 0;
 		}
 
-		return static_cast<uint16>(outgoing->Push(data));
+		return static_cast<uint16>(PushThroughFaults(*outgoing, faults, data));
 	}
 
 
@@ -155,6 +180,7 @@ template<std::size_t ReportBytes, std::size_t QueueDepth>
 class FakeHid {
 public:
 	using OutputDelegate = VSTD::Delegate<void(std::span<const uint8> report)>;
+	LinkFaults faults;
 
 
 	std::array<uint8, ReportBytes> lastReport{};
@@ -199,6 +225,18 @@ public:
 		head = (head + 1) % QueueDepth;
 		count--;
 		return true;
+	}
+
+
+	// The host takes each input report and sends it to the other function's output, through this function's loss schedule: a dropped
+	// report never arrives, and a flipped one arrives with one bit changed.
+	void DeliverInputsTo(FakeHid& other) {
+		std::array<uint8, ReportBytes> report{};
+		while (HostTake(report)) {
+			if (faults.Item(report) != LinkFaults::Fate::drop) {
+				other.DeliverOutput(report);
+			}
+		}
 	}
 
 
