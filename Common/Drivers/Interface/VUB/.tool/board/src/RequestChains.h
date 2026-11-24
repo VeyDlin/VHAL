@@ -1,0 +1,48 @@
+#pragma once
+#include "Chains.h"
+#include <Drivers/Interface/VUB/.tool/common/ActuatorCommands.h>
+#include <Drivers/Interface/VUB/Requests.h>
+#include <Utilities/DataTypes.h>
+#include <cstddef>
+#include <span>
+
+
+// The two chains of the requests check. Each one is the chain of the same link on the device (Application/DemoVub with
+// VHAL_VUB_MODE=Requests): the requests layer over Reliable with MaxPayload 32, and the framing and the transform of the link. The
+// link types are the ones of Chains.h, so --loss wraps them the same way. The requester has eight requests open at once.
+namespace VubBoard {
+	// The payloads the requests layer does not take. The check does not use them, so they are only counted.
+	inline std::size_t requestUnclaimed = 0;
+
+
+	void OnRequestPayload(const VUB::Meta&, std::span<const uint8>) {
+		requestUnclaimed++;
+	}
+
+
+	// The chain of the device's UART: CRC-16/MODBUS over the payload, then COBS.
+	using UartRequestsChain = VUB::Stack<+[] {
+		return VUB::Builder()
+			.Layer<VUB::Requests<Actuator::ActuatorCommands, VUB::Handlers<>>>().Open(8)
+			.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
+			.Transform<VUB::Crc16Modbus>()
+			.Framing<VUB::Cobs>()
+			.Link<UartLinkType>()
+			.MaxPayload(32)
+			.OnReceive<&OnRequestPayload>()
+			.Clock<&ClockUs>();
+	}>;
+
+
+	// The chain of the device's CDC-ACM serial port: COBS.
+	using CdcRequestsChain = VUB::Stack<+[] {
+		return VUB::Builder()
+			.Layer<VUB::Requests<Actuator::ActuatorCommands, VUB::Handlers<>>>().Open(8)
+			.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
+			.Framing<VUB::Cobs>()
+			.Link<CdcLinkType>()
+			.MaxPayload(32)
+			.OnReceive<&OnRequestPayload>()
+			.Clock<&ClockUs>();
+	}>;
+}
