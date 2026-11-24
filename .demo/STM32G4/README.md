@@ -40,6 +40,17 @@ time, chosen with the CMake cache variable `VHAL_DEMO`:
   `CriticalError` calls only: `SystemAssert` and `System::Abort()` do not call the handler, so after one of them the stage shows
   where it stopped. The main loop runs `server.Process()` only.
 
+- `Vub`: the VUB demo (`Application/DemoVub`), the link check of the VUB stack. It is a composite device on `1209:0007` with a
+  CDC-ACM serial port, a vendor bulk interface (WinUSB, with the interface GUID in `DemoProducts.h`) and a vendor HID interface
+  (usage page `0xFF00`, 64-byte input and output reports, no report IDs). USART1 (PA9 and PA10, COM3 on the PC) is a data line at
+  115200 8N1 with the console off. Four VUB stacks, each with `VUB::Reliable` and MaxPayload 32, echo every payload back to the
+  sender: UART with COBS and CRC-16/MODBUS, CDC-ACM with COBS, vendor bulk with `LengthPrefix<2>`, and HID with no framing. Each
+  stack's session value comes from the RNG at start-up, and from the unique ID mixed with the cycle counter when the RNG fails
+  (`sessionSource` in the status block says which). The volatile `vubStatus` block for SWD holds the stage, the serial and USB
+  results, the UART receive error counts, and for each stack the session, the payloads received and echoed, the echo refusals and
+  drops, the delivery outcomes, the last statuses and the drop counters. The PC check is `vubcheck`, in
+  `Common/Drivers/Interface/VUB/.tool/board`, described in `.wiki/Common/Drivers/Interface/VUB/.tool/board/README.md`.
+
 The demo identities (PIDs, GUIDs, vendor codes and the composite's endpoint map) are in
 `Common/Drivers/Interface/USB/.tool/common/DemoProducts.h`, which the PC tools share too. The IDs are pid.codes test values
 (`1209:0001` to `1209:0010` are test PIDs): never ship a product with them. Each demo has its own PID, because Windows caches
@@ -131,6 +142,16 @@ cmake --build build/RelSpeed-Modbus
 
 Its outputs are `build/RelSpeed-Modbus/ModbusG431.elf` and `.bin`. Flash the image with `sh flash.sh build/RelSpeed-Modbus/ModbusG431.bin`,
 then run the PC check as the RTU README describes.
+
+The VUB demo is built the same way:
+
+```sh
+cmake --preset RelSpeed -B build/RelSpeed-Vub -DVHAL_DEMO=Vub
+cmake --build build/RelSpeed-Vub
+```
+
+Its outputs are `build/RelSpeed-Vub/VubG431.elf` and `.bin`. Flash it with `sh flash.sh build/RelSpeed-Vub/VubG431.bin`, then run
+the checks of `.wiki/Common/Drivers/Interface/VUB/.tool/board/README.md`.
 
 Only the chosen demo folder is compiled and linked (`Application/Application.cpp` and `Application/Application.h` are always
 compiled). An unknown `VHAL_DEMO` stops the configure step with the list of demos. The list is the list of
