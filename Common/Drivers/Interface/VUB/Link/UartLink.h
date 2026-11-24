@@ -1,6 +1,7 @@
 #pragma once
 #include <Drivers/Interface/VUB/LinkTraits.h>
 #include <Drivers/Interface/VUB/Receiver.h>
+#include <System/System.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -31,6 +32,10 @@ struct UartErrorCounts {
 //
 // There is no direction pin: the port's RS-485 driver enable is not in this link. A receive error is counted per kind (Errors()), and
 // the bytes around it are fed as they come.
+//
+// On a dual-core part whose port calls back from a task (the ESP32 port does), the stack must not be destroyed while that task can
+// still call the callback: the detach stops the port's receive, but a callback that the task has already started runs to its end
+// after the detach, and it reads the link.
 //
 // MaxPacketBytes is the largest packet of the link, which is the stack's buffer for a packet of the framing above it.
 template<typename Uart, std::size_t TxBytes = 64, std::size_t MaxPacketBytes = 64>
@@ -85,17 +90,22 @@ public:
 	// The stack gives its receiver here in its constructor, and an empty one in its destructor. An attached receiver starts the
 	// continuous receive and the callbacks. An empty one stops the receive. The callbacks are cleared when no transfer runs; a
 	// transfer still running keeps the Irq::Tx handling, so its end clears the busy mark and the next Write goes out.
+	// An attach sets the receiver before the receive starts. A detach stops the receive and removes the callbacks first, and clears the
+	// receiver last, so the port's interrupt does not read a receiver that is being cleared.
 	void SetReceiver(Receiver value) {
-		receiver = value;
-		if (receiver.Attached()) {
+		if (value.Attached()) {
+			SetReceiverValue(value);
 			InstallCallbacks();
 			receiveStatus = uart->SetContinuousAsyncRxMode(true);
-		} else {
-			receiveStatus = uart->SetContinuousAsyncRxMode(false);
-			if (!txRunning) {
-				RemoveCallbacks();
-			}
+			return;
 		}
+
+		receiveStatus = uart->SetContinuousAsyncRxMode(false);
+		if (!txRunning) {
+			RemoveCallbacks();
+		}
+
+		SetReceiverValue(value);
 	}
 
 
@@ -153,6 +163,14 @@ public:
 
 
 private:
+	// The receiver is read in the port's interrupt, so it is written in a critical section.
+	void SetReceiverValue(Receiver value) {
+		System::CriticalSection(true);
+		receiver = value;
+		System::CriticalSection(false);
+	}
+
+
 	void InstallCallbacks() {
 		uart->SetOnInterrupt([this](typename Uart::Irq irq) {
 			OnInterrupt(irq);

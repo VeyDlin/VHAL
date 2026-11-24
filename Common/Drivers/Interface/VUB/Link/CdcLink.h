@@ -16,9 +16,10 @@ namespace VUB {
 //
 // The link is a stream, reliable and full duplex, and it reports its state. The link is up while the function is configured and the
 // host has DTR set, the signal of an open terminal. The state is sampled in Poll, which runs in Process, and the sink is told of a change
-// only. Poll reads from the function up to the receiver's room, in pieces of readChunkBytes, so the bytes stay in the function's ring
-// when the stack has no room. Write is the function's Write: it queues what the ring takes and returns 0 when the ring is full or the
-// function is not configured.
+// only. A session that ends and starts again between two samples, by a bus reset or by a deconfigure and a configure, is a fall and then
+// a rise when the link was up, because the function's session generation changed. Poll reads from the function up to the receiver's room,
+// in pieces of readChunkBytes, so the bytes stay in the function's ring when the stack has no room. Write is the function's Write: it
+// queues what the ring takes and returns 0 when the ring is full or the function is not configured.
 //
 // MaxPacketBytes is the largest packet of the link, which is the stack's buffer for a packet of the framing above it.
 template<typename Cdc, std::size_t MaxPacketBytes = 64>
@@ -35,6 +36,7 @@ private:
 	Cdc* function;
 	StateSink sink;
 	bool reportedUp = false;
+	uint32 sessionGeneration = 0;
 	std::array<uint8, readChunkBytes> readBuffer{};
 
 
@@ -46,6 +48,7 @@ public:
 	// The stack gives its state sink here. The link reports its state at once, so the stack knows it from the first Process.
 	void SetStateSink(StateSink value) {
 		sink = value;
+		sessionGeneration = function->GetSessionGeneration();
 		reportedUp = IsUp();
 		sink.Report(reportedUp);
 	}
@@ -80,8 +83,19 @@ private:
 	}
 
 
+	// A changed session generation ends the session the link was up in: a fall is reported before the state is compared, so a
+	// session that restarted between two samples is a fall and then a rise.
 	void SampleState() {
+		uint32 generation = function->GetSessionGeneration();
 		bool up = IsUp();
+		if (generation != sessionGeneration) {
+			sessionGeneration = generation;
+			if (reportedUp) {
+				reportedUp = false;
+				sink.Report(false);
+			}
+		}
+
 		if (up != reportedUp) {
 			reportedUp = up;
 			sink.Report(up);

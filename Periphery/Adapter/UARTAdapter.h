@@ -243,12 +243,32 @@ public:
 	}
 
 
+	// The mode is set before the port starts, because the receive interrupt can run as soon as it is enabled, and it reads the
+	// mode to choose between the callback and a read buffer. The mode is cleared after the port stops, so an interrupt that runs
+	// during the stop still takes the callback path. A start that fails clears the mode again.
 	ResultStatus SetContinuousAsyncRxMode(bool mode) {
-		auto status = mode ? StartContinuousAsyncRxMode() : StopContinuousAsyncRxMode();
-		if(status == ResultStatus::ok) {
-			continuousAsyncRxMode = mode;
+		if(!mode) {
+			ResultStatus stopStatus = StopContinuousAsyncRxMode();
+			if(stopStatus == ResultStatus::ok) {
+				continuousAsyncRxMode = false;
+			}
+			return stopStatus;
 		}
-		return status;
+
+		if(continuousAsyncRxMode) {
+			return ResultStatus::notAvailable;
+		}
+
+		if(rxState != ResultStatus::ready) {
+			return ResultStatus::busy;
+		}
+
+		continuousAsyncRxMode = true;
+		ResultStatus startStatus = StartContinuousAsyncRxMode();
+		if(startStatus != ResultStatus::ok) {
+			continuousAsyncRxMode = false;
+		}
+		return startStatus;
 	}
 
 

@@ -524,7 +524,39 @@ void TestLinkGoneWhileATransferRunsLeavesThePortClear() {
 }
 
 
+// The detach stops the continuous receive, then clears the receiver in a critical section of its own, after the two callbacks are
+// removed. The hook runs at each enter of a section: the first enter comes after the stop, and the detach enters three sections, two
+// for the callbacks and one for the receiver, so an interrupt that reads the receiver never sees it half written.
+void TestDetachStopsTheSourceBeforeItClearsTheReceiver() {
+	FakeUart port;
+	UartLinkType link(port);
+	FeedRecord record;
+	link.SetReceiver(RecordReceiver(record));
+
+	uint32 enters = 0;
+	uint32 stopsAtFirstEnter = 0;
+	simCriticalHook = [&](bool isEnable) {
+		if (!isEnable) {
+			return;
+		}
+
+		if (enters == 0) {
+			stopsAtFirstEnter = port.rxStops;
+		}
+		enters++;
+	};
+
+	link.SetReceiver(VUB::Receiver());
+	simCriticalHook = nullptr;
+
+	SIM_EXPECT(port.rxStops == 1);
+	SIM_EXPECT(stopsAtFirstEnter == 1);
+	SIM_EXPECT(enters == 3);
+}
+
+
 int main() {
+	TestDetachStopsTheSourceBeforeItClearsTheReceiver();
 	TestLinkGoneWhileATransferRunsLeavesThePortClear();
 	TestDetachWhileATransferRunsLetsTheNextWriteGoOut();
 	TestDetachAfterAnEspTransferLetsTheNextWriteGoOut();

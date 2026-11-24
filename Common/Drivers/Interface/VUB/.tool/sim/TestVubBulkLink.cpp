@@ -42,12 +42,17 @@ static_assert(BulkLinkType::traits.maxPacket == 64);
 struct StateRecord {
 	bool up = false;
 	uint32 reports = 0;
+	// The first reports in the order they came: history[0] is the first report.
+	bool history[8] = { false };
 };
 
 
 void RecordState(void* owner, bool up) {
 	StateRecord* record = static_cast<StateRecord*>(owner);
 	record->up = up;
+	if (record->reports < 8) {
+		record->history[record->reports] = up;
+	}
 	record->reports++;
 }
 
@@ -96,6 +101,41 @@ void TestWriteReturnsWhatTheRingTakes() {
 	SIM_EXPECT(link.Write(data).Value() == 32);
 	SIM_EXPECT(link.Write(data).Value() == 0);
 	SIM_EXPECT(ab.Count() == 32);
+}
+
+
+// A session that ends and starts again between two Polls is a fall and a rise, in that order, although the state is up at both
+// Polls. A session change while the link is down is no event.
+void TestSessionChangeBetweenPollsIsAFallAndARise() {
+	Wire ab;
+	Wire ba;
+	BulkDouble function(ab, ba);
+	BulkLinkType link(function);
+	StateRecord record;
+	link.SetStateSink(VUB::StateSink(&record, &RecordState));
+	FeedRecord feed;
+	VUB::Receiver receiver = RecordReceiver(feed);
+	function.SetConfigured(true);
+	link.Poll(receiver);
+	SIM_EXPECT(record.reports == 2);
+	SIM_EXPECT(record.up);
+
+	function.StartNewSession();
+	link.Poll(receiver);
+	SIM_EXPECT(record.reports == 4);
+	SIM_EXPECT(record.history[2] == false);
+	SIM_EXPECT(record.history[3] == true);
+	SIM_EXPECT(record.up);
+
+	function.SetConfigured(false);
+	link.Poll(receiver);
+	SIM_EXPECT(record.reports == 5);
+	SIM_EXPECT(!record.up);
+
+	function.StartNewSession();
+	link.Poll(receiver);
+	SIM_EXPECT(record.reports == 5);
+	SIM_EXPECT(!record.up);
 }
 
 
@@ -250,6 +290,7 @@ void TestReliableStackOverBulk() {
 
 int main() {
 	TestStateFollowsConfiguration();
+	TestSessionChangeBetweenPollsIsAFallAndARise();
 	TestWriteReturnsWhatTheRingTakes();
 	TestPollReadsUpToRoom();
 	TestStacksExchangeOverBulkWithFullQueues();

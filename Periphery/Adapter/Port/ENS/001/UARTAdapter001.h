@@ -218,17 +218,13 @@ protected:
 
 
 
+	// The base class sets continuousAsyncRxMode before this call, so the receive interrupt sees it as soon as it is enabled.
 	virtual ResultStatus StartContinuousAsyncRxMode() override {
-		if(continuousAsyncRxMode) {
-			return ResultStatus::notAvailable;
-		}
-
 		if (rxState != ResultStatus::ready) {
 			return ResultStatus::busy;
 		}
 
 		rxState = ResultStatus::busy;
-		continuousAsyncRxMode = true;
 
 		// Enable RX data available interrupt (IER bit 0) and RX line status interrupt (IER bit 2)
 		uartHandle->IER |= (1 << 0) | (1 << 2);

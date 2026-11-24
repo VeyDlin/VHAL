@@ -47,6 +47,12 @@ public:
 	uint32 writeByteArrayAsyncCalls = 0;
 	uint32 readByteArrayAsyncCalls = 0;
 	uint32 lastSize = 0;
+	uint32 lostBytes = 0;
+	uint32 startCalls = 0;
+	uint32 stopCalls = 0;
+	ResultStatus startStatus = ResultStatus::ok;
+	ResultStatus stopStatus = ResultStatus::ok;
+	bool byteWhileStarting = false;
 
 
 public:
@@ -56,6 +62,26 @@ public:
 	void IrqHandler() override { }
 	void AbortReceive() override { }
 	void AbortTransmit() override { }
+
+
+	// Mirrors the receive interrupt of the STM32 ports: in continuous mode the byte goes to the callback, otherwise it is
+	// written through rxDataPointer, which is null when no read is pending, and the byte is lost.
+	void ReceiveByte(uint8 data) {
+		lastRxData = data;
+
+		if (continuousAsyncRxMode) {
+			CallInterrupt(Irq::Rx);
+			return;
+		}
+
+		if (rxDataPointer == nullptr) {
+			lostBytes++;
+			return;
+		}
+
+		*rxDataPointer = data;
+		CallInterrupt(Irq::Rx);
+	}
 
 
 	// The base class keeps the counters protected; the fake sets them to check their width.
@@ -99,6 +125,28 @@ protected:
 		readByteArrayAsyncCalls++;
 		lastSize = size;
 		return ResultStatus::ok;
+	}
+
+
+	// Enabling the receive interrupt with a byte waiting raises it at once, before the port returns.
+	ResultStatus StartContinuousAsyncRxMode() override {
+		startCalls++;
+
+		if (startStatus != ResultStatus::ok) {
+			return startStatus;
+		}
+
+		if (byteWhileStarting) {
+			ReceiveByte(0xA5);
+		}
+
+		return ResultStatus::ok;
+	}
+
+
+	ResultStatus StopContinuousAsyncRxMode() override {
+		stopCalls++;
+		return stopStatus;
 	}
 };
 
@@ -169,6 +217,68 @@ void TestCounterGettersReturn32Bit() {
 }
 
 
+// The receive interrupt is enabled inside the port's start, and a byte waiting then arrives before the start returns. The
+// continuous flag must already be set at that point, so the byte reaches the callback and is not written to a null buffer.
+void TestByteArrivingDuringContinuousStartReachesCallback() {
+	FakeUartHandle handle;
+	FakeUart uart(&handle);
+	uint32 received = 0;
+
+	uart.SetOnInterrupt([&received](FakeUart::Irq) {
+		received++;
+	});
+	uart.byteWhileStarting = true;
+
+	UA_EQ(uart.SetContinuousAsyncRxMode(true), ResultStatus::ok);
+	UA_EQ(uart.startCalls, 1);
+	UA_EQ(received, 1);
+	UA_EQ(uart.lostBytes, 0);
+	UA_EQ(uart.GetLastRxData(), 0xA5);
+}
+
+
+// A start that fails leaves the port without continuous mode, so a later byte is not passed to the callback.
+void TestFailedContinuousStartClearsMode() {
+	FakeUartHandle handle;
+	FakeUart uart(&handle);
+	uint32 received = 0;
+
+	uart.SetOnInterrupt([&received](FakeUart::Irq) {
+		received++;
+	});
+	uart.startStatus = ResultStatus::busy;
+
+	UA_EQ(uart.SetContinuousAsyncRxMode(true), ResultStatus::busy);
+	uart.ReceiveByte(0x3C);
+	UA_EQ(uart.lostBytes, 1);
+	UA_EQ(received, 0);
+}
+
+
+// Stopping clears the mode, so a byte after the stop is not passed to the callback. A stop that fails keeps the mode.
+void TestContinuousStopClearsMode() {
+	FakeUartHandle handle;
+	FakeUart uart(&handle);
+	uint32 received = 0;
+
+	uart.SetOnInterrupt([&received](FakeUart::Irq) {
+		received++;
+	});
+
+	UA_EQ(uart.SetContinuousAsyncRxMode(true), ResultStatus::ok);
+	uart.stopStatus = ResultStatus::error;
+	UA_EQ(uart.SetContinuousAsyncRxMode(false), ResultStatus::error);
+	uart.ReceiveByte(0x3C);
+	UA_EQ(received, 1);
+
+	uart.stopStatus = ResultStatus::ok;
+	UA_EQ(uart.SetContinuousAsyncRxMode(false), ResultStatus::ok);
+	uart.ReceiveByte(0x3D);
+	UA_EQ(received, 1);
+	UA_EQ(uart.lostBytes, 1);
+}
+
+
 }
 
 
@@ -177,6 +287,9 @@ int main() {
 	TestSingleValueAsyncMovesOneObject();
 	TestReadMovesOneValue();
 	TestCounterGettersReturn32Bit();
+	TestByteArrivingDuringContinuousStartReachesCallback();
+	TestFailedContinuousStartClearsMode();
+	TestContinuousStopClearsMode();
 
 	if (failureCount != 0) {
 		std::fprintf(stderr, "TestUARTAdapter: %d check(s) failed\n", failureCount);

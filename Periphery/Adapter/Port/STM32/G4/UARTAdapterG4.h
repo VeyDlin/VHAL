@@ -239,11 +239,8 @@ protected:
 
 
 
+	// The base class sets continuousAsyncRxMode before this call, so the receive interrupt sees it as soon as it is enabled.
 	virtual ResultStatus StartContinuousAsyncRxMode() override {
-		if(continuousAsyncRxMode) {
-			return ResultStatus::notAvailable;
-		}
-
 		if (rxState != ResultStatus::ready) {
 			return ResultStatus::busy;
 		}

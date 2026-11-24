@@ -42,9 +42,15 @@ ended). The errors are `Error::Parity`, `Error::Noise`, `Error::Frame` and `Erro
 port's two callbacks. From then on each `Irq::Rx` feeds the one byte to the receiver with `Feed`, so the stack counts a byte it has no
 room for as `ringFull`. The link owns the port's callbacks while it has a receiver.
 
-`SetReceiver` with an empty receiver (the stack's destructor does this) stops the continuous receive. When no transfer runs, it clears
+`SetReceiver` with an empty receiver (the stack's destructor does this) stops the continuous receive first. When no transfer runs, it clears
 both callbacks. When a transfer runs, the `Irq::Tx` callback stays installed, so the end of that transfer clears the busy mark and a
-later `Write` goes out. The callbacks are cleared by the next empty `SetReceiver` that finds the link idle.
+later `Write` goes out. The callbacks are cleared by the next empty `SetReceiver` that finds the link idle. The receiver is cleared last,
+in a critical section, so the port's interrupt never reads a receiver that is being written. An attach writes the receiver the same way,
+before the receive starts.
+
+On a dual-core part whose port calls back from a task, the ESP32 port's `uart_rx` task among them, the stack must not be destroyed while
+that task can still call the callback. The detach stops the receive, but a callback that the task has already started runs to its end
+after the detach, and it reads the link.
 
 `ReceiveStatus()` returns the status of the last `SetReceiver`: `ok`, or what the port refused the continuous receive with.
 

@@ -25,6 +25,7 @@ Identical to [CdcLink](CdcLink), except for the state:
 | `Write(std::span<const uint8>)` | `Write` | main (`Process`) |
 | `Read(std::span<uint8>)` | `Poll` | main (`Process`) |
 | `IsConfigured()` | the state | main (`Process`) |
+| `GetSessionGeneration()` | the state | main (`Process`) |
 
 A vendor function has no DTR line, so the state is only whether the function is configured. The link is up as soon as the host configures
 the device, and down when the device is deconfigured or the bus is reset.

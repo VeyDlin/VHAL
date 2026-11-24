@@ -119,11 +119,24 @@ public:
 	}
 
 
+	// The session counter, as CdcAcmFunction::GetSessionGeneration gives it.
+	uint32 GetSessionGeneration() const {
+		return generation;
+	}
+
+
+	// A session that ends and starts again, as a bus reset or a deconfigure followed by a configure does.
+	void StartNewSession() {
+		generation++;
+	}
+
+
 private:
 	ByteQueue<Capacity>* outgoing;
 	ByteQueue<Capacity>* incoming;
 	bool configured = false;
 	bool terminalOpen = false;
+	uint32 generation = 0;
 };
 
 
@@ -166,10 +179,23 @@ public:
 	}
 
 
+	// The session counter, as VendorBulkFunction::GetSessionGeneration gives it.
+	uint32 GetSessionGeneration() const {
+		return generation;
+	}
+
+
+	// A session that ends and starts again, as a bus reset or a deconfigure followed by a configure does.
+	void StartNewSession() {
+		generation++;
+	}
+
+
 private:
 	ByteQueue<Capacity>* outgoing;
 	ByteQueue<Capacity>* incoming;
 	bool configured = false;
+	uint32 generation = 0;
 };
 
 
@@ -180,6 +206,24 @@ template<std::size_t ReportBytes, std::size_t QueueDepth>
 class FakeHid {
 public:
 	using OutputDelegate = VSTD::Delegate<void(std::span<const uint8> report)>;
+
+	// The largest report, as HidFunction::MaxReportLength gives it.
+	static constexpr std::size_t MaxReportLength = ReportBytes;
+
+	// The report lengths of HidFunction::Report(). The double has one input and one output report, both ReportBytes long, for
+	// every report ID.
+	struct ReportLengths {
+		std::size_t InputLength(uint8) const {
+			return ReportBytes;
+		}
+
+
+		std::size_t OutputLength(uint8) const {
+			return ReportBytes;
+		}
+	};
+
+
 	LinkFaults faults;
 
 
@@ -260,6 +304,11 @@ public:
 
 	bool HasOutputDelegate() const {
 		return static_cast<bool>(outputDelegate);
+	}
+
+
+	ReportLengths Report() const {
+		return ReportLengths();
 	}
 
 

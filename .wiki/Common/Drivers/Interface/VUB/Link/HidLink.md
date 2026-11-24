@@ -8,8 +8,9 @@ class HidLink;
 ```
 
 `Hid` is the function class: `HidFunction<QueueDepth>`, or any class with the same members. `ReportBytes` is the length of the input and
-output reports of the interface, which the function's report descriptor sets, and it is at most 256. The packet link's largest packet is
-`ReportBytes - 1`, the report without its length byte.
+output reports of the interface, which the function's report descriptor sets. It is at most 256, and at most the function's
+`MaxReportLength` when the function class has one (64 for `HidFunction`, a full-speed packet); a larger value is a compile error. The
+packet link's largest packet is `ReportBytes - 1`, the report without its length byte.
 
 ## Traits
 
@@ -41,10 +42,16 @@ must be `ReportBytes` long.
 | `SendReport(std::span<const uint8>)` | `Send` | main (`Process`) |
 | `SetOutputDelegate(OutputDelegate)` | `SetReceiver` | main, before the device starts |
 | `OutputDelegate` (`VSTD::Delegate<void(std::span<const uint8>)>`) | the output reports | interrupt |
+| `Report()`, with `InputLength(0)` and `OutputLength(0)` | `SetReceiver` | main |
+| `MaxReportLength` (optional) | the bound of `ReportBytes` | compile time |
 
 `SendReport` takes exactly `ReportBytes` bytes and returns `invalidParameter` otherwise, `notReady` before the device is configured, and
 `busy` when the queue of input reports is full. `SetOutputDelegate` returns `busy` once the device is configured, so a link that is given its
 receiver after that keeps the status in `ReceiveStatus()`.
+
+`SetReceiver` with an attached receiver first checks that the input and output reports without a report ID are `ReportBytes` long. When
+they are not, the receiver is not given to the link, no delegate is set, and `ReceiveStatus()` is `invalidParameter`, so the mismatch shows
+at the start. Sending through such a link fails with `invalidParameter` as well.
 
 ## Sending
 
@@ -61,7 +68,9 @@ receiver after that keeps the status in `ReceiveStatus()`.
 interrupt for each output report, and the link decodes the report (`HidReportPayload`) and feeds the payload to the receiver with
 `FeedPacket`. A report whose length byte is 0, or larger than `ReportBytes - 1`, is dropped without a count.
 
-`SetReceiver` with an empty receiver clears the output delegate, so no report reaches the link after the stack is gone.
+`SetReceiver` with an empty receiver clears the output delegate, so no report reaches the link after the stack is gone. The delegate is
+cleared first and the receiver after it, in a critical section, so an output report never reads a receiver that is being written. A
+function that is configured refuses the clearing: its delegate then stays, and its reports find an empty receiver, which drops them.
 
 ## Contexts
 

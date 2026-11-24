@@ -27,6 +27,7 @@ class CdcLink;
 | `Read(std::span<uint8>)` | `Poll` | main (`Process`) |
 | `IsConfigured()` | the state | main (`Process`) |
 | `IsTerminalOpen()` | the state (DTR) | main (`Process`) |
+| `GetSessionGeneration()` | the state | main (`Process`) |
 
 `Write` queues what the TX ring takes and returns the count, which is less than asked when the ring is full, and 0 while the function is
 not configured. `Read` copies what the RX ring holds, and returns 0 while the function is not configured.
@@ -38,6 +39,39 @@ port with DTR set, so the link comes up when the port is opened and goes down wh
 
 `SetStateSink` gives the link the sink of its stack. The link reports its state at once, then only when it changes. The state is sampled
 in `Poll`, so a change reaches the stack at the next `Process`, which polls first.
+
+The sample also reads the function's session generation (`GetSessionGeneration()`), which changes at every configuration and bus reset.
+A change of the generation between two samples ends the session the link was up in, so while the link is up it is reported as a fall,
+`Report(false)`, and then as a rise, `Report(true)`, when the state is up again. A session that ends and starts again between two
+`Process` calls is therefore seen, and the stack drops what it held of the old session. A session change while the link is down is no
+event.
+
+## Falls in the middle of a frame
+
+When the host clears DTR while a frame is half written, the stack rewinds the frame (under `Wait`, the default), and the frame starts
+again from its first byte when the port is open again. The function does not offer a way to drop the bytes it already took: `Write`
+queues them into the transmit ring, and the function's API has no call that clears that ring (its data is cleared only by the bus reset
+and the session start, inside the function). The bytes of the half-written frame therefore still go out when the port is opened again,
+in front of the frame that is sent again.
+
+What the peer sees depends on the framing above the link:
+
+- COBS without a leading delimiter (`Cobs`): a COBS frame starts with its first code byte and ends with a zero, and it has no zero
+  inside. The stray bytes are the start of the old frame, with no end, so they run into the new copy of the frame. The receiver takes
+  the two as one frame that does not decode, and counts a framing error (`framingError`). The packet of the rewound frame is lost with
+  it. COBS has no check of its own, so a damaged frame can come out as a packet of other bytes; a transform (a CRC) above the framing
+  is what rejects it.
+- COBS with a leading delimiter (`CobsOf<true>`): the delimiter ends the stray bytes, so they are one framing error of their own, and
+  the rewound frame arrives whole, so no packet is lost.
+
+Both results were measured with the fake function in a two-stack run: the first frame is written, the host clears DTR while the second
+is half written (27 bytes of the frame, 5 of them in the ring), and the host sets DTR again. The peer gets the first packet in both
+cases. Without the delimiter the second packet is lost and one framing error is counted; with it the second packet arrives. The fake
+function keeps the bytes in its ring across the fall. The real function clears its data on a bus reset and when the device is
+configured (`BeginSession`, `ResetSession`), not on a change of DTR. The run is on the host, not on the device.
+
+The stack does not drop the stray bytes itself, and the link does not change the function, so a framing with a leading delimiter is
+the one to use over a link that can fall in the middle of a frame.
 
 ## Receiving
 

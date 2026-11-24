@@ -15,8 +15,8 @@ namespace VUB {
 // template takes the function type, so any function with the same members works: Write, Read and IsConfigured.
 //
 // The link is a stream, reliable and full duplex, and it reports its state. A vendor function has no DTR, so the link is up while the
-// function is configured. Otherwise it is as the CDC link: the state is sampled in Poll, Poll reads up to the receiver's room, and Write
-// is the function's Write.
+// function is configured. Otherwise it is as the CDC link: the state is sampled in Poll, a session that restarted between two samples is
+// a fall and then a rise when the link was up, Poll reads up to the receiver's room, and Write is the function's Write.
 //
 // MaxPacketBytes is the largest packet of the link, which is the stack's buffer for a packet of the framing above it.
 template<typename Vendor, std::size_t MaxPacketBytes = 64>
@@ -33,6 +33,7 @@ private:
 	Vendor* function;
 	StateSink sink;
 	bool reportedUp = false;
+	uint32 sessionGeneration = 0;
 	std::array<uint8, readChunkBytes> readBuffer{};
 
 
@@ -44,6 +45,7 @@ public:
 	// The stack gives its state sink here. The link reports its state at once, so the stack knows it from the first Process.
 	void SetStateSink(StateSink value) {
 		sink = value;
+		sessionGeneration = function->GetSessionGeneration();
 		reportedUp = IsUp();
 		sink.Report(reportedUp);
 	}
@@ -78,8 +80,19 @@ private:
 	}
 
 
+	// A changed session generation ends the session the link was up in: a fall is reported before the state is compared, so a
+	// session that restarted between two samples is a fall and then a rise.
 	void SampleState() {
+		uint32 generation = function->GetSessionGeneration();
 		bool up = IsUp();
+		if (generation != sessionGeneration) {
+			sessionGeneration = generation;
+			if (reportedUp) {
+				reportedUp = false;
+				sink.Report(false);
+			}
+		}
+
 		if (up != reportedUp) {
 			reportedUp = up;
 			sink.Report(up);

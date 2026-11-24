@@ -1,3 +1,4 @@
+#include <VHAL.h>
 #include "SimCheck.h"
 #include "LinkKit.h"
 #include "UsbDoubles.h"
@@ -281,12 +282,36 @@ void TestReliableStackOverHid() {
 }
 
 
+// A link whose ReportBytes differs from the function's report length is refused at SetReceiver with invalidParameter, and no output
+// delegate is set. The function refuses every report of the other length, so the mistake shows at once.
+void TestReportBytesMustMatchTheFunctionsReports() {
+	HidDouble hid;
+	VUB::HidLink<HidDouble, 32> link(hid);
+	FeedRecord record;
+	link.SetReceiver(RecordReceiver(record));
+	SIM_EXPECT(link.ReceiveStatus() == ResultStatus::invalidParameter);
+	SIM_EXPECT(!hid.HasOutputDelegate());
+
+	hid.SetConfigured(true);
+	std::array<uint8, 3> payload = {1, 2, 3};
+	SIM_EXPECT(link.Send(payload) == ResultStatus::invalidParameter);
+	SIM_EXPECT(hid.reportsSent == 0);
+
+	FakeHid<32, 2> matchingHid;
+	VUB::HidLink<FakeHid<32, 2>, 32> matching(matchingHid);
+	FeedRecord matchingRecord;
+	matching.SetReceiver(RecordReceiver(matchingRecord));
+	SIM_EXPECT(matching.ReceiveStatus() == ResultStatus::ok);
+}
+
+
 int main() {
 	TestSendPacksTheReportByteByByte();
 	TestSendRefusesPayloadsThatDoNotFit();
 	TestNotReadyAndFullQueueAreBusy();
 	TestOutputReportsFeedThePacketsAndDropTheRest();
 	TestTakingTheReceiverBackClearsTheDelegate();
+	TestReportBytesMustMatchTheFunctionsReports();
 	TestStacksExchangeOverHidWithBusyReports();
 	TestReliableStackOverHid();
 	return SimFinish("TestVubHidLink");
