@@ -31,8 +31,9 @@ Members: `Open(vendorId, productId, usagePage)`, `Close()`, `IsOpen()`, `Send(sp
    report. The read and the write use the length the caps give.
 4. One overlapped `ReadFile` of an input report is pending into the link's buffer. A report that is complete is held until the receiver has
    room, then fed as a packet.
-5. `Send` writes the output report with an overlapped `WriteFile`. It returns `busy` while the previous write is pending, and `ok` once the
-   report is on its way.
+5. `Send` checks the previous write first. It returns `busy` while that write is pending, and the packet is packed into the output report
+   only once the previous write has completed, so a report on its way is never overwritten. Otherwise it packs the packet and starts an
+   overlapped `WriteFile`, and returns `ok` once the report is on its way.
 
 ## Linux: hidraw
 
@@ -47,8 +48,10 @@ report without that byte. This is not yet checked on a device.
 
 ## Errors
 
-A read or write that fails closes the device and reports down. `Open` returns `notFound` when no device matches the IDs, the usage page and
-(on Windows) the report lengths. A device that is found but cannot be opened gives `deviceOrResourceBusy`.
+A read or write that fails closes the device and reports down, and no I/O path waits. On Windows the transfers in flight are cancelled, and
+`Poll` frees the handles once they have completed. `Close` waits up to 200 ms for the transfers in flight, and the destructor waits until
+they have completed. `Open` returns `busy` while such a release is still open. `Open` returns `notFound` when no device matches the IDs, the
+usage page and (on Windows) the report lengths. A device that is found but cannot be opened gives `deviceOrResourceBusy`.
 
 ## Snippet
 

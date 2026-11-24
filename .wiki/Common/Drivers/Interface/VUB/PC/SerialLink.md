@@ -52,9 +52,11 @@ the `\\.\` form, which `PathOf` adds. On Linux, a name without a slash is taken 
 ## States
 
 - `Open` reports up. `Close` reports down when the port was open.
-- An I/O error in `Poll` or `Write` (a read that returns an error or end of file, a write that fails) closes the port and reports down.
-  `Open` again brings the link up.
-- `Open` on a link that is open closes it first.
+- An I/O error in `Poll` or `Write` (a read that returns an error or end of file, a write that fails) closes the port and reports down,
+  without waiting. On Windows the transfers in flight are cancelled, and `Poll` frees the handles once they have completed. `Open` again
+  brings the link up.
+- `Close` waits up to 200 ms for the transfers in flight. The destructor waits until they have completed.
+- `Open` on a link that is open closes it first. It returns `busy` while a release from an earlier close is still waiting.
 
 ## Snippet
 

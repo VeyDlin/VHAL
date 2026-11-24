@@ -31,7 +31,7 @@ satisfies `VUB::StreamLink`, `VUB::PollingLink` and `VUB::ReportingLink`.
 4. One overlapped `WinUsb_ReadPipe` of 64 bytes is always pending, into the link's buffer. `Poll` takes the completed read with
    `WinUsb_GetOverlappedResult` and feeds up to the receiver's room; the next read starts once every byte is fed.
 5. `Write` copies up to 64 bytes into the link's buffer and starts an overlapped `WinUsb_WritePipe`. It returns zero while the previous write
-   is pending. A failed read or write closes the device.
+   is pending. A failed read or write reports down and cancels the transfers in flight; `Poll` releases the device once they have completed.
 
 ## Linux: libusb
 
@@ -39,8 +39,18 @@ satisfies `VUB::StreamLink`, `VUB::PollingLink` and `VUB::ReportingLink`.
    when a serial is given.
 2. `libusb_open` and `libusb_claim_interface` for the interface number.
 3. Asynchronous bulk transfers with the link's buffers: one IN transfer is always in flight, and an OUT transfer is in flight while a write
-   is pending. `Poll` and `Write` run `libusb_handle_events_timeout_completed` with a zero timeout, so they never wait. `Close` cancels the
-   transfers and waits up to one second for the cancellation, then releases the interface.
+   is pending. `Poll` and `Write` run `libusb_handle_events_timeout_completed` with a zero timeout, so they never wait. A failed transfer
+   reports down and cancels the transfers in flight; `Poll` frees the transfers, releases the interface and closes the handle once the
+   cancelled transfers have completed.
+
+## Closing
+
+- `Close` cancels the transfers in flight and waits up to 200 ms for them. A transfer still in flight after that is released by `Poll`,
+  which frees the handles once it has completed. `Close` never waits longer than 200 ms.
+- A failed read or write, reported from `Poll` or `Write`, does not wait at all: it cancels and reports down, and the release is finished
+  by `Poll`.
+- `Open` returns `busy` while a release from an earlier close or failure is still waiting for its transfers. The destructor waits until
+  every transfer has completed, because the transfers write into the link's own buffers until then.
 
 ## Snippet
 

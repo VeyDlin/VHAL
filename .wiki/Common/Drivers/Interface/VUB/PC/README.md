@@ -44,6 +44,21 @@ calls them:
   `Listen`.
 - A link whose `Open` fails stays closed, and `Open` closes a link that is open before it opens it again.
 
+## Closing with transfers in flight
+
+A link on Windows (overlapped I/O) or Linux (libusb transfers) can have a transfer that the OS still writes into. Its buffer is the
+link's own, so the link frees nothing until the transfer has completed. The release is shared by the links and kept in
+`PC/TransferRelease.h`:
+
+- An I/O path (a read or write that fails in `Poll`, `Write` or `Send`) cancels the transfers and does not wait. Poll finishes the
+  release once they have completed.
+- `Close` waits up to 200 ms for the transfers in flight, then leaves the rest to `Poll`.
+- The destructor waits until every transfer has completed.
+- `Open` returns `busy` while an earlier release still waits.
+
+A TCP link and the Linux links of a serial port or hidraw node have no transfer in flight, so their release is immediate. The Windows
+serial, HID and bulk links have overlapped reads and writes and follow the rules above.
+
 ## Libraries to link
 
 Each test names its libraries per system, and the same names are what an application links.
@@ -73,4 +88,7 @@ itself, without that macro, before a PC header gets the full Windows header, and
 The tests are in `Common/Drivers/Interface/VUB/.tool/sim/`. They never open a device, a serial port or a USB interface. The TCP tests bind
 `127.0.0.1` and let the system pick the port. The serial test on Linux uses a pseudo-terminal pair (`openpty`). The bulk and HID tests are
 compiled on both systems and check their pure parts (the serial match, the GUID text, the report layout, the usage page) as plain
-functions. The snippets of these pages are compiled by `TestVubPcWiki.cpp`.
+functions. `TestVubPcRelease.cpp` checks the release (`TransferRelease.h`) with a fake handle layer: the waits, the bound of 200 ms, and that
+the handles are never freed while a transfer is in flight. `TestVubPcHidRelease.cpp` (Windows) checks that a `Send` while a report is on its
+way is busy and leaves the report's buffer alone, and that `Close` returns within the bound with the handles kept. The snippets of these pages
+are compiled by `TestVubPcWiki.cpp`.

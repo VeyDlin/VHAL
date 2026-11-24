@@ -186,6 +186,12 @@ public:
 	}
 
 
+	// Whether a connection started by Connect is still completing. It is false once Poll has seen it come up or fail.
+	bool IsConnecting() const {
+		return connecting;
+	}
+
+
 	void SetStateSink(StateSink value) {
 		sink = value;
 	}
@@ -286,21 +292,35 @@ private:
 	}
 
 
-	// Looks at a connection that is completing: when the socket is writable, the connection is up, or it failed and is closed.
+	// Looks at a connection that is completing: when the socket is writable, the connection is up. A failed connect is closed. Winsock
+	// reports a failed connect in the except set and not in the writable set, so the except set is watched there too. Linux reports
+	// a failed connect as writable, and SO_ERROR tells the two apart.
 	void CheckConnect() {
 		fd_set writable;
+		fd_set failed;
 		FD_ZERO(&writable);
+		FD_ZERO(&failed);
 		FD_SET(connection, &writable);
+#if defined(_WIN32)
+		FD_SET(connection, &failed);
+		fd_set* failedSet = &failed;
+#else
+		fd_set* failedSet = nullptr;
+#endif
 		timeval wait{};
-		int ready = select(static_cast<int>(connection) + 1, nullptr, &writable, nullptr, &wait);
+		int ready = select(static_cast<int>(connection) + 1, nullptr, &writable, failedSet, &wait);
 		if (ready == 0) {
 			return;
 		}
 
 		connecting = false;
+		bool refused = ready < 0;
+#if defined(_WIN32)
+		refused = refused || FD_ISSET(connection, &failed) != 0;
+#endif
 		int error = 0;
 		socklen_t length = static_cast<socklen_t>(sizeof(error));
-		if (ready < 0 || getsockopt(connection, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&error), &length) != 0 || error != 0) {
+		if (refused || getsockopt(connection, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&error), &length) != 0 || error != 0) {
 			CloseConnection();
 			return;
 		}

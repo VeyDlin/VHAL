@@ -7,15 +7,17 @@ Header: `Common/Drivers/Interface/VUB/PC/TcpLink.h`. Namespace `VUB::PC`. See th
 
 `LinkTraits().Reliable().FullDuplex().ReportsState().MaxPacket(256)`. A stream link, reliable. The link is up while a peer is connected.
 
-Members: `Connect(host, port)`, `Listen(address, port)`, `BoundPort()`, `Close()`, `IsConnected()`, `Write(span)` (a `Result<std::size_t>`),
-`Poll(Receiver)`, `SetStateSink(StateSink)`. It satisfies `VUB::StreamLink`, `VUB::PollingLink` and `VUB::ReportingLink`.
+Members: `Connect(host, port)`, `Listen(address, port)`, `BoundPort()`, `Close()`, `IsConnected()`, `IsConnecting()`, `Write(span)` (a
+`Result<std::size_t>`), `Poll(Receiver)`, `SetStateSink(StateSink)`. It satisfies `VUB::StreamLink`, `VUB::PollingLink` and `VUB::ReportingLink`.
 
 ## Client and listener
 
 - `Connect(host, port)` starts a connection. The host is an address or a name. A name is resolved with `getaddrinfo` in the call, which
   can wait for the resolver, so an address literal is the one to use where waiting matters. The connection completes in `Poll`: a
   non-blocking `connect` that returns in progress is finished by a `select` with a zero timeout and a read of `SO_ERROR`. The link is up
-  from then. A connection that is refused never comes up, and `Connect` is called again to try once more.
+  from then. A connection that is refused is closed by `Poll`: `IsConnecting()` turns false, `IsConnected()` stays false, and `Connect` is
+  called again to try once more. On Windows a refused connect is seen in the except set of the `select`, and on Linux in the writable set
+  with `SO_ERROR` set.
 - `Listen(address, port)` binds an IPv4 address (for example `127.0.0.1`) and listens with a backlog of one. A port of zero lets the system
   pick; `BoundPort()` reads it back. The listener accepts one peer in `Poll` whenever no peer is connected. When the peer goes away the
   listener keeps listening, so the next peer is accepted without a new `Listen`.
@@ -88,5 +90,6 @@ void RunClient() {
 
 `TestVubPcTcp.cpp` runs two stacks on `127.0.0.1`, a listener and a client, with COBS framing on Windows and on Linux. It checks that a packet
 crosses each way with the same bytes, that a client that closes is seen as down by the listener, that the client connects again and the
-listener accepts it without a new `Listen`, and that a connection to a port with nothing listening never comes up. `TestVubPcTcpReliable.cpp`
+listener accepts it without a new `Listen`, and that a connection to a port with nothing listening is refused within 200 `Process` steps
+(the link is no longer connecting and is not up), and that `Connect` then comes up on a listener. `TestVubPcTcpReliable.cpp`
 carries three packets each way with `VUB::Reliable` over the same link.

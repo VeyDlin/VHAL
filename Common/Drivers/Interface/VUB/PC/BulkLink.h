@@ -1,6 +1,7 @@
 #pragma once
 #include <Drivers/Interface/VUB/LinkState.h>
 #include <Drivers/Interface/VUB/LinkTraits.h>
+#include <Drivers/Interface/VUB/PC/TransferRelease.h>
 #include <Drivers/Interface/VUB/Receiver.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
@@ -37,7 +38,11 @@ namespace VUB::PC {
 //
 // Reads and writes are asynchronous with the link's own buffers: one read is always pending (overlapped on Windows, a transfer on
 // Linux), and a write is pending until its transfer completes. Poll never waits; on Linux it handles the transfers with a zero
-// timeout. A read or write that fails reports the link down and closes the device; Open again to come back. The link is reliable.
+// timeout. A read or write that fails reports the link down and closes the device without waiting: the transfers in flight are
+// cancelled, and Poll releases the device once they have completed. Open again to come back. The link is reliable.
+//
+// Close waits up to 200 ms for the transfers in flight; one still in flight after that is released by Poll. The destructor waits until
+// every transfer has completed. Open returns busy while an earlier release is still waiting for its transfers.
 class BulkLink {
 public:
 	// The device to open. Windows uses interfaceGuid, serial, inEndpoint and outEndpoint. Linux uses vendorId, productId,
@@ -57,6 +62,38 @@ public:
 
 
 private:
+	// The handle layer of a release of this link (see TransferRelease).
+	class ReleaseLayer {
+	public:
+		explicit ReleaseLayer(BulkLink& linkObject) : link(linkObject) {
+		}
+
+
+		void CancelAll() {
+			link.CancelTransfers();
+		}
+
+
+		bool InFlight() const {
+			return link.TransfersInFlight();
+		}
+
+
+		void Progress(uint32 milliseconds) {
+			link.ProgressTransfers(milliseconds);
+		}
+
+
+		void Free() {
+			link.FreeHandles();
+		}
+
+
+	private:
+		BulkLink& link;
+	};
+
+
 	static constexpr std::size_t transferBytes = 64;
 	StateSink sink;
 	bool portOpen = false;
@@ -66,6 +103,7 @@ private:
 	std::array<std::uint8_t, transferBytes> writeBuffer{};
 	std::size_t readOffset = 0;
 	std::size_t readAvailable = 0;
+	TransferRelease<ReleaseLayer> release;
 #if defined(_WIN32)
 	HANDLE device = INVALID_HANDLE_VALUE;
 	WINUSB_INTERFACE_HANDLE usb = nullptr;
@@ -100,7 +138,7 @@ public:
 
 
 	~BulkLink() {
-		Release();
+		Shut(ReleaseWait::Unbounded);
 	}
 
 
@@ -152,9 +190,14 @@ public:
 #endif
 
 
-	// Opens the device. Returns ok when the device is open and up; an error otherwise, and the link stays closed.
+	// Opens the device. Returns ok when the device is open and up; an error otherwise, and the link stays closed. Returns busy while an
+	// earlier release still waits for its transfers.
 	ResultStatus Open(const Settings& settings) {
 		Close();
+		if (release.Closing()) {
+			return ResultStatus::busy;
+		}
+
 		inPipe = settings.inEndpoint;
 		outPipe = settings.outEndpoint;
 #if defined(_WIN32)
@@ -177,7 +220,7 @@ public:
 
 		if (!WinUsb_Initialize(device, &usb)) {
 			usb = nullptr;
-			Release();
+			Shut(ReleaseWait::None);
 			return ResultStatus::ioError;
 		}
 
@@ -226,14 +269,14 @@ public:
 
 		libusb_free_device_list(devices, 1);
 		if (handle == nullptr) {
-			Release();
+			Shut(ReleaseWait::None);
 			return result;
 		}
 
 		readTransfer = libusb_alloc_transfer(0);
 		writeTransfer = libusb_alloc_transfer(0);
 		if (readTransfer == nullptr || writeTransfer == nullptr) {
-			Release();
+			Shut(ReleaseWait::None);
 			return ResultStatus::outOfMemory;
 		}
 #endif
@@ -248,10 +291,11 @@ public:
 	}
 
 
-	// Closes the device. Reports down when it was up.
+	// Closes the device. Waits up to 200 ms for the transfers in flight; one still in flight after that is released by Poll. Reports down
+	// when it was up.
 	void Close() {
 		bool wasOpen = portOpen;
-		Release();
+		Shut(ReleaseWait::Bounded);
 		if (wasOpen) {
 			sink.Report(false);
 		}
@@ -270,6 +314,8 @@ public:
 
 	// Feeds the bytes that have arrived, up to the receiver's room, and starts the next read. Never waits.
 	void Poll(Receiver receiver) {
+		ReleaseLayer layer(*this);
+		release.Finish(layer, ReleaseWait::None);
 		if (!portOpen) {
 			return;
 		}
@@ -343,7 +389,7 @@ private:
 		DWORD got = 0;
 		if (!WinUsb_GetOverlappedResult(usb, &readOverlapped, &got, FALSE)) {
 			if (GetLastError() != ERROR_IO_INCOMPLETE) {
-				Close();
+				Abort();
 			}
 
 			return;
@@ -359,7 +405,7 @@ private:
 
 		readArrived = false;
 		if (readStatus != static_cast<int>(LIBUSB_TRANSFER_COMPLETED)) {
-			Close();
+			Abort();
 			return;
 		}
 
@@ -385,7 +431,7 @@ private:
 		readOverlapped = OVERLAPPED{};
 		readOverlapped.hEvent = readEvent;
 		if (!WinUsb_ReadPipe(usb, inPipe, readBuffer.data(), static_cast<ULONG>(readBuffer.size()), nullptr, &readOverlapped) && GetLastError() != ERROR_IO_PENDING) {
-			Close();
+			Abort();
 			return;
 		}
 
@@ -393,7 +439,7 @@ private:
 #else
 		libusb_fill_bulk_transfer(readTransfer, handle, inPipe, readBuffer.data(), static_cast<int>(readBuffer.size()), &OnReadDone, this, 0);
 		if (libusb_submit_transfer(readTransfer) != 0) {
-			Close();
+			Abort();
 			return;
 		}
 
@@ -413,7 +459,7 @@ private:
 		DWORD sent = 0;
 		if (!WinUsb_GetOverlappedResult(usb, &writeOverlapped, &sent, FALSE)) {
 			if (GetLastError() != ERROR_IO_INCOMPLETE) {
-				Close();
+				Abort();
 			}
 
 			return false;
@@ -425,7 +471,7 @@ private:
 		if (writeArrived) {
 			writeArrived = false;
 			if (writeStatus != static_cast<int>(LIBUSB_TRANSFER_COMPLETED)) {
-				Close();
+				Abort();
 				return false;
 			}
 		}
@@ -441,7 +487,7 @@ private:
 		writeOverlapped = OVERLAPPED{};
 		writeOverlapped.hEvent = writeEvent;
 		if (!WinUsb_WritePipe(usb, outPipe, writeBuffer.data(), static_cast<ULONG>(count), nullptr, &writeOverlapped) && GetLastError() != ERROR_IO_PENDING) {
-			Close();
+			Abort();
 			return false;
 		}
 
@@ -450,7 +496,7 @@ private:
 #else
 		libusb_fill_bulk_transfer(writeTransfer, handle, outPipe, writeBuffer.data(), static_cast<int>(count), &OnWriteDone, this, 0);
 		if (libusb_submit_transfer(writeTransfer) != 0) {
-			Close();
+			Abort();
 			return false;
 		}
 
@@ -461,23 +507,94 @@ private:
 	}
 
 
-	// Stops the transfers, gives the device back and forgets what it held. Does not report.
-	void Release() {
+	// Closes the device from an I/O path. It cancels the transfers in flight and does not wait: Poll releases the device once they have
+	// completed. Reports down when it was up.
+	void Abort() {
+		bool wasOpen = portOpen;
+		Shut(ReleaseWait::None);
+		if (wasOpen) {
+			sink.Report(false);
+		}
+	}
+
+
+	// Stops the link: no more transfers, and the handles are freed once no transfer is in flight, waiting as the wait allows. Does not report.
+	void Shut(ReleaseWait wait) {
 		portOpen = false;
 		readOffset = 0;
 		readAvailable = 0;
+		ReleaseLayer layer(*this);
+		release.Begin(layer);
+		release.Finish(layer, wait);
+	}
+
+
+	// Cancels the transfers in flight. Their completion is seen later through TransfersInFlight.
+	void CancelTransfers() {
 #if defined(_WIN32)
 		if (usb != nullptr) {
 			WinUsb_AbortPipe(usb, inPipe);
 			WinUsb_AbortPipe(usb, outPipe);
-			if (readPending) {
-				WaitForSingleObject(readEvent, 200);
-			}
+		}
+#else
+		if (readInFlight) {
+			libusb_cancel_transfer(readTransfer);
+		}
 
-			if (writePending) {
-				WaitForSingleObject(writeEvent, 200);
-			}
+		if (writeInFlight) {
+			libusb_cancel_transfer(writeTransfer);
+		}
+#endif
+	}
 
+
+	// Whether a transfer is still in flight when this is called. Never waits.
+	bool TransfersInFlight() const {
+#if defined(_WIN32)
+		bool readWaiting = readPending && !HasOverlappedIoCompleted(&readOverlapped);
+		bool writeWaiting = writePending && !HasOverlappedIoCompleted(&writeOverlapped);
+		return readWaiting || writeWaiting;
+#else
+		return readInFlight || writeInFlight;
+#endif
+	}
+
+
+	// Handles the completions that are ready, waiting up to the given time for the transfers in flight (zero does not wait).
+	void ProgressTransfers(uint32 milliseconds) {
+#if defined(_WIN32)
+		HANDLE waitFor[2] = {nullptr, nullptr};
+		DWORD count = 0;
+		if (readPending && !HasOverlappedIoCompleted(&readOverlapped)) {
+			waitFor[count] = readEvent;
+			count++;
+		}
+
+		if (writePending && !HasOverlappedIoCompleted(&writeOverlapped)) {
+			waitFor[count] = writeEvent;
+			count++;
+		}
+
+		if (count > 0) {
+			WaitForMultipleObjects(count, waitFor, TRUE, milliseconds);
+		}
+#else
+		if (context == nullptr) {
+			return;
+		}
+
+		timeval wait{};
+		wait.tv_sec = static_cast<time_t>(milliseconds / 1000);
+		wait.tv_usec = static_cast<suseconds_t>((milliseconds % 1000) * 1000);
+		libusb_handle_events_timeout_completed(context, &wait, nullptr);
+#endif
+	}
+
+
+	// Frees the device and its handles. Called only when no transfer is in flight.
+	void FreeHandles() {
+#if defined(_WIN32)
+		if (usb != nullptr) {
 			WinUsb_Free(usb);
 			usb = nullptr;
 		}
@@ -500,21 +617,6 @@ private:
 		readPending = false;
 		writePending = false;
 #else
-		if (context != nullptr) {
-			if (readInFlight) {
-				libusb_cancel_transfer(readTransfer);
-			}
-
-			if (writeInFlight) {
-				libusb_cancel_transfer(writeTransfer);
-			}
-
-			for (int tries = 0; tries < 100 && (readInFlight || writeInFlight); tries++) {
-				timeval wait{0, 10000};
-				libusb_handle_events_timeout_completed(context, &wait, nullptr);
-			}
-		}
-
 		if (readTransfer != nullptr) {
 			libusb_free_transfer(readTransfer);
 			readTransfer = nullptr;

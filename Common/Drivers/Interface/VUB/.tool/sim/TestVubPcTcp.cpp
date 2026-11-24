@@ -159,7 +159,8 @@ inline void DisconnectAndReconnect() {
 }
 
 
-// A connection to a port with nothing listening never comes up.
+// A connection to a port with nothing listening is refused: within a bounded number of steps the link is no longer connecting, and it is
+// not up. Connect then works again on the same link, and a connection to a listener comes up.
 inline void RefusedConnect() {
 	VUB::PC::TcpLink probe;
 	SIM_EXPECT(probe.Listen("127.0.0.1", 0) == ResultStatus::ok);
@@ -169,13 +170,22 @@ inline void RefusedConnect() {
 	VUB::PC::TcpLink lonelyLink;
 	TcpStack lonelyStack(lonelyLink);
 	SIM_EXPECT(lonelyLink.Connect("127.0.0.1", port) == ResultStatus::ok);
-	for (int step = 0; step < 200; step++) {
+	bool settled = false;
+	for (int step = 0; step < 200 && !settled; step++) {
 		lonelyStack.Process();
+		settled = !lonelyLink.IsConnecting();
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
 
+	SIM_EXPECT(settled);
 	SIM_EXPECT(!lonelyLink.IsConnected());
 	SIM_EXPECT(!lonelyStack.LinkUp());
+
+	VUB::PC::TcpLink listenerLink;
+	TcpStack serverStack(listenerLink);
+	SIM_EXPECT(listenerLink.Listen("127.0.0.1", 0) == ResultStatus::ok);
+	SIM_EXPECT(lonelyLink.Connect("127.0.0.1", listenerLink.BoundPort()) == ResultStatus::ok);
+	SIM_EXPECT(WaitUp(serverStack, lonelyStack));
 }
 
 
