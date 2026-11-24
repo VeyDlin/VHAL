@@ -312,7 +312,8 @@ public:
 
 
 	// Takes a FINAL of one of this layer's requests. A FINAL closes its request, and its handler is called here, with the body the packet has.
-	// A bad body or status closes it as invalidData; a late or duplicate final is dropped. The packet has its error size at least.
+	// A bad body or status closes it as invalidData; a late or duplicate final is dropped. The packet has its error size at least, and its status
+	// when its code is ok.
 	void TakeFinal(std::span<const uint8> packet) {
 		if constexpr (Plan::openCount > 0) {
 			Slot* slot = FindOpen(GetLe16(packet.data() + 1), packet[3]);
@@ -323,7 +324,7 @@ public:
 				std::span<const uint8> body;
 				if (code != RequestWire::CodeOk) {
 					result = RequestWire::ResultOfCode(code);
-				} else if (packet.size() < RequestWire::FinalHeader || packet[5] >= RequestWire::StatusReservedFrom) {
+				} else if (packet[5] >= RequestWire::StatusReservedFrom) {
 					result = ResultStatus::invalidData;
 				} else {
 					status = packet[5];
