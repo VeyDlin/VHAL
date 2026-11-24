@@ -12,7 +12,7 @@ USB interface or a HID device, so a run is done by hand, against a board that is
 ## Build
 
 The program needs CMake and a C++20 compiler: MinGW g++ on Windows, g++ on Linux. It links only system libraries: `winusb`, `setupapi`,
-`cfgmgr32` and `hid` on Windows, `libusb-1.0` on Linux. Build in a folder of your own:
+`cfgmgr32`, `hid` and `winmm` on Windows, `libusb-1.0` on Linux. Build in a folder of your own:
 
 ```sh
 cmake -G Ninja -DCMAKE_CXX_COMPILER=g++ -B build/vubcheck Common/Drivers/Interface/VUB/.tool/board
@@ -20,7 +20,7 @@ cmake --build build/vubcheck
 ```
 
 On Windows the result is `build/vubcheck/vubcheck.exe`. It is linked statically, so it imports only Windows system DLLs (HID, SETUPAPI,
-WINUSB, KERNEL32 and MSVCRT). The build has no warnings with `-Wall -Wextra`.
+WINUSB, WINMM, KERNEL32 and MSVCRT). The build has no warnings with `-Wall -Wextra`.
 
 ## Flash
 
@@ -68,6 +68,7 @@ The `hid` run opens the board's HID device on the PC. Run it only after the owne
 | `--count N` | 200 | payloads to send |
 | `--seed N` | from the random device | seed of the payload sizes and contents; printed in the summary, so a run can be repeated |
 | `--loss K` | 0 | on the PC side, drop every K-th outgoing frame (serial and bulk) or packet (HID); a dropped frame is not sent, so the board's delivery layer must resend it |
+| `--inflight N` | 4 | payloads sent and not yet echoed at once, 1 or more; see Pacing |
 | `--timeout S` | 120 | seconds to wait for every echo and every outcome |
 
 A payload is 3 to 32 bytes: two bytes of number, then random bytes. The sizes and the contents come from the seed.
@@ -76,6 +77,29 @@ A payload is 3 to 32 bytes: two bytes of number, then random bytes. The sizes an
 is whole, then drops or sends it, so the framing on the wire stays intact. The frame ends are the COBS zero byte for `uart` and `cdc`, and
 the header of `LengthPrefix<2>` for `bulk`. A dropped frame is counted in `dropped`.
 
+## Pacing
+
+A run keeps at most `--inflight` payloads in flight. A payload is in flight from its send until its echo is checked. The default, 4, is
+the delivery layer's window of the PC chain (`Window(4)`), and it is the number of echoes the board can keep.
+
+The limit protects the board's echo queue. The board keeps each payload it receives in its echo queue, which has four slots
+(`EchoSlots` in `.demo/STM32G4/Application/DemoVub/DemoVub.cpp`), until the echo goes to its delivery layer. The delivery layer limits the
+packets it has not yet acknowledged, not the payloads that have not yet been echoed. Without the limit, the PC sends as fast as the window
+takes payloads, so the board receives payloads faster than it echoes them. With `--loss`, some of the board's echoes are not acknowledged
+and the board resends them, so its echo sends wait, its queue fills, and it drops payloads (`echoDropped`). The run then fails on the
+echo queue, and the delivery layer's resends are not what it checks. With the limit at 4, at most four payloads wait in the board's queue,
+so a run with `--loss` checks the delivery layer's resends. A larger value tests the queue on purpose.
+
+## Timing
+
+The run loop sleeps 1 ms between rounds, and each round sends at most one payload. On Windows a sleep lasts the system timer period, 15.6 ms
+unless a process asks for a finer one, which would hold the loop to about 64 rounds a second. The run asks for a 1 ms period with
+`timeBeginPeriod(1)` when it starts and gives it back with `timeEndPeriod(1)` when it ends (the program links `winmm`).
+
+The `rate` of the summary is the echoes per second over the whole run, from the start of the loop to its end. It is measured on the PC, so it
+includes the loop's pace: with the 1 ms period the loop sends at most about 1000 payloads a second, and the rate is at most that. The rate
+shows the speed of this run through this loop and this link. It does not show the capacity of the link.
+
 ## The summary
 
 Each run ends with one line on standard output and an exit code:
@@ -83,7 +107,7 @@ Each run ends with one line on standard output and an exit code:
 The line has this shape, with the values of the run in place of the angle brackets:
 
 ```
-vubcheck link=<link> sent=<n> echoed=<n> ok=<n> retried=<n> dropped=<n> mismatched=<n> duplicate=<n> unknown=<n> restarts=<n> rate=<n>/s seconds=<s> seed=<seed> result=<PASS|FAIL>
+vubcheck link=<link> sent=<n> echoed=<n> ok=<n> retried=<n> dropped=<n> mismatched=<n> duplicate=<n> unknown=<n> restarts=<n> rate=<n>/s seconds=<s> inflight=<n> seed=<seed> result=<PASS|FAIL>
 ```
 
 | Field | Meaning |
@@ -95,18 +119,25 @@ vubcheck link=<link> sent=<n> echoed=<n> ok=<n> retried=<n> dropped=<n> mismatch
 | `dropped` | frames or packets the `--loss` option dropped on the PC side |
 | `mismatched`, `duplicate`, `unknown` | echoes whose bytes are wrong, echoes that came back twice, and echoes whose number is not a payload of the run; all zero on a pass |
 | `restarts` | times the peer lost the session, so the delivery layer started a new one |
-| `rate` | echoes per second over the run |
+| `rate` | echoes per second over the run, measured on the PC; see Timing |
 | `seconds` | the length of the run |
+| `inflight` | the in-flight limit of the run; see Pacing |
 | `seed` | the seed of the run |
 | `result` | `PASS` or `FAIL` |
 
 Exit codes: 0 for `PASS`, 1 for `FAIL` (an echo missing, wrong or repeated, an outcome not ok, or a refused payload), 2 for a usage error or a
 port that does not open. A `FAIL` run prints its counts on the same line, so the line says which check failed.
 
+When echoes are missing (`echoed` is below `sent`) the failed run prints a second line, `board:`, with the board-side meaning. A missing echo
+is either an echo the board dropped, because its echo queue was full (`echoDropped`), or an echo it gave up on, because no acknowledgement
+came after the last resend on its side (`outcomesFailed`, with `retryExhausted`). A payload the board never received leaves no board counter,
+so then the `ok` of the PC is below `sent`. The counters are read as described in What the board shows.
+
 The expected result of a run without `--loss` is `sent=N echoed=N ok=N` with `retried=0`, every other count at zero, and `result=PASS`.
 A run with `--loss 5` is expected to pass with `dropped` above zero. `retried` counts the payloads this side sent again, so it is above
 zero when a dropped payload frame had to be resent. A dropped acknowledgement is a frame of this side too: the board then resends its echo,
-the PC acknowledges that copy and does not deliver it twice, and the board counts the resend, not this run.
+the PC acknowledges that copy and does not deliver it twice. Neither side counts that resend: the PC did not send it, and the board's
+status block has no resend counter.
 
 ## What the board shows
 
@@ -115,6 +146,54 @@ Its `stage` is 5 when the stacks are serving. `usbResult` and `serialResult` are
 `sessionSource` is 1 when the session values came from the RNG, and 2 when the fallback did. Each stack has its counters: `received`,
 `echoed`, `echoRefused`, `echoDropped`, `outcomesOk`, `outcomesFailed`, `restarts`, the last statuses and the drop counters. A critical
 error, when one is raised with `System::CriticalError`, is kept in `criticalMessage`, `criticalFile` and `criticalLine`.
+
+### Reading the counters over SWD
+
+The block is in RAM, so it is read while the board runs, and a reset clears it: read it before the board is reset. The address comes from
+the ELF of the flashed build:
+
+```sh
+arm-none-eabi-nm build/RelSpeed-Vub/VubG431.elf | grep vubStatus
+STM32_Programmer_CLI -c port=SWD -r32 0x<address> 86
+```
+
+The block is 344 bytes, which is 86 words, so `86` reads all of it. Use the address `nm` printed, and the path of the CLI from
+`STM32_PROGRAMMER_CLI` when it is not on the PATH. Add `sn=<serial>` (`STM32_SWD_SN`) when more than one ST-LINK is connected. The words
+are in the order of the struct, so the byte offset of a field is 4 times its word index:
+
+| Offset | Field |
+|---|---|
+| 0 | `magic` |
+| 4 | `stage` |
+| 8, 12, 16, 20 | `consoleResult`, `serialResult`, `sessionSource`, `usbResult` |
+| 24 | `uartErrors`: parity, noise, frame and overrun, 4 bytes each |
+| 40 | the `uart` stack, 72 bytes |
+| 112 | the `cdc` stack, 72 bytes |
+| 184 | the `bulk` stack, 72 bytes |
+| 256 | the `hid` stack, 72 bytes |
+| 328 | `criticalSet`, then `criticalMessage`, `criticalFile` and `criticalLine` |
+
+Each stack starts with its counters, in this order, at 4 bytes each: `session` (0), `received` (4), `echoed` (8), `echoRefused` (12),
+`echoDropped` (16), `outcomesOk` (20), `outcomesFailed` (24), `restarts` (28), `lastSendStatus` (32) and `lastOutcomeStatus` (36). The eight
+drop counters follow from 40: `ringFull`, `queueFull`, `tooLong`, `framingError`, `transformError`, `layerError`, `sendError` and `linkDown`.
+
+| Counter | Meaning |
+|---|---|
+| `received` | payloads the stack's delivery layer passed up, that is, payloads the PC sent and the layer acknowledged |
+| `echoed` | echoes the stack's delivery layer accepted for sending; this is not an acknowledgement |
+| `echoRefused` | echoes the layer refused with a status other than busy; the echo is dropped |
+| `echoDropped` | payloads the echo queue could not keep, because its four slots were full; the layer had acknowledged them, so the PC does not resend them |
+| `outcomesOk` | echoes the PC acknowledged |
+| `outcomesFailed` | echoes the board gave up on: `retryExhausted` (no acknowledgement after the last resend) or `reset` |
+| `restarts` | sessions the board started again, because the PC lost the session |
+| `lastSendStatus`, `lastOutcomeStatus` | the `ResultStatus` values of the last send and the last outcome |
+| drop counters | frames or packets the stack dropped, by reason |
+
+After a run that has nothing left in the echo queue, `received` equals `echoed` plus `echoRefused` plus `echoDropped`.
+
+To read a failed run from the board: a non-zero `echoDropped` with the default `--inflight` points at the board's queue, and a non-zero
+`outcomesFailed` means the board gave up on echoes it sent. Each run's counters are the counters since the board's last reset, so a second
+run needs the counters of the first subtracted, or a reset before it.
 
 ## Notes
 
