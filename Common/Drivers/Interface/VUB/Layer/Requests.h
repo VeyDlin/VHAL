@@ -7,6 +7,7 @@
 #include <Drivers/Interface/VUB/Outbox.h>
 #include <Drivers/Interface/VUB/Require.h>
 #include <Drivers/Interface/VUB/Requests/Body.h>
+#include <Drivers/Interface/VUB/Requests/BuiltIn.h>
 #include <Drivers/Interface/VUB/Requests/Commands.h>
 #include <Drivers/Interface/VUB/Requests/Events.h>
 #include <Drivers/Interface/VUB/Requests/Handlers.h>
@@ -38,6 +39,11 @@ struct RequestsOptions {
 	uint8 refusals = 4;
 	bool ownerBelow = false;
 	bool counted = false;
+	bool ping = false;
+	uint16 pingPadding = 0;
+	uint32 builtInTimeoutMs = BuiltInWire::DefaultTimeoutMs;
+	bool answerPing = false;
+	uint16 answerPadding = 0;
 };
 
 
@@ -119,6 +125,9 @@ struct RequestsPlan {
 		BuildHandlerIndex<Commands, HandlerSet, HandlerKind::onCancel>();
 	static constexpr std::size_t handlerCount = std::tuple_size_v<typename HandlerSet::List>;
 	static constexpr bool served = AnyCommandEntry(typename HandlerSet::List{});
+	static constexpr bool sendsPing = Value.ping;
+	static constexpr bool answerPing = Value.answerPing;
+	static constexpr bool answers = served || answerPing;
 	static constexpr bool ticketed = HasTicketHandler<Commands>(onIndex, handlerCount);
 	static constexpr bool cancellable = AnyCommandFlag(Commands::commandTable, &CommandInfo::cancellable);
 	// Interim slots exist only for interim commands. A cancel-refused interim (0xF8) for a command without one has no handler and is dropped.
@@ -127,7 +136,7 @@ struct RequestsPlan {
 	static constexpr bool usesLink = Commands::hasFailWhileDown && sends;
 	static constexpr std::size_t openCount = Value.open;
 	static constexpr std::size_t ticketCount = ticketed ? Value.tickets : 0;
-	static constexpr std::size_t refusalCount = served ? Value.refusals : 0;
+	static constexpr std::size_t refusalCount = answers ? Value.refusals : 0;
 	static constexpr bool ownerBelow = Value.ownerBelow;
 	// The requester keeps cancel state for its requests; the responder for its tickets, and answers a cancel of any of them.
 	static constexpr bool requesterCancels = cancellable && openCount > 0;
@@ -135,6 +144,12 @@ struct RequestsPlan {
 	static constexpr bool counted = Value.counted;
 	static constexpr bool eventsReceived = AnyOnEvent(typename HandlerSet::List{});
 	static constexpr bool countsLoss = counted && ownerBelow && AnyEventDelivered<Commands>();
+	static constexpr uint16 pingPadding = Value.pingPadding;
+	static constexpr uint32 builtInTimeoutMs = Value.builtInTimeoutMs;
+	static constexpr uint16 answerPadding = Value.answerPadding;
+	static_assert(!sendsPing || (builtInTimeoutMs > 0 && builtInTimeoutMs <= BuiltInWire::MaxTimeoutMs),
+		"BuiltInTimeoutMs must be from 1 to 2147483 milliseconds");
+	static_assert(sendsPing || builtInTimeoutMs == BuiltInWire::DefaultTimeoutMs, "BuiltInTimeoutMs needs the Step .Ping(maxPadding) of the layer");
 };
 
 
@@ -199,6 +214,34 @@ public:
 		constexpr Step Counted() const {
 			Options next = this->LastOptions();
 			next.counted = true;
+			return Step(this->WithLastOptions(next));
+		}
+
+
+		// The built-in ping, sending side: the layer sends pings from its requester slots, so Open(n) of at least 1 is needed. maxPadding is the
+		// largest padding a ping may carry; a ping with more returns messageTooLong.
+		constexpr Step Ping(uint16 maxPadding) const {
+			Options next = this->LastOptions();
+			next.ping = true;
+			next.pingPadding = maxPadding;
+			return Step(this->WithLastOptions(next));
+		}
+
+
+		// The built-in ping, answering side: the layer answers the pings it receives. maxPadding is the largest padding of a reply. The layer
+		// needs no Open, no handler and no ticket for it.
+		constexpr Step AnswerPing(uint16 maxPadding) const {
+			Options next = this->LastOptions();
+			next.answerPing = true;
+			next.answerPadding = maxPadding;
+			return Step(this->WithLastOptions(next));
+		}
+
+
+		// The deadline of a built-in request, in milliseconds: the time a ping waits for its reply. The default is 1000.
+		constexpr Step BuiltInTimeoutMs(uint32 ms) const {
+			Options next = this->LastOptions();
+			next.builtInTimeoutMs = ms;
 			return Step(this->WithLastOptions(next));
 		}
 	};
@@ -278,6 +321,14 @@ public:
 		}
 
 
+		// A ping to the peer: the handler gets the result and the round trip. The request is sent by the next Process. Padding above the
+		// layer's maximum returns messageTooLong. Only a layer with the Step .Ping(maxPadding) has it.
+		template<auto Handler>
+		ResultStatus Ping(uint16 padding = 0) const {
+			return layer->template PingRequest<Handler>(padding);
+		}
+
+
 		RequestsOf& Owner() const {
 			return *layer;
 		}
@@ -302,13 +353,15 @@ public:
 		RequestWire::FinalHeader + Commands::largestReply,
 		RequestWire::InterimSize,
 		RequestWire::FinalErrorSize,
-		RequestWire::EventHeader + Commands::largestEvent});
+		RequestWire::EventHeader + Commands::largestEvent,
+		BuiltInReplyBytes(Value.answerPing, Value.answerPadding),
+		PingRequestBytes(Value.ping, Value.pingPadding)});
 
 
 private:
 	static_assert(CheckHandlers<Commands, HandlerSet>(), "the handler list does not match the command set");
 	[[no_unique_address]] RequesterOf<Commands, Plan> requester{};
-	[[no_unique_address]] std::conditional_t<Plan::served, ResponderOf<Commands, HandlerSet, Plan>, NoStorage> responder{};
+	[[no_unique_address]] std::conditional_t<Plan::answers, ResponderOf<Commands, HandlerSet, Plan>, NoStorage> responder{};
 	[[no_unique_address]] std::conditional_t<Value.counted, RequestCounts, NoRequestCounts> counts{};
 
 
@@ -423,11 +476,15 @@ public:
 	void Process(uint32 nowUs, const Outbox& outbox) {
 		if constexpr (Plan::openCount > 0) {
 			requester.Arm(nowUs);
+			if constexpr (Plan::sendsPing) {
+				requester.SendPings(nowUs, outbox);
+			}
+
 			requester.Expire(nowUs);
 			requester.SendHeldCancels(outbox);
 		}
 
-		if constexpr (Plan::served) {
+		if constexpr (Plan::answers) {
 			responder.RunReceived();
 			responder.RunCancels();
 			responder.RearmTickets(nowUs);
@@ -435,10 +492,10 @@ public:
 		}
 
 		if constexpr (Plan::openCount > 0) {
-			requester.Deliver();
+			requester.Deliver(nowUs);
 		}
 
-		if constexpr (Plan::served) {
+		if constexpr (Plan::answers) {
 			responder.SendResponses(outbox);
 		}
 	}
@@ -477,6 +534,12 @@ public:
 	}
 
 
+	template<auto Handler>
+	ResultStatus PingRequest(uint16 padding) {
+		return requester.template Ping<Handler>(padding);
+	}
+
+
 	// The session of a layer with no Reliable below: the requester's first number and tag. Not a member when Reliable is below.
 	void SetSession(uint16 value) requires (!Value.ownerBelow) {
 		requester.SetSession(value);
@@ -490,7 +553,7 @@ private:
 			requester.OnRestart();
 		}
 
-		if constexpr (Plan::served) {
+		if constexpr (Plan::answers) {
 			responder.OnRestart();
 		}
 	}
@@ -564,7 +627,7 @@ private:
 	// Takes a REQUEST, the responder's side. A request with a reply takes a ticket, or is refused from the ring; a command with no reply runs at
 	// once, after the requests already received in this walk. The packet is consumed in every case that is not an error.
 	Result<Taken> TakeRequest(std::span<const uint8> packet) {
-		if constexpr (!Plan::served) {
+		if constexpr (!Plan::answers) {
 			(void)packet;
 			return ResultStatus::notSupported;
 		} else {

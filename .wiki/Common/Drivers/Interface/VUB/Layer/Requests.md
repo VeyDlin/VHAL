@@ -168,6 +168,7 @@ needs its session value (`SetSession`, see Reliable).
 - `Requests/Responder.h` (`ResponderOf`): the responder part. It holds the tickets and the refusal ring, and the calls of the received requests,
   the finals, the interims, the deadlines and the restart.
 - `Requests/Events.h` (`EventsOf`): the emitter of the events and the receiver of the event packets. It holds no state.
+- `Requests/BuiltIn.h`: the built-in ids, the ping's request and reply encoding, and the responder's reply buffer.
 - `Requests/Ticket.h`: `RequestId`, `TicketOps` and `Ticket`. `Requests/Wire.h`: the wire kinds, the codes and their results, and the
   deadline compare.
 - Tests: `TestVubRequestsWire.cpp` (the bytes), `TestVubRequestsRequester.cpp`, `TestVubRequestsResponder.cpp`,
@@ -201,6 +202,11 @@ Each rule is a `static_assert` or a failed check with the message shown.
 | A served command with a reply, and `Tickets(0)` (checked when the layer takes a packet) | `the layer serves a command and has no tickets: give Tickets(n) with n of at least 1` |
 | `Ticket::Interim` on a command without `.Interim()` | `Ticket::Interim needs the command to be declared Interim(): add .Interim() after its Reply` |
 | `ReplyTimeoutMs` or `TicketTimeoutMs` above 2147483 | `ReplyTimeoutMs must be at most 2147483 (the deadlines are signed 32-bit microsecond counts)` |
+| A `Ping` on a layer without the Step `.Ping(maxPadding)` | `Ping needs the layer's Step .Ping(maxPadding)` |
+| A `Ping` on a layer with no `Open(n)` | `Ping needs requester slots: give the layer Open(n) with n of at least 1` |
+| `BuiltInTimeoutMs` on a layer without `.Ping(maxPadding)` | `BuiltInTimeoutMs needs the Step .Ping(maxPadding) of the layer` |
+| `BuiltInTimeoutMs` of 0 or above 2147483 | `BuiltInTimeoutMs must be from 1 to 2147483 milliseconds` |
+| A `Ping` handler with another signature | `a ping handler has the signature void (ResultStatus, uint32)` |
 | A command id of 0xF0 or more | `a command id is 0xF0 or more: the ids 0xF0 to 0xFF are reserved for the layer` (an event id has the matching message) |
 | A handler whose signature does not match its command (`CheckHandlers`, `CheckFinal`, `CheckProgress`) | the messages of the handler list checks, in `Requests/Handlers.h` |
 
@@ -462,6 +468,7 @@ little-endian.
 | 0x01 REQUEST | `01 id(1) number(2) tag(1) body` | from the requester |
 | 0x02 INTERIM | `02 number(2) tag(1) index(1) status(1)` | from the responder |
 | 0x03 FINAL | `03 number(2) tag(1) code(1)`, and for code 0: `status(1) body` | from the responder |
+| 0x04 EVENT | `04 id(1) body` | from the side that emits; taken by a side with an `OnEvent` handler |
 | 0x05 CANCEL | `05 number(2) tag(1)` | from the requester; only in a set with a cancellable command |
 
 Any other first byte is refused as `invalidData` by the layer's `Take`. A CANCEL is refused the same way in a set with no cancellable command.
@@ -515,6 +522,100 @@ is `01 13 01 00 01` and its final `started` is `03 01 00 01 00 00`. The bytes of
 | A cancel of a command that is not cancellable | a progress with `notSupported`; the request runs to its own end | the interim with status 0xF8 |
 | The ticket's deadline of a cancellable command | `timeout` (code 5) | the cancel handler runs once, then the final is sent |
 | A peer restart with a cancellable ticket open | `reset` | the cancel handler runs once; the ticket's final is discarded |
+
+## Ping
+
+The built-in ping measures the round trip to the peer. It is a request with the id 0xF0, which the layer answers itself, with no command
+and no handler of its own. It has two Steps, and a side takes one or both:
+
+- `.Ping(maxPadding)` sends pings. It needs `Open(n)` of at least 1, and it holds the slots of the requests. It builds no responder.
+- `.AnswerPing(maxPadding)` answers the pings it receives. It needs no `Open`, no handler and no ticket. It builds one reply buffer of
+  `maxPadding` and the check of the request in Take and the send in Process.
+
+A layer with neither Step has no ping code, no reply buffer and no slot field.
+
+```cpp
+// --- snippet: Layer/Requests.md, ping ---
+// The requester: four slots, a ping of up to 16 bytes of padding, and the default deadline of 1000 ms.
+using PingLink = VUB::Stack<+[]() {
+	return VUB::Builder()
+		.Layer<VUB::Requests<PingCommands, VUB::Handlers<>>>().Open(4)
+			.Ping(16)
+		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
+		.Link<ReportingPacketEnd>()
+		.MaxPayload(40)
+		.ReceiveQueue(4)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
+// The handler of a ping: the result, and the round trip in microseconds (0 unless the result is ok).
+void OnPingDone(ResultStatus result, uint32 roundTripUs) {
+	(void)result;
+	(void)roundTripUs;
+}
+
+
+// A ping with 8 bytes of padding. The request goes out in the next Process, and the handler runs when the reply has come.
+inline ResultStatus SendPingExample(PingLink& link) {
+	return link.Requests().Ping<&OnPingDone>(8);
+}
+// --- end snippet ---
+```
+
+The snippet uses the command set `PingCommands` of `TestVubRequestsPing.cpp`. The answering side is built with `.AnswerPing(maxPadding)` in the
+same chain, with or without its own commands, and a side that does both has both Steps. `Ping<&Handler>(padding)` returns at once:
+
+- `ok` when a slot is free; the slot is taken, and no number is used until the Process that sends the ping.
+- `busy` when every slot is taken.
+- `messageTooLong` when `padding` is above the layer's `maxPadding`.
+- `noInit` without Reliable below, while no session is given (`SetSession`, see Requester).
+
+The request is sent by the next `Process`, which stamps it with that Process's clock and arms its deadline. A send that the layer below
+refuses as busy is tried again in the next `Process`, with that Process's stamp. The padding is `index & 0xFF` for each byte, and the reply
+echoes it. The handler runs once, from `Process`, with the result and the round trip:
+
+- `ok` when the reply arrives: the round trip is the clock of that `Process` minus the stamp the reply echoes, so it is correct when the
+  32-bit clock wraps during the round trip.
+- `timeout` when the deadline passes first.
+- `retryExhausted` when Reliable gives up first, and `reset` when the peer restarts with the ping open.
+- `noConnection` when the link refuses the packet under `Down::Fail`.
+- `notSupported` when the peer has no ping.
+- `invalidData` when the reply has no stamp, or a status byte.
+
+A ping is not a `FailWhileDown` command: while the link is down it waits, and its deadline ends it. A reply that comes after the deadline is
+dropped. A ping that a handler sends from inside a final handler is sent by the next `Process`.
+
+The deadline is `.BuiltInTimeoutMs(ms)` on the layer. It is 1000 ms by default and must be from 1 to 2147483. Without `.Ping(maxPadding)`,
+`BuiltInTimeoutMs` is an error.
+
+The answering side takes a ping in its Take. The reply goes into one reply buffer, which the layer's `Process` sends. A second ping while that
+buffer is still unsent is refused `busy` through the refusal ring, and is dropped when the layer has `Refusals(0)`. A ping whose padding is
+above the side's `maxPadding` is refused `invalidData`. The buffer holds 10 bytes plus `maxPadding`.
+
+A side without `.AnswerPing` does not answer a ping. Where it serves commands, the ping is refused as an unknown command (`notSupported`).
+Where it serves nothing, the ping gets no reply, and the requester's deadline ends it.
+
+The wire is the request `01 F0 number(2) tag(1) stamp(4) padding`, and the reply
+`03 number(2) tag(1) 00 00 stamp(4) padding`. A ping with number 9, stamp 0x00012345 and no padding is `01 F0 09 00 09 45 23 01 00`, and its
+reply is `03 09 00 09 00 00 45 23 01 00`.
+
+Size of the ping, as the difference of the same role with and without the Step, over `ReliableOf<40, 4>` over CRC and COBS (bytes, text and
+RAM). Measured with `arm-none-eabi-g++` 15.2 (`-Os`, `--gc-sections`, nano specs):
+
+| Side | M4 text | M4 RAM | M0+ text | M0+ RAM |
+|---|---:|---:|---:|---:|
+| sends: `.Ping(16)`, `Open(2)` | +448 | 0 | +456 | 0 |
+| answers, next to served commands: `.AnswerPing(16)`, `Tickets(1)`, `Refusals(2)` | +160 | +32 | +176 | +32 |
+| answers, nothing served, `.AnswerPing(16)` | +1412 | +64 | +1428 | +64 |
+| answers, nothing served, `.AnswerPing(16)`, `Refusals(0)` | +1212 | +44 | +1268 | +44 |
+| both: `.Ping(16)`, `.AnswerPing(16)`, `Open(2)`, `Tickets(1)`, `Refusals(2)` | +536 | +36 | +528 | +36 |
+
+A side that answers and serves nothing pays for the send path its reply needs: the stack's send thunks and the reliable layer's send, which
+a side that only receives does not otherwise contain. Next to served commands, that path is already there, and the ping adds the row above.
+
+The rows without a ping Step are unchanged from the table below.
 
 ## Size
 
@@ -580,5 +681,5 @@ program with no send includes the application-side send entry of the layer above
 
 These are not in this layer:
 
-- Ping (0xF0) and health (0xF1), with their counters.
+- Health (0xF1), with its counters.
 - `Await`.
