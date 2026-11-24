@@ -2,6 +2,7 @@
 #include <Drivers/Interface/VUB/Link/HidReport.h>
 #include <Drivers/Interface/VUB/LinkState.h>
 #include <Drivers/Interface/VUB/LinkTraits.h>
+#include <Drivers/Interface/VUB/PC/TransferRelease.h>
 #include <Drivers/Interface/VUB/Receiver.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
@@ -44,8 +45,11 @@ namespace VUB::PC {
 //
 // Windows: the device is found by vendor ID, product ID and usage page through hid.dll and SetupAPI; reads and writes are overlapped
 // with the link's own buffers. Linux: the device is found through its hidraw node by the raw info (the vendor and product IDs), and the
-// usage page is read from its report descriptor; reads and writes are non-blocking. A read or write that fails reports the link down
-// and closes the device.
+// usage page is read from its report descriptor; reads and writes are non-blocking. A read or write that fails reports the link down and
+// closes the device without waiting: on Windows the transfers in flight are cancelled, and Poll frees the handles once they completed.
+//
+// Close waits up to 200 ms for the transfers in flight; one still in flight after that is released by Poll. The destructor waits until
+// every transfer has completed. Open returns busy while an earlier release is still waiting for its transfers.
 template<std::size_t ReportBytes = 64>
 class HidLink {
 	static_assert(ReportBytes >= 2 && ReportBytes <= 256, "a HID report of the link is 2 to 256 bytes");
@@ -56,6 +60,38 @@ public:
 
 
 private:
+	// The handle layer of a release of this link (see TransferRelease).
+	class ReleaseLayer {
+	public:
+		explicit ReleaseLayer(HidLink& linkObject) : link(linkObject) {
+		}
+
+
+		void CancelAll() {
+			link.CancelTransfers();
+		}
+
+
+		bool InFlight() const {
+			return link.TransfersInFlight();
+		}
+
+
+		void Progress(uint32 milliseconds) {
+			link.ProgressTransfers(milliseconds);
+		}
+
+
+		void Free() {
+			link.FreeHandles();
+		}
+
+
+	private:
+		HidLink& link;
+	};
+
+
 	StateSink sink;
 	bool portOpen = false;
 	bool readHeld = false;
@@ -64,6 +100,7 @@ private:
 	std::size_t outputLength = ReportBytes + 1;
 	std::array<std::uint8_t, ReportBytes + 1> readBuffer{};
 	std::array<std::uint8_t, ReportBytes + 1> writeBuffer{};
+	TransferRelease<ReleaseLayer> release;
 #if defined(_WIN32)
 	HANDLE device = INVALID_HANDLE_VALUE;
 	HANDLE readEvent = nullptr;
@@ -86,7 +123,7 @@ public:
 
 
 	~HidLink() {
-		Release();
+		Shut(ReleaseWait::Unbounded);
 	}
 
 
@@ -151,9 +188,13 @@ public:
 
 
 	// Opens the first device with the vendor ID, product ID and usage page (zero matches any usage page). Returns ok when the device is
-	// open and up; an error otherwise, and the link stays closed.
+	// open and up; an error otherwise, and the link stays closed. Returns busy while an earlier release still waits for its transfers.
 	ResultStatus Open(std::uint16_t vendorId, std::uint16_t productId, std::uint16_t usagePage) {
 		Close();
+		if (release.Closing()) {
+			return ResultStatus::busy;
+		}
+
 #if defined(_WIN32)
 		GUID hidId{};
 		HidD_GetHidGuid(&hidId);
@@ -235,10 +276,11 @@ public:
 	}
 
 
-	// Closes the device. Reports down when it was up.
+	// Closes the device. Waits up to 200 ms for the transfers in flight; one still in flight after that is released by Poll. Reports down
+	// when it was up.
 	void Close() {
 		bool wasOpen = portOpen;
-		Release();
+		Shut(ReleaseWait::Bounded);
 		if (wasOpen) {
 			sink.Report(false);
 		}
@@ -257,6 +299,8 @@ public:
 
 	// Feeds the report that arrived as a packet, when the receiver has room for it. Never waits.
 	void Poll(Receiver receiver) {
+		ReleaseLayer layer(*this);
+		release.Finish(layer, ReleaseWait::None);
 		if (!portOpen) {
 			return;
 		}
@@ -273,15 +317,11 @@ public:
 
 
 	// Writes a packet as an output report. Returns ok when the report is on its way, busy while the previous one is pending (the packet
-	// is then sent again later), or another status when the packet is refused or the device failed.
+	// is then sent again later), or another status when the packet is refused or the device failed. The previous report is checked for
+	// completion before the packet is packed, so a report on its way is never overwritten.
 	ResultStatus Send(std::span<const uint8> packet) {
 		if (!portOpen) {
 			return ResultStatus::noConnection;
-		}
-
-		Result<std::size_t> packed = PackOutput(packet, writeBuffer);
-		if (!packed) {
-			return packed.Error();
 		}
 
 #if defined(_WIN32)
@@ -292,11 +332,16 @@ public:
 					return ResultStatus::busy;
 				}
 
-				Close();
+				Abort();
 				return ResultStatus::ioError;
 			}
 
 			writePending = false;
+		}
+
+		Result<std::size_t> packed = PackOutput(packet, writeBuffer);
+		if (!packed) {
+			return packed.Error();
 		}
 
 		std::size_t from = outputLength > ReportBytes ? 0 : 1;
@@ -304,13 +349,18 @@ public:
 		writeOverlapped = OVERLAPPED{};
 		writeOverlapped.hEvent = writeEvent;
 		if (!WriteFile(device, writeBuffer.data() + from, static_cast<DWORD>(outputLength), nullptr, &writeOverlapped) && GetLastError() != ERROR_IO_PENDING) {
-			Close();
+			Abort();
 			return ResultStatus::ioError;
 		}
 
 		writePending = true;
 		return ResultStatus::ok;
 #else
+		Result<std::size_t> packed = PackOutput(packet, writeBuffer);
+		if (!packed) {
+			return packed.Error();
+		}
+
 		ssize_t sent = write(descriptor, writeBuffer.data(), writeBuffer.size());
 		if (sent == static_cast<ssize_t>(writeBuffer.size())) {
 			return ResultStatus::ok;
@@ -320,7 +370,7 @@ public:
 			return ResultStatus::busy;
 		}
 
-		Close();
+		Abort();
 		return ResultStatus::ioError;
 #endif
 	}
@@ -335,23 +385,77 @@ private:
 	}
 
 
-	void Release() {
+	// Closes the device from an I/O path. It cancels the transfers in flight and does not wait: Poll releases the device once they have
+	// completed. Reports down when it was up.
+	void Abort() {
+		bool wasOpen = portOpen;
+		Shut(ReleaseWait::None);
+		if (wasOpen) {
+			sink.Report(false);
+		}
+	}
+
+
+	// Stops the link: no more transfers, and the handles are freed once no transfer is in flight, waiting as the wait allows. Does not report.
+	void Shut(ReleaseWait wait) {
 		portOpen = false;
 		readHeld = false;
+		ReleaseLayer layer(*this);
+		release.Begin(layer);
+		release.Finish(layer, wait);
+	}
+
+
+	// Cancels the transfers in flight. Their completion is seen later through TransfersInFlight.
+	void CancelTransfers() {
+#if defined(_WIN32)
+		if (device != INVALID_HANDLE_VALUE && (readPending || writePending)) {
+			CancelIoEx(device, nullptr);
+		}
+#endif
+	}
+
+
+	// Whether a transfer is still in flight when this is called. Never waits.
+	bool TransfersInFlight() const {
+#if defined(_WIN32)
+		bool readWaiting = readPending && !HasOverlappedIoCompleted(&readOverlapped);
+		bool writeWaiting = writePending && !HasOverlappedIoCompleted(&writeOverlapped);
+		return readWaiting || writeWaiting;
+#else
+		return false;
+#endif
+	}
+
+
+	// Handles the completions that are ready, waiting up to the given time for the transfers in flight (zero does not wait).
+	void ProgressTransfers(uint32 milliseconds) {
+#if defined(_WIN32)
+		HANDLE waitFor[2] = {nullptr, nullptr};
+		DWORD count = 0;
+		if (readPending && !HasOverlappedIoCompleted(&readOverlapped)) {
+			waitFor[count] = readEvent;
+			count++;
+		}
+
+		if (writePending && !HasOverlappedIoCompleted(&writeOverlapped)) {
+			waitFor[count] = writeEvent;
+			count++;
+		}
+
+		if (count > 0) {
+			WaitForMultipleObjects(count, waitFor, TRUE, milliseconds);
+		}
+#else
+		static_cast<void>(milliseconds);
+#endif
+	}
+
+
+	// Frees the device and its handles. Called only when no transfer is in flight.
+	void FreeHandles() {
 #if defined(_WIN32)
 		if (device != INVALID_HANDLE_VALUE) {
-			if (readPending || writePending) {
-				CancelIoEx(device, nullptr);
-			}
-
-			if (readPending) {
-				WaitForSingleObject(readEvent, 200);
-			}
-
-			if (writePending) {
-				WaitForSingleObject(writeEvent, 200);
-			}
-
 			CloseHandle(device);
 			device = INVALID_HANDLE_VALUE;
 		}
@@ -426,7 +530,7 @@ private:
 		readOverlapped = OVERLAPPED{};
 		readOverlapped.hEvent = readEvent;
 		if (!ReadFile(device, readBuffer.data(), static_cast<DWORD>(inputLength), nullptr, &readOverlapped) && GetLastError() != ERROR_IO_PENDING) {
-			Close();
+			Abort();
 			return;
 		}
 
@@ -444,7 +548,7 @@ private:
 		DWORD got = 0;
 		if (!GetOverlappedResult(device, &readOverlapped, &got, FALSE)) {
 			if (GetLastError() != ERROR_IO_INCOMPLETE) {
-				Close();
+				Abort();
 			}
 
 			return;
@@ -480,7 +584,7 @@ private:
 		}
 
 		if (got < 0 && !(errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) {
-			Close();
+			Abort();
 		}
 	}
 #endif

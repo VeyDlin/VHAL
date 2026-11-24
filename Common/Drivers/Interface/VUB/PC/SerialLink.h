@@ -1,6 +1,7 @@
 #pragma once
 #include <Drivers/Interface/VUB/LinkState.h>
 #include <Drivers/Interface/VUB/LinkTraits.h>
+#include <Drivers/Interface/VUB/PC/TransferRelease.h>
 #include <Drivers/Interface/VUB/Receiver.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
@@ -34,7 +35,11 @@ namespace VUB::PC {
 // returns zero while the port is full. On Windows the port is opened for overlapped I/O with the link's own buffers and events; on
 // Linux it is opened with O_NONBLOCK. DTR is set on open, so a CDC device sees the terminal open.
 //
-// An I/O error (an unplugged adapter) reports the link down and closes the port; Open again to come back. The link is not reliable.
+// An I/O error (an unplugged adapter) reports the link down and closes the port without waiting: on Windows the transfers in flight
+// are cancelled, and Poll frees the handles once they have completed. Open again to come back. The link is not reliable.
+//
+// Close waits up to 200 ms for the transfers in flight; one still in flight after that is released by Poll. The destructor waits until
+// every transfer has completed. Open returns busy while an earlier release is still waiting for its transfers.
 class SerialLink {
 public:
 	enum class Parity : std::uint8_t {
@@ -63,11 +68,44 @@ public:
 
 
 private:
+	// The handle layer of a release of this link (see TransferRelease).
+	class ReleaseLayer {
+	public:
+		explicit ReleaseLayer(SerialLink& linkObject) : link(linkObject) {
+		}
+
+
+		void CancelAll() {
+			link.CancelTransfers();
+		}
+
+
+		bool InFlight() const {
+			return link.TransfersInFlight();
+		}
+
+
+		void Progress(uint32 milliseconds) {
+			link.ProgressTransfers(milliseconds);
+		}
+
+
+		void Free() {
+			link.FreeHandles();
+		}
+
+
+	private:
+		SerialLink& link;
+	};
+
+
 	StateSink sink;
 	bool portOpen = false;
 	std::array<std::uint8_t, 64> readBuffer{};
 	std::size_t readOffset = 0;
 	std::size_t readAvailable = 0;
+	TransferRelease<ReleaseLayer> release;
 #if defined(_WIN32)
 	HANDLE handle = INVALID_HANDLE_VALUE;
 	HANDLE readEvent = nullptr;
@@ -91,7 +129,7 @@ public:
 
 
 	~SerialLink() {
-		Release();
+		Shut(ReleaseWait::Unbounded);
 	}
 
 
@@ -208,9 +246,13 @@ public:
 
 
 	// Opens the port with the settings. Returns ok when the link is open and up; an error otherwise, and the link stays closed. Opening a
-	// link that is open closes it first.
+	// link that is open closes it first. Returns busy while an earlier release still waits for its transfers.
 	ResultStatus Open(const std::string& port, const Settings& settings) {
 		Close();
+		if (release.Closing()) {
+			return ResultStatus::busy;
+		}
+
 		if (!ValidSettings(settings)) {
 			return ResultStatus::invalidParameter;
 		}
@@ -277,10 +319,11 @@ public:
 	}
 
 
-	// Closes the port. Reports the link down when it was up.
+	// Closes the port. Waits up to 200 ms for the transfers in flight; one still in flight after that is released by Poll. Reports the link
+	// down when it was up.
 	void Close() {
 		bool wasOpen = portOpen;
-		Release();
+		Shut(ReleaseWait::Bounded);
 		if (wasOpen) {
 			sink.Report(false);
 		}
@@ -299,6 +342,8 @@ public:
 
 	// Reads what is waiting, up to the receiver's room, and feeds it. Never waits.
 	void Poll(Receiver receiver) {
+		ReleaseLayer layer(*this);
+		release.Finish(layer, ReleaseWait::None);
 		if (!portOpen) {
 			return;
 		}
@@ -333,7 +378,7 @@ public:
 					return std::size_t{0};
 				}
 
-				Close();
+				Abort();
 				return std::size_t{0};
 			}
 
@@ -349,7 +394,7 @@ public:
 		writeOverlapped.hEvent = writeEvent;
 		DWORD ignored = 0;
 		if (!WriteFile(handle, writeBuffer.data(), static_cast<DWORD>(count), &ignored, &writeOverlapped) && GetLastError() != ERROR_IO_PENDING) {
-			Close();
+			Abort();
 			return std::size_t{0};
 		}
 
@@ -365,7 +410,7 @@ public:
 			return std::size_t{0};
 		}
 
-		Close();
+		Abort();
 		return std::size_t{0};
 #endif
 	}
@@ -380,7 +425,7 @@ private:
 			readOverlapped = OVERLAPPED{};
 			readOverlapped.hEvent = readEvent;
 			if (!ReadFile(handle, readBuffer.data(), static_cast<DWORD>(readBuffer.size()), nullptr, &readOverlapped) && GetLastError() != ERROR_IO_PENDING) {
-				Close();
+				Abort();
 				return;
 			}
 
@@ -394,7 +439,7 @@ private:
 			}
 
 			readPending = false;
-			Close();
+			Abort();
 			return;
 		}
 
@@ -413,22 +458,83 @@ private:
 			return;
 		}
 
-		Close();
+		Abort();
 #endif
 	}
 
 
-	// Closes the port and forgets what it held. Does not report.
-	void Release() {
+	// Closes the port from an I/O path. It cancels the transfers in flight and does not wait: Poll releases the handles once they have
+	// completed. Reports down when it was up.
+	void Abort() {
+		bool wasOpen = portOpen;
+		Shut(ReleaseWait::None);
+		if (wasOpen) {
+			sink.Report(false);
+		}
+	}
+
+
+	// Stops the link: no more transfers, and the handles are freed once no transfer is in flight, waiting as the wait allows. Does not report.
+	void Shut(ReleaseWait wait) {
 		portOpen = false;
 		readOffset = 0;
 		readAvailable = 0;
+		ReleaseLayer layer(*this);
+		release.Begin(layer);
+		release.Finish(layer, wait);
+	}
+
+
+	// Cancels the transfers in flight. Their completion is seen later through TransfersInFlight.
+	void CancelTransfers() {
+#if defined(_WIN32)
+		if (handle != INVALID_HANDLE_VALUE && (readPending || writePending)) {
+			CancelIoEx(handle, nullptr);
+		}
+#endif
+	}
+
+
+	// Whether a transfer is still in flight when this is called. Never waits.
+	bool TransfersInFlight() const {
+#if defined(_WIN32)
+		bool readWaiting = readPending && !HasOverlappedIoCompleted(&readOverlapped);
+		bool writeWaiting = writePending && !HasOverlappedIoCompleted(&writeOverlapped);
+		return readWaiting || writeWaiting;
+#else
+		return false;
+#endif
+	}
+
+
+	// Handles the completions that are ready, waiting up to the given time for the transfers in flight (zero does not wait).
+	void ProgressTransfers(uint32 milliseconds) {
+#if defined(_WIN32)
+		HANDLE waitFor[2] = {nullptr, nullptr};
+		DWORD count = 0;
+		if (readPending && !HasOverlappedIoCompleted(&readOverlapped)) {
+			waitFor[count] = readEvent;
+			count++;
+		}
+
+		if (writePending && !HasOverlappedIoCompleted(&writeOverlapped)) {
+			waitFor[count] = writeEvent;
+			count++;
+		}
+
+		if (count > 0) {
+			WaitForMultipleObjects(count, waitFor, TRUE, milliseconds);
+		}
+#else
+		static_cast<void>(milliseconds);
+#endif
+	}
+
+
+	// Frees the port and its handles. Called only when no transfer is in flight.
+	void FreeHandles() {
 #if defined(_WIN32)
 		if (handle != INVALID_HANDLE_VALUE) {
-			if (readPending || writePending) {
-				CancelIoEx(handle, nullptr);
-			}
-
 			CloseHandle(handle);
 			handle = INVALID_HANDLE_VALUE;
 		}
