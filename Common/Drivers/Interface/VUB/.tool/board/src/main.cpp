@@ -7,6 +7,7 @@
 #include "Chains.h"
 #include "EchoCheck.h"
 #include "LossyLink.h"
+#include "Pacing.h"
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -16,6 +17,9 @@
 #include <string>
 #include <thread>
 #include <vector>
+#ifdef _WIN32
+#include <timeapi.h>
+#endif
 
 
 namespace VubBoard {
@@ -27,20 +31,41 @@ namespace VubBoard {
 		bool seedGiven = false;
 		std::size_t loss = 0;
 		std::size_t timeoutSeconds = 120;
+		std::size_t inflight = 4;
+	};
+
+
+	// Asks the system for a 1 ms timer period for the run. On Windows a sleep lasts the timer period, 15.6 ms by default, so the run's loop
+	// would be paced by it. The period is given back when the run ends.
+	class TimerPeriod {
+	public:
+		TimerPeriod() {
+#ifdef _WIN32
+			timeBeginPeriod(1);
+#endif
+		}
+
+
+		~TimerPeriod() {
+#ifdef _WIN32
+			timeEndPeriod(1);
+#endif
+		}
 	};
 
 
 	void PrintUsage() {
 		std::fprintf(stderr,
-			"usage: vubcheck --link uart|cdc|bulk|hid [--port COMn] [--count N] [--seed N] [--loss K] [--timeout S]\n"
-			"  --link    the link of the board: uart (USART1 on COM3, COBS and CRC-16/MODBUS), cdc (the USB serial port, COBS),\n"
-			"            bulk (the vendor bulk interface, by its interface GUID, LengthPrefix<2>), hid (the vendor HID interface, by\n"
-			"            VID 1209 and PID 0007 and the usage page 0xFF00, no framing)\n"
-			"  --port    the COM port: COM3 for uart, the COM port of the USB serial port for cdc. Not used for bulk or hid\n"
-			"  --count   payloads to send, default 200\n"
-			"  --seed    seed of the payload sizes and content, default from the random device (it is printed)\n"
-			"  --loss    drop every K-th outgoing frame or packet on this side, to exercise the resends; default 0 (none)\n"
-			"  --timeout seconds to wait for all echoes and outcomes, default 120\n");
+			"usage: vubcheck --link uart|cdc|bulk|hid [--port COMn] [--count N] [--seed N] [--loss K] [--inflight N] [--timeout S]\n"
+			"  --link     the link of the board: uart (USART1 on COM3, COBS and CRC-16/MODBUS), cdc (the USB serial port, COBS),\n"
+			"             bulk (the vendor bulk interface, by its interface GUID, LengthPrefix<2>), hid (the vendor HID interface, by\n"
+			"             VID 1209 and PID 0007 and the usage page 0xFF00, no framing)\n"
+			"  --port     the COM port: COM3 for uart, the COM port of the USB serial port for cdc. Not used for bulk or hid\n"
+			"  --count    payloads to send, default 200\n"
+			"  --seed     seed of the payload sizes and content, default from the random device (it is printed)\n"
+			"  --loss     drop every K-th outgoing frame or packet on this side, to exercise the resends; default 0 (none)\n"
+			"  --inflight payloads sent and not yet echoed at once, 1 or more, default 4 (the delivery layer's window)\n"
+			"  --timeout  seconds to wait for all echoes and outcomes, default 120\n");
 	}
 
 
@@ -60,6 +85,8 @@ namespace VubBoard {
 				options.seedGiven = true;
 			} else if (argument == "--loss" && hasValue) {
 				options.loss = std::strtoull(argv[++index], nullptr, 10);
+			} else if (argument == "--inflight" && hasValue) {
+				options.inflight = std::strtoull(argv[++index], nullptr, 10);
 			} else if (argument == "--timeout" && hasValue) {
 				options.timeoutSeconds = std::strtoull(argv[++index], nullptr, 10);
 			} else {
@@ -68,7 +95,7 @@ namespace VubBoard {
 		}
 
 		bool knownLink = options.link == "uart" || options.link == "cdc" || options.link == "bulk" || options.link == "hid";
-		if (!knownLink || options.count == 0 || options.count > EchoCheck::MaxIndex + 1) {
+		if (!knownLink || options.count == 0 || options.count > EchoCheck::MaxIndex + 1 || options.inflight == 0) {
 			return false;
 		}
 
@@ -93,7 +120,7 @@ namespace VubBoard {
 		std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
 		std::chrono::steady_clock::time_point deadline = start + std::chrono::seconds(options.timeoutSeconds);
 		while (true) {
-			if (nextSend < check.Count()) {
+			if (nextSend < check.Count() && MaySend(nextSend, check.Echoed(), options.inflight)) {
 				ResultStatus status = stack.Send(check.Payload(nextSend));
 				if (status == ResultStatus::ok) {
 					nextSend++;
@@ -128,10 +155,18 @@ namespace VubBoard {
 
 		std::printf(
 			"vubcheck link=%s sent=%zu echoed=%zu ok=%zu retried=%zu dropped=%zu mismatched=%zu duplicate=%zu unknown=%zu "
-			"restarts=%zu rate=%.2f/s seconds=%.1f seed=%lu result=%s\n",
+			"restarts=%zu rate=%.2f/s seconds=%.1f inflight=%zu seed=%lu result=%s\n",
 			options.link.c_str(), check.Count(), check.Echoed(), outcomesOk, retried, static_cast<std::size_t>(link.Dropped()),
-			check.Mismatched(), check.Duplicate(), check.Unknown(), restarts, rate, seconds, static_cast<unsigned long>(seed),
-			pass ? "PASS" : "FAIL");
+			check.Mismatched(), check.Duplicate(), check.Unknown(), restarts, rate, seconds, options.inflight,
+			static_cast<unsigned long>(seed), pass ? "PASS" : "FAIL");
+		if (!pass && check.Echoed() < check.Count()) {
+			std::printf(
+				"board: %zu echo(s) missing. Each one is an echo the board dropped (echoDropped in vubStatus: its echo queue of four was "
+				"full) or one it gave up on (outcomesFailed in vubStatus: retryExhausted for the echo on its side). A payload the board "
+				"never received shows no board counter: then the PC's ok is below sent. The guide has the SWD read.\n",
+				check.Count() - check.Echoed());
+		}
+
 		return pass ? 0 : 1;
 	}
 }
@@ -139,6 +174,7 @@ namespace VubBoard {
 
 int main(int argc, char** argv) {
 	using namespace VubBoard;
+	TimerPeriod timerPeriod;
 	Options options;
 	if (!ParseOptions(argc, argv, options)) {
 		PrintUsage();
