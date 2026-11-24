@@ -3,7 +3,8 @@
 #include <Utilities/DataTypes.h>
 
 
-// The motor description of the requests design (section 2.1), shared by the requests tests. The bodies have their layouts here.
+// The motor description shared by the requests tests. The ids are values of enum classes with a uint8 underlying type; the value is the
+// id on the wire. The bodies have their layouts here.
 
 
 namespace Motor {
@@ -12,6 +13,16 @@ enum class MotorStatus : uint8 {
 	started = 0,
 	warming = 1,
 	failed = 2
+};
+
+enum class MotorCommand : uint8 {
+	start = 0x12,
+	stop = 0x13,
+	reset = 0x14
+};
+
+enum class MotorEvent : uint8 {
+	fault = 0x40
 };
 
 struct MotorStart {
@@ -87,20 +98,20 @@ namespace Motor {
 
 using MotorCommands = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"motor.start", 0x12>()
+		.Command<MotorCommand::start>()
 			.Request<MotorStart>()
 			.Reply<MotorStatus, MotorReport>()
 			.Interim()
 			.Cancellable()
 			.ReplyTimeoutMs(5000)
 			.TicketTimeoutMs(60000)
-		.Command<"motor.stop", 0x13>()
+		.Command<MotorCommand::stop>()
 			.Reply<MotorStatus>()
 			.ReplyTimeoutMs(2000)
 			.TicketTimeoutMs(2000)
-		.Command<"motor.reset", 0x14>()
+		.Command<MotorCommand::reset>()
 			.NoReply()
-		.Event<"motor.fault", 0x40>()
+		.Event<MotorEvent::fault>()
 			.Body<MotorFault>();
 }>;
 

@@ -1,5 +1,10 @@
-// expect: the name is of an event where a command is expected
+// expect: an event has this id where a command is expected
 #include <Drivers/Interface/VUB/Requests/Commands.h>
+
+
+enum class SnippetEvent : uint8 {
+	fault = 0x40
+};
 
 
 struct SnippetBody {
@@ -21,12 +26,12 @@ struct BodyOf<SnippetBody> {
 
 using Set = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Event<"motor.fault", 0x40>()
+		.Event<SnippetEvent::fault>()
 			.Body<SnippetBody>();
 }>;
 
 
-using Wrong = VUB::CommandOf<Set, "motor.fault">;
+using Wrong = VUB::CommandOf<Set, SnippetEvent::fault>;
 
 
 static_assert(Wrong::id == 0x40);

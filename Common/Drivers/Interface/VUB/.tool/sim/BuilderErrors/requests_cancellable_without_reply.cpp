@@ -2,9 +2,14 @@
 #include <Drivers/Interface/VUB/Requests/Commands.h>
 
 
+enum class SnippetCommand : uint8 {
+	reset = 0x14
+};
+
+
 using Set = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"motor.reset", 0x14>()
+		.Command<SnippetCommand::reset>()
 			.NoReply()
 			.Cancellable();
 }>;

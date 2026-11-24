@@ -2,6 +2,10 @@
 #include <Drivers/Interface/VUB/Requests/Commands.h>
 
 
+enum class SnippetCommand : uint8 {
+	stop = 0x13
+};
+
 enum class WideStatus : uint16 {
 	done = 0
 };
@@ -9,7 +13,7 @@ enum class WideStatus : uint16 {
 
 using Set = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"motor.stop", 0x13>()
+		.Command<SnippetCommand::stop>()
 			.Reply<WideStatus>();
 }>;
 

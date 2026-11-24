@@ -15,12 +15,10 @@
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
-#include <Utilities/TextLiteral.h>
 #include <algorithm>
 #include <array>
 #include <cstddef>
 #include <span>
-#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -40,13 +38,14 @@ struct RequestsOptions {
 };
 
 
-// The index of the On entry named name in a tuple of handler entries, or the size of the tuple when there is none.
+// The index of the On entry whose id value is id in a tuple of handler entries, or the size of the tuple when there is none. The entries
+// of a set are checked against its commands by CheckHandlers, so the value of the id is enough here.
 template<typename Tuple, std::size_t... Index>
-constexpr std::size_t FindOnIndexIn(std::string_view name, std::index_sequence<Index...>) {
+constexpr std::size_t FindOnIndexIn(uint8 id, std::index_sequence<Index...>) {
 	constexpr std::array<bool, sizeof...(Index)> isOn = {(std::tuple_element_t<Index, Tuple>::kind == HandlerKind::on)...};
-	constexpr std::array<std::string_view, sizeof...(Index)> names = {std::tuple_element_t<Index, Tuple>::name...};
+	constexpr std::array<uint8, sizeof...(Index)> ids = {static_cast<uint8>(std::tuple_element_t<Index, Tuple>::key)...};
 	for (std::size_t index = 0; index < sizeof...(Index); index++) {
-		if (isOn[index] && names[index] == name) {
+		if (isOn[index] && ids[index] == id) {
 			return index;
 		}
 	}
@@ -56,9 +55,9 @@ constexpr std::size_t FindOnIndexIn(std::string_view name, std::index_sequence<I
 
 
 template<typename HandlerSet>
-constexpr std::size_t FindHandlerOn(std::string_view name) {
+constexpr std::size_t FindHandlerOn(uint8 id) {
 	using Tuple = typename HandlerSet::List;
-	return FindOnIndexIn<Tuple>(name, std::make_index_sequence<std::tuple_size_v<Tuple>>());
+	return FindOnIndexIn<Tuple>(id, std::make_index_sequence<std::tuple_size_v<Tuple>>());
 }
 
 
@@ -67,7 +66,7 @@ template<typename Commands, typename HandlerSet>
 constexpr std::array<std::size_t, Commands::commandCount> BuildOnIndex() {
 	std::array<std::size_t, Commands::commandCount> table{};
 	for (std::size_t index = 0; index < Commands::commandCount; index++) {
-		table[index] = FindHandlerOn<HandlerSet>(Commands::commandTable[index].name);
+		table[index] = FindHandlerOn<HandlerSet>(Commands::commandTable[index].id);
 	}
 
 	return table;
@@ -169,17 +168,23 @@ public:
 
 
 		// A request of a command with a reply: the body is sent, the final goes to OnFinal and the interim replies to OnInterim (both
-		// optional). A busy refusal is returned at once, with no number used.
-		template<TextLiteral Name, auto OnFinal, auto OnInterim = nullptr>
-		Result<RequestId> Send(const typename CommandOf<Commands, Name>::BodyType& body) const {
-			return layer->template StartRequest<Name, OnFinal, OnInterim>(body, outbox);
+		// optional). A busy refusal is returned at once, with no number used. Without Reliable below, noInit is returned until SetSession.
+		template<auto Id, auto OnFinal, auto OnInterim = nullptr>
+		Result<RequestId> Send(const typename CommandOf<Commands, Id>::BodyType& body) const {
+			return layer->template StartRequest<Id, OnFinal, OnInterim>(body, outbox);
 		}
 
 
 		// A request of a command with no reply: the packet goes without a slot and without an outcome.
-		template<TextLiteral Name>
-		ResultStatus Fire(const typename CommandOf<Commands, Name>::BodyType& body) const {
-			return layer->template FireRequest<Name>(body, outbox);
+		template<auto Id>
+		ResultStatus Fire(const typename CommandOf<Commands, Id>::BodyType& body) const {
+			return layer->template FireRequest<Id>(body, outbox);
+		}
+
+
+		// The session of a layer with no Reliable below: the first request number and tag (see RequesterOf::SetSession). Not a member otherwise.
+		void SetSession(uint16 value) const requires (!Value.ownerBelow) {
+			layer->SetSession(value);
 		}
 
 
@@ -312,15 +317,21 @@ public:
 
 
 	// The requester's send and its fire, through the layer: the handle calls them. The requester part does the work.
-	template<TextLiteral Name, auto OnFinal, auto OnInterim>
-	Result<RequestId> StartRequest(const typename CommandOf<Commands, Name>::BodyType& body, const Outbox& outbox) {
-		return requester.template Start<Name, OnFinal, OnInterim>(body, outbox);
+	template<auto Id, auto OnFinal, auto OnInterim>
+	Result<RequestId> StartRequest(const typename CommandOf<Commands, Id>::BodyType& body, const Outbox& outbox) {
+		return requester.template Start<Id, OnFinal, OnInterim>(body, outbox);
 	}
 
 
-	template<TextLiteral Name>
-	ResultStatus FireRequest(const typename CommandOf<Commands, Name>::BodyType& body, const Outbox& outbox) {
-		return requester.template Fire<Name>(body, outbox);
+	template<auto Id>
+	ResultStatus FireRequest(const typename CommandOf<Commands, Id>::BodyType& body, const Outbox& outbox) {
+		return requester.template Fire<Id>(body, outbox);
+	}
+
+
+	// The session of a layer with no Reliable below: the requester's first number and tag. Not a member when Reliable is below.
+	void SetSession(uint16 value) requires (!Value.ownerBelow) {
+		requester.SetSession(value);
 	}
 
 

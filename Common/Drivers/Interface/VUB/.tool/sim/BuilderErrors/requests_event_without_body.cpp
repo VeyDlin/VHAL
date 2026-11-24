@@ -2,10 +2,19 @@
 #include <Drivers/Interface/VUB/Requests/Commands.h>
 
 
+enum class SnippetCommand : uint8 {
+	reset = 0x14
+};
+
+enum class SnippetEvent : uint8 {
+	fault = 0x40
+};
+
+
 using Set = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Event<"motor.fault", 0x40>()
-		.Command<"motor.reset", 0x14>()
+		.Event<SnippetEvent::fault>()
+		.Command<SnippetCommand::reset>()
 			.NoReply();
 }>;
 

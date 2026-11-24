@@ -3,10 +3,8 @@
 #include <Drivers/Interface/VUB/Requests/Commands.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/ResultStatus.h>
-#include <Utilities/TextLiteral.h>
 #include <array>
 #include <cstddef>
-#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -15,9 +13,9 @@
 namespace VUB {
 
 
-// The ticket of a request is the layer's type (the layer is built in the next wave). It is declared here only, so that the signature
-// checks can name it: a ticket handler takes VUB::Ticket<Commands, Name> by value, and the layer defines the class.
-template<typename Commands, TextLiteral Name>
+// The ticket of a request is the layer's class. It is declared here only, so that the signature checks can name it: a ticket handler
+// takes VUB::Ticket<Commands, Id> by value, and the layer defines the class.
+template<typename Commands, auto Id>
 class Ticket;
 
 
@@ -47,29 +45,33 @@ enum class HandlerKind : uint8 {
 };
 
 
-// A ticket handler of a command with a reply: void(Ticket, const Body&), or void(Ticket) when the command has no request body.
-template<TextLiteral Name, auto Fn>
+// A ticket handler of a command with a reply: void(Ticket, const Body&), or void(Ticket) when the command has no request body. The key
+// is the command's id: a value of an enum class with a uint8 underlying type.
+template<auto Id, auto Fn>
 struct On {
+	using KeyType = decltype(Id);
+	static constexpr KeyType key = Id;
 	static constexpr HandlerKind kind = HandlerKind::on;
-	static constexpr std::string_view name = Name.View();
 	static constexpr decltype(Fn) fn = Fn;
 };
 
 
 // The cancel handler of a cancellable command: void(Ticket).
-template<TextLiteral Name, auto Fn>
+template<auto Id, auto Fn>
 struct OnCancel {
+	using KeyType = decltype(Id);
+	static constexpr KeyType key = Id;
 	static constexpr HandlerKind kind = HandlerKind::onCancel;
-	static constexpr std::string_view name = Name.View();
 	static constexpr decltype(Fn) fn = Fn;
 };
 
 
 // The handler of an event: void(const Body&), or void() when the event has no body.
-template<TextLiteral Name, auto Fn>
+template<auto Id, auto Fn>
 struct OnEvent {
+	using KeyType = decltype(Id);
+	static constexpr KeyType key = Id;
 	static constexpr HandlerKind kind = HandlerKind::onEvent;
-	static constexpr std::string_view name = Name.View();
 	static constexpr decltype(Fn) fn = Fn;
 };
 
@@ -82,11 +84,11 @@ struct Handlers {
 };
 
 
-// The index of the handler of Kind for Name in a tuple of entries, or the size of the tuple when there is none.
-template<HandlerKind Kind, TextLiteral Name, typename Tuple, std::size_t... Index>
+// The index of the handler of Kind for the id Id in a tuple of entries, or the size of the tuple when there is none.
+template<HandlerKind Kind, auto Id, typename Tuple, std::size_t... Index>
 consteval std::size_t HandlerIndexOf(std::index_sequence<Index...>) {
 	constexpr std::array<bool, sizeof...(Index)> matches = {
-		(std::tuple_element_t<Index, Tuple>::kind == Kind && std::tuple_element_t<Index, Tuple>::name == Name.View())...
+		(std::tuple_element_t<Index, Tuple>::kind == Kind && SameKey<Id, std::tuple_element_t<Index, Tuple>>())...
 	};
 
 	for (std::size_t index = 0; index < matches.size(); index++) {
@@ -99,20 +101,20 @@ consteval std::size_t HandlerIndexOf(std::index_sequence<Index...>) {
 }
 
 
-// Whether the handler list of HandlerSet has a handler of Kind for Name.
-template<typename HandlerSet, HandlerKind Kind, TextLiteral Name>
+// Whether the handler list of HandlerSet has a handler of Kind for the id Id.
+template<typename HandlerSet, HandlerKind Kind, auto Id>
 consteval bool HasHandler() {
 	using Tuple = typename HandlerSet::List;
-	return HandlerIndexOf<Kind, Name, Tuple>(std::make_index_sequence<std::tuple_size_v<Tuple>>()) < std::tuple_size_v<Tuple>;
+	return HandlerIndexOf<Kind, Id, Tuple>(std::make_index_sequence<std::tuple_size_v<Tuple>>()) < std::tuple_size_v<Tuple>;
 }
 
 
-// The entry of the handler of Kind for Name. The entry's Fn is the handler.
-template<typename HandlerSet, HandlerKind Kind, TextLiteral Name>
+// The entry of the handler of Kind for the id Id. The entry's Fn is the handler.
+template<typename HandlerSet, HandlerKind Kind, auto Id>
 struct HandlerEntryOf {
 	using Tuple = typename HandlerSet::List;
-	static constexpr std::size_t index = HandlerIndexOf<Kind, Name, Tuple>(std::make_index_sequence<std::tuple_size_v<Tuple>>());
-	static_assert(index < std::tuple_size_v<Tuple>, "the handler list has no handler of this kind for this name");
+	static constexpr std::size_t index = HandlerIndexOf<Kind, Id, Tuple>(std::make_index_sequence<std::tuple_size_v<Tuple>>());
+	static_assert(index < std::tuple_size_v<Tuple>, "the handler list has no handler of this kind for this id");
 	using Type = std::tuple_element_t<(index < std::tuple_size_v<Tuple> ? index : 0), Tuple>;
 };
 
@@ -122,14 +124,14 @@ template<typename Set, typename EntryT>
 struct CheckEntry;
 
 
-template<typename Set, TextLiteral Name, auto Fn>
+template<typename Set, auto Id, auto Fn>
 constexpr bool CheckOn() {
-	using CommandT = CommandOf<Set, Name>;
+	using CommandT = CommandOf<Set, Id>;
 	using BodyT = typename CommandT::BodyType;
-	using TicketT = Ticket<Set, Name>;
+	using TicketT = Ticket<Set, Id>;
 
 	if constexpr (CommandT::level >= 3) {
-		static_assert(CommandInfoOf<Set, Name>().ticketTimeoutMs > 0, "an On handler of a command with a reply takes a ticket: the command needs TicketTimeoutMs");
+		static_assert(CommandInfoOf<Set, Id>().ticketTimeoutMs > 0, "an On handler of a command with a reply takes a ticket: the command needs TicketTimeoutMs");
 
 		if constexpr (std::is_same_v<BodyT, NoBody>) {
 			static_assert(std::is_same_v<decltype(Fn), void (*)(TicketT)>, "an On handler of a command with a reply and no request body is void(Ticket)");
@@ -148,18 +150,18 @@ constexpr bool CheckOn() {
 }
 
 
-template<typename Set, TextLiteral Name, auto Fn>
+template<typename Set, auto Id, auto Fn>
 constexpr bool CheckOnCancel() {
-	using TicketT = Ticket<Set, Name>;
-	static_assert(CommandInfoOf<Set, Name>().cancellable, "an OnCancel handler names a command that is not Cancellable()");
+	using TicketT = Ticket<Set, Id>;
+	static_assert(CommandInfoOf<Set, Id>().cancellable, "an OnCancel handler names a command that is not Cancellable()");
 	static_assert(std::is_same_v<decltype(Fn), void (*)(TicketT)>, "an OnCancel handler is void(Ticket)");
 	return true;
 }
 
 
-template<typename Set, TextLiteral Name, auto Fn>
+template<typename Set, auto Id, auto Fn>
 constexpr bool CheckOnEvent() {
-	using BodyT = typename EventOf<Set, Name>::BodyType;
+	using BodyT = typename EventOf<Set, Id>::BodyType;
 
 	if constexpr (std::is_same_v<BodyT, NoBody>) {
 		static_assert(std::is_same_v<decltype(Fn), void (*)()>, "an OnEvent handler of an event with no body is void()");
@@ -171,21 +173,21 @@ constexpr bool CheckOnEvent() {
 }
 
 
-template<typename Set, TextLiteral Name, auto Fn>
-struct CheckEntry<Set, On<Name, Fn>> {
-	static constexpr bool passed = CheckOn<Set, Name, Fn>();
+template<typename Set, auto Id, auto Fn>
+struct CheckEntry<Set, On<Id, Fn>> {
+	static constexpr bool passed = CheckOn<Set, Id, Fn>();
 };
 
 
-template<typename Set, TextLiteral Name, auto Fn>
-struct CheckEntry<Set, OnCancel<Name, Fn>> {
-	static constexpr bool passed = CheckOnCancel<Set, Name, Fn>();
+template<typename Set, auto Id, auto Fn>
+struct CheckEntry<Set, OnCancel<Id, Fn>> {
+	static constexpr bool passed = CheckOnCancel<Set, Id, Fn>();
 };
 
 
-template<typename Set, TextLiteral Name, auto Fn>
-struct CheckEntry<Set, OnEvent<Name, Fn>> {
-	static constexpr bool passed = CheckOnEvent<Set, Name, Fn>();
+template<typename Set, auto Id, auto Fn>
+struct CheckEntry<Set, OnEvent<Id, Fn>> {
+	static constexpr bool passed = CheckOnEvent<Set, Id, Fn>();
 };
 
 
@@ -195,26 +197,37 @@ constexpr bool CheckEntries(std::tuple<Entry...>) {
 }
 
 
-// True when no two entries of the list have the same kind and name.
-template<typename... Entry>
-constexpr bool NoDuplicateHandlers(std::tuple<Entry...>) {
-	constexpr std::array<HandlerKind, sizeof...(Entry)> kinds = {Entry::kind...};
-	constexpr std::array<std::string_view, sizeof...(Entry)> names = {Entry::name...};
-
-	for (std::size_t first = 0; first < kinds.size(); first++) {
-		for (std::size_t second = first + 1; second < kinds.size(); second++) {
-			if (kinds[first] == kinds[second] && names[first] == names[second]) {
-				return false;
-			}
-		}
-	}
-
-	return true;
+// True when the two handler types have one kind and one key.
+template<typename FirstT, typename SecondT>
+consteval bool SameHandlerKey() {
+	return FirstT::kind == SecondT::kind && SameKey<FirstT::key, SecondT>();
 }
 
 
-// The checks of a handler list against a command set: every name is a command or event of the set, each handler has the signature of
-// its kind, and no two handlers of one kind name the same command. The layer calls this with its set and its handlers; it is a
+// True when a handler of the pack has the kind and key of the first one.
+template<typename FirstT, typename... Rest>
+consteval bool AnySameHandlerKey() {
+	if constexpr (sizeof...(Rest) == 0) {
+		return false;
+	} else {
+		return (SameHandlerKey<FirstT, Rest>() || ...) || AnySameHandlerKey<Rest...>();
+	}
+}
+
+
+// True when no two entries of the list have the same kind and key.
+template<typename... Entry>
+constexpr bool NoDuplicateHandlers(std::tuple<Entry...>) {
+	if constexpr (sizeof...(Entry) == 0) {
+		return true;
+	} else {
+		return !AnySameHandlerKey<Entry...>();
+	}
+}
+
+
+// The checks of a handler list against a command set: every id is a command or event of the set, each handler has the signature of its
+// kind, and no two handlers of one kind name the same command or event. The layer calls this with its set and its handlers; it is a
 // constant expression, so a failed check is a static_assert with its message, at the call.
 template<typename Set, typename HandlerSet>
 constexpr bool CheckHandlers() {
@@ -224,11 +237,11 @@ constexpr bool CheckHandlers() {
 }
 
 
-// The checks of a requester's final handler for a Send of Name: void (*)(const Final<Status, Body>&) for a command with a reply, and
+// The checks of a requester's final handler for a Send of the id Id: void (*)(const Final<Status, Body>&) for a command with a reply, and
 // void (*)(ResultStatus) for a NoReply command. A Fire command has no final.
-template<typename Set, TextLiteral Name, auto Fn>
+template<typename Set, auto Id, auto Fn>
 constexpr bool CheckFinal() {
-	using CommandT = CommandOf<Set, Name>;
+	using CommandT = CommandOf<Set, Id>;
 
 	if constexpr (CommandT::level == 1) {
 		static_assert(AlwaysFalse<Set>, "a Fire command has no final: Fire() is sent without a reply");
@@ -244,10 +257,10 @@ constexpr bool CheckFinal() {
 
 
 // The checks of a requester's interim handler: void (*)(const Progress<Status>&), for a command with Interim() or Cancellable().
-template<typename Set, TextLiteral Name, auto Fn>
+template<typename Set, auto Id, auto Fn>
 constexpr bool CheckProgress() {
-	using CommandT = CommandOf<Set, Name>;
-	static_assert(CommandInfoOf<Set, Name>().interim || CommandInfoOf<Set, Name>().cancellable, "an interim handler names a command that is not Interim() or Cancellable()");
+	using CommandT = CommandOf<Set, Id>;
+	static_assert(CommandInfoOf<Set, Id>().interim || CommandInfoOf<Set, Id>().cancellable, "an interim handler names a command that is not Interim() or Cancellable()");
 	static_assert(std::is_same_v<decltype(Fn), void (*)(const Progress<typename CommandT::StatusType>&)>, "an interim handler is void(const Progress<Status>&)");
 	return true;
 }

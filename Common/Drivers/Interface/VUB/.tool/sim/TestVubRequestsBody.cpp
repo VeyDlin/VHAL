@@ -8,8 +8,8 @@
 #include <span>
 
 
-// The codec of the requests layer, run on the bodies of the motor description (requests design, section 2.1) and on a few bodies
-// that exercise the other field types. Every expected byte string is written by hand from the design (section 5.6 and section 4).
+// The codec of the requests layer, run on the bodies of the motor description and on a few bodies that exercise the other field types.
+// Every expected byte string is written by hand from the wire layout of the bodies.
 
 
 namespace Motor {

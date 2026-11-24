@@ -25,7 +25,7 @@ void TestReplyAtOnce() {
 	stopAtOnce = true;
 
 	auto handle = near.Requests();
-	auto sent = handle.Send<"motor.stop", &OnStopFinalR>(VUB::NoBody{});
+	auto sent = handle.Send<RequesterCommand::stop,&OnStopFinalR>(VUB::NoBody{});
 	SIM_EXPECT(sent.IsErr() == false);
 	SIM_EXPECT(sent.Value().number == 1);
 	Run(line, near, far, log, 1000);
@@ -45,7 +45,7 @@ void TestReplyAtOnce() {
 }
 
 
-// A request answered later: nothing is final until the ticket finishes; then the final goes out in the next round.
+// A request answered after its handler returns: nothing is final until the ticket finishes; then the final goes out in the next round.
 void TestReplyLater() {
 	ResetRequestsState();
 	ReportingPacketLine line(VUB::Faults{});
@@ -114,7 +114,7 @@ void TestRefusals() {
 	SIM_EXPECT(stopFinals == 1);
 	SIM_EXPECT(stopResult == ResultStatus::busy);
 
-	auto unknown = handle.Send<"motor.unknown", &OnUnknownFinalR>(VUB::NoBody{});
+	auto unknown = handle.Send<RequesterCommand::unknown,&OnUnknownFinalR>(VUB::NoBody{});
 	SIM_EXPECT(unknown.IsErr() == false);
 	Run(line, near, far, log, 3000);
 	SIM_EXPECT(unknownFinals == 1);
@@ -167,6 +167,49 @@ void TestFireBodyIsChecked() {
 }
 
 
+// The slot of the one ticket takes 257 requests, each finished ahead of the next one. The generation is one byte, so the first request's
+// generation and the generation of request 257 are the same, and the tags are the same too (both 1). Only the request number tells them
+// apart: the first ticket is stale and answers notAvailable, and the request that holds the slot is untouched.
+void TestStaleTicketAfterSlotReuse() {
+	ResetServeState();
+	ServeLayer layer;
+	Probe probe;
+	ServeStopTicket first{};
+	for (uint16 number = 1; number <= 257; number++) {
+		uint8 low = static_cast<uint8>(number & 0xFF);
+		uint8 high = static_cast<uint8>(number >> 8);
+		std::array<uint8, 5> stop = {0x01, 0x13, low, high, low};
+		SIM_EXPECT(layer.Take(VUB::Meta(), std::span<const uint8>(stop.data(), stop.size())).IsErr() == false);
+		layer.Process(1000 + number, ProbeOutbox(probe));
+		SIM_EXPECT(serveStopHeld);
+		if (number == 1) {
+			first = heldServeStop;
+		}
+
+		if (number == 257) {
+			break;
+		}
+
+		SIM_EXPECT(heldServeStop.Finish(Motor::MotorStatus::started) == ResultStatus::ok);
+		layer.Process(1000 + number, ProbeOutbox(probe));
+	}
+
+	SIM_EXPECT(probe.count == 256);
+	SIM_EXPECT(first.Open() == false);
+	SIM_EXPECT(first.Finish(Motor::MotorStatus::started) == ResultStatus::notAvailable);
+	SIM_EXPECT(first.Number().number == 1);
+	SIM_EXPECT(heldServeStop.Open());
+	SIM_EXPECT(heldServeStop.Number().number == 257);
+	layer.Process(2000, ProbeOutbox(probe));
+	SIM_EXPECT(probe.count == 256);
+	SIM_EXPECT(heldServeStop.Finish(Motor::MotorStatus::started) == ResultStatus::ok);
+	layer.Process(3000, ProbeOutbox(probe));
+	std::array<uint8, 6> finalTwoFiftySeven = {0x03, 0x01, 0x01, 0x01, 0x00, 0x00};
+	SIM_EXPECT(probe.count == 257);
+	SIM_EXPECT(ProbeLastIs(probe, finalTwoFiftySeven));
+}
+
+
 int main() {
 	TestReplyAtOnce();
 	TestReplyLater();
@@ -174,5 +217,6 @@ int main() {
 	TestRefusals();
 	TestFireAndNoReplyTakeNoTicket();
 	TestFireBodyIsChecked();
+	TestStaleTicketAfterSlotReuse();
 	return SimFinish("TestVubRequestsResponder");
 }

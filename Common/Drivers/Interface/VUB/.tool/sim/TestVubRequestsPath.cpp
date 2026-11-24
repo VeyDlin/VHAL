@@ -25,7 +25,7 @@ struct LostSink {
 
 
 // The final handler of a request sends the next request from inside the handler, with one slot: the slot is freed before the handler runs.
-using ChainLayer = VUB::RequestsOf<RequesterCommands, VUB::Handlers<>, VUB::RequestsOptions{1, 0, 0, false}>;
+using ChainLayer = VUB::RequestsOf<RequesterCommands, VUB::Handlers<>, VUB::RequestsOptions{1, 0, 0, true}>;
 
 
 inline ChainLayer::Handle* chainHandle = nullptr;
@@ -38,7 +38,7 @@ void OnChainFinal(const VUB::Final<Motor::MotorStatus, VUB::NoBody>& reply) {
 	chainFinals++;
 	chainResult = reply.result;
 	if (chainFinals == 1 && chainHandle != nullptr) {
-		auto next = chainHandle->template Send<"motor.stop", &OnChainFinal>(VUB::NoBody{});
+		auto next = chainHandle->template Send<RequesterCommand::stop,&OnChainFinal>(VUB::NoBody{});
 		if (next.IsErr() == false) {
 			chainNext = next.Value().number;
 		}
@@ -55,7 +55,7 @@ inline uint16 chainInterimNext = 0;
 void OnChainInterim(const VUB::Progress<Motor::MotorStatus>&) {
 	chainInterims++;
 	if (chainInterims == 1 && chainHandleTwo != nullptr) {
-		auto next = chainHandleTwo->template Send<"motor.stop", &OnChainStopFinal>(VUB::NoBody{});
+		auto next = chainHandleTwo->template Send<RequesterCommand::stop,&OnChainStopFinal>(VUB::NoBody{});
 		if (next.IsErr() == false) {
 			chainInterimNext = next.Value().number;
 		}
@@ -87,7 +87,7 @@ inline uint16 inOrderNext = 0;
 void OnInOrderFinal(const VUB::Final<Motor::MotorStatus, VUB::NoBody>& reply) {
 	inOrderFinals++;
 	if (inOrderFinals == 1 && inOrderHandle != nullptr) {
-		auto next = inOrderHandle->template Send<"motor.stop", &OnInOrderFinal>(VUB::NoBody{});
+		auto next = inOrderHandle->template Send<RequesterCommand::stop,&OnInOrderFinal>(VUB::NoBody{});
 		if (next.IsErr() == false) {
 			inOrderNext = next.Value().number;
 		}
@@ -162,7 +162,7 @@ void TestPeerRestartClosesOpenRequests() {
 	far.reset();
 	far.emplace(line.b);
 	far->Process();
-	// The requester has nothing in flight after the acknowledgement, so the new boot shows only when it sends again: a second request is
+	// The requester has nothing in flight after the acknowledgement, so the second boot shows only when it sends again: a second request is
 	// that traffic. The restart closes both open requests of the peer with reset.
 	SIM_EXPECT(SendStopR(handle));
 	uint32 now = 2000;
@@ -176,7 +176,7 @@ void TestPeerRestartClosesOpenRequests() {
 }
 
 
-// The link goes down: a FailWhileDown request is closed with noConnection, and a new one of it is refused at once; a request of a command
+// The link goes down: a FailWhileDown request is closed with noConnection, and a further one of it is refused at once; a request of a command
 // that waits is kept, and its deadline ends it.
 void TestLinkDown() {
 	ResetRequestsState();
@@ -198,12 +198,12 @@ void TestLinkDown() {
 	near.Process();
 	SIM_EXPECT(stopFinals == 1);
 	SIM_EXPECT(stopResult == ResultStatus::noConnection);
-	auto refused = handle.Send<"motor.stop", &OnStopFinalR>(VUB::NoBody{});
+	auto refused = handle.Send<RequesterCommand::stop,&OnStopFinalR>(VUB::NoBody{});
 	SIM_EXPECT(refused.IsErr());
 	SIM_EXPECT(refused.Error() == ResultStatus::noConnection);
 
 	// motor.start waits: the send is accepted while down, and its deadline ends it.
-	auto waiting = handle.Send<"motor.start", &OnStartFinalR>(Motor::MotorStart{});
+	auto waiting = handle.Send<RequesterCommand::start,&OnStartFinalR>(Motor::MotorStart{});
 	SIM_EXPECT(waiting.IsErr() == false);
 	uint32 now = 3000;
 	for (int step = 0; step < 60 && startFinals == 0; step++) {
@@ -218,7 +218,7 @@ void TestLinkDown() {
 }
 
 
-// The final handler of a request sends the next request from inside the handler, with one slot: the slot is freed before the handler runs.
+// The final handler of a request sends the next request from inside the handler, with one slot: the slot is freed first, then the handler runs.
 void TestFinalHandlerSendsNextRequest() {
 	chainFinals = 0;
 	chainNext = 0;
@@ -227,7 +227,7 @@ void TestFinalHandlerSendsNextRequest() {
 	Probe probe;
 	ChainLayer::Handle handle(layer, ProbeOutbox(probe));
 	chainHandle = &handle;
-	auto first = handle.template Send<"motor.stop", &OnChainFinal>(VUB::NoBody{});
+	auto first = handle.template Send<RequesterCommand::stop,&OnChainFinal>(VUB::NoBody{});
 	SIM_EXPECT(first.IsErr() == false);
 	std::array<uint8, 6> finalOne = FinalOk(1, 1);
 	SIM_EXPECT(layer.Take(VUB::Meta(), std::span<const uint8>(finalOne.data(), finalOne.size())).IsErr() == false);
@@ -245,7 +245,7 @@ void TestFinalHandlerSendsNextRequest() {
 }
 
 
-// The interim handler of a request sends another request: the interim is taken, the handler sends, and the new request takes the next number.
+// The interim handler of a request sends another request: the interim is taken, the handler sends, and that request takes the next number.
 void TestInterimHandlerSendsNextRequest() {
 	chainInterims = 0;
 	chainInterimNext = 0;
@@ -253,7 +253,7 @@ void TestInterimHandlerSendsNextRequest() {
 	Probe probe;
 	ChainLayerTwo::Handle handle(layer, ProbeOutbox(probe));
 	chainHandleTwo = &handle;
-	auto start = handle.template Send<"motor.start", &OnChainStartFinal, &OnChainInterim>(Motor::MotorStart{});
+	auto start = handle.template Send<RequesterCommand::start,&OnChainStartFinal, &OnChainInterim>(Motor::MotorStart{});
 	SIM_EXPECT(start.IsErr() == false);
 	std::array<uint8, 6> interimOne = {0x02, 0x01, 0x00, 0x01, 0x01, 0x01};
 	SIM_EXPECT(layer.Take(VUB::Meta(), std::span<const uint8>(interimOne.data(), interimOne.size())).IsErr() == false);
@@ -278,7 +278,7 @@ void TestFinalHandlerSendsNextRequestInOrder() {
 	stopAtOnce = true;
 	RoundOf(line, near, far, log, 50);
 	auto handle = near.Requests();
-	auto probe = handle.template Send<"motor.stop", &OnInOrderFinal>(VUB::NoBody{});
+	auto probe = handle.template Send<RequesterCommand::stop,&OnInOrderFinal>(VUB::NoBody{});
 	SIM_EXPECT(probe.IsErr());
 	SIM_EXPECT(probe.Error() == ResultStatus::busy);
 	std::array<uint8, 1> trigger = {0xEE};
@@ -288,7 +288,7 @@ void TestFinalHandlerSendsNextRequestInOrder() {
 	}
 
 	inOrderHandle = &handle;
-	auto first = handle.template Send<"motor.stop", &OnInOrderFinal>(VUB::NoBody{});
+	auto first = handle.template Send<RequesterCommand::stop,&OnInOrderFinal>(VUB::NoBody{});
 	SIM_EXPECT(first.IsErr() == false);
 	for (uint32 round = 0; round < 6; round++) {
 		RoundOf(line, near, far, log, 1000 + round * 10);
@@ -310,15 +310,17 @@ void TestPlainReplyAtOnce() {
 	WireLog log;
 	RoundOf(line, near, far, log, 50);
 	auto handle = near.Requests();
+	handle.SetSession(1);
 	SIM_EXPECT(SendStopR(handle));
 	RoundOf(line, near, far, log, 1000);
 	SIM_EXPECT(stopsSeen == 1);
 	SIM_EXPECT(stopFinals == 1);
 	SIM_EXPECT(stopResult == ResultStatus::ok);
-	std::array<uint8, 5> request = {0x01, 0x13, 0x01, 0x00, 0x01};
+	// Session 1: the first number is 0x9E37, and the first tag is 1.
+	std::array<uint8, 5> request = {0x01, 0x13, 0x37, 0x9E, 0x01};
 	SIM_EXPECT(log.toFar.count == 1);
 	SIM_EXPECT(CaptureIs(log.toFar, 0, request));
-	std::array<uint8, 6> finalStarted = {0x03, 0x01, 0x00, 0x01, 0x00, 0x00};
+	std::array<uint8, 6> finalStarted = {0x03, 0x37, 0x9E, 0x01, 0x00, 0x00};
 	SIM_EXPECT(log.toNear.count == 1);
 	SIM_EXPECT(CaptureIs(log.toNear, 0, finalStarted));
 }
@@ -332,6 +334,7 @@ void TestPlainInterimAndFinal() {
 	PlainResponder far(line.b);
 	WireLog log;
 	auto handle = near.Requests();
+	handle.SetSession(1);
 	SIM_EXPECT(SendStartR(handle));
 	RoundOf(line, near, far, log, 1000);
 	SIM_EXPECT(startInterims == 1);
@@ -357,6 +360,7 @@ void TestPlainTimeout() {
 	WireLog log;
 	RoundOf(line, near, far, log, 50);
 	auto handle = near.Requests();
+	handle.SetSession(1);
 	SIM_EXPECT(SendStopR(handle));
 	uint32 now = 1000;
 	for (int step = 0; step < 25 && stopFinals == 0; step++) {
@@ -376,7 +380,8 @@ void TestPlainRefusal() {
 	PlainResponder far(line.b);
 	WireLog log;
 	auto handle = near.Requests();
-	auto unknown = handle.template Send<"motor.unknown", &OnUnknownFinalR>(VUB::NoBody{});
+	handle.SetSession(1);
+	auto unknown =handle.template Send<RequesterCommand::unknown,&OnUnknownFinalR>(VUB::NoBody{});
 	SIM_EXPECT(unknown.IsErr() == false);
 	RoundOf(line, near, far, log, 1000);
 	SIM_EXPECT(unknownFinals == 1);
@@ -391,7 +396,7 @@ void TestPlainFire() {
 	PlainServeResponder far(line.b);
 	WireLog log;
 	auto handle = near.Requests();
-	SIM_EXPECT(handle.template Fire<"motor.kick">(Motor::MotorFault{7}) == ResultStatus::ok);
+	SIM_EXPECT(handle.template Fire<ServeCommand::kick>(Motor::MotorFault{7}) == ResultStatus::ok);
 	RoundOf(line, near, far, log, 1000);
 	SIM_EXPECT(serveKickCount == 1);
 	SIM_EXPECT(serveKickCode == 7);

@@ -24,7 +24,7 @@ void OnTenInterim(const VUB::Progress<Motor::MotorStatus>& progress) {
 }
 
 
-// Interim replies arrive in order, before the final; the last one is the device's own.
+// Interim replies arrive in order, ahead of the final; the last one is the device's own.
 void TestInterimReplies() {
 	ResetRequestsState();
 	ReportingPacketLine line(VUB::Faults{});
@@ -140,13 +140,13 @@ void TestFullTableAndBusySend() {
 	TableLayer layer;
 	Probe probe;
 	TableLayer::Handle handle(layer, ProbeOutbox(probe));
-	auto first = handle.Send<"motor.stop", &OnTableFinal>(VUB::NoBody{});
-	auto second = handle.Send<"motor.stop", &OnTableFinal>(VUB::NoBody{});
+	auto first =handle.Send<RequesterCommand::stop,&OnTableFinal>(VUB::NoBody{});
+	auto second = handle.Send<RequesterCommand::stop,&OnTableFinal>(VUB::NoBody{});
 	SIM_EXPECT(first.IsErr() == false);
 	SIM_EXPECT(second.IsErr() == false);
 	SIM_EXPECT(first.Value().number == 1);
 	SIM_EXPECT(second.Value().number == 2);
-	auto third = handle.Send<"motor.stop", &OnTableFinal>(VUB::NoBody{});
+	auto third = handle.Send<RequesterCommand::stop,&OnTableFinal>(VUB::NoBody{});
 	SIM_EXPECT(third.IsErr());
 	SIM_EXPECT(third.Error() == ResultStatus::busy);
 
@@ -158,11 +158,11 @@ void TestFullTableAndBusySend() {
 
 	// The stack refuses the next send once: no number is used, and the send after it gets number 3.
 	probe.answer = ResultStatus::busy;
-	auto refused = handle.Send<"motor.stop", &OnTableFinal>(VUB::NoBody{});
+	auto refused = handle.Send<RequesterCommand::stop,&OnTableFinal>(VUB::NoBody{});
 	SIM_EXPECT(refused.IsErr());
 	SIM_EXPECT(refused.Error() == ResultStatus::busy);
 	probe.answer = ResultStatus::ok;
-	auto third2 = handle.Send<"motor.stop", &OnTableFinal>(VUB::NoBody{});
+	auto third2 = handle.Send<RequesterCommand::stop,&OnTableFinal>(VUB::NoBody{});
 	SIM_EXPECT(third2.IsErr() == false);
 	SIM_EXPECT(third2.Value().number == 3);
 	SIM_EXPECT(probe.length == 5);
@@ -174,14 +174,14 @@ void TestFullTableAndBusySend() {
 
 
 // The number wraps after 65535 requests: the next one is number 1 with the tag the counter gives (0), not the tag of the old number 1
-// (1). A late final of the old request, with its old tag, does not close the new one; the new one's final does.
+// (1). A late final of the old request, with its old tag, does not close the second one; the second one's final does.
 void TestNumberWrapWithLateFinal() {
 	tableFinals = 0;
 	TableLayer layer;
 	Probe probe;
 	TableLayer::Handle handle(layer, ProbeOutbox(probe));
 	for (uint32 count = 0; count < 65535; count++) {
-		auto sent = handle.Send<"motor.stop", &OnTableFinal>(VUB::NoBody{});
+		auto sent = handle.Send<RequesterCommand::stop,&OnTableFinal>(VUB::NoBody{});
 		SIM_EXPECT(sent.IsErr() == false);
 		uint16 number = sent.Value().number;
 		uint8 tag = static_cast<uint8>(probe.last[4]);
@@ -191,7 +191,7 @@ void TestNumberWrapWithLateFinal() {
 	}
 
 	SIM_EXPECT(tableFinals == 65535);
-	auto wrapped = handle.Send<"motor.stop", &OnTableFinal>(VUB::NoBody{});
+	auto wrapped = handle.Send<RequesterCommand::stop,&OnTableFinal>(VUB::NoBody{});
 	SIM_EXPECT(wrapped.IsErr() == false);
 	SIM_EXPECT(wrapped.Value().number == 1);
 	std::array<uint8, 5> stopOne = {0x01, 0x13, 0x01, 0x00, 0x00};
@@ -219,7 +219,7 @@ void TestTenInterimsInOneProcess() {
 	ChainLayerTwo layer;
 	Probe probe;
 	ChainLayerTwo::Handle handle(layer, ProbeOutbox(probe));
-	auto start = handle.template Send<"motor.start", &OnChainStartFinal, &OnTenInterim>(Motor::MotorStart{});
+	auto start =handle.template Send<RequesterCommand::start,&OnChainStartFinal, &OnTenInterim>(Motor::MotorStart{});
 	SIM_EXPECT(start.IsErr() == false);
 	for (uint8 index = 0; index < 10; index++) {
 		std::array<uint8, 6> interim = {0x02, 0x01, 0x00, 0x01, static_cast<uint8>(index + 1), static_cast<uint8>(10 + index)};
@@ -234,20 +234,32 @@ void TestTenInterimsInOneProcess() {
 }
 
 
-// A link that has not come up yet: the first Process has not sampled it, so a FailWhileDown send is refused with noConnection before it reaches
+// A link the first Process has not sampled: a FailWhileDown send is refused with noConnection ahead of it reaching
 // the layer below. A send of a command without FailWhileDown is refused by the layer below (noInit: no session has a boot value).
 void TestSendBeforeLinkUpIsNoConnection() {
 	ResetRequestsState();
 	ReportingPacketLine line(VUB::Faults{});
 	Requester near(line.a);
 	auto handle = near.Requests();
-	auto refused = handle.Send<"motor.stop", &OnStopFinalR>(VUB::NoBody{});
+	auto refused = handle.Send<RequesterCommand::stop,&OnStopFinalR>(VUB::NoBody{});
 	SIM_EXPECT(refused.IsErr());
 	SIM_EXPECT(refused.Error() == ResultStatus::noConnection);
-	auto unrestricted = handle.Send<"motor.start", &OnStartFinalR>(Motor::MotorStart{});
+	auto unrestricted = handle.Send<RequesterCommand::start,&OnStartFinalR>(Motor::MotorStart{});
 	SIM_EXPECT(unrestricted.IsErr());
 	SIM_EXPECT(unrestricted.Error() == ResultStatus::noInit);
 }
+
+
+// The session call is a member of a layer with no Reliable below only: the handle of a layer over Reliable has no SetSession.
+template<typename HandleType>
+constexpr bool HasSetSession = requires(HandleType& handle) {
+	handle.SetSession(uint16{1});
+};
+
+
+using PlainTable = VUB::RequestsOf<RequesterCommands, VUB::Handlers<>, VUB::RequestsOptions{2, 0, 0, false}>;
+static_assert(!HasSetSession<TableLayer::Handle>, "SetSession is a member only with no Reliable below");
+static_assert(HasSetSession<PlainTable::Handle>, "SetSession is a member with no Reliable below");
 
 
 int main() {

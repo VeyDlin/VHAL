@@ -276,7 +276,7 @@ consteval void DescribeElement(FieldDescriptor& field) {
 		field.kind = FieldKind::integer;
 		field.width = 4;
 	} else if constexpr (std::is_same_v<ElementT, double>) {
-		static_assert(AlwaysFalse<ElementT>, "a double field is not in version 1: use a scaled integer (the requests design, section 4.1)");
+		static_assert(AlwaysFalse<ElementT>, "a double field is not in version 1: use a scaled integer");
 	} else if constexpr (HasBodyOf<ElementT>) {
 		static_assert(!NestedViewOf<ElementT>()->hasOptional, "a nested body has an Optional field: a nested body has only required fields in version 1");
 		field.kind = FieldKind::nested;

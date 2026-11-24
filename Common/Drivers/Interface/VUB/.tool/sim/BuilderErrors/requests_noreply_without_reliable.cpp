@@ -7,9 +7,14 @@ enum class SnippetStatus : uint8 {
 };
 
 
+enum class SnippetCommand : uint8 {
+	reset = 0x14
+};
+
+
 using Set = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"motor.reset", 0x14>()
+		.Command<SnippetCommand::reset>()
 			.NoReply();
 }>;
 
@@ -23,5 +28,5 @@ using Layer = VUB::RequestsOf<Set, VUB::Handlers<>, VUB::RequestsOptions{1, 0, 0
 
 
 inline void SendReset(Layer& layer, const VUB::Outbox& outbox) {
-	(void)layer.template StartRequest<"motor.reset", &OnReset, nullptr>(VUB::NoBody{}, outbox);
+	(void)layer.template StartRequest<SnippetCommand::reset, &OnReset, nullptr>(VUB::NoBody{}, outbox);
 }

@@ -3,6 +3,11 @@
 #include <array>
 
 
+enum class SnippetCommand : uint8 {
+	start = 0x12
+};
+
+
 struct SnippetBody {
 	std::array<double, 2> steps{};
 };
@@ -22,7 +27,7 @@ struct BodyOf<SnippetBody> {
 
 using Set = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"motor.start", 0x12>()
+		.Command<SnippetCommand::start>()
 			.Request<SnippetBody>()
 			.NoReply();
 }>;

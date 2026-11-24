@@ -2,6 +2,15 @@
 #include <Drivers/Interface/VUB/Requests/Handlers.h>
 
 
+enum class SnippetCommand : uint8 {
+	start = 0x12
+};
+
+enum class SnippetStatus : uint8 {
+	done = 0
+};
+
+
 struct SnippetBody {
 	uint8 value = 0;
 };
@@ -19,14 +28,9 @@ struct BodyOf<SnippetBody> {
 }
 
 
-enum class SnippetStatus : uint8 {
-	done = 0
-};
-
-
 using Set = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"motor.start", 0x12>()
+		.Command<SnippetCommand::start>()
 			.Request<SnippetBody>()
 			.Reply<SnippetStatus>();
 }>;
@@ -36,7 +40,7 @@ using Set = VUB::CommandSet<+[]() {
 void OnStartNoTicket(const SnippetBody& body);
 
 using Handlers = VUB::Handlers<
-	VUB::On<"motor.start", &OnStartNoTicket>>;
+	VUB::On<SnippetCommand::start, &OnStartNoTicket>>;
 
 
 static_assert(VUB::CheckHandlers<Set, Handlers>());

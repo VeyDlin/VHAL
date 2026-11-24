@@ -2,6 +2,11 @@
 #include <Drivers/Interface/VUB/Requests/Handlers.h>
 
 
+enum class SnippetEvent : uint8 {
+	fault = 0x40
+};
+
+
 struct SnippetBody {
 	uint8 value = 0;
 };
@@ -21,7 +26,7 @@ struct BodyOf<SnippetBody> {
 
 using Set = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Event<"motor.fault", 0x40>()
+		.Event<SnippetEvent::fault>()
 			.Body<SnippetBody>();
 }>;
 
@@ -30,7 +35,7 @@ using Set = VUB::CommandSet<+[]() {
 void OnFaultByValue(int code);
 
 using Handlers = VUB::Handlers<
-	VUB::OnEvent<"motor.fault", &OnFaultByValue>>;
+	VUB::OnEvent<SnippetEvent::fault, &OnFaultByValue>>;
 
 
 static_assert(VUB::CheckHandlers<Set, Handlers>());

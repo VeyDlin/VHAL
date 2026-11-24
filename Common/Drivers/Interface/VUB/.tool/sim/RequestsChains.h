@@ -18,27 +18,42 @@
 // Each test starts from zero. The clock is testNowUs of Chains.h, shared by both stacks.
 
 
-// The requester's commands: the device's start and stop with their ids, and an id the device does not serve. The stop fails while the link
-// is down.
+// The ids of the requester's commands: the device's start and stop, and an id the device does not serve.
+enum class RequesterCommand : uint8 {
+	start = 0x12,
+	stop = 0x13,
+	unknown = 0x77
+};
+
+
+// The ids of the responder's commands for the no-reply and the fire tests.
+enum class ServeCommand : uint8 {
+	stop = 0x13,
+	reset = 0x14,
+	kick = 0x15
+};
+
+
+// The requester's commands. The stop fails while the link is down.
 using RequesterCommands = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"motor.start", 0x12>()
+		.Command<RequesterCommand::start>()
 			.Request<Motor::MotorStart>()
 			.Reply<Motor::MotorStatus, Motor::MotorReport>()
 			.Interim()
 			.ReplyTimeoutMs(5000)
-		.Command<"motor.stop", 0x13>()
+		.Command<RequesterCommand::stop>()
 			.Reply<Motor::MotorStatus>()
 			.ReplyTimeoutMs(2000)
 			.FailWhileDown()
-		.Command<"motor.unknown", 0x77>()
+		.Command<RequesterCommand::unknown>()
 			.Reply<Motor::MotorStatus>()
 			.ReplyTimeoutMs(2000);
 }>;
 
 
-using StartTicket = VUB::Ticket<Motor::MotorCommands, "motor.start">;
-using StopTicket = VUB::Ticket<Motor::MotorCommands, "motor.stop">;
+using StartTicket = VUB::Ticket<Motor::MotorCommands, Motor::MotorCommand::start>;
+using StopTicket = VUB::Ticket<Motor::MotorCommands, Motor::MotorCommand::stop>;
 
 
 inline bool startInterimAtOnce = false;
@@ -82,8 +97,8 @@ void OnStopDevice(StopTicket ticket) {
 
 // The device's handlers: each request is held by its ticket unless the test says it is answered at once.
 using DeviceHandlers = VUB::Handlers<
-	VUB::On<"motor.start", &OnStartDevice>,
-	VUB::On<"motor.stop", &OnStopDevice>>;
+	VUB::On<Motor::MotorCommand::start, &OnStartDevice>,
+	VUB::On<Motor::MotorCommand::stop, &OnStopDevice>>;
 
 
 // The requester's results, recorded by each handler.
@@ -219,11 +234,11 @@ bool EndsWith(const ReliableCapture& capture, std::size_t index, const std::arra
 void Establish(ReportingPacketLine& line, Requester& near, Responder& far, WireLog& log) {
 	GiveSession(near);
 	GiveSession(far);
-	// The stack samples the link in its first Process. A FailWhileDown send before that is refused with noConnection, so the round comes
+	// The stack samples the link in its first Process. A FailWhileDown send made ahead of that round is refused with noConnection, so the round comes
 	// first: the session then starts with the first send the layer below takes.
 	Run(line, near, far, log, 50);
 	auto handle = near.Requests();
-	auto probe = handle.Send<"motor.stop", &OnStopFinalR>(VUB::NoBody{});
+	auto probe = handle.Send<RequesterCommand::stop, &OnStopFinalR>(VUB::NoBody{});
 	SIM_EXPECT(probe.IsErr());
 	SIM_EXPECT(probe.Error() == ResultStatus::busy);
 	std::array<uint8, 1> trigger = {0xEE};
@@ -238,14 +253,14 @@ void Establish(ReportingPacketLine& line, Requester& near, Responder& far, WireL
 // the check macro.
 template<typename HandleType>
 bool SendStopR(HandleType& handle) {
-	auto sent = handle.template Send<"motor.stop", &OnStopFinalR>(VUB::NoBody{});
+	auto sent = handle.template Send<RequesterCommand::stop, &OnStopFinalR>(VUB::NoBody{});
 	return sent.IsErr() == false;
 }
 
 
 template<typename HandleType>
 bool SendStartR(HandleType& handle) {
-	auto sent = handle.template Send<"motor.start", &OnStartFinalR, &OnStartInterimR>(Motor::MotorStart{});
+	auto sent = handle.template Send<RequesterCommand::start, &OnStartFinalR, &OnStartInterimR>(Motor::MotorStart{});
 	return sent.IsErr() == false;
 }
 
@@ -285,7 +300,7 @@ void RoundOf(ReportingPacketLine& line, NearStack& near, FarStack& far, WireLog&
 
 
 // The full table and the layer-only probes: a requester layer with a recording outbox, and the packets it sends and takes are hand-written.
-using TableLayer = VUB::RequestsOf<RequesterCommands, VUB::Handlers<>, VUB::RequestsOptions{2, 0, 0}>;
+using TableLayer = VUB::RequestsOf<RequesterCommands, VUB::Handlers<>, VUB::RequestsOptions{2, 0, 0, true}>;
 
 
 struct Probe {
@@ -354,19 +369,19 @@ bool ProbeLastIs(const Probe& probe, const std::array<uint8, Size>& expected) {
 // The order in which the handlers run is recorded, so a test can check it.
 using ServeCommands = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"motor.stop", 0x13>()
+		.Command<ServeCommand::stop>()
 			.Reply<Motor::MotorStatus>()
 			.ReplyTimeoutMs(2000)
 			.TicketTimeoutMs(60000)
-		.Command<"motor.reset", 0x14>()
+		.Command<ServeCommand::reset>()
 			.NoReply()
-		.Command<"motor.kick", 0x15>()
+		.Command<ServeCommand::kick>()
 			.Request<Motor::MotorFault>()
 			.Fire();
 }>;
 
 
-using ServeStopTicket = VUB::Ticket<ServeCommands, "motor.stop">;
+using ServeStopTicket = VUB::Ticket<ServeCommands, ServeCommand::stop>;
 
 
 inline std::array<uint8, 8> serveOrder{};
@@ -408,9 +423,9 @@ void OnServeKick(const Motor::MotorFault& fault) {
 
 
 using ServeHandlers = VUB::Handlers<
-	VUB::On<"motor.stop", &OnServeStop>,
-	VUB::On<"motor.reset", &OnServeReset>,
-	VUB::On<"motor.kick", &OnServeKick>>;
+	VUB::On<ServeCommand::stop, &OnServeStop>,
+	VUB::On<ServeCommand::reset, &OnServeReset>,
+	VUB::On<ServeCommand::kick, &OnServeKick>>;
 
 
 void ResetServeState() {
@@ -422,8 +437,8 @@ void ResetServeState() {
 }
 
 
-// A requester with two slots and no delivery layer below it: the chains of the interim and the ten-interim tests use it.
-using ChainLayerTwo = VUB::RequestsOf<RequesterCommands, VUB::Handlers<>, VUB::RequestsOptions{2, 0, 0, false}>;
+// A requester with two slots over Reliable: the chains of the interim and the ten-interim tests use it.
+using ChainLayerTwo = VUB::RequestsOf<RequesterCommands, VUB::Handlers<>, VUB::RequestsOptions{2, 0, 0, true}>;
 
 
 void OnChainStartFinal(const VUB::Final<Motor::MotorStatus, Motor::MotorReport>&) {

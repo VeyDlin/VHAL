@@ -7,9 +7,9 @@
 namespace VUB {
 
 
-// The wire values of the requests layer. Kinds are byte 0 of a packet; codes are the FINAL code byte (design section 5). The layer's
-// packets are the payloads of the layer below: a request is 01 id number(2) tag(1) body, an interim is 02 number(2) tag(1) index(1)
-// status(1), and a final is 03 number(2) tag(1) code(1), with status(1) and body after code 0.
+// The wire values of the requests layer. Kinds are byte 0 of a packet; codes are the FINAL code byte. The layer's packets are the payloads
+// of the layer below: a request is 01 id number(2) tag(1) body, an interim is 02 number(2) tag(1) index(1) status(1), and a final is
+// 03 number(2) tag(1) code(1), with status(1) and body after code 0.
 namespace RequestWire {
 	inline constexpr uint8 KindRequest = 0x01;
 	inline constexpr uint8 KindInterim = 0x02;

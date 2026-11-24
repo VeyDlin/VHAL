@@ -2,9 +2,14 @@
 #include <Drivers/Interface/VUB/Requests/Commands.h>
 
 
+enum class SnippetEvent : uint8 {
+	fault = 0xF1
+};
+
+
 using Set = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Event<"motor.fault", 0xF1>()
+		.Event<SnippetEvent::fault>()
 			.Body<VUB::NoBody>();
 }>;
 

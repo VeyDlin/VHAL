@@ -32,13 +32,17 @@ failures=0
 
 declare -A sizes=()
 
-# Builds the configuration's program for one CPU, and stores "text data bss" in sizes. Returns 1 when a file does not build.
+# Builds the configuration's program for one CPU, with the flags of its row (for example -DSIZE_ROLE=1), and stores "text data bss" in sizes.
+# Returns 1 when a file does not build.
 measure() {
 	local cpu="$1"
 	local configSource="$2"
-	local key="$cpu $configSource"
+	local rowFlags="$3"
+	local key="$cpu $configSource $rowFlags"
 	local name
+	local tag
 	local objects=()
+	local defines=()
 	local source
 	local object
 	local exe
@@ -48,11 +52,18 @@ measure() {
 	fi
 
 	name="$(basename "$configSource" .cpp)"
-	exe="$buildDir/$cpu-$name.elf"
+	tag="$(printf '%s' "$rowFlags" | tr -c 'A-Za-z0-9' '_')"
+	exe="$buildDir/$cpu-$name$tag.elf"
+	read -r -a defines <<< "$rowFlags"
 
 	for source in "$configSource" SizeMain.cpp; do
-		object="$buildDir/$cpu-$name-$(basename "$source" .cpp).o"
-		if ! "$cxx" "${flags[@]}" -mcpu="$cpu" "${includes[@]}" -c -o "$object" "$sizeDir/$source"; then
+		object="$buildDir/$cpu-$name$tag-$(basename "$source" .cpp).o"
+		local extra=()
+		if [ "$source" = "$configSource" ]; then
+			extra=(${defines[@]+"${defines[@]}"})
+		fi
+
+		if ! "$cxx" "${flags[@]}" -mcpu="$cpu" "${includes[@]}" ${extra[@]+"${extra[@]}"} -c -o "$object" "$sizeDir/$source"; then
 			echo "BUILD FAILED: $source for $cpu" >&2
 			return 1
 		fi
@@ -61,10 +72,10 @@ measure() {
 	done
 
 	# The nosys stubs of the C library warn that they are not implemented; the warnings are not shown unless the link fails.
-	local linkLog="$buildDir/$cpu-$name.link.log"
+	local linkLog="$buildDir/$cpu-$name$tag.link.log"
 	if ! "$cxx" "${flags[@]}" -mcpu="$cpu" "${objects[@]}" -o "$exe" "${linkFlags[@]}" >"$linkLog" 2>&1; then
 		cat "$linkLog" >&2
-		echo "LINK FAILED: $configSource for $cpu" >&2
+		echo "LINK FAILED: $configSource $rowFlags for $cpu" >&2
 		return 1
 	fi
 
@@ -73,21 +84,32 @@ measure() {
 	sizes[$key]="$text $data $bss"
 }
 
-# The rows: the label, the baseline, and the configuration.
+# The rows: the label, the baseline, its flags, the configuration, and its flags. A row whose configuration is the requests layer
+# (ConfigRequests.cpp) takes the same chain with SIZE_ROLE=0 as its baseline: the cost is the layer on that chain.
 rows=(
-	"(a) packet link only|BaselinePacket.cpp|ConfigA.cpp"
-	"(b) stream link, COBS|BaselineStream.cpp|ConfigB.cpp"
-	"(c) (b) + CRC-16/MODBUS table|BaselineStream.cpp|ConfigC.cpp"
-	"(d) (b) + CRC-16/MODBUS bitwise|BaselineStream.cpp|ConfigD.cpp"
-	"(e) stream link, length prefix 1, CRC-8 bitwise|BaselineStream.cpp|ConfigE.cpp"
-	"(f) stream link, gap framing, CRC-16 table|BaselineStream.cpp|ConfigF.cpp"
-	"(g) (c) + VUB::Reliable (Retries 3, Window 4)|BaselineStream.cpp|ConfigG.cpp"
-	"(h) (g) with the in-order option|BaselineStream.cpp|ConfigH.cpp"
-	"(i) COBS, CRC-8, VUB::ReliableOf window 1, Retries 3|BaselineStream.cpp|ConfigI.cpp"
-	"breakdown of (i): the same without VUB::ReliableOf|BaselineStream.cpp|ConfigIPlain.cpp"
-	"CompactStreamingProtocol<20, 4> (bootloader use)|BaselinePacket.cpp|ConfigCompact.cpp"
-	"(j) stream link, COBS, CRC-16/MODBUS table, VUB::KeepAlive (default times)|BaselineStream.cpp|ConfigJ.cpp"
-	"(k) (g) + VUB::KeepAlive (default times)|BaselineStream.cpp|ConfigK.cpp"
+	"(a) packet link only|BaselinePacket.cpp||ConfigA.cpp|"
+	"(b) stream link, COBS|BaselineStream.cpp||ConfigB.cpp|"
+	"(c) (b) + CRC-16/MODBUS table|BaselineStream.cpp||ConfigC.cpp|"
+	"(d) (b) + CRC-16/MODBUS bitwise|BaselineStream.cpp||ConfigD.cpp|"
+	"(e) stream link, length prefix 1, CRC-8 bitwise|BaselineStream.cpp||ConfigE.cpp|"
+	"(f) stream link, gap framing, CRC-16 table|BaselineStream.cpp||ConfigF.cpp|"
+	"(g) (c) + VUB::Reliable (Retries 3, Window 4)|BaselineStream.cpp||ConfigG.cpp|"
+	"(h) (g) with the in-order option|BaselineStream.cpp||ConfigH.cpp|"
+	"(i) COBS, CRC-8, VUB::ReliableOf window 1, Retries 3|BaselineStream.cpp||ConfigI.cpp|"
+	"breakdown of (i): the same without VUB::ReliableOf|BaselineStream.cpp||ConfigIPlain.cpp|"
+	"CompactStreamingProtocol<20, 4> (bootloader use)|BaselinePacket.cpp||ConfigCompact.cpp|"
+	"(j) stream link, COBS, CRC-16/MODBUS table, VUB::KeepAlive (default times)|BaselineStream.cpp||ConfigJ.cpp|"
+	"(k) (g) + VUB::KeepAlive (default times)|BaselineStream.cpp||ConfigK.cpp|"
+	"requests responder only, CRC-16/MODBUS over COBS over stream link|ConfigRequests.cpp|-DSIZE_BASE=1 -DSIZE_ROLE=0|ConfigRequests.cpp|-DSIZE_BASE=1 -DSIZE_ROLE=1"
+	"requests requester only (one Send site), CRC-16/MODBUS over COBS over stream link|ConfigRequests.cpp|-DSIZE_BASE=1 -DSIZE_ROLE=0|ConfigRequests.cpp|-DSIZE_BASE=1 -DSIZE_ROLE=2"
+	"requests both, CRC-16/MODBUS over COBS over stream link|ConfigRequests.cpp|-DSIZE_BASE=1 -DSIZE_ROLE=0|ConfigRequests.cpp|-DSIZE_BASE=1 -DSIZE_ROLE=3"
+	"requests requester only (four Send sites), CRC-16/MODBUS over COBS over stream link|ConfigRequests.cpp|-DSIZE_BASE=1 -DSIZE_ROLE=0|ConfigRequests.cpp|-DSIZE_BASE=1 -DSIZE_ROLE=2 -DSIZE_SENDS=4"
+	"requests responder only, COBS over stream link|ConfigRequests.cpp|-DSIZE_BASE=2 -DSIZE_ROLE=0|ConfigRequests.cpp|-DSIZE_BASE=2 -DSIZE_ROLE=1"
+	"requests requester only (one Send site), COBS over stream link|ConfigRequests.cpp|-DSIZE_BASE=2 -DSIZE_ROLE=0|ConfigRequests.cpp|-DSIZE_BASE=2 -DSIZE_ROLE=2"
+	"requests both, COBS over stream link|ConfigRequests.cpp|-DSIZE_BASE=2 -DSIZE_ROLE=0|ConfigRequests.cpp|-DSIZE_BASE=2 -DSIZE_ROLE=3"
+	"requests responder only, ReliableOf<40, 4>|ConfigRequests.cpp|-DSIZE_BASE=3 -DSIZE_ROLE=0|ConfigRequests.cpp|-DSIZE_BASE=3 -DSIZE_ROLE=1"
+	"requests requester only (one Send site), ReliableOf<40, 4>|ConfigRequests.cpp|-DSIZE_BASE=3 -DSIZE_ROLE=0|ConfigRequests.cpp|-DSIZE_BASE=3 -DSIZE_ROLE=2"
+	"requests both, ReliableOf<40, 4>|ConfigRequests.cpp|-DSIZE_BASE=3 -DSIZE_ROLE=0|ConfigRequests.cpp|-DSIZE_BASE=3 -DSIZE_ROLE=3"
 )
 
 baselines=(BaselinePacket.cpp BaselineStream.cpp)
@@ -96,18 +118,18 @@ printf '| Configuration | M4 text | M4 RAM | M0+ text | M0+ RAM |\n'
 printf '|---|---:|---:|---:|---:|\n'
 
 for row in "${rows[@]}"; do
-	IFS='|' read -r label baseSource configSource <<< "$row"
+	IFS='|' read -r label baseSource baseFlags configSource configFlags <<< "$row"
 	line="| $label"
 
 	for cpu in "${cpus[@]}"; do
-		if ! measure "$cpu" "$baseSource" || ! measure "$cpu" "$configSource"; then
+		if ! measure "$cpu" "$baseSource" "$baseFlags" || ! measure "$cpu" "$configSource" "$configFlags"; then
 			failures=$((failures + 1))
 			line="$line | failed | failed"
 			continue
 		fi
 
-		read -r baseText baseData baseBss <<< "${sizes[$cpu $baseSource]}"
-		read -r text data bss <<< "${sizes[$cpu $configSource]}"
+		read -r baseText baseData baseBss <<< "${sizes[$cpu $baseSource $baseFlags]}"
+		read -r text data bss <<< "${sizes[$cpu $configSource $configFlags]}"
 		line="$line | $((text - baseText)) | $((data + bss - baseData - baseBss))"
 	done
 
@@ -118,8 +140,8 @@ echo
 "$cxx" --version | head -n 1 | sed 's/^/Toolchain: /'
 for baseSource in "${baselines[@]}"; do
 	for cpu in "${cpus[@]}"; do
-		if measure "$cpu" "$baseSource"; then
-			read -r text data bss <<< "${sizes[$cpu $baseSource]}"
+		if measure "$cpu" "$baseSource" ""; then
+			read -r text data bss <<< "${sizes[$cpu $baseSource ]}"
 			echo "Baseline $baseSource on $cpu: text $text, data $data, bss $bss"
 		fi
 	done

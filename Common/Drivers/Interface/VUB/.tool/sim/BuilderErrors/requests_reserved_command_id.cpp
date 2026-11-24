@@ -2,9 +2,14 @@
 #include <Drivers/Interface/VUB/Requests/Commands.h>
 
 
+enum class SnippetCommand : uint8 {
+	ping = 0xF0
+};
+
+
 using Set = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"ping", 0xF0>()
+		.Command<SnippetCommand::ping>()
 			.NoReply();
 }>;
 

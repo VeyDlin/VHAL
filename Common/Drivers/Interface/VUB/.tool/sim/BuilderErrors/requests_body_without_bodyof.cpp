@@ -2,6 +2,11 @@
 #include <Drivers/Interface/VUB/Requests/Commands.h>
 
 
+enum class SnippetCommand : uint8 {
+	start = 0x12
+};
+
+
 struct NoLayout {
 	uint8 value = 0;
 };
@@ -9,7 +14,7 @@ struct NoLayout {
 
 using Set = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"motor.start", 0x12>()
+		.Command<SnippetCommand::start>()
 			.Request<NoLayout>()
 			.NoReply();
 }>;

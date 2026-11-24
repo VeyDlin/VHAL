@@ -2,9 +2,14 @@
 #include <Drivers/Interface/VUB/Requests/Handlers.h>
 
 
+enum class SnippetCommand : uint8 {
+	reset = 0x14
+};
+
+
 using Set = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"motor.reset", 0x14>()
+		.Command<SnippetCommand::reset>()
 			.NoReply();
 }>;
 
@@ -13,8 +18,8 @@ void OnResetA();
 void OnResetB();
 
 using Handlers = VUB::Handlers<
-	VUB::On<"motor.reset", &OnResetA>,
-	VUB::On<"motor.reset", &OnResetB>>;
+	VUB::On<SnippetCommand::reset, &OnResetA>,
+	VUB::On<SnippetCommand::reset, &OnResetB>>;
 
 
 static_assert(VUB::CheckHandlers<Set, Handlers>());

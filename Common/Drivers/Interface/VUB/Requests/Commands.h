@@ -2,10 +2,8 @@
 #include <Drivers/Interface/VUB/Require.h>
 #include <Drivers/Interface/VUB/Requests/Body.h>
 #include <Utilities/DataTypes.h>
-#include <Utilities/TextLiteral.h>
 #include <array>
 #include <cstddef>
-#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -38,7 +36,7 @@ struct NoStatus {
 };
 
 
-// The body of an event that has no Body<T>() declaration yet.
+// The body of an event whose description has no Body<T>() call.
 struct UndeclaredBody {
 };
 
@@ -88,6 +86,18 @@ struct IsStatusEnum<T, true> : std::bool_constant<std::is_same_v<std::underlying
 };
 
 
+// True for an enum class whose underlying type is uint8: the only type a command or event id can have. An unscoped enum converts to its
+// underlying type, so it is not one.
+template<typename T, bool IsEnum = std::is_enum_v<T>>
+struct IsIdEnum : std::false_type {
+};
+
+
+template<typename T>
+struct IsIdEnum<T, true> : std::bool_constant<std::is_same_v<std::underlying_type_t<T>, uint8> && !std::is_convertible_v<T, std::underlying_type_t<T>>> {
+};
+
+
 // The options of a command. Each builder call sets one of them; a value that is not set keeps its default.
 struct CommandOptions {
 	bool interim = false;
@@ -106,7 +116,6 @@ struct EventOptions {
 
 // The information of one command, as the layer reads it at run time. The pointers are to the static views of the bodies.
 struct CommandInfo {
-	std::string_view name{};
 	const BodyView* request = nullptr;
 	const BodyView* reply = nullptr;
 	uint32 replyTimeoutMs = 0;
@@ -121,18 +130,30 @@ struct CommandInfo {
 
 // The information of one event, as the layer reads it at run time.
 struct EventInfo {
-	std::string_view name{};
 	const BodyView* body = nullptr;
 	uint8 id = 0;
 	bool delivered = false;
 };
 
 
-// A command in the description. The name and id are template arguments; the options are a value, set by the builder's calls.
-template<TextLiteral Name, uint32 Id, typename BodyT, typename ReplyT>
+// True when the item has the key Value: the same enum type and the same value. A key of another type is never the same.
+template<auto Value, typename ItemT>
+consteval bool SameKey() {
+	if constexpr (std::is_same_v<decltype(Value), typename ItemT::KeyType>) {
+		return ItemT::key == Value;
+	} else {
+		return false;
+	}
+}
+
+
+// A command in the description. The id is a value of an enum class, and it is the id on the wire. The options are a value, set by the
+// builder's calls.
+template<auto Id, typename BodyT, typename ReplyT>
 struct CommandSpec {
+	using KeyType = decltype(Id);
+	static constexpr KeyType key = Id;
 	static constexpr bool isCommand = true;
-	static constexpr std::string_view name = Name.View();
 	static constexpr uint8 id = static_cast<uint8>(Id);
 	static constexpr uint8 level = ReplyTraits<ReplyT>::level;
 	using BodyType = BodyT;
@@ -143,7 +164,6 @@ struct CommandSpec {
 
 	constexpr CommandInfo Info() const {
 		CommandInfo info;
-		info.name = name;
 		info.id = id;
 		info.level = level;
 
@@ -163,11 +183,12 @@ struct CommandSpec {
 };
 
 
-// An event in the description.
-template<TextLiteral Name, uint32 Id, typename BodyT>
+// An event in the description. The id is a value of an enum class, and it is the id on the wire.
+template<auto Id, typename BodyT>
 struct EventSpec {
+	using KeyType = decltype(Id);
+	static constexpr KeyType key = Id;
 	static constexpr bool isCommand = false;
-	static constexpr std::string_view name = Name.View();
 	static constexpr uint8 id = static_cast<uint8>(Id);
 	using BodyType = BodyT;
 	EventOptions options{};
@@ -175,7 +196,6 @@ struct EventSpec {
 
 	constexpr EventInfo Info() const {
 		EventInfo info;
-		info.name = name;
 		info.id = id;
 		info.body = &BodyViewOf<BodyT>;
 		info.delivered = options.delivered;
@@ -220,11 +240,11 @@ struct ChainItems<ChainNode<PrevT, ItemT>> {
 };
 
 
-template<typename ChainT, TextLiteral Name, uint32 Id, typename BodyT, typename ReplyT>
+template<typename ChainT, auto Id, typename BodyT, typename ReplyT>
 struct OpenCommand;
 
 
-template<typename ChainT, TextLiteral Name, uint32 Id, typename BodyT>
+template<typename ChainT, auto Id, typename BodyT>
 struct OpenEvent;
 
 
@@ -234,16 +254,18 @@ struct CommandsBuilder {
 	ChainT chain{};
 
 
-	template<TextLiteral Name, uint32 Id>
-	constexpr OpenCommand<ChainT, Name, Id, NoBody, UndeclaredReply> Command() const {
-		static_assert(Id < 0xF0, "a command id is 0xF0 or more: the ids 0xF0 to 0xFF are reserved for the layer");
+	template<auto Id>
+	constexpr OpenCommand<ChainT, Id, NoBody, UndeclaredReply> Command() const {
+		static_assert(IsIdEnum<decltype(Id)>::value, "a command id is a value of an enum class with a uint8 underlying type");
+		static_assert(static_cast<uint8>(Id) < 0xF0, "a command id is 0xF0 or more: the ids 0xF0 to 0xFF are reserved for the layer");
 		return {chain, CommandOptions{}};
 	}
 
 
-	template<TextLiteral Name, uint32 Id>
-	constexpr OpenEvent<ChainT, Name, Id, UndeclaredBody> Event() const {
-		static_assert(Id < 0xF0, "an event id is 0xF0 or more: the ids 0xF0 to 0xFF are reserved for the layer");
+	template<auto Id>
+	constexpr OpenEvent<ChainT, Id, UndeclaredBody> Event() const {
+		static_assert(IsIdEnum<decltype(Id)>::value, "an event id is a value of an enum class with a uint8 underlying type");
+		static_assert(static_cast<uint8>(Id) < 0xF0, "an event id is 0xF0 or more: the ids 0xF0 to 0xFF are reserved for the layer");
 		return {chain, EventOptions{}};
 	}
 
@@ -254,23 +276,23 @@ struct CommandsBuilder {
 };
 
 
-// A command being declared: its name, id, request body and reply are set; the options follow. The next Command(), Event() or the end of
-// the description closes it.
-template<typename ChainT, TextLiteral Name, uint32 Id, typename BodyT, typename ReplyT>
+// A command being declared: its id, request body and reply are set; the options follow. The next Command(), Event() or the end of the
+// description closes it.
+template<typename ChainT, auto Id, typename BodyT, typename ReplyT>
 struct OpenCommand {
 	ChainT chain{};
 	CommandOptions options{};
 
 
 	template<typename NewBodyT>
-	constexpr OpenCommand<ChainT, Name, Id, NewBodyT, ReplyT> Request() const {
+	constexpr OpenCommand<ChainT, Id, NewBodyT, ReplyT> Request() const {
 		static_assert(HasBodyOf<NewBodyT>, "a request body type has no BodyOf: give the type a BodyOf specialization with Layout()");
 		return {chain, options};
 	}
 
 
 	template<typename StatusT, typename ReplyBodyT = NoBody>
-	constexpr OpenCommand<ChainT, Name, Id, BodyT, ReplyShape<StatusT, ReplyBodyT>> Reply() const {
+	constexpr OpenCommand<ChainT, Id, BodyT, ReplyShape<StatusT, ReplyBodyT>> Reply() const {
 		static_assert(IsStatusEnum<StatusT>::value, "a reply status is an enum class with a uint8 underlying type");
 		static_assert(HasBodyOf<ReplyBodyT>, "a reply body type has no BodyOf: give the type a BodyOf specialization with Layout()");
 		static_assert(ReplyTraits<ReplyT>::level == 0, "a command has one reply declaration: Reply, NoReply or Fire");
@@ -278,13 +300,13 @@ struct OpenCommand {
 	}
 
 
-	constexpr OpenCommand<ChainT, Name, Id, BodyT, NoReplyShape> NoReply() const {
+	constexpr OpenCommand<ChainT, Id, BodyT, NoReplyShape> NoReply() const {
 		static_assert(ReplyTraits<ReplyT>::level == 0, "a command has one reply declaration: Reply, NoReply or Fire");
 		return {chain, options};
 	}
 
 
-	constexpr OpenCommand<ChainT, Name, Id, BodyT, FireShape> Fire() const {
+	constexpr OpenCommand<ChainT, Id, BodyT, FireShape> Fire() const {
 		static_assert(ReplyTraits<ReplyT>::level == 0, "a command has one reply declaration: Reply, NoReply or Fire");
 		return {chain, options};
 	}
@@ -333,36 +355,36 @@ struct OpenCommand {
 	}
 
 
-	constexpr CommandsBuilder<ChainNode<ChainT, CommandSpec<Name, Id, BodyT, ReplyT>>> Close() const {
+	constexpr CommandsBuilder<ChainNode<ChainT, CommandSpec<Id, BodyT, ReplyT>>> Close() const {
 		static_assert(ReplyTraits<ReplyT>::level != 0, "a command needs Reply<Status>(), NoReply() or Fire() after its Request()");
-		using Item = CommandSpec<Name, Id, BodyT, ReplyT>;
+		using Item = CommandSpec<Id, BodyT, ReplyT>;
 		using Node = ChainNode<ChainT, Item>;
 		return CommandsBuilder<Node>{Node{chain, Item{options}}};
 	}
 
 
-	template<TextLiteral NextName, uint32 NextId>
+	template<auto NextId>
 	constexpr auto Command() const {
-		return Close().template Command<NextName, NextId>();
+		return Close().template Command<NextId>();
 	}
 
 
-	template<TextLiteral NextName, uint32 NextId>
+	template<auto NextId>
 	constexpr auto Event() const {
-		return Close().template Event<NextName, NextId>();
+		return Close().template Event<NextId>();
 	}
 };
 
 
 // An event being declared. Body<T>() gives its body, Delivered() its delivery.
-template<typename ChainT, TextLiteral Name, uint32 Id, typename BodyT>
+template<typename ChainT, auto Id, typename BodyT>
 struct OpenEvent {
 	ChainT chain{};
 	EventOptions options{};
 
 
 	template<typename NewBodyT>
-	constexpr OpenEvent<ChainT, Name, Id, NewBodyT> Body() const {
+	constexpr OpenEvent<ChainT, Id, NewBodyT> Body() const {
 		static_assert(HasBodyOf<NewBodyT>, "an event body type has no BodyOf: give the type a BodyOf specialization with Layout()");
 		return {chain, options};
 	}
@@ -375,23 +397,23 @@ struct OpenEvent {
 	}
 
 
-	constexpr CommandsBuilder<ChainNode<ChainT, EventSpec<Name, Id, BodyT>>> Close() const {
+	constexpr CommandsBuilder<ChainNode<ChainT, EventSpec<Id, BodyT>>> Close() const {
 		static_assert(!std::is_same_v<BodyT, UndeclaredBody>, "an event has no Body<T>(): declare Body<VUB::NoBody>() for an event with no body");
-		using Item = EventSpec<Name, Id, BodyT>;
+		using Item = EventSpec<Id, BodyT>;
 		using Node = ChainNode<ChainT, Item>;
 		return CommandsBuilder<Node>{Node{chain, Item{options}}};
 	}
 
 
-	template<TextLiteral NextName, uint32 NextId>
+	template<auto NextId>
 	constexpr auto Command() const {
-		return Close().template Command<NextName, NextId>();
+		return Close().template Command<NextId>();
 	}
 
 
-	template<TextLiteral NextName, uint32 NextId>
+	template<auto NextId>
 	constexpr auto Event() const {
-		return Close().template Event<NextName, NextId>();
+		return Close().template Event<NextId>();
 	}
 };
 
@@ -485,31 +507,6 @@ constexpr bool NoDuplicateIds(const std::array<InfoT, Count>& table) {
 }
 
 
-// True when no name is used twice, by a command or an event.
-template<std::size_t CommandCount, std::size_t EventCount>
-constexpr bool NoDuplicateNames(const std::array<CommandInfo, CommandCount>& commands, const std::array<EventInfo, EventCount>& events) {
-	std::array<std::string_view, CommandCount + EventCount> names{};
-
-	for (std::size_t index = 0; index < CommandCount; index++) {
-		names[index] = commands[index].name;
-	}
-
-	for (std::size_t index = 0; index < EventCount; index++) {
-		names[CommandCount + index] = events[index].name;
-	}
-
-	for (std::size_t first = 0; first < names.size(); first++) {
-		for (std::size_t second = first + 1; second < names.size(); second++) {
-			if (names[first] == names[second]) {
-				return false;
-			}
-		}
-	}
-
-	return true;
-}
-
-
 template<std::size_t Count>
 constexpr std::size_t LargestRequestOf(const std::array<CommandInfo, Count>& table) {
 	std::size_t largest = 0;
@@ -578,10 +575,12 @@ constexpr bool AnyCommandLevel(const std::array<CommandInfo, Count>& table, uint
 }
 
 
-// The index of the item named Name in a tuple of items, or the size of the tuple when no item has the name.
-template<TextLiteral Name, typename Tuple, std::size_t... Index>
-consteval std::size_t ItemIndexByName(std::index_sequence<Index...>) {
-	constexpr std::array<bool, sizeof...(Index)> matches = {(std::tuple_element_t<Index, Tuple>::name == Name.View())...};
+// The index of the item of a tuple with the key Value and the kind WantCommand (a command or an event), or the size of the tuple.
+template<auto Value, typename Tuple, bool WantCommand, std::size_t... Index>
+consteval std::size_t IndexOfKey(std::index_sequence<Index...>) {
+	constexpr std::array<bool, sizeof...(Index)> matches = {
+		(SameKey<Value, std::tuple_element_t<Index, Tuple>>() && std::tuple_element_t<Index, Tuple>::isCommand == WantCommand)...
+	};
 
 	for (std::size_t index = 0; index < matches.size(); index++) {
 		if (matches[index]) {
@@ -593,13 +592,27 @@ consteval std::size_t ItemIndexByName(std::index_sequence<Index...>) {
 }
 
 
-// The item of a tuple named Name. WantCommand selects the kind: a command or an event.
-template<TextLiteral Name, typename Tuple, bool WantCommand>
-struct ItemByName {
-	static constexpr std::size_t index = ItemIndexByName<Name, Tuple>(std::make_index_sequence<std::tuple_size_v<Tuple>>());
-	static_assert(index < std::tuple_size_v<Tuple>, "no command or event of the set has this name");
-	using Type = std::tuple_element_t<(index < std::tuple_size_v<Tuple> ? index : 0), Tuple>;
-	static_assert(Type::isCommand == WantCommand, "the name is of an event where a command is expected, or of a command where an event is expected");
+// True when an item of the tuple has the key Value and the other kind: an event when WantCommand is set, a command when it is not.
+template<auto Value, typename Tuple, bool WantCommand, std::size_t... Index>
+consteval bool HasOtherKindKey(std::index_sequence<Index...>) {
+	return (false || ... || (SameKey<Value, std::tuple_element_t<Index, Tuple>>() && std::tuple_element_t<Index, Tuple>::isCommand != WantCommand));
+}
+
+
+// The item of a tuple with the key Value and the kind WantCommand. Each error names its case: an event where a command is wanted, a
+// command where an event is wanted, and a key that no item of the wanted kind has.
+template<auto Value, typename Tuple, bool WantCommand>
+struct ItemByKey {
+	static constexpr std::size_t size = std::tuple_size_v<Tuple>;
+	static constexpr std::size_t index = IndexOfKey<Value, Tuple, WantCommand>(std::make_index_sequence<size>());
+	static constexpr bool found = index < size;
+	static constexpr bool otherKind = HasOtherKindKey<Value, Tuple, WantCommand>(std::make_index_sequence<size>());
+	static_assert(IsIdEnum<decltype(Value)>::value, "a command or event id is a value of an enum class with a uint8 underlying type");
+	static_assert(found || !(otherKind && WantCommand), "an event has this id where a command is expected");
+	static_assert(found || !(otherKind && !WantCommand), "a command has this id where an event is expected");
+	static_assert(found || otherKind || !WantCommand, "no command of the set has this id");
+	static_assert(found || otherKind || WantCommand, "no event of the set has this id");
+	using Type = std::tuple_element_t<(found ? index : 0), Tuple>;
 };
 
 
@@ -625,12 +638,11 @@ public:
 	static_assert(eventCount <= 240, "more than 240 events: the event ids are one byte and 0xF0 to 0xFF are reserved");
 	// Past 240 entries the ids cannot all differ, so the duplicate check is made only when the count is within the limit: a set over
 	// the limit fails for its count alone.
-	static_assert(commandCount > 240 || NoDuplicateIds(commandTable), "two commands have the same id");
-	static_assert(eventCount > 240 || NoDuplicateIds(eventTable), "two events have the same id");
-	static_assert(NoDuplicateNames(commandTable, eventTable), "two commands or events have the same name");
+	static_assert(commandCount > 240 || NoDuplicateIds(commandTable), "two commands have the same id value");
+	static_assert(eventCount > 240 || NoDuplicateIds(eventTable), "two events have the same id value");
 
 
-	// The info of the command with this id, or nullptr when the set has none. The layer's dispatch uses it.
+	// The info of the command with this id, or nullptr when the set has none.
 	static constexpr const CommandInfo* CommandById(uint8 id) {
 		for (const CommandInfo& info : commandTable) {
 			if (info.id == id) {
@@ -642,6 +654,7 @@ public:
 	}
 
 
+	// The info of the event with this id, or nullptr when the set has none.
 	static constexpr const EventInfo* EventById(uint8 id) {
 		for (const EventInfo& info : eventTable) {
 			if (info.id == id) {
@@ -654,42 +667,28 @@ public:
 };
 
 
-// The description of the command named Name in the set Set: BodyType, StatusType, ReplyType, and the id. Its flags and timeouts are in
-// CommandInfoOf<Set, Name>().
-template<typename Set, TextLiteral Name>
-using CommandOf = typename ItemByName<Name, typename Set::Items, true>::Type;
+// The description of the command with the id Id (a value of an enum class with a uint8 underlying type) in the set Set: BodyType,
+// StatusType, ReplyType, and the id. Its flags and timeouts are in CommandInfoOf<Set, Id>().
+template<typename Set, auto Id>
+using CommandOf = typename ItemByKey<Id, typename Set::Items, true>::Type;
 
 
-// The description of the event named Name in the set Set: BodyType and the id.
-template<typename Set, TextLiteral Name>
-using EventOf = typename ItemByName<Name, typename Set::Items, false>::Type;
+// The description of the event with the id Id in the set Set: BodyType and the id.
+template<typename Set, auto Id>
+using EventOf = typename ItemByKey<Id, typename Set::Items, false>::Type;
 
 
-// The info (flags and timeouts included) of the command named Name.
-template<typename Set, TextLiteral Name>
+// The info (flags and timeouts included) of the command with the id Id.
+template<typename Set, auto Id>
 constexpr CommandInfo CommandInfoOf() {
-	for (const CommandInfo& info : Set::commandTable) {
-		if (info.name == Name.View()) {
-			return info;
-		}
-	}
-
-	Require<"no command of the set has this name">(false);
-	return {};
+	return *Set::CommandById(CommandOf<Set, Id>::id);
 }
 
 
-// The info (delivery included) of the event named Name.
-template<typename Set, TextLiteral Name>
+// The info (delivery included) of the event with the id Id.
+template<typename Set, auto Id>
 constexpr EventInfo EventInfoOf() {
-	for (const EventInfo& info : Set::eventTable) {
-		if (info.name == Name.View()) {
-			return info;
-		}
-	}
-
-	Require<"no event of the set has this name">(false);
-	return {};
+	return *Set::EventById(EventOf<Set, Id>::id);
 }
 
 

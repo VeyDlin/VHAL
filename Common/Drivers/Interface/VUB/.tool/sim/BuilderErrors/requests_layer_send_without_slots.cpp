@@ -7,9 +7,14 @@ enum class SnippetStatus : uint8 {
 };
 
 
+enum class SnippetCommand : uint8 {
+	stop = 0x13
+};
+
+
 using Set = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"motor.stop", 0x13>()
+		.Command<SnippetCommand::stop>()
 			.Reply<SnippetStatus>()
 			.ReplyTimeoutMs(2000);
 }>;
@@ -24,5 +29,5 @@ using Layer = VUB::RequestsOf<Set, VUB::Handlers<>, VUB::RequestsOptions{0, 0, 0
 
 
 inline void SendStop(Layer::Handle& handle) {
-	(void)handle.Send<"motor.stop", &OnStopFinal>(VUB::NoBody{});
+	(void)handle.Send<SnippetCommand::stop, &OnStopFinal>(VUB::NoBody{});
 }

@@ -8,20 +8,25 @@ enum class SnippetStatus : uint8 {
 };
 
 
+enum class SnippetCommand : uint8 {
+	stop = 0x13
+};
+
+
 using Set = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"motor.stop", 0x13>()
+		.Command<SnippetCommand::stop>()
 			.Reply<SnippetStatus>()
 			.ReplyTimeoutMs(2000)
 			.TicketTimeoutMs(2000);
 }>;
 
 
-void OnStop(VUB::Ticket<Set, "motor.stop">);
+void OnStop(VUB::Ticket<Set, SnippetCommand::stop>);
 
 
 using Handlers = VUB::Handlers<
-	VUB::On<"motor.stop", &OnStop>>;
+	VUB::On<SnippetCommand::stop, &OnStop>>;
 
 
 // Served, and given no Tickets(n): the default is 0, so a request has no ticket to be held in.

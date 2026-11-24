@@ -8,9 +8,14 @@ enum class SnippetStatus : uint8 {
 };
 
 
+enum class SnippetCommand : uint8 {
+	stop = 0x13
+};
+
+
 using Set = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"motor.stop", 0x13>()
+		.Command<SnippetCommand::stop>()
 			.Reply<SnippetStatus>()
 			.ReplyTimeoutMs(2000)
 			.TicketTimeoutMs(2000);
@@ -18,13 +23,13 @@ using Set = VUB::CommandSet<+[]() {
 
 
 // The handler of a command without Interim() calls Interim: the ticket has no interim call for this command.
-inline void OnStop(VUB::Ticket<Set, "motor.stop"> ticket) {
+inline void OnStop(VUB::Ticket<Set, SnippetCommand::stop> ticket) {
 	(void)ticket.Interim(SnippetStatus::done);
 }
 
 
 using Handlers = VUB::Handlers<
-	VUB::On<"motor.stop", &OnStop>>;
+	VUB::On<SnippetCommand::stop, &OnStop>>;
 
 
 using Layer = VUB::RequestsOf<Set, Handlers, VUB::RequestsOptions{0, 1, 4}>;

@@ -11,7 +11,6 @@
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
-#include <Utilities/TextLiteral.h>
 #include <array>
 #include <cstddef>
 #include <span>
@@ -22,7 +21,7 @@ namespace VUB {
 
 
 // The stage of a requester slot: free, open (the request is waiting for its final), or ready (a final or an outcome is recorded, and the
-// handler is not yet called).
+// handler is still to be called).
 enum class RequestStage : uint8 {
 	free,
 	open,
@@ -87,6 +86,12 @@ struct RequestNumbers {
 };
 
 
+// The session of a layer with no Reliable below: a sending layer is not ready until its session value is given.
+struct RequestSession {
+	bool given = false;
+};
+
+
 // The link state of a layer with a FailWhileDown command: down while the connection is not up.
 struct RequestLink {
 	bool down = false;
@@ -102,27 +107,52 @@ private:
 	[[no_unique_address]] std::conditional_t<(Plan::openCount > 0), std::array<Slot, Plan::openCount>, NoStorage> slots{};
 	[[no_unique_address]] std::conditional_t<Plan::sends, RequestNumbers, NoStorage> numbers{};
 	[[no_unique_address]] std::conditional_t<Plan::usesLink, RequestLink, NoStorage> link{};
+	[[no_unique_address]] std::conditional_t<(Plan::sends && !Plan::ownerBelow), RequestSession, NoStorage> session{};
 	static constexpr std::size_t requestBytes = RequestWire::RequestHeader + Commands::largestRequest;
+	static constexpr uint32 SessionStep = 0x9E37;
 
 
 public:
+	// Sets the first number and the first tag of the session, for a layer with no Reliable below. Each boot gives a different value. The first
+	// number is the value times SessionStep, an odd factor: different values give different first numbers, and the first numbers of values
+	// that follow each other are far apart. The first tag is the low byte of the value. The number and the tag advance together, so the
+	// requests of two boots whose values follow each other never have the same number and tag. Number 0 is never sent, so a value of 0
+	// starts at number 1.
+	void SetSession(uint16 value) {
+		if constexpr (Plan::sends && !Plan::ownerBelow) {
+			numbers.nextNumber = static_cast<uint16>(static_cast<uint32>(value) * SessionStep);
+			numbers.nextTag = static_cast<uint8>(value & 0xFF);
+			session.given = true;
+		} else {
+			(void)value;
+		}
+	}
+
+
 	// The requester's send, from the caller's context. The body is encoded here; the rest of the request is Launch, which takes no command
-	// types. A refusal of the send (busy, or a refusal of the stack) returns at once with no slot taken and no number used.
-	template<TextLiteral Name, auto OnFinal, auto OnInterim>
-	Result<RequestId> Start(const typename CommandOf<Commands, Name>::BodyType& body, const Outbox& outbox) {
-		using CommandType = CommandOf<Commands, Name>;
+	// types. A refusal of the send (busy, or a refusal of the stack) returns at once with no slot taken and no number used. With no Reliable
+	// below, a send while no session is given returns noInit.
+	template<auto Id, auto OnFinal, auto OnInterim>
+	Result<RequestId> Start(const typename CommandOf<Commands, Id>::BodyType& body, const Outbox& outbox) {
+		using CommandType = CommandOf<Commands, Id>;
 		using BodyType = typename CommandType::BodyType;
 		static_assert(Plan::openCount > 0, "Send needs requester slots: give the layer Open(n) with n of at least 1");
 		static_assert(CommandType::level != 1, "a Fire command has no reply: send it with Fire()");
 		static_assert(CommandType::level != 2 || Plan::ownerBelow,
 			"a command with a delivery outcome needs Reliable below Requests; use .Fire() for no delivery at all");
-		static_assert(CheckFinal<Commands, Name, OnFinal>());
+		static_assert(CheckFinal<Commands, Id, OnFinal>());
 
 		if constexpr (!std::is_same_v<decltype(OnInterim), std::nullptr_t>) {
-			static_assert(CheckProgress<Commands, Name, OnInterim>());
+			static_assert(CheckProgress<Commands, Id, OnInterim>());
 		}
 
-		constexpr std::size_t commandIndex = CommandIndexOf<Name>();
+		if constexpr (!Plan::ownerBelow) {
+			if (!session.given) {
+				return ResultStatus::noInit;
+			}
+		}
+
+		constexpr std::size_t commandIndex = CommandIndexOf<Id>();
 		constexpr CommandInfo info = Commands::commandTable[commandIndex];
 		static_assert(CommandType::level == 2 || info.replyTimeoutMs > 0, "a command with a reply needs ReplyTimeoutMs: the requester's deadline");
 		if constexpr (Plan::usesLink) {
@@ -136,11 +166,11 @@ public:
 		std::array<uint8, requestBytes> packet{};
 		constexpr std::size_t bodyLength = BodyViewOf<BodyType>.maxSize;
 		(void)Encode(body, std::span<uint8>(packet.data() + RequestWire::RequestHeader, bodyLength));
-		RequestFinalFn finalFn = &RunFinal<Name, OnFinal>;
+		RequestFinalFn finalFn = &RunFinal<Id, OnFinal>;
 		RequestInterimFn interimFn = nullptr;
 		if constexpr (Plan::anyInterim) {
 			if constexpr (!std::is_same_v<decltype(OnInterim), std::nullptr_t>) {
-				interimFn = &RunInterim<Name, OnInterim>;
+				interimFn = &RunInterim<Id, OnInterim>;
 			}
 		}
 
@@ -148,13 +178,13 @@ public:
 	}
 
 
-	// The fire of a command with no reply: one packet, with the no-acknowledgement flag, so it has no slot and no outcome.
-	template<TextLiteral Name>
-	ResultStatus Fire(const typename CommandOf<Commands, Name>::BodyType& body, const Outbox& outbox) {
-		using CommandType = CommandOf<Commands, Name>;
+	// The fire of a command with no reply: one packet, with the no-acknowledgement flag, so it has no slot and no outcome. It needs no session.
+	template<auto Id>
+	ResultStatus Fire(const typename CommandOf<Commands, Id>::BodyType& body, const Outbox& outbox) {
+		using CommandType = CommandOf<Commands, Id>;
 		using BodyType = typename CommandType::BodyType;
 		static_assert(CommandType::level == 1, "Fire takes a command with no reply: a command with a reply is sent with Send");
-		constexpr std::size_t commandIndex = CommandIndexOf<Name>();
+		constexpr std::size_t commandIndex = CommandIndexOf<Id>();
 		constexpr CommandInfo info = Commands::commandTable[commandIndex];
 		if constexpr (Plan::usesLink) {
 			if constexpr (info.failWhileDown) {
@@ -341,11 +371,12 @@ public:
 
 
 private:
-	// The command index of the command named Name, in the table of the set.
-	template<TextLiteral Name>
+	// The command index of the command with the id Id, in the table of the set. The id is unique in the set, so its value finds the command.
+	template<auto Id>
 	static constexpr std::size_t CommandIndexOf() {
+		constexpr uint8 value = static_cast<uint8>(Id);
 		for (std::size_t index = 0; index < Commands::commandCount; index++) {
-			if (Commands::commandTable[index].name == Name.View()) {
+			if (Commands::commandTable[index].id == value) {
 				return index;
 			}
 		}
@@ -397,8 +428,7 @@ private:
 			slot->interim.interimFn = interimFn;
 		}
 
-		numbers.nextNumber = Successor(number);
-		numbers.nextTag++;
+		Advance(number);
 		return RequestId{number};
 	}
 
@@ -413,11 +443,17 @@ private:
 		meta.flags = Meta::NoAcknowledgeFlag;
 		ResultStatus status = outbox.Send(std::span<const uint8>(packet.data(), length), meta);
 		if (status == ResultStatus::ok) {
-			numbers.nextNumber = Successor(number);
-			numbers.nextTag++;
+			Advance(number);
 		}
 
 		return status;
+	}
+
+
+	// Moves past a number that was sent. The tag advances with the number, so a number that is used again has another tag.
+	void Advance(uint16 number) {
+		numbers.nextNumber = Successor(number);
+		numbers.nextTag++;
 	}
 
 
@@ -469,7 +505,7 @@ private:
 	}
 
 
-	// The open request of a number and tag: only an open one (not yet closed) is returned.
+	// The open request of a number and tag: only an open one (one that is not closed) is returned.
 	Slot* FindOpen(uint16 number, uint8 tag) {
 		if constexpr (Plan::openCount > 0) {
 			for (Slot& slot : slots) {
@@ -503,9 +539,9 @@ private:
 
 
 	// The handler of a final: the result and, for a reply, the status and the body, decoded from the bytes of the packet.
-	template<TextLiteral Name, auto OnFinal>
+	template<auto Id, auto OnFinal>
 	static void RunFinal(ResultStatus result, uint8 status, std::span<const uint8> body) {
-		using CommandType = CommandOf<Commands, Name>;
+		using CommandType = CommandOf<Commands, Id>;
 		if constexpr (CommandType::level == 2) {
 			(void)status;
 			(void)body;
@@ -527,9 +563,9 @@ private:
 	}
 
 
-	template<TextLiteral Name, auto OnInterim>
+	template<auto Id, auto OnInterim>
 	static void RunInterim(uint8 status) {
-		using CommandType = CommandOf<Commands, Name>;
+		using CommandType = CommandOf<Commands, Id>;
 		Progress<typename CommandType::StatusType> progress{};
 		progress.status = static_cast<typename CommandType::StatusType>(status);
 		OnInterim(progress);

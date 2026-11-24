@@ -2,6 +2,10 @@
 #include <Drivers/Interface/VUB/Requests/Commands.h>
 
 
+enum class SnippetCommand : uint8 {
+	start = 0x12
+};
+
 enum class WideMode : uint64 {
 	off = 0
 };
@@ -26,7 +30,7 @@ struct BodyOf<SnippetBody> {
 
 using Set = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"motor.start", 0x12>()
+		.Command<SnippetCommand::start>()
 			.Request<SnippetBody>()
 			.NoReply();
 }>;

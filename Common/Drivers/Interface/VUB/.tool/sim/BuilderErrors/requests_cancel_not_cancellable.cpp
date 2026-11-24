@@ -2,6 +2,10 @@
 #include <Drivers/Interface/VUB/Requests/Handlers.h>
 
 
+enum class SnippetCommand : uint8 {
+	stop = 0x13
+};
+
 enum class SnippetStatus : uint8 {
 	done = 0
 };
@@ -9,15 +13,15 @@ enum class SnippetStatus : uint8 {
 
 using Set = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"motor.stop", 0x13>()
+		.Command<SnippetCommand::stop>()
 			.Reply<SnippetStatus>();
 }>;
 
 
-void OnStopCancel(VUB::Ticket<Set, "motor.stop">);
+void OnStopCancel(VUB::Ticket<Set, SnippetCommand::stop>);
 
 using Handlers = VUB::Handlers<
-	VUB::OnCancel<"motor.stop", &OnStopCancel>>;
+	VUB::OnCancel<SnippetCommand::stop, &OnStopCancel>>;
 
 
 static_assert(VUB::CheckHandlers<Set, Handlers>());

@@ -8,9 +8,14 @@ enum class SnippetStatus : uint8 {
 
 
 // The deadline of 2147484 ms is 2147484000 microseconds, past the signed 32-bit difference the layer compares.
+enum class SnippetCommand : uint8 {
+	stop = 0x13
+};
+
+
 using Set = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"motor.stop", 0x13>()
+		.Command<SnippetCommand::stop>()
 			.Reply<SnippetStatus>()
 			.ReplyTimeoutMs(2147484);
 }>;

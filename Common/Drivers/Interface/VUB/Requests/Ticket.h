@@ -1,9 +1,9 @@
 #pragma once
 #include <Drivers/Interface/VUB/Requests/Body.h>
 #include <Drivers/Interface/VUB/Requests/Commands.h>
+#include <Drivers/Interface/VUB/Requests/Wire.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/ResultStatus.h>
-#include <Utilities/TextLiteral.h>
 #include <array>
 #include <cstddef>
 #include <span>
@@ -25,25 +25,37 @@ struct RequestId {
 
 
 // The calls a ticket makes on its layer. The ticket holds a pointer to the table of its layer type, so the ticket type needs only its
-// command set and its name.
+// command set and its id. A call names the slot, its generation and the request number: a ticket is live only when all three match.
 struct TicketOps {
-	ResultStatus (*finish)(void* layer, uint8 slotIndex, uint8 generation, uint8 status, std::span<const uint8> body);
-	bool (*open)(const void* layer, uint8 slotIndex, uint8 generation);
+	ResultStatus (*finish)(
+		void* layer,
+		uint8 slotIndex,
+		uint8 generation,
+		uint16 number,
+		uint8 status,
+		std::span<const uint8> body);
+	bool (*open)(const void* layer, uint8 slotIndex, uint8 generation, uint16 number);
 };
 
 
 // The table of a set with interim commands: the table of TicketOps and the interim call.
 struct TicketInterimOps : TicketOps {
-	ResultStatus (*interim)(void* layer, uint8 slotIndex, uint8 generation, uint8 status);
+	ResultStatus (*interim)(
+		void* layer,
+		uint8 slotIndex,
+		uint8 generation,
+		uint16 number,
+		uint8 status);
 };
 
 
-// The responder's ticket of one request: a value the handler holds and finishes, once or later. Its calls are the layer's, through its
-// table. A ticket is valid while its slot holds the same generation and is open; a stale ticket answers notAvailable.
-template<typename Commands, TextLiteral Name>
+// The responder's ticket of one request: a value the handler holds and finishes at any time. Its calls are the layer's, through its
+// table. A ticket is valid while its slot holds the same generation and the same request number, and is open; any other ticket answers
+// notAvailable.
+template<typename Commands, auto Id>
 class Ticket {
 public:
-	using CommandType = CommandOf<Commands, Name>;
+	using CommandType = CommandOf<Commands, Id>;
 	using StatusType = typename CommandType::StatusType;
 	using ReplyType = typename CommandType::ReplyType;
 
@@ -63,44 +75,65 @@ public:
 	}
 
 
-	Ticket(void* layerObject, const TicketOps* operations, uint16 requestNumber, uint8 slotIndex, uint8 slotGeneration) :
-		layer(layerObject), ops(operations), number(requestNumber), index(slotIndex), generation(slotGeneration) {
+	Ticket(
+		void* layerObject,
+		const TicketOps* operations,
+		uint16 requestNumber,
+		uint8 slotIndex,
+		uint8 slotGeneration) :
+		layer(layerObject), ops(operations), number(requestNumber), index(slotIndex), generation(slotGeneration)
+	{
 	}
 
 
 	// An interim reply: the status, with the index of the reply counted by the layer. busy while the last interim is still unsent. The command
-	// must be declared Interim(): the layer has no interim call for a set without one.
+	// must be declared Interim(): the layer has no interim call for a set without one. A status of 0xF0 or more is invalidParameter, and
+	// nothing is sent.
 	ResultStatus Interim(StatusType status) const {
-		static_assert(CommandInfoOf<Commands, Name>().interim,
+		static_assert(CommandInfoOf<Commands, Id>().interim,
 			"Ticket::Interim needs the command to be declared Interim(): add .Interim() after its Reply");
+		if (static_cast<uint8>(status) >= RequestWire::StatusReservedFrom) {
+			return ResultStatus::invalidParameter;
+		}
+
 		if (ops == nullptr) {
 			return ResultStatus::notAvailable;
 		}
 
 		const TicketInterimOps* interimOps = static_cast<const TicketInterimOps*>(ops);
-		return interimOps->interim(layer, index, generation, static_cast<uint8>(status));
+		return interimOps->interim(layer, index, generation, number, static_cast<uint8>(status));
 	}
 
 
-	// The final of a command with a status only. Compile error for a command with a reply body.
+	// The final of a command with a status only. Compile error for a command with a reply body. A status of 0xF0 or more is invalidParameter,
+	// and nothing is sent.
 	ResultStatus Finish(StatusType status) const requires (std::is_same_v<ReplyType, NoBody>) {
+		if (static_cast<uint8>(status) >= RequestWire::StatusReservedFrom) {
+			return ResultStatus::invalidParameter;
+		}
+
 		if (ops == nullptr) {
 			return ResultStatus::notAvailable;
 		}
 
-		return ops->finish(layer, index, generation, static_cast<uint8>(status), std::span<const uint8>());
+		return ops->finish(layer, index, generation, number, static_cast<uint8>(status), std::span<const uint8>());
 	}
 
 
-	// The final of a command with a status and a reply body. Compile error for a command with no reply body.
+	// The final of a command with a status and a reply body. Compile error for a command with no reply body. A status of 0xF0 or more is
+	// invalidParameter, and nothing is sent.
 	ResultStatus Finish(StatusType status, const ReplyType& body) const requires (!std::is_same_v<ReplyType, NoBody>) {
+		if (static_cast<uint8>(status) >= RequestWire::StatusReservedFrom) {
+			return ResultStatus::invalidParameter;
+		}
+
 		if (ops == nullptr) {
 			return ResultStatus::notAvailable;
 		}
 
 		std::array<uint8, replySize> bytes{};
 		(void)Encode(body, std::span<uint8>(bytes.data(), bytes.size()));
-		return ops->finish(layer, index, generation, static_cast<uint8>(status), std::span<const uint8>(bytes.data(), bytes.size()));
+		return ops->finish(layer, index, generation, number, static_cast<uint8>(status), std::span<const uint8>(bytes.data(), bytes.size()));
 	}
 
 
@@ -110,7 +143,7 @@ public:
 			return false;
 		}
 
-		return ops->open(layer, index, generation);
+		return ops->open(layer, index, generation, number);
 	}
 
 

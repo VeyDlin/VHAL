@@ -2,22 +2,9 @@
 #include <Drivers/Interface/VUB/Requests/Commands.h>
 
 
-struct SnippetBody {
-	uint8 value = 0;
+enum class SnippetCommand : uint8 {
+	stop = 0x13
 };
-
-
-namespace VUB {
-
-template<>
-struct BodyOf<SnippetBody> {
-	static consteval auto Layout() {
-		return Fields<SnippetBody>().Field<&SnippetBody::value>();
-	}
-};
-
-}
-
 
 enum class SnippetStatus : uint8 {
 	done = 0
@@ -26,7 +13,7 @@ enum class SnippetStatus : uint8 {
 
 using Set = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"motor.stop", 0x13>()
+		.Command<SnippetCommand::stop>()
 			.Reply<SnippetStatus>()
 			.ReplyTimeoutMs(0);
 }>;

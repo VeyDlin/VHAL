@@ -6,14 +6,13 @@
 #include <type_traits>
 
 
-// The handler lists of the requests design (sections 2.2 and 2.3), checked against the motor set. The ticket is the layer's class, which
-// the next wave defines; this test gives it an empty stub, so that the handlers can be defined with empty bodies. The test never calls
-// a handler: every function is named by its address at compile time.
+// The handler lists of the motor set, checked against it. The ticket is the layer's class; this test gives it an empty stub, so that the
+// handlers can be defined with empty bodies. The test never calls a handler: every function is named by its address at compile time.
 
 
 namespace VUB {
 
-template<typename Commands, TextLiteral Name>
+template<typename Commands, auto Id>
 class Ticket {
 };
 
@@ -22,8 +21,8 @@ class Ticket {
 
 namespace Motor {
 
-using StartTicket = VUB::Ticket<MotorCommands, "motor.start">;
-using StopTicket = VUB::Ticket<MotorCommands, "motor.stop">;
+using StartTicket = VUB::Ticket<MotorCommands, MotorCommand::start>;
+using StopTicket = VUB::Ticket<MotorCommands, MotorCommand::stop>;
 
 void OnStart(StartTicket ticket, const MotorStart& body) {
 	(void)ticket;
@@ -46,10 +45,10 @@ void FillHealth(MotorHealth& health) {
 }
 
 using DeviceHandlers = VUB::Handlers<
-	VUB::On<"motor.start", &OnStart>,
-	VUB::OnCancel<"motor.start", &OnStartCancel>,
-	VUB::On<"motor.stop", &OnStop>,
-	VUB::On<"motor.reset", &OnReset>>;
+	VUB::On<MotorCommand::start, &OnStart>,
+	VUB::OnCancel<MotorCommand::start, &OnStartCancel>,
+	VUB::On<MotorCommand::stop, &OnStop>,
+	VUB::On<MotorCommand::reset, &OnReset>>;
 
 
 void OnStartInterim(const VUB::Progress<MotorStatus>& progress) {
@@ -73,7 +72,7 @@ void OnFault(const MotorFault& fault) {
 }
 
 using PcHandlers = VUB::Handlers<
-	VUB::OnEvent<"motor.fault", &OnFault>>;
+	VUB::OnEvent<MotorEvent::fault, &OnFault>>;
 
 }
 
@@ -83,22 +82,22 @@ static_assert(VUB::CheckHandlers<Motor::MotorCommands, Motor::DeviceHandlers>())
 static_assert(VUB::CheckHandlers<Motor::MotorCommands, Motor::PcHandlers>());
 
 // The requester's finals and interims: Send's Final and Interim arguments are checked by the same functions.
-static_assert(VUB::CheckFinal<Motor::MotorCommands, "motor.start", &Motor::OnStartFinal>());
-static_assert(VUB::CheckFinal<Motor::MotorCommands, "motor.stop", &Motor::OnStopFinal>());
-static_assert(VUB::CheckFinal<Motor::MotorCommands, "motor.reset", &Motor::OnResetDelivered>());
-static_assert(VUB::CheckProgress<Motor::MotorCommands, "motor.start", &Motor::OnStartInterim>());
+static_assert(VUB::CheckFinal<Motor::MotorCommands, Motor::MotorCommand::start, &Motor::OnStartFinal>());
+static_assert(VUB::CheckFinal<Motor::MotorCommands, Motor::MotorCommand::stop, &Motor::OnStopFinal>());
+static_assert(VUB::CheckFinal<Motor::MotorCommands, Motor::MotorCommand::reset, &Motor::OnResetDelivered>());
+static_assert(VUB::CheckProgress<Motor::MotorCommands, Motor::MotorCommand::start, &Motor::OnStartInterim>());
 
 
-// The lookups by name and kind: the layer finds the handler of a command, and the handler's function is the one declared.
-static_assert(VUB::HasHandler<Motor::DeviceHandlers, VUB::HandlerKind::on, "motor.start">());
-static_assert(VUB::HasHandler<Motor::DeviceHandlers, VUB::HandlerKind::onCancel, "motor.start">());
-static_assert(!VUB::HasHandler<Motor::DeviceHandlers, VUB::HandlerKind::onCancel, "motor.stop">());
-static_assert(!VUB::HasHandler<Motor::DeviceHandlers, VUB::HandlerKind::on, "motor.fault">());
-static_assert(VUB::HasHandler<Motor::PcHandlers, VUB::HandlerKind::onEvent, "motor.fault">());
-static_assert(VUB::HandlerEntryOf<Motor::DeviceHandlers, VUB::HandlerKind::on, "motor.start">::Type::fn == &Motor::OnStart);
-static_assert(VUB::HandlerEntryOf<Motor::DeviceHandlers, VUB::HandlerKind::onCancel, "motor.start">::Type::fn == &Motor::OnStartCancel);
-static_assert(VUB::HandlerEntryOf<Motor::DeviceHandlers, VUB::HandlerKind::on, "motor.reset">::Type::fn == &Motor::OnReset);
-static_assert(VUB::HandlerEntryOf<Motor::PcHandlers, VUB::HandlerKind::onEvent, "motor.fault">::Type::fn == &Motor::OnFault);
+// The lookups by id and kind: the layer finds the handler of a command, and the handler's function is the one declared.
+static_assert(VUB::HasHandler<Motor::DeviceHandlers, VUB::HandlerKind::on, Motor::MotorCommand::start>());
+static_assert(VUB::HasHandler<Motor::DeviceHandlers, VUB::HandlerKind::onCancel, Motor::MotorCommand::start>());
+static_assert(!VUB::HasHandler<Motor::DeviceHandlers, VUB::HandlerKind::onCancel, Motor::MotorCommand::stop>());
+static_assert(!VUB::HasHandler<Motor::DeviceHandlers, VUB::HandlerKind::on, Motor::MotorEvent::fault>());
+static_assert(VUB::HasHandler<Motor::PcHandlers, VUB::HandlerKind::onEvent, Motor::MotorEvent::fault>());
+static_assert(VUB::HandlerEntryOf<Motor::DeviceHandlers, VUB::HandlerKind::on, Motor::MotorCommand::start>::Type::fn == &Motor::OnStart);
+static_assert(VUB::HandlerEntryOf<Motor::DeviceHandlers, VUB::HandlerKind::onCancel, Motor::MotorCommand::start>::Type::fn == &Motor::OnStartCancel);
+static_assert(VUB::HandlerEntryOf<Motor::DeviceHandlers, VUB::HandlerKind::on, Motor::MotorCommand::reset>::Type::fn == &Motor::OnReset);
+static_assert(VUB::HandlerEntryOf<Motor::PcHandlers, VUB::HandlerKind::onEvent, Motor::MotorEvent::fault>::Type::fn == &Motor::OnFault);
 
 
 int main() {

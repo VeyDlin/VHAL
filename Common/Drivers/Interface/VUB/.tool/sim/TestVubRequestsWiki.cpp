@@ -17,7 +17,7 @@
 
 namespace VUB {
 
-template<typename Commands, TextLiteral Name>
+template<typename Commands, auto Id>
 class Ticket {
 };
 
@@ -25,7 +25,7 @@ class Ticket {
 
 
 // --- snippet: Body.md, the layout ---
-// The request body of motor.start: a speed, a direction, and a ramp that version 1 peers do not send.
+// The request body of the motor start command: a speed, a direction, and a ramp that version 1 peers do not send.
 namespace Motor {
 
 struct MotorStart {
@@ -93,6 +93,16 @@ struct MotorFault {
 	uint8 code = 0;
 };
 
+enum class MotorCommand : uint8 {
+	start = 0x12,
+	stop = 0x13,
+	reset = 0x14
+};
+
+enum class MotorEvent : uint8 {
+	fault = 0x40
+};
+
 }
 
 
@@ -124,20 +134,20 @@ namespace Motor {
 
 using MotorCommands = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"motor.start", 0x12>()
+		.Command<MotorCommand::start>()
 			.Request<MotorStart>()
 			.Reply<MotorStatus, MotorReport>()
 			.Interim()
 			.Cancellable()
 			.ReplyTimeoutMs(5000)
 			.TicketTimeoutMs(60000)
-		.Command<"motor.stop", 0x13>()
+		.Command<MotorCommand::stop>()
 			.Reply<MotorStatus>()
 			.ReplyTimeoutMs(2000)
 			.TicketTimeoutMs(2000)
-		.Command<"motor.reset", 0x14>()
+		.Command<MotorCommand::reset>()
 			.NoReply()
-		.Event<"motor.fault", 0x40>()
+		.Event<MotorEvent::fault>()
 			.Body<MotorFault>();
 }>;
 
@@ -146,11 +156,11 @@ using MotorCommands = VUB::CommandSet<+[]() {
 
 
 // --- snippet: Commands.md, the lookups ---
-static_assert(VUB::CommandOf<Motor::MotorCommands, "motor.start">::id == 0x12);
-static_assert(VUB::CommandInfoOf<Motor::MotorCommands, "motor.start">().level == 4);
+static_assert(VUB::CommandOf<Motor::MotorCommands, Motor::MotorCommand::start>::id == 0x12);
+static_assert(VUB::CommandInfoOf<Motor::MotorCommands, Motor::MotorCommand::start>().level == 4);
 static_assert(Motor::MotorCommands::largestRequest == 5);
 
-// The dispatch of a received request: its id finds the command, and the body is read with its view.
+// The lookup of a received id: CommandById returns the entry of the command with this id, and the layer reads its body with the view.
 const VUB::CommandInfo* LookUpStart() {
 	return Motor::MotorCommands::CommandById(0x12);
 }
@@ -160,8 +170,8 @@ const VUB::CommandInfo* LookUpStart() {
 // --- snippet: Commands.md, the handler lists ---
 namespace Motor {
 
-using StartTicket = VUB::Ticket<MotorCommands, "motor.start">;
-using StopTicket = VUB::Ticket<MotorCommands, "motor.stop">;
+using StartTicket = VUB::Ticket<MotorCommands, MotorCommand::start>;
+using StopTicket = VUB::Ticket<MotorCommands, MotorCommand::stop>;
 
 void OnStart(StartTicket ticket, const MotorStart& body) {
 	(void)ticket;
@@ -184,13 +194,13 @@ void OnFault(const MotorFault& fault) {
 }
 
 using DeviceHandlers = VUB::Handlers<
-	VUB::On<"motor.start", &OnStart>,
-	VUB::OnCancel<"motor.start", &OnStartCancel>,
-	VUB::On<"motor.stop", &OnStop>,
-	VUB::On<"motor.reset", &OnReset>>;
+	VUB::On<MotorCommand::start, &OnStart>,
+	VUB::OnCancel<MotorCommand::start, &OnStartCancel>,
+	VUB::On<MotorCommand::stop, &OnStop>,
+	VUB::On<MotorCommand::reset, &OnReset>>;
 
 using PcHandlers = VUB::Handlers<
-	VUB::OnEvent<"motor.fault", &OnFault>>;
+	VUB::OnEvent<MotorEvent::fault, &OnFault>>;
 
 }
 
@@ -203,7 +213,7 @@ static_assert(VUB::CheckHandlers<Motor::MotorCommands, Motor::PcHandlers>());
 int main() {
 	EncodeAndDecode();
 	SIM_EXPECT(LookUpStart() != nullptr);
-	SIM_EXPECT(LookUpStart()->name == "motor.start");
+	SIM_EXPECT(LookUpStart()->id == 0x12);
 	SIM_EXPECT(VUB::BodyViewOf<Motor::MotorStart>.maxSize == 5);
 	return SimFinish("TestVubRequestsWiki");
 }

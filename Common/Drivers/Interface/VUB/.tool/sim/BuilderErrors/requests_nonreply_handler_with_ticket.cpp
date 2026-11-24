@@ -2,18 +2,23 @@
 #include <Drivers/Interface/VUB/Requests/Handlers.h>
 
 
+enum class SnippetCommand : uint8 {
+	reset = 0x14
+};
+
+
 using Set = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"motor.reset", 0x14>()
+		.Command<SnippetCommand::reset>()
 			.NoReply();
 }>;
 
 
 // A NoReply command has no ticket: its handler takes nothing (the body, when it has one).
-void OnResetWithTicket(VUB::Ticket<Set, "motor.reset">);
+void OnResetWithTicket(VUB::Ticket<Set, SnippetCommand::reset>);
 
 using Handlers = VUB::Handlers<
-	VUB::On<"motor.reset", &OnResetWithTicket>>;
+	VUB::On<SnippetCommand::reset, &OnResetWithTicket>>;
 
 
 static_assert(VUB::CheckHandlers<Set, Handlers>());

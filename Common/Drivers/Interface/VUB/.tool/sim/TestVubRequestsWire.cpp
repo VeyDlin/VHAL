@@ -8,12 +8,13 @@
 #include <span>
 
 // The requests layer's packets, checked byte for byte. The layer is driven without a stack: a recording outbox takes what the layer
-// sends, and hand-written packets go in through Take. The expected bytes are design section 5.6 (payloads before Reliable's header).
+// sends, and hand-written packets go in through Take. The expected bytes are written by hand from the wire layout (payloads ahead of Reliable's
+// header).
 
 
 // The device's handlers. They keep what they were given, so a test can check it and finish the ticket itself.
-using StartTicket = VUB::Ticket<Motor::MotorCommands, "motor.start">;
-using StopTicket = VUB::Ticket<Motor::MotorCommands, "motor.stop">;
+using StartTicket = VUB::Ticket<Motor::MotorCommands, Motor::MotorCommand::start>;
+using StopTicket = VUB::Ticket<Motor::MotorCommands, Motor::MotorCommand::stop>;
 
 
 inline std::array<Motor::MotorStart, 16> seenStarts{};
@@ -48,9 +49,9 @@ void OnReset() {
 
 
 using DeviceHandlers = VUB::Handlers<
-	VUB::On<"motor.start", &OnStart>,
-	VUB::On<"motor.stop", &OnStop>,
-	VUB::On<"motor.reset", &OnReset>>;
+	VUB::On<Motor::MotorCommand::start, &OnStart>,
+	VUB::On<Motor::MotorCommand::stop, &OnStop>,
+	VUB::On<Motor::MotorCommand::reset, &OnReset>>;
 
 
 // The requester's handlers: each final and interim is recorded.
@@ -146,14 +147,14 @@ VUB::Outbox OutboxOf(Recorder& recorder) {
 // A motor.start with its final and interim handlers, and a motor.stop with its final: true when the request was accepted.
 template<typename HandleType>
 bool SendStart(HandleType& handle, const Motor::MotorStart& body) {
-	auto sent = handle.template Send<"motor.start", &OnStartFinal, &OnStartInterim>(body);
+	auto sent = handle.template Send<Motor::MotorCommand::start, &OnStartFinal, &OnStartInterim>(body);
 	return sent.IsErr() == false;
 }
 
 
 template<typename HandleType>
 bool SendStop(HandleType& handle) {
-	auto sent = handle.template Send<"motor.stop", &OnStopFinal>(VUB::NoBody{});
+	auto sent = handle.template Send<Motor::MotorCommand::stop, &OnStopFinal>(VUB::NoBody{});
 	return sent.IsErr() == false;
 }
 
@@ -175,8 +176,12 @@ bool SentIs(const Recorder& recorder, std::size_t index, const std::array<uint8,
 }
 
 
-// The layer of the device's requester and responder: eight requester slots, two tickets, the default refusal ring.
-using Layer = VUB::RequestsOf<Motor::MotorCommands, DeviceHandlers, VUB::RequestsOptions{8, 2, 4}>;
+// The layer of the device's requester and responder over Reliable: eight requester slots, two tickets, the default refusal ring.
+using Layer = VUB::RequestsOf<Motor::MotorCommands, DeviceHandlers, VUB::RequestsOptions{8, 2, 4, true}>;
+
+
+// The same layer with no Reliable below, which takes its session from the handle.
+using SessionLayer = VUB::RequestsOf<Motor::MotorCommands, DeviceHandlers, VUB::RequestsOptions{8, 2, 4}>;
 
 
 // A responder with one ticket, for the no-free-ticket refusal.
@@ -186,13 +191,13 @@ using OneTicketLayer = VUB::RequestsOf<Motor::MotorCommands, DeviceHandlers, VUB
 // A command with no reply, for the fire: motor.reset is NoReply, which has a delivery outcome, so its fire is a separate set.
 using FireCommands = VUB::CommandSet<+[]() {
 	return VUB::Commands()
-		.Command<"motor.reset", 0x14>()
+		.Command<Motor::MotorCommand::reset>()
 			.Fire();
 }>;
 
 
 using FireHandlers = VUB::Handlers<
-	VUB::On<"motor.reset", &OnReset>>;
+	VUB::On<Motor::MotorCommand::reset, &OnReset>>;
 
 
 using FireLayer = VUB::RequestsOf<FireCommands, FireHandlers, VUB::RequestsOptions{0, 1, 0}>;
@@ -236,10 +241,10 @@ void TestRequestBytes() {
 	// motor.start, number 1, a zero start: the ramp is the default 300 (0x012C), so the body is written in full.
 	std::array<uint8, 10> firstStart = {0x01, 0x12, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x2C, 0x01};
 	SIM_EXPECT(SentIs(recorder, 0, firstStart));
-	// Design 5.6: motor.start, number 7, MotorStart{1200, 1} (v2, ramp 300 by default).
+	//motor.start, number 7, MotorStart{1200, 1} (v2, ramp 300 by default).
 	std::array<uint8, 10> startSeven = {0x01, 0x12, 0x07, 0x00, 0x07, 0xB0, 0x04, 0x01, 0x2C, 0x01};
 	SIM_EXPECT(SentIs(recorder, 6, startSeven));
-	// Design 5.6: motor.stop, number 8 (no body).
+	//motor.stop, number 8 (no body).
 	std::array<uint8, 5> stopEight = {0x01, 0x13, 0x08, 0x00, 0x08};
 	SIM_EXPECT(SentIs(recorder, 7, stopEight));
 	SIM_EXPECT(recorder.sent[7].flags == 0);
@@ -247,7 +252,7 @@ void TestRequestBytes() {
 
 
 // The answers of the device, from the wire: an interim (warming) for number 7, then the final with the report. Then a final of number 6
-// with operationCancelled, a final of number 8 with status only, and the same number with a later final, which is dropped.
+// with operationCancelled, a final of number 8 with status only, and a second final for number 8, which is dropped.
 void TestAnswerBytes() {
 	ResetWireState();
 	Layer layer;
@@ -264,7 +269,7 @@ void TestAnswerBytes() {
 	SIM_EXPECT(SendStart(handle, seventh));
 	SIM_EXPECT(SendStop(handle));
 
-	// Design 5.6: interim warming for number 7, index 1.
+	//interim warming for number 7, index 1.
 	std::array<uint8, 6> interimSeven = {0x02, 0x07, 0x00, 0x07, 0x01, 0x01};
 	SIM_EXPECT(layer.Take(VUB::Meta(), std::span<const uint8>(interimSeven.data(), interimSeven.size())).IsErr() == false);
 	std::array<uint8, 10> finalSeven = {0x03, 0x07, 0x00, 0x07, 0x00, 0x00, 0xB0, 0x04, 0x52, 0x03};
@@ -278,10 +283,10 @@ void TestAnswerBytes() {
 	SIM_EXPECT(lastFinalReport.speedRpm == 1200);
 	SIM_EXPECT(lastFinalReport.currentMa == 850);
 
-	// Design 5.6: final operationCancelled for number 6.
+	//final operationCancelled for number 6.
 	std::array<uint8, 5> cancelledSix = {0x03, 0x06, 0x00, 0x06, 0x01};
 	SIM_EXPECT(layer.Take(VUB::Meta(), std::span<const uint8>(cancelledSix.data(), cancelledSix.size())).IsErr() == false);
-	// Design 5.6: final started for number 8 (status only).
+	//final started for number 8 (status only).
 	std::array<uint8, 6> stopFinal = {0x03, 0x08, 0x00, 0x08, 0x00, 0x00};
 	SIM_EXPECT(layer.Take(VUB::Meta(), std::span<const uint8>(stopFinal.data(), stopFinal.size())).IsErr() == false);
 	// A second final of number 7 is late: the request closed, so it is dropped and the handler is not called again.
@@ -310,7 +315,7 @@ void TestResponderBytes() {
 	SIM_EXPECT(startHeld);
 	SIM_EXPECT(recorder.count == 0);
 
-	// Design 5.6: the interim warming and the final with the report, both for number 7, in that order.
+	//the interim warming and the final with the report, both for number 7, in that order.
 	SIM_EXPECT(heldStart.Interim(Motor::MotorStatus::warming) == ResultStatus::ok);
 	Motor::MotorReport report{};
 	report.speedRpm = 1200;
@@ -368,8 +373,8 @@ void TestRefusalBytes() {
 }
 
 
-// A request whose number is open on the responder: the same tag is a duplicate and is ignored; another tag is refused busy with the new
-// tag, and the open ticket is not touched.
+// A request whose number is open on the responder: the same tag is a duplicate and is ignored; another tag is refused busy with its
+// own tag, and the open ticket is not touched.
 void TestOpenNumberBytes() {
 	ResetWireState();
 	Layer layer;
@@ -396,7 +401,7 @@ void TestFireBytes() {
 	FireLayer layer;
 	Recorder recorder;
 	FireLayer::Handle handle(layer, OutboxOf(recorder));
-	SIM_EXPECT(handle.Fire<"motor.reset">(VUB::NoBody{}) == ResultStatus::ok);
+	SIM_EXPECT(handle.Fire<Motor::MotorCommand::reset>(VUB::NoBody{}) == ResultStatus::ok);
 	std::array<uint8, 5> reset = {0x01, 0x14, 0x01, 0x00, 0x01};
 	SIM_EXPECT(recorder.count == 1);
 	SIM_EXPECT(SentIs(recorder, 0, reset));
@@ -465,6 +470,132 @@ void TestInterimIndexLimit() {
 }
 
 
+// Takes a recorded packet into a layer, as its other end would: true when the layer accepts it.
+template<typename LayerType>
+bool TakeSent(LayerType& target, const Sent& packet) {
+	return target.Take(VUB::Meta(), std::span<const uint8>(packet.bytes.data(), packet.length)).IsErr() == false;
+}
+
+
+// A layer with no Reliable below sends nothing while no session is given: Send returns noInit and no packet goes out. Session 0 is given
+// here, and the first request is number 1 with tag 0, because number 0 is never sent.
+void TestNoSessionIsNoInit() {
+	ResetWireState();
+	SessionLayer layer;
+	Recorder recorder;
+	SessionLayer::Handle handle(layer, OutboxOf(recorder));
+	Motor::MotorStart start{};
+	auto refused = handle.template Send<Motor::MotorCommand::start, &OnStartFinal, &OnStartInterim>(start);
+	SIM_EXPECT(refused.IsErr());
+	SIM_EXPECT(refused.Error() == ResultStatus::noInit);
+	SIM_EXPECT(recorder.count == 0);
+	handle.SetSession(0);
+	SIM_EXPECT(SendStart(handle, start));
+	SIM_EXPECT(recorder.count == 1);
+	std::array<uint8, 10> firstStart = {0x01, 0x12, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2C, 0x01};
+	SIM_EXPECT(SentIs(recorder, 0, firstStart));
+}
+
+
+// Two boots with different sessions. The first boot's request is still open on the responder. The second boot's first request has another
+// number and tag (session 0x0102 gives number 0x736E, the low 16 bits of 0x0102 x 0x9E37, and tag 0x02), so the responder admits it and
+// sends nothing.
+void TestSecondBootIsNotDuplicate() {
+	ResetWireState();
+	SessionLayer firstBoot;
+	Recorder firstRecorder;
+	SessionLayer::Handle first(firstBoot, OutboxOf(firstRecorder));
+	first.SetSession(1);
+	Motor::MotorStart start{};
+	SIM_EXPECT(SendStart(first, start));
+	SIM_EXPECT(firstRecorder.count == 1);
+	SessionLayer responder;
+	Recorder answers;
+	SIM_EXPECT(TakeSent(responder, firstRecorder.sent[0]));
+	responder.Process(500, OutboxOf(answers));
+	SIM_EXPECT(seenStartCount == 1);
+
+	SessionLayer secondBoot;
+	Recorder secondRecorder;
+	SessionLayer::Handle second(secondBoot, OutboxOf(secondRecorder));
+	second.SetSession(0x0102);
+	SIM_EXPECT(SendStart(second, start));
+	SIM_EXPECT(secondRecorder.count == 1);
+	SIM_EXPECT(TakeSent(responder, secondRecorder.sent[0]));
+	responder.Process(1000, OutboxOf(answers));
+	SIM_EXPECT(seenStartCount == 2);
+	SIM_EXPECT(answers.count == 0);
+	SIM_EXPECT(heldStart.Open());
+	SIM_EXPECT(heldStart.Number().number == 0x736E);
+}
+
+
+// Two boots whose sessions follow each other, as a stored counter gives them. The second request of the first boot is open on the
+// responder. The first request of the second boot is another request: the responder admits it, and the final of the old one does not close it.
+void TestNeighbouringSessionsAreNotDuplicates() {
+	ResetWireState();
+	SessionLayer firstBoot;
+	Recorder firstRecorder;
+	SessionLayer::Handle first(firstBoot, OutboxOf(firstRecorder));
+	first.SetSession(1);
+	Motor::MotorStart start{};
+	SIM_EXPECT(SendStart(first, start));
+	SIM_EXPECT(SendStart(first, start));
+	SIM_EXPECT(firstRecorder.count == 2);
+	SessionLayer responder;
+	Recorder answers;
+	SIM_EXPECT(TakeSent(responder, firstRecorder.sent[1]));
+	responder.Process(500, OutboxOf(answers));
+	SIM_EXPECT(seenStartCount == 1);
+	StartTicket oldTicket = heldStart;
+
+	SessionLayer secondBoot;
+	Recorder secondRecorder;
+	SessionLayer::Handle second(secondBoot, OutboxOf(secondRecorder));
+	second.SetSession(2);
+	SIM_EXPECT(SendStart(second, start));
+	SIM_EXPECT(TakeSent(responder, secondRecorder.sent[0]));
+	responder.Process(1000, OutboxOf(answers));
+	SIM_EXPECT(seenStartCount == 2);
+	SIM_EXPECT(answers.count == 0);
+
+	Motor::MotorReport report{};
+	SIM_EXPECT(oldTicket.Finish(Motor::MotorStatus::started, report) == ResultStatus::ok);
+	responder.Process(1500, OutboxOf(answers));
+	SIM_EXPECT(answers.count == 1);
+	std::size_t finalsBefore = finalCount;
+	(void)secondBoot.Take(VUB::Meta(), std::span<const uint8>(answers.last.bytes.data(), answers.last.length));
+	SIM_EXPECT(finalCount == finalsBefore);
+}
+
+
+// A status of 0xF0 or more is refused by Interim and by Finish with invalidParameter, and sends nothing: the ticket stays open. A status of
+// 0xEF is an ordinary status, and its final goes out.
+void TestReservedStatusRefused() {
+	ResetWireState();
+	Layer layer;
+	Recorder recorder;
+	std::array<uint8, 8> start = {0x01, 0x12, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00};
+	SIM_EXPECT(layer.Take(VUB::Meta(), std::span<const uint8>(start.data(), start.size())).IsErr() == false);
+	layer.Process(500, OutboxOf(recorder));
+	SIM_EXPECT(startHeld);
+	Motor::MotorReport report{};
+	auto reservedLow = static_cast<Motor::MotorStatus>(0xF0);
+	auto reservedHigh = static_cast<Motor::MotorStatus>(0xFF);
+	SIM_EXPECT(heldStart.Interim(reservedLow) == ResultStatus::invalidParameter);
+	SIM_EXPECT(heldStart.Interim(reservedHigh) == ResultStatus::invalidParameter);
+	SIM_EXPECT(heldStart.Finish(reservedLow, report) == ResultStatus::invalidParameter);
+	SIM_EXPECT(heldStart.Open());
+	layer.Process(1000, OutboxOf(recorder));
+	SIM_EXPECT(recorder.count == 0);
+	SIM_EXPECT(heldStart.Finish(static_cast<Motor::MotorStatus>(0xEF), report) == ResultStatus::ok);
+	layer.Process(2000, OutboxOf(recorder));
+	SIM_EXPECT(recorder.count == 1);
+	std::array<uint8, 10> finalLast = {0x03, 0x01, 0x00, 0x01, 0x00, 0xEF, 0x00, 0x00, 0x00, 0x00};
+	SIM_EXPECT(SentIs(recorder, 0, finalLast));
+}
+
+
 int main() {
 	TestRequestBytes();
 	TestAnswerBytes();
@@ -475,5 +606,9 @@ int main() {
 	TestFireWithoutTickets();
 	TestMalformed();
 	TestInterimIndexLimit();
+	TestNoSessionIsNoInit();
+	TestSecondBootIsNotDuplicate();
+	TestNeighbouringSessionsAreNotDuplicates();
+	TestReservedStatusRefused();
 	return SimFinish("TestVubRequestsWire");
 }

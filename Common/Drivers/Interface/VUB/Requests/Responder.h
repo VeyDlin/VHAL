@@ -8,7 +8,6 @@
 #include <Drivers/Interface/VUB/Requests/Wire.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/ResultStatus.h>
-#include <Utilities/TextLiteral.h>
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -26,11 +25,11 @@ template<typename Commands, typename Entry>
 struct OnRunner;
 
 
-template<typename Commands, TextLiteral Name, auto Fn>
-struct OnRunner<Commands, On<Name, Fn>> {
-	using CommandType = CommandOf<Commands, Name>;
+template<typename Commands, auto Id, auto Fn>
+struct OnRunner<Commands, On<Id, Fn>> {
+	using CommandType = CommandOf<Commands, Id>;
 	using BodyType = typename CommandType::BodyType;
-	using TicketType = Ticket<Commands, Name>;
+	using TicketType = Ticket<Commands, Id>;
 	static constexpr bool hasTicket = CommandType::level >= 3;
 
 
@@ -80,8 +79,8 @@ struct OnRunner<Commands, On<Name, Fn>> {
 };
 
 
-// The stage of a responder ticket: free, received (the body is copied, the handler not yet called), open (the handler has it), or final
-// (the final is encoded and waits to be sent).
+// The stage of a responder ticket: free, received (the body is copied, the handler is still to be called), open (the handler has it), or
+// final (the final is encoded and waits to be sent).
 enum class TicketStage : uint8 {
 	free,
 	received,
@@ -304,7 +303,7 @@ public:
 	}
 
 
-	// The restart: the tickets are freed (a final not yet sent is discarded), and the refusal ring is emptied.
+	// The restart: the tickets are freed (a final that is still waiting to be sent is discarded), and the refusal ring is emptied.
 	void OnRestart() {
 		for (Slot& slot : tickets) {
 			slot.stage = TicketStage::free;
@@ -324,19 +323,26 @@ private:
 	// The refusal code of a request that is taken: 0 when it was admitted, 2, 3 or 4 when it was refused. The index of an unknown command
 	// is commandCount, and that is refused as notSupported.
 	uint8 AdmitByIndex(std::size_t command, uint16 number, uint8 tag, std::span<const uint8> body) {
-		return AdmitAt(command, number, tag, body, std::make_index_sequence<Commands::commandCount>());
+		return AdmitFrom<0>(command, number, tag, body);
 	}
 
 
-	template<std::size_t... Index>
-	uint8 AdmitAt(std::size_t command, uint16 number, uint8 tag, std::span<const uint8> body, std::index_sequence<Index...>) {
-		uint8 code = RequestWire::CodeNotSupported;
-		(void)command;
-		(void)number;
-		(void)tag;
-		(void)body;
-		((command == Index ? (code = AdmitOne<Index>(number, tag, body), true) : false) || ...);
-		return code;
+	// The command at index Index admits the request, or the next index is tried; past the table the request is not supported.
+	template<std::size_t Index>
+	uint8 AdmitFrom(std::size_t command, uint16 number, uint8 tag, std::span<const uint8> body) {
+		if constexpr (Index >= Commands::commandCount) {
+			(void)command;
+			(void)number;
+			(void)tag;
+			(void)body;
+			return RequestWire::CodeNotSupported;
+		} else {
+			if (command == Index) {
+				return AdmitOne<Index>(number, tag, body);
+			}
+
+			return AdmitFrom<Index + 1>(command, number, tag, body);
+		}
 	}
 
 
@@ -473,12 +479,13 @@ private:
 	}
 
 
-	// The live ticket of a handle's call: its slot holds the generation and is open.
-	bool TicketLive(uint8 index, uint8 generation) const {
+	// The live ticket of a handle's call: its slot holds the generation and the request number, and is open. A ticket of an earlier request
+	// that the slot has since taken (the generation wraps) is not live.
+	bool TicketLive(uint8 index, uint8 generation, uint16 number) const {
 		if constexpr (ticketCount > 0) {
 			if (index < ticketCount) {
 				const Slot& slot = tickets[index];
-				return slot.stage == TicketStage::open && slot.generation == generation;
+				return slot.stage == TicketStage::open && slot.generation == generation && slot.number == number;
 			}
 		}
 
@@ -486,9 +493,9 @@ private:
 	}
 
 
-	ResultStatus QueueInterim(uint8 index, uint8 generation, uint8 status) {
+	ResultStatus QueueInterim(uint8 index, uint8 generation, uint16 number, uint8 status) {
 		if constexpr (anyInterim) {
-			if (!TicketLive(index, generation)) {
+			if (!TicketLive(index, generation, number)) {
 				return ResultStatus::notAvailable;
 			}
 
@@ -509,14 +516,21 @@ private:
 		} else {
 			(void)index;
 			(void)generation;
+			(void)number;
 			(void)status;
 			return ResultStatus::notAvailable;
 		}
 	}
 
 
-	ResultStatus QueueFinal(uint8 index, uint8 generation, uint8 status, std::span<const uint8> body) {
-		if (!TicketLive(index, generation)) {
+	ResultStatus QueueFinal(
+		uint8 index,
+		uint8 generation,
+		uint16 number,
+		uint8 status,
+		std::span<const uint8> body)
+	{
+		if (!TicketLive(index, generation, number)) {
 			return ResultStatus::notAvailable;
 		}
 
@@ -548,21 +562,34 @@ private:
 	}
 
 
-	static ResultStatus InterimOp(void* layer, uint8 index, uint8 generation, uint8 status) {
+	static ResultStatus InterimOp(
+		void* layer,
+		uint8 index,
+		uint8 generation,
+		uint16 number,
+		uint8 status)
+	{
 		ResponderOf* self = static_cast<ResponderOf*>(layer);
-		return self->QueueInterim(index, generation, status);
+		return self->QueueInterim(index, generation, number, status);
 	}
 
 
-	static ResultStatus FinishOp(void* layer, uint8 index, uint8 generation, uint8 status, std::span<const uint8> body) {
+	static ResultStatus FinishOp(
+		void* layer,
+		uint8 index,
+		uint8 generation,
+		uint16 number,
+		uint8 status,
+		std::span<const uint8> body)
+	{
 		ResponderOf* self = static_cast<ResponderOf*>(layer);
-		return self->QueueFinal(index, generation, status, body);
+		return self->QueueFinal(index, generation, number, status, body);
 	}
 
 
-	static bool OpenOp(const void* layer, uint8 index, uint8 generation) {
+	static bool OpenOp(const void* layer, uint8 index, uint8 generation, uint16 number) {
 		const ResponderOf* self = static_cast<const ResponderOf*>(layer);
-		return self->TicketLive(index, generation);
+		return self->TicketLive(index, generation, number);
 	}
 };
 

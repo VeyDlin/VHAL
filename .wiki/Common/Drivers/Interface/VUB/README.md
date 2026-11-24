@@ -1404,7 +1404,9 @@ not tested.
 ## Status
 
 Built: the core, the link state, the test kit, the host tests, the built-in blocks (CRC, COBS, length prefix, gap framing, delivery,
-keep-alive), the size table, the links on a microcontroller and on a PC, and the board check on the STM32G431 over UART, USB CDC and
-USB bulk.
+keep-alive), the requests layer (requests with a typed body and one final reply, interim replies, `Fire`, and the handlers of the commands a
+device serves; see Layer/Requests), the size table, the links on a microcontroller and on a PC, and the board check on the STM32G431 over
+UART, USB CDC and USB bulk.
 
-Not built: requests and health, addressing, large data, encryption and the CRC engine, values and subscriptions, and the SPI links.
+Not built: cancel, events, ping and health, `Await`, addressing, large data, encryption and the CRC engine, values and subscriptions, and the
+SPI links.

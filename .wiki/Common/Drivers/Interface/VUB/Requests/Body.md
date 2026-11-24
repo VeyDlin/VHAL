@@ -11,7 +11,7 @@ Header: `Common/Drivers/Interface/VUB/Requests/Body.h`.
 The layout is a specialization of `BodyOf`, with a `static consteval` function `Layout()`:
 
 ```cpp
-// The request body of motor.start: a speed, a direction, and a ramp that version 1 peers do not send.
+// The request body of the motor start command: a speed, a direction, and a ramp that version 1 peers do not send.
 namespace Motor {
 
 struct MotorStart {
@@ -128,7 +128,7 @@ keeps its default, 300.
 
 The rules for changing a body, so that two versions of a peer link:
 
-1. A field added later is appended, and it is `Optional`. Its default is the default member initializer of the struct.
+1. A field added to a body is appended, and it is `Optional`. Its default is the default member initializer of the struct.
 2. A peer reads the fields it knows, in order, while bytes remain. A body that ends with a required field missing is `invalidData`.
 3. A longer body from a newer peer is accepted: the bytes after the last known field are ignored.
 4. A required field is never removed or moved, and an existing field never changes its type or width.
@@ -175,5 +175,5 @@ not used adds nothing: its tables are not emitted.
 
 - `double`, variable-length data, and pointers (see Field types).
 - An optional field in a nested body.
-- A fingerprint of the layout. The fingerprint of the protocol is later work; it will count the required fields and the ids, and an
-  optional field does not change it.
+- A fingerprint of the layout. The fingerprint of the protocol would count the required fields and the ids; an optional field would
+  not change it.
