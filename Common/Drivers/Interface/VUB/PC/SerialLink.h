@@ -40,6 +40,9 @@ namespace VUB::PC {
 //
 // Close waits up to 200 ms for the transfers in flight; one still in flight after that is released by Poll. The destructor waits until
 // every transfer has completed. Open returns busy while an earlier release is still waiting for its transfers.
+//
+// The baud rates: on Windows any positive rate is given to the driver. On Linux only these rates are accepted, and Open returns
+// invalidParameter for any other: 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800 and 921600.
 class SerialLink {
 public:
 	enum class Parity : std::uint8_t {
@@ -199,8 +202,9 @@ public:
 		dcb.fAbortOnError = FALSE;
 	}
 #else
-	// Writes the settings into a termios: raw mode, then the speed, the data bits, the parity and the stop bits. Returns false when the
-	// baud rate is not one that termios has, or the settings are not valid.
+	// Writes the settings into a termios: raw mode, then the speed, the data bits, the parity and the stop bits. Flow control is off: the
+	// hardware (CRTSCTS) and software (IXON, IXOFF, IXANY) flags are cleared, as ToDcb clears them on Windows. Returns false when the baud
+	// rate is not one that termios has (see the rates in the class comment), or the settings are not valid.
 	static bool ToTermios(termios& term, const Settings& settings) {
 		speed_t speed = B0;
 		if (!ValidSettings(settings) || !SpeedOf(settings.baud, speed)) {
@@ -210,7 +214,8 @@ public:
 		cfmakeraw(&term);
 		cfsetispeed(&term, speed);
 		cfsetospeed(&term, speed);
-		term.c_cflag &= ~static_cast<tcflag_t>(CSIZE | PARENB | PARODD | CSTOPB);
+		term.c_cflag &= ~static_cast<tcflag_t>(CSIZE | PARENB | PARODD | CSTOPB | CRTSCTS);
+		term.c_iflag &= ~static_cast<tcflag_t>(IXON | IXOFF | IXANY);
 		term.c_cflag |= CLOCAL | CREAD;
 		if (settings.dataBits == 5) {
 			term.c_cflag |= CS5;
@@ -289,6 +294,12 @@ public:
 		handle = opened;
 		readEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
 		writeEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+		if (readEvent == nullptr || writeEvent == nullptr) {
+			// The port and the events that were made are freed by Shut; no transfer is in flight yet.
+			Shut(ReleaseWait::None);
+			return ResultStatus::ioError;
+		}
+
 		readOverlapped.hEvent = readEvent;
 		writeOverlapped.hEvent = writeEvent;
 #else

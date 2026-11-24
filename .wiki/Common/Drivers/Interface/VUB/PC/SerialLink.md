@@ -22,6 +22,7 @@ On Windows:
 - `SetCommTimeouts` sets `ReadIntervalTimeout` to `MAXDWORD` with zero totals, so an overlapped `ReadFile` completes at once with the bytes
   that are waiting.
 - `EscapeCommFunction(SETDTR)` runs on open, so a CDC device sees the terminal open.
+- Each of the two events is made with `CreateEventW`. When one fails, `Open` frees the port and the events and returns `ioError`.
 - One overlapped read is started into the link's 64-byte buffer when the previous bytes have been fed. `Poll` feeds up to the receiver's
   room and keeps the rest.
 - `Write` copies up to 64 bytes into the link's own buffer and starts an overlapped `WriteFile`. It returns zero while that write is pending.
@@ -30,6 +31,8 @@ On Linux:
 
 - The port is opened with `O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC`.
 - The termios is set (`ToTermios`): `cfmakeraw`, then the speed, the data bits, the parity and the stop bits, with `CLOCAL` and `CREAD`.
+  The flow control is off: `CRTSCTS`, `IXON`, `IXOFF` and `IXANY` are cleared, so a flag another program left on the port does not stay.
+  Windows clears the flow control in the DCB the same way.
   `DTR` is raised with `TIOCMBIS`, and the input is flushed. The driver's refusal of `TIOCMBIS` is not an error.
 - `Poll` reads with `read` up to the receiver's room. `Write` is `write`, and it returns what the kernel took.
 
@@ -37,12 +40,19 @@ On Linux:
 
 | Field | Values | Default |
 |---|---|---|
-| `baud` | any above zero on Windows; on Linux 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600 | 115200 |
+| `baud` | any above zero on Windows; on Linux the rates of the table below | 115200 |
 | `dataBits` | 5 to 8 | 8 |
 | `parity` | `none`, `odd`, `even` | `none` |
 | `stopBits` | `one`, `two` | `one` |
 
-`Open` refuses settings that are not valid (`ValidSettings`), with `invalidParameter`, and a baud rate that termios does not have on Linux.
+The baud rates on Linux, the only ones `Open` accepts there:
+
+| Rate | Accepted on Linux | Accepted on Windows |
+|---|---|---|
+| 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600 | yes | yes |
+| any other positive rate | no, `invalidParameter` | yes, given to the driver |
+
+`Open` refuses settings that are not valid (`ValidSettings`), with `invalidParameter`, and on Linux a baud rate outside the table.
 
 ## Port names
 
@@ -102,7 +112,7 @@ void RunPort() {
 
 ## Test
 
-`TestVubPcSerial.cpp` checks the settings and the paths on both systems: the DCB fields on Windows, and the termios on Linux. On Linux it
+`TestVubPcSerial.cpp` checks the settings and the paths on both systems: the DCB fields on Windows, and the termios on Linux, where a termios that has CRTSCTS and IXOFF set comes out with them cleared. On Linux it
 also opens the link on a pseudo-terminal pair (`openpty`): the settings reach the pair, a write comes out of the master, a byte written to
 the master is polled into the receiver, and closing the master reports the link down, after which the link opens again. A second part runs
 two stacks with COBS framing, each on a link opened on its own pair; the test forwards bytes between the two masters as the wire, and a

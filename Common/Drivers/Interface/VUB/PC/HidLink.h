@@ -190,6 +190,16 @@ public:
 	}
 
 
+#if defined(_WIN32)
+	// Whether the size that the size query of SetupDiGetDeviceInterfaceDetailW gave can hold the detail buffer. The query must have failed
+	// for lack of a buffer, and the size must hold the fixed part of the detail structure (its cbSize field, which the code sets ahead of
+	// the detail call). Otherwise the candidate is skipped.
+	static bool DetailSizeUsable(bool queryFailedForSize, DWORD required) {
+		return queryFailedForSize && required >= static_cast<DWORD>(offsetof(SP_DEVICE_INTERFACE_DETAIL_DATA_W, DevicePath));
+	}
+#endif
+
+
 	// Opens the first device with the vendor ID, product ID and usage page (zero matches any usage page). Returns ok when the device is
 	// open and up; an error otherwise, and the link stays closed. Returns busy while an earlier release still waits for its transfers.
 	ResultStatus Open(std::uint16_t vendorId, std::uint16_t productId, std::uint16_t usagePage) {
@@ -215,7 +225,11 @@ public:
 			}
 
 			DWORD required = 0;
-			SetupDiGetDeviceInterfaceDetailW(set, &interfaceData, nullptr, 0, &required, nullptr);
+			bool queryFailedForSize = !SetupDiGetDeviceInterfaceDetailW(set, &interfaceData, nullptr, 0, &required, nullptr) && GetLastError() == ERROR_INSUFFICIENT_BUFFER;
+			if (!DetailSizeUsable(queryFailedForSize, required)) {
+				continue;
+			}
+
 			std::vector<BYTE> storage(required);
 			SP_DEVICE_INTERFACE_DETAIL_DATA_W* detail = reinterpret_cast<SP_DEVICE_INTERFACE_DETAIL_DATA_W*>(storage.data());
 			detail->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_W);
@@ -244,6 +258,12 @@ public:
 
 		readEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
 		writeEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+		if (readEvent == nullptr || writeEvent == nullptr) {
+			// The device and the events that were made are freed by Shut; no transfer is in flight yet.
+			Shut(ReleaseWait::None);
+			return ResultStatus::ioError;
+		}
+
 		portOpen = true;
 		sink.Report(true);
 		StartRead();

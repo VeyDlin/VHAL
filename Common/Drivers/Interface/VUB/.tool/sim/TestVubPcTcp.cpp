@@ -189,9 +189,43 @@ inline void RefusedConnect() {
 }
 
 
+// A name that resolves to an IPv6 address and an IPv4 address connects to the IPv4 listener: Windows resolves "localhost" to ::1 first, and
+// the link tries the next address when the first is refused. A name whose addresses all refuse the connection is reported as not up.
+inline void ConnectsByName() {
+	VUB::PC::TcpLink listenerLink;
+	VUB::PC::TcpLink clientLink;
+	TcpStack serverStack(listenerLink);
+	TcpStack clientStack(clientLink);
+	SIM_EXPECT(listenerLink.Listen("127.0.0.1", 0) == ResultStatus::ok);
+	std::uint16_t port = listenerLink.BoundPort();
+	SIM_EXPECT(clientLink.Connect("localhost", port) == ResultStatus::ok);
+	SIM_EXPECT(WaitUp(serverStack, clientStack));
+	SIM_EXPECT(clientLink.IsConnected());
+
+	VUB::PC::TcpLink probe;
+	SIM_EXPECT(probe.Listen("127.0.0.1", 0) == ResultStatus::ok);
+	std::uint16_t closedPort = probe.BoundPort();
+	probe.Close();
+
+	VUB::PC::TcpLink lonelyLink;
+	TcpStack lonelyStack(lonelyLink);
+	SIM_EXPECT(lonelyLink.Connect("localhost", closedPort) == ResultStatus::ok);
+	bool settled = false;
+	for (int step = 0; step < 400 && !settled; step++) {
+		lonelyStack.Process();
+		settled = !lonelyLink.IsConnecting();
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+
+	SIM_EXPECT(settled);
+	SIM_EXPECT(!lonelyLink.IsConnected());
+}
+
+
 int main() {
 	EndToEnd();
 	DisconnectAndReconnect();
 	RefusedConnect();
+	ConnectsByName();
 	return SimFinish("TestVubPcTcp");
 }

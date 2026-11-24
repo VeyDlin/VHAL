@@ -187,6 +187,14 @@ public:
 
 		return true;
 	}
+
+
+	// Whether the size that the size query of SetupDiGetDeviceInterfaceDetailW gave can hold the detail buffer. The query must have failed
+	// for lack of a buffer, and the size must hold the fixed part of the detail structure (its cbSize field, which the code sets ahead of
+	// the detail call). Otherwise the candidate is skipped.
+	static bool DetailSizeUsable(bool queryFailedForSize, DWORD required) {
+		return queryFailedForSize && required >= static_cast<DWORD>(offsetof(SP_DEVICE_INTERFACE_DETAIL_DATA_W, DevicePath));
+	}
 #endif
 
 
@@ -226,6 +234,11 @@ public:
 
 		readEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
 		writeEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+		if (readEvent == nullptr || writeEvent == nullptr) {
+			// The device and the events that were made are freed by Shut; no transfer is in flight yet.
+			Shut(ReleaseWait::None);
+			return ResultStatus::ioError;
+		}
 #else
 		if (libusb_init(&context) != 0) {
 			context = nullptr;
@@ -687,7 +700,11 @@ private:
 			SP_DEVINFO_DATA deviceData{};
 			deviceData.cbSize = sizeof(deviceData);
 			DWORD required = 0;
-			SetupDiGetDeviceInterfaceDetailW(set, &interfaceData, nullptr, 0, &required, nullptr);
+			bool queryFailedForSize = !SetupDiGetDeviceInterfaceDetailW(set, &interfaceData, nullptr, 0, &required, nullptr) && GetLastError() == ERROR_INSUFFICIENT_BUFFER;
+			if (!DetailSizeUsable(queryFailedForSize, required)) {
+				continue;
+			}
+
 			std::vector<BYTE> storage(required);
 			SP_DEVICE_INTERFACE_DETAIL_DATA_W* detail = reinterpret_cast<SP_DEVICE_INTERFACE_DETAIL_DATA_W*>(storage.data());
 			detail->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_W);

@@ -24,10 +24,12 @@ satisfies `VUB::StreamLink`, `VUB::PollingLink` and `VUB::ReportingLink`.
 ## Windows: WinUSB
 
 1. `SetupDiGetClassDevsW` with `DIGCF_PRESENT | DIGCF_DEVICEINTERFACE` lists the interfaces of the GUID, and
-   `SetupDiGetDeviceInterfaceDetailW` gives each path.
+   `SetupDiGetDeviceInterfaceDetailW` gives each path. The size query must fail with `ERROR_INSUFFICIENT_BUFFER` and give a size that holds
+   the fixed part of the detail structure (`DetailSizeUsable`); otherwise the interface is skipped.
 2. The serial is read from the parent of the interface's device node: `CM_Get_Parent`, then `CM_Get_Device_IDW`, and the text after the last
    backslash. An empty serial in the settings matches any device.
-3. `CreateFileW` opens the path with `FILE_FLAG_OVERLAPPED`, and `WinUsb_Initialize` gives the interface handle.
+3. `CreateFileW` opens the path with `FILE_FLAG_OVERLAPPED`, and `WinUsb_Initialize` gives the interface handle. The two events are made with
+   `CreateEventW`; when one fails, `Open` frees the device and the events and returns `ioError`.
 4. One overlapped `WinUsb_ReadPipe` of 64 bytes is always pending, into the link's buffer. `Poll` takes the completed read with
    `WinUsb_GetOverlappedResult` and feeds up to the receiver's room; the next read starts once every byte is fed.
 5. `Write` copies up to 64 bytes into the link's buffer and starts an overlapped `WinUsb_WritePipe`. It returns zero while the previous write

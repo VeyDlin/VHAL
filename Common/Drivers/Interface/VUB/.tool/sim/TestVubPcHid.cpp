@@ -106,11 +106,28 @@ inline void CheckClosedLink() {
 }
 
 
+#if defined(_WIN32)
+// The detail buffer is used only when the size query failed for lack of a buffer, and the size it gave holds the fixed part of the
+// detail structure, so the buffer can take the cbSize field.
+inline void CheckDetailSize() {
+	const DWORD fixedPart = static_cast<DWORD>(offsetof(SP_DEVICE_INTERFACE_DETAIL_DATA_W, DevicePath));
+	SIM_EXPECT(!Hid::DetailSizeUsable(true, 0));
+	SIM_EXPECT(!Hid::DetailSizeUsable(true, fixedPart - 1));
+	SIM_EXPECT(Hid::DetailSizeUsable(true, fixedPart));
+	SIM_EXPECT(Hid::DetailSizeUsable(true, static_cast<DWORD>(sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_W))));
+	SIM_EXPECT(!Hid::DetailSizeUsable(false, static_cast<DWORD>(sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_W))));
+}
+#endif
+
+
 int main() {
 	CheckOutputLayout();
 	CheckRefusedPackets();
 	CheckOtherReportSize();
 	CheckUsagePage();
 	CheckClosedLink();
+#if defined(_WIN32)
+	CheckDetailSize();
+#endif
 	return SimFinish("TestVubPcHid");
 }
