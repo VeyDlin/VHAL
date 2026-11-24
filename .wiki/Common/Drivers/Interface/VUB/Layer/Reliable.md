@@ -238,6 +238,9 @@ The outcome handler (`OnOutcome`) is called once for each data packet sent with 
 | `ok` | the peer acknowledged the packet, and it was passed up |
 | `retryExhausted` | no acknowledgement came after the last resend. The sender got no acknowledgement, so the packet may or may not have been passed up by the receiver. It is not sent again. |
 | `reset` | the peer lost the session while the packet was not acknowledged; it may or may not have arrived, and it is not sent again |
+| `operationCancelled` | the layer above no longer wants the packet (its `DeliveryWanted` answered no) when the packet is due to be sent again. It is not sent. |
+
+A layer above with `wantsOwner` may declare `static bool DeliveryWanted(void* owner, std::span<const uint8> payload)`. The first send of a data packet is made by `Send` and is not offered. A resend is offered with its payload when the packet is due: its timeout has passed, or the link came up while it was waiting. A packet the layer does not want is not sent; its outcome is `operationCancelled`, and its slot is freed as for `retryExhausted`. A sync is never offered. The next packet's header carries the sender's window base, so the receiver moves past the packet that was not sent, with or without the in-order option. With no `DeliveryWanted` above the layer, Reliable has no check and no code for it.
 
 A `retryExhausted` packet is not a promise that it was not passed up. When every acknowledgement is lost, the receiver passes the packet up and the sender still reports `retryExhausted`. The same holds for `reset`. Only `ok` is a promise, and it is a promise that the packet was passed up once.
 

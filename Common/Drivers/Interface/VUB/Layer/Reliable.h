@@ -69,6 +69,11 @@ template<void (*Fn)(void*)>
 inline constexpr void (*RestartOwnerHandler)(void*) = Fn;
 
 
+// The same for the question whether a packet is still wanted, which the layer above answers with DeliveryWanted.
+template<bool (*Fn)(void*, std::span<const uint8>)>
+inline constexpr bool (*WantedHandler)(void*, std::span<const uint8>) = Fn;
+
+
 // The options of the delivery layer. The layer takes them as its last template argument, so each option is a constant of the layer: an
 // option that is off costs no code and no RAM. The fields are structural (integers and addresses of variables), so a value of this type can
 // be a template argument. The defaults are the layer's defaults for the two capacities. wantsOwner and the two handlers of the owner are set
@@ -86,7 +91,16 @@ struct ReliableOptions {
 	void (* const* outcomeFn)(const Outcome&) = nullptr;
 	void (* const* restartFn)() = nullptr;
 	void (* const* restartOwnerFn)(void*) = nullptr;
+	bool (* const* wantedFn)(void*, std::span<const uint8>) = nullptr;
 };
+
+
+// True when a handler option holds a handler. The option is passed to a function and tested there, so the test is not written against the
+// address of the holder variable at the call site: g++ 11 reports that address as never null under -Waddress.
+template<typename Pointer>
+constexpr bool HoldsHandler(Pointer pointer) {
+	return pointer != nullptr;
+}
 
 
 // The delivery layer. Each packet carries a sequence number, the session tag of its sender and the sender's window base. The receiver
@@ -227,15 +241,19 @@ public:
 
 
 	// The options of the layer with the owner of the layer above (wantsOwner): its outcomes go to Above::DeliveryOutcome and its restarts to
-	// Above::DeliveryRestart, which get the owner pointer. A handler the application gave this layer is refused, since the layer above
-	// takes them.
+	// Above::DeliveryRestart, which get the owner pointer. A layer above that declares DeliveryWanted is asked whether a packet is still
+	// wanted when the packet is due to be sent again. A handler the application gave this layer is refused, since the layer above takes them.
 	template<typename Above>
 	static constexpr Options OwnedBy(Options value) {
 		Require<"the layer below a layer with wantsOwner has an OnOutcome or OnRestart: the layer with wantsOwner takes them, remove the handler">(
-			value.outcomeFn == nullptr && value.restartFn == nullptr && value.restartOwnerFn == nullptr);
+			!HoldsHandler(value.outcomeFn) && !HoldsHandler(value.restartFn) && !HoldsHandler(value.restartOwnerFn));
 		value.wantsOwner = true;
 		value.outcomeFn = &OutcomeHandler<&Above::DeliveryOutcome>;
 		value.restartOwnerFn = &RestartOwnerHandler<&Above::DeliveryRestart>;
+		if constexpr (requires { &Above::DeliveryWanted; }) {
+			value.wantedFn = &WantedHandler<&Above::DeliveryWanted>;
+		}
+
 		return value;
 	}
 
@@ -566,11 +584,11 @@ public:
 		SettleSlots();
 		if (peer.restartReport) {
 			peer.restartReport = false;
-			if constexpr (options.restartFn != nullptr) {
+			if constexpr (HoldsHandler(options.restartFn)) {
 				(*options.restartFn)();
 			}
 
-			if constexpr (options.restartOwnerFn != nullptr) {
+			if constexpr (HoldsHandler(options.restartOwnerFn)) {
 				(*options.restartOwnerFn)(OwnerValue());
 			}
 		}
@@ -1163,7 +1181,7 @@ private:
 
 	// A sync has no outcome: it carries no packet of the application.
 	void Settle(Slot& slot, ResultStatus status) {
-		if constexpr (options.outcomeFn != nullptr) {
+		if constexpr (HoldsHandler(options.outcomeFn)) {
 			if (!slot.sync) {
 				Outcome outcome{status, slot.sequence, slot.attempts,
 					std::span<const uint8>(slot.bytes.data() + header, slot.length), OwnerValue()};
@@ -1229,7 +1247,8 @@ private:
 
 
 	// Sends the resends that are due. A packet that has used its tries is reported as retryExhausted at its timeout. A sync that has used
-	// its tries is dropped without an outcome: the next Send starts the session again, with the same counter.
+	// its tries is dropped without an outcome: the next Send starts the session again, with the same counter. A data packet that is due is
+	// first offered to the layer above when it declares DeliveryWanted: one it does not want is not sent, and its outcome is operationCancelled.
 	void RunTimers(uint32 nowUs, const Outbox& outbox) {
 		for (Slot& slot : peer.slots) {
 			if (slot.state != SlotState::pending || !ReliableWire::Due(nowUs, slot.dueUs)) {
@@ -1245,6 +1264,14 @@ private:
 				}
 
 				continue;
+			}
+
+			if constexpr (HoldsHandler(options.wantedFn)) {
+				std::span<const uint8> payload(slot.bytes.data() + header, slot.length);
+				if (!slot.sync && !(*options.wantedFn)(OwnerValue(), payload)) {
+					Settle(slot, ResultStatus::operationCancelled);
+					continue;
+				}
 			}
 
 			if (!Transmit(slot, outbox)) {

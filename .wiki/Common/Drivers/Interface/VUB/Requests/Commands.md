@@ -107,6 +107,9 @@ const VUB::CommandInfo* LookUpStart() {
 - At most 240 commands and at most 240 events. Command and event ids are one byte, and 0xF0 to 0xFF are reserved for the layer (ping,
   health, and the later built-ins).
 - Ids are unique among the commands, and among the events. A name is unique among all commands and events.
+- `ReplyTimeoutMs` and `TicketTimeoutMs` are at most 2147483 ms. The requests layer keeps its deadlines in microseconds and compares them as
+  a signed 32-bit difference, so a longer timeout would wrap. `ReplyTimeoutMs must be at most 2147483 (the deadlines are signed 32-bit
+  microsecond counts)` and the matching `TicketTimeoutMs` message are the compile errors.
 
 ## Errors
 

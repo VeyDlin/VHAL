@@ -306,16 +306,20 @@ struct OpenCommand {
 	}
 
 
+	// The deadlines are kept in microseconds and compared as a signed 32-bit difference, so a timeout is at most 2147483 ms.
 	constexpr OpenCommand ReplyTimeoutMs(uint32 ms) const {
 		Require<"ReplyTimeoutMs must be above 0">(ms > 0);
+		Require<"ReplyTimeoutMs must be at most 2147483 (the deadlines are signed 32-bit microsecond counts)">(ms <= 2147483);
 		OpenCommand next = *this;
 		next.options.replyTimeoutMs = ms;
 		return next;
 	}
 
 
+	// The same limit as ReplyTimeoutMs.
 	constexpr OpenCommand TicketTimeoutMs(uint32 ms) const {
 		Require<"TicketTimeoutMs must be above 0">(ms > 0);
+		Require<"TicketTimeoutMs must be at most 2147483 (the deadlines are signed 32-bit microsecond counts)">(ms <= 2147483);
 		OpenCommand next = *this;
 		next.options.ticketTimeoutMs = ms;
 		return next;
@@ -548,6 +552,32 @@ constexpr std::size_t LargestEventOf(const std::array<EventInfo, Count>& table) 
 }
 
 
+// True when a command of the table has the flag set. The flag is a member of CommandInfo.
+template<std::size_t Count>
+constexpr bool AnyCommandFlag(const std::array<CommandInfo, Count>& table, bool CommandInfo::* flag) {
+	for (const CommandInfo& info : table) {
+		if (info.*flag) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+
+// True when a command of the table has the level, or a higher one when atLeast is set.
+template<std::size_t Count>
+constexpr bool AnyCommandLevel(const std::array<CommandInfo, Count>& table, uint8 level, bool atLeast) {
+	for (const CommandInfo& info : table) {
+		if (info.level == level || (atLeast && info.level > level)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+
 // The index of the item named Name in a tuple of items, or the size of the tuple when no item has the name.
 template<TextLiteral Name, typename Tuple, std::size_t... Index>
 consteval std::size_t ItemIndexByName(std::index_sequence<Index...>) {
@@ -586,6 +616,10 @@ public:
 	static constexpr std::size_t largestRequest = LargestRequestOf(commandTable);
 	static constexpr std::size_t largestReply = LargestReplyOf(commandTable);
 	static constexpr std::size_t largestEvent = LargestEventOf(eventTable);
+	static constexpr bool hasInterim = AnyCommandFlag(commandTable, &CommandInfo::interim);
+	static constexpr bool hasFailWhileDown = AnyCommandFlag(commandTable, &CommandInfo::failWhileDown);
+	static constexpr bool hasFire = AnyCommandLevel(commandTable, 1, false);
+	static constexpr bool hasReplyCommand = AnyCommandLevel(commandTable, 3, true);
 
 	static_assert(commandCount <= 240, "more than 240 commands: the command ids are one byte and 0xF0 to 0xFF are reserved");
 	static_assert(eventCount <= 240, "more than 240 events: the event ids are one byte and 0xF0 to 0xFF are reserved");
