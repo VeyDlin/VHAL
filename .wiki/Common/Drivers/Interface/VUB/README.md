@@ -3,13 +3,13 @@
 VUB is a protocol stack built from blocks. A product's protocol is a chain of blocks, written in one builder and checked at compile
 time. Each block has a small contract. The built-in blocks use only that contract, so a user block goes into the chain the same way.
 
-Stage 1 is the core: the five block contracts, the builder and its checks, the stack at run time, drop counters, a test kit, and the
-built-in blocks of stage 1: the CRC transform ([CRC](Transform/Crc)), the framings ([COBS](Framing/Cobs),
+VUB has the core: the five block contracts, the builder and its checks, the stack at run time, drop counters, a test kit, and the
+built-in blocks: the CRC transform ([CRC](Transform/Crc)), the framings ([COBS](Framing/Cobs),
 [length prefix](Framing/LengthPrefix) and [gap framing](Framing/Gap)), the delivery layer
 ([VUB::Reliable](Layer/Reliable)), and the keep-alive layer for a link that cannot report its state
 ([VUB::KeepAlive](Layer/KeepAlive)). A chain is made of these, of user blocks, and of the test kit's loopback.
 
-Stage 2 adds the links. On a microcontroller ([links](Link/README)): a UART, a USB CDC serial port, a USB vendor bulk interface and a USB
+The links are built for a microcontroller ([links](Link/README)): a UART, a USB CDC serial port, a USB vendor bulk interface and a USB
 HID interface, each a template over the VHAL adapter or USB function. On a PC ([PC links](PC/README)): a serial port, TCP, USB bulk and
 HID, on Windows and Linux, so the PC side of a product uses the same blocks. The [board check](.tool/board/README) runs each link between
 an STM32G431 and a PC.
@@ -132,10 +132,10 @@ A link hands its received data to the stack in one of three ways. The stack has 
   constructor and a null receiver in its destructor, so the link does not feed a stack that is gone; a stack with such a link is not
   copyable. The link calls `receiver.Feed(bytes)` (a byte-stream link) or `receiver.FeedPacket(packet)` (a packet link) from its
   interrupt. A UART is this kind.
-- `Poll(VUB::Receiver)`: the link reads on request. `Process` calls `Poll` first, before it takes the received bytes or packets, so
+- `Poll(VUB::Receiver)`: the link reads on request. `Process` calls `Poll` first, ahead of taking the received bytes or packets, so
   what the link feeds is handled in the same `Process`. `Poll` must not block, and it feeds no more than `receiver.Room()`. A USB class
   or a TCP connection is this kind.
-- Neither: the application feeds the stack itself, with `Feed(byte)` or `FeedPacket(packet)`, from the receive interrupt or before
+- Neither: the application feeds the stack itself, with `Feed(byte)` or `FeedPacket(packet)`, from the receive interrupt or ahead of
   `Process`. Such a link has no receiver and no code for one.
 
 A link with both `SetReceiver` and `Poll` is a compile error: two writers would share the receive ring or queue.
@@ -176,7 +176,7 @@ struct UartLink {
 struct PollLink {
 	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64).FullDuplex();
 
-	// Called from Process, before the stack takes its received packets. Room is the number of free slots of the receive queue.
+	// Called from Process, ahead of the stack taking its received packets. Room is the number of free slots of the receive queue.
 	void Poll(VUB::Receiver receiver) {
 		while (packetsWaiting > 0 && receiver.Room() > 0) {
 			std::array<uint8, 2> packet = {0x01, 0x02};
@@ -227,7 +227,7 @@ PollLink pollLink;
 Polled polled(pollLink);
 ```
 
-A chain whose link has neither member is the same size as before the receiver was added. Measured with `sizeof` on g++ (x86-64), the
+A chain whose link has neither member is the same size as a chain without the receiver. Measured with `sizeof` on g++ (x86-64), the
 packet stack of the link with neither member is 656 bytes and the stream stack 952 bytes (`TestVubReceiver.cpp` checks both). With
 `size.sh`, every row of the [size table](#size) is unchanged.
 
@@ -238,19 +238,19 @@ packet for that reason.
 
 - A byte-stream link's `Write` returns how many bytes it took. The stack keeps the rest of the framed packet and writes it on the next
   `Process`.
-- A packet link's `Send` returns `ok` when it took the packet, and `busy` when it cannot take it now. The stack keeps the packet and
+- A packet link's `Send` returns `ok` when it took the packet, and `busy` when it has no room for it. The stack keeps the packet and
   tries again on the next `Process`. Any other status is an error: the packet is dropped and counted as `sendError`.
 - `Process` keeps sending while the link accepts, up to `PerProcess` packets, so one call can move many packets. A packet that the
   framing or the link refuses with an error counts toward `PerProcess` as well, so a bulk layer that always has data cannot hold a call.
 - `Send` and the layers' `Process` queue packets on the control lane, up to `SendQueue` packets. When the queue is full, `Send` returns
-  `busy` and nothing is queued; the caller sends again later.
+  `busy` and nothing is queued; the caller sends again.
 - In a chain with a layer that reports its peer, a layer's own packets (from its `Process` or its outbox) have a second queue of the same
   size, the own lane. The outbox's `Send` returns `busy` when that queue is full, and the layer keeps the packet and sends it again on the
   next `Process`. Any other chain puts the layers' packets on the control lane.
 
 Order: in a chain with a layer that reports its peer, the layers' own packets go first, on the own lane. Then the control packets from the
 application go, and then the bulk packets. In any other chain the layers' packets are control packets, so control packets (from the
-application and from the layers' `Process`) go before bulk packets. A layer that makes bulk packets (`makesBulk`) is asked for its next
+application and from the layers' `Process`) go ahead of bulk packets. A layer that makes bulk packets (`makesBulk`) is asked for its next
 packet through `Next` only when the link is free and no control packet waits. The stack asks the layers in chain order and takes the first
 one that has data. The packet from `Next` is complete at the layer's level: the layer added its own header, and the blocks below add theirs.
 
@@ -285,7 +285,7 @@ its state the answer is always true. A chain whose layers do not ask is unchange
   `Process` or their outbox) still go out, so a layer can ping the peer and the peer can come back. The application's packets and the
   bulk packets wait. While the link is down, nothing goes out, the layers' packets included. Whole packets in the receive queue still go
   up in every case.
-- A layer's own packets go before the application's queued packets, in a chain with a layer that reports its peer. Any other chain has
+- A layer's own packets go ahead of the application's queued packets, in a chain with a layer that reports its peer. Any other chain has
   one queue for both, in the order they were queued.
 - A frame that is partly written when the connection goes down starts again from its first byte, under `Wait` and under `Fail`. Under
   `Fail` an application's frame is dropped instead, and counted under `linkDown`; so is a layer's own frame while the link is down. A
@@ -305,7 +305,7 @@ its state the answer is always true. A chain whose layers do not ask is unchange
   Cortex-M4 for one layer that reports its peer (the same layer type with `reportsPeer` cleared and set), on a packet link that does not
   report, with `MaxPayload(40)` and the default queues: `sizeof` is 756 bytes without the report and 996 with it, so 240 bytes; `text`
   adds 230 bytes and `bss` 240. The method and the other figures are on the [keep-alive page](Layer/KeepAlive#cost). A chain without a
-  layer that reports its peer has no second queue, and its size is the same as before.
+  layer that reports its peer has no second queue, and its size does not change.
 
 The test kit can take a line down and up, see the [test kit](TestKit/README).
 
@@ -386,10 +386,10 @@ Each configuration is one file that defines the stack and `SizeRun`, compiled wi
 include the shared `SizeWire.h`, which has the link classes, the clock and the handler. `SizeRun` sends a 32-byte payload, processes,
 feeds back what the link wrote (the bytes one by one on a stream link, the packet on a packet link), and processes again.
 
-The reliable rows (g), (h), (i) and (k) call `SetSession` on their reliable layer with the boot value `0x1234` before the first send, since
+The reliable rows (g), (h), (i) and (k) call `SetSession` on their reliable layer with the boot value `0x1234` ahead of the first send, since
 `Send` returns `noInit` until then. Their `SizeRun` calls `SizeRunReliable` instead of `SizeRunStream`. The first `Send` after the session
 is set returns `busy` and starts the session, so the run sends again in each round until a `Send` queues the payload. The rounds take
-turns with the wire, processing and then feeding back the bytes not fed yet, and the run ends in a round that puts no byte on the wire.
+turns with the wire, processing and then feeding back the bytes that are not fed, and the run ends in a round that puts no byte on the wire.
 On the host, each of the four programs hands the whole 32-byte payload to the handler (528 bytes, the sum of its bytes).
 
 The baseline makes the same calls with no VUB: `BaselineStream.cpp` writes the payload to a stream link and hands the bytes it took to
@@ -416,7 +416,7 @@ both ends. `SizeRun` sends the payload, then feeds the wire back to the protocol
 the wire that has not been fed. Every fragment and every acknowledgement goes through the wire, so the message completes and the handler runs. Its caveats:
 
 - The protocol cuts a message into fragments of 16 bytes (a 20-byte packet less a 3-byte header and a CRC byte). The 32-byte payload is
-  two fragments. VUB sends one packet of 32 bytes. Cutting large messages into fragments is part of stage 5 (large data), and the VUB
+  two fragments. VUB sends one packet of 32 bytes. Cutting large messages into fragments is the large-data part of VUB, which is not built, and the VUB
   rows here have none of it.
 - The probe stubs the System port functions the protocol reaches: `GetMs` returns the probe tick, and `CriticalSection` and `Abort`
   are empty. The bootloader's own implementations are not counted.
@@ -428,7 +428,7 @@ the wire that has not been fed. Every fragment and every acknowledgement goes th
 
 Against the protocol, configuration (i) is 944 bytes larger in text on the M4 (3236 against 2292) and 828 bytes larger on the M0+
 (3708 against 2880). Its RAM is 204 bytes smaller on the M4 (912 against 1116) and on the M0+ (912 against 1116). The design asks for
-a stack with the protocol's properties to be no larger than the protocol on the same target, so this stage does not meet it in text.
+a stack with the protocol's properties to be no larger than the protocol on the same target, so configuration (i) does not meet it in text.
 The breakdown row shows where the text goes: without `VUB::ReliableOf`, configuration (i) is 1096 bytes of text on the M4, and the layer
 adds 2140 bytes. The layer carries what the protocol does not: sequence numbers with sessions and a sync, a window, a ring of owed
 acknowledgements, retries with timeouts, and outcome reporting (see [VUB::Reliable](Layer/Reliable)). The measurement gives the size of
@@ -437,7 +437,7 @@ the layer as a whole; it does not split the layer's code further.
 ## Writing a block
 
 A user block is a type that satisfies the concept of its kind. The example is a transform that appends the sum of the packet, one byte.
-It is checked with the test kit's contract check before it is used in a chain:
+It is checked with the test kit's contract check ahead of its use in a chain:
 
 ```cpp
 // A transform that appends one byte: the sum of the packet modulo 256. A packet whose sum does not match is refused.
@@ -515,11 +515,14 @@ void BoardSend() {
 }
 ```
 
-Before the block goes into a chain, run its contract check (see the [test kit](TestKit/README)):
+Run the block's contract check ahead of putting it into a chain (see the [test kit](TestKit/README)):
 
 ```cpp
-SumCheck sumCheck;
-bool passes = VUB::CheckTransform(sumCheck, 7, 500, 32);
+bool CheckContract() {
+	SumCheck sumCheck;
+	bool passes = VUB::CheckTransform(sumCheck, 7, 500, 32);
+	return passes;
+}
 ```
 
 A block that uses time declares `usesTime = true` and gets the clock from `Process`. A layer that makes bulk packets declares
@@ -558,6 +561,7 @@ struct UsbLink {
 	VUB::StateSink sink;
 	bool configured = false;
 };
+
 
 using Usb = VUB::Stack<+[] {
 	return VUB::Builder()
@@ -841,8 +845,7 @@ Packet 0 is taken and reaches the handler at once. Packet 1 was held, and `Proce
 then `0x11`. A second early packet, while one is held, is refused by `Take` with `busy`, which counts it under `layerError`. The release
 of a held packet counts nothing; a block above that refuses it counts its own drop.
 
-Measured: the text of a probe of the test kit's chains, none of which has a `passesUp` layer, is 26 bytes smaller than before the core
-change. The probe was built with `arm-none-eabi-g++` 15.2, `-Os`, Cortex-M4, and sized with `arm-none-eabi-size`.
+Measured: the text of a probe of the test kit's chains, none of which has a `passesUp` layer, is 26 bytes smaller than the same chains on a stack with the passesUp support. The probe was built with `arm-none-eabi-g++` 15.2, `-Os`, Cortex-M4, and sized with `arm-none-eabi-size`.
 
 ### Options
 
@@ -1010,6 +1013,8 @@ not tested.
 
 ## Status
 
-Stage 1: the core, the link state, the test kit, the host tests, the built-in blocks (CRC, COBS, length prefix, gap framing, delivery, keep-alive) and
-the size table. Stage 2: the links on a microcontroller and on a PC, and the board check on the STM32G431 over UART, USB CDC and USB bulk.
-Requests, addressing, large data, encryption, values and the SPI links are later stages.
+Built: the core, the link state, the test kit, the host tests, the built-in blocks (CRC, COBS, length prefix, gap framing, delivery,
+keep-alive), the size table, the links on a microcontroller and on a PC, and the board check on the STM32G431 over UART, USB CDC and
+USB bulk.
+
+Not built: requests and health, addressing, large data, encryption and the CRC engine, values and subscriptions, and the SPI links.

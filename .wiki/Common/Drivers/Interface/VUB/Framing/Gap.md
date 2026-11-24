@@ -18,13 +18,9 @@ A character is 11 bits, as in Modbus RTU: 3.5 character times at 9600 baud is 38
 rounded up to 4011 microseconds. The rounding is up, so the gap is never shorter than asked. Modbus `RtuTiming` truncates instead and
 gives 4010 at this rate. Options with a value of zero are compile errors.
 
-The baud rate can change while the stack runs, for example when the UART's parameters change. The framing then needs the new rate:
+The baud rate can change while the stack runs, for example when the UART's parameters change. The framing then needs the rate that the UART is set to. The example below calls `SetBaud` from `OnBaudChanged`.
 
-```cpp
-device.Find<VUB::Gap>().SetBaud(19200);
-```
-
-`SetBaud` returns `invalidParameter` for zero and changes nothing. A gap given in character times is recomputed from the new rate.
+`SetBaud` returns `invalidParameter` for zero and changes nothing. A gap given in character times is recomputed from the rate that was passed to it.
 
 ## Receiving
 
@@ -32,11 +28,11 @@ device.Find<VUB::Gap>().SetBaud(19200);
   clock, so the clock must be safe to read in the interrupt.
 - `Process` takes the bytes in order, with the time each arrived. It then polls the framing with the time of the call, so a packet ends
   in silence even when nothing comes after it.
-- A byte that comes after the gap ends the packet before it. That byte starts the next packet.
+- A byte that comes after the gap ends the packet it follows. That byte starts the next packet.
 
 ## Sending
 
-A new packet waits for the gap:
+A packet waits for the gap:
 
 - since the last byte received, and
 - since the line was last busy with the bytes sent.
@@ -117,7 +113,7 @@ void OnUartByte(uint8 byte) {
 }
 
 
-// After the UART's parameters change, the framing gets the new baud rate.
+// After the UART's parameters change, the framing gets the baud rate the UART is set to.
 void OnBaudChanged(uint32 baud) {
 	device.Find<VUB::Gap>().SetBaud(baud);
 }

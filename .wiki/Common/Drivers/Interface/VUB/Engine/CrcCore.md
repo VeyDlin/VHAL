@@ -29,7 +29,7 @@ so the transform holds no data for it.
 
 ## Functions
 
-- `VUB::CrcStart(parameters)`: the register before the first byte. A reflected input starts from the initial value reflected, so the
+- `VUB::CrcStart(parameters)`: the register ahead of the first byte. A reflected input starts from the initial value reflected, so the
   initial value keeps its catalogue meaning.
 - `VUB::CrcFinish(parameters, remainder)`: reflects the register when `reflectIn` and `reflectOut` differ, then applies the final XOR.
 - `VUB::CrcBitRun(width, polynomial, reflected, start, data)`: the bit loop. Used by the bitwise engine, and by the check value.

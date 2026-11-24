@@ -1,7 +1,7 @@
 # VUB test kit
 
 The test kit is for host tests. It is in `Common/Drivers/Interface/VUB/TestKit/` and is not part of a device build. A user who writes a
-block uses it to check the block on a PC before it goes onto a board.
+block uses it to check the block on a PC ahead of putting it on a board.
 
 ## Parts
 
@@ -18,21 +18,45 @@ A line has two directions. A stack on end `a` sends into one wire, and the stack
 `DeliverToB`:
 
 ```cpp
-VUB::Faults faults;
-faults.dropPercent = 5;
-faults.corruptPercent = 5;
-faults.duplicatePercent = 5;
-faults.maxDelayUs = 50;
-faults.seed = 7;
+void OnPacket(const VUB::Meta&, std::span<const uint8> payload) {
+	(void)payload;
+}
 
-VUB::PacketLine<64, 512> line(faults);
-// the stacks are built on line.a and line.b; each step sets the time and delivers
-line.SetNow(now);
-line.DeliverToB(receiverStack);
+
+using Chain = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Link<VUB::PacketEnd<64, 512>>()
+		.MaxPayload(32)
+		.OnReceive<&OnPacket>();
+}>;
+
+
+void Run() {
+	VUB::Faults faults;
+	faults.dropPercent = 5;
+	faults.corruptPercent = 5;
+	faults.duplicatePercent = 5;
+	faults.maxDelayUs = 50;
+	faults.seed = 7;
+
+	VUB::PacketLine<64, 512> line(faults);
+	Chain sender(line.a);
+	Chain receiver(line.b);
+
+	// Each step sets the time, the stacks process, and the line delivers what was sent to the receiving end.
+	uint32 now = 0;
+	for (int step = 0; step < 10; step++) {
+		now += 1000;
+		line.SetNow(now);
+		sender.Process();
+		line.DeliverToB(receiver);
+		receiver.Process();
+	}
+}
 ```
 
-Each item is dropped, corrupted (one bit flipped), duplicated or delayed by a random amount up to `maxDelayUs`, so a later item can
-arrive first. The same seed gives the same faults, and the same output on each run. The rates are the configured percentages over
+Each item is dropped, corrupted (one bit flipped), duplicated or delayed by a random amount up to `maxDelayUs`, so the items can
+arrive out of the order they were sent in. The same seed gives the same faults, and the same output on each run. The rates are the configured percentages over
 many items (the tests check 10, 20 and 15 percent over 10000 and 20000 items within 1.5 points). A packet is never cut short: a packet
 longer than the wire's packet size is not stored, and it is counted as overflowed. `Counts()` on a wire says how many items it dropped,
 corrupted, duplicated and delivered, so a test can check that every packet is either handled or counted.
@@ -46,11 +70,15 @@ A user runs the checks on their own block. Each returns true when every round pa
 repeats.
 
 ```cpp
-XorTransform transform;
-bool transformOk = VUB::CheckTransform(transform, 7, 500, 40);
+bool RunChecks() {
+	VUB::Crc8Smbus transform;
+	bool transformOk = VUB::CheckTransform(transform, 7, 500, 40);
 
-FlagFraming framing;
-bool framingOk = VUB::CheckFraming(framing, 3, 200, 32, 10);
+	VUB::Cobs framing;
+	bool framingOk = VUB::CheckResync(framing, 3, 200, 32, 10);
+
+	return transformOk && framingOk;
+}
 ```
 
 `VUB::CheckTransform(transform, seed, rounds, maxPayload)` checks, on random packets of 0 to `maxPayload` bytes (at most 255):
@@ -90,16 +118,18 @@ their stacks learn of the outage at their next `Process`. A line without it is s
 is sent meanwhile is lost.
 
 A schedule of outages comes from the seed. `faults.outageForUs` is how long the line is down, and `faults.outageEveryUs` bounds the time
-it is up before the next outage (the up time is drawn from the seed). The schedule runs in `SetNow`:
+it is up ahead of the next outage (the up time is drawn from the seed). The schedule runs in `SetNow`:
 
 ```cpp
-// A line that reports its state, and a schedule of outages from the seed.
-VUB::Faults faults;
-faults.seed = 7;
-faults.outageEveryUs = 500;
-faults.outageForUs = 100;
-VUB::PacketLine<64, 512, true> scheduled(faults);
-scheduled.SetNow(0);
+void Run() {
+	// A line that reports its state, and a schedule of outages from the seed.
+	VUB::Faults faults;
+	faults.seed = 7;
+	faults.outageEveryUs = 500;
+	faults.outageForUs = 100;
+	VUB::PacketLine<64, 512, true> scheduled(faults);
+	scheduled.SetNow(0);
+}
 ```
 
 The line is up only when it is up by hand and up by its schedule. The two states are kept apart:
@@ -113,6 +143,16 @@ back when its stack is destroyed, so an outage that comes while the peer is gone
 `std::optional`:
 
 ```cpp
+void OnPacket(const VUB::Meta&, std::span<const uint8> payload) {
+	(void)payload;
+}
+
+
+uint32 Now() {
+	return 0;
+}
+
+
 // A peer that reboots: the far stack is destroyed and built again, and the near stack keeps working.
 using Near = VUB::Stack<+[] {
 	return VUB::Builder()
@@ -123,17 +163,20 @@ using Near = VUB::Stack<+[] {
 		.Clock<&Now>();
 }>;
 
-VUB::PacketLine<64, 512, true> line(VUB::Faults{});
-Near near(line.a);
-std::optional<Near> far;
-far.emplace(line.b);
-far.reset();                 // the far stack is destroyed; its end gives the line back its sink
-line.SetLinkUp(false);       // reported to no one
-near.Process();              // near.LinkUp() is false
-line.SetLinkUp(true);
-far.emplace(line.b);         // the rebooted far stack
-near.Process();              // near.LinkUp() is true again
-far->Process();
+
+void Run() {
+	VUB::PacketLine<64, 512, true> line(VUB::Faults{});
+	Near near(line.a);
+	std::optional<Near> far;
+	far.emplace(line.b);
+	far.reset();                 // the far stack is destroyed; its end gives the line back its sink
+	line.SetLinkUp(false);       // reported to no one
+	near.Process();              // near.LinkUp() is false
+	line.SetLinkUp(true);
+	far.emplace(line.b);         // the rebooted far stack
+	near.Process();              // near.LinkUp() is true again
+	far->Process();
+}
 ```
 
 With `WhileDown(VUB::Down::Fail)` the packets the near stack has queued while the line is down are dropped and counted as `linkDown`. The

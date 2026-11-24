@@ -56,7 +56,7 @@ void BoardSend() {
 	board.Process();
 }
 
-// The application gives the board's layer its session value once per boot, before the first send. The layer is reached with Find<Block>().
+// The application gives the board's layer its session value once per boot, ahead of the first send. The layer is reached with Find<Block>().
 // The value differs for each boot: a random number, or the chip's identifier mixed with a boot counter.
 void BoardStartSession(uint16 bootValue) {
 	board.Find<VUB::Reliable>().SetSession(bootValue);

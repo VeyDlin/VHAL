@@ -17,7 +17,7 @@ namespace VUB {
 
 // What the application learns about a packet it sent with delivery, once. status ok: the peer acknowledged it, and it was passed up.
 // retryExhausted: no acknowledgement came after the last resend, so the packet may or may not have been passed up; it is not sent again.
-// reset: the peer lost the session before the packet was acknowledged, so it may or may not have arrived; it is not sent again. payload
+// reset: the peer lost the session while the packet was not acknowledged, so it may or may not have arrived; it is not sent again. payload
 // is the packet's payload, valid only during the call. attempts is how many times it was sent.
 struct Outcome {
 	ResultStatus status;
@@ -122,7 +122,7 @@ public:
 
 
 		// Resends after the first timeout, up to this many times. 0 gives up at the first timeout. With the in-order option 0 is refused:
-		// a held packet is acknowledged only when it goes up, so it would be given up before its gap fills.
+		// a held packet is acknowledged only when it goes up, so it would be given up ahead of its gap filling.
 		constexpr Step Retries(uint8 count) const {
 			Require<"Retries(0) with the in-order option: a held packet is given up before its gap fills">(count >= 1 || !InOrder);
 			Options next = this->LastOptions();
@@ -131,7 +131,7 @@ public:
 		}
 
 
-		// The timeout of a packet before its first resend, in milliseconds.
+		// The timeout of a packet until its first resend, in milliseconds.
 		constexpr Step TimeoutMs(uint16 milliseconds) const {
 			Require<"TimeoutMs() is zero">(milliseconds > 0);
 			Options next = this->LastOptions();
@@ -218,8 +218,8 @@ private:
 
 
 	// The packets held for in-order delivery: one payload for each window slot. The slot of the packet at the base is head; the packet
-	// after it is in the next slot, and so on. settled is the sender's window base as far as it has moved: the numbers before it are
-	// settled at the sender, and the held packets before it go up when Process runs.
+	// after it is in the next slot, and so on. settled is the sender's window base as far as it has moved: the numbers below it are
+	// settled at the sender, and the held packets below it go up when Process runs.
 	struct HeldStore {
 		std::array<std::array<uint8, PayloadCapacity>, WindowCapacity> payloads{};
 		std::array<uint16, WindowCapacity> lengths{};
@@ -247,7 +247,7 @@ private:
 
 
 	// The state kept for one peer: the sending side (its session and window) and the receiving side (the session it holds and the
-	// acknowledgements owed). Stage 4 keeps a table of these.
+	// acknowledgements owed). The layer has no table of peers.
 	struct Peer {
 		// Sending side. A session starts with a sync: established is set when the sync is acknowledged, and until then Send is busy.
 		// newSession is set when the next sync starts a session with a counter of its own. The boot value is given with SetSession, and
@@ -265,7 +265,7 @@ private:
 		std::array<Slot, WindowCapacity> slots{};
 
 		// Receiving side: the session it holds (its boot value and counter, and the tag derived from them). base is the lowest number not
-		// yet received, seen has bit i for base + i (i below the window).
+		// received, seen has bit i for base + i (i below the window).
 		bool open = false;
 		uint16 heldBoot = 0;
 		uint8 heldCounter = 0;
@@ -543,7 +543,7 @@ public:
 
 
 	// The boot value of the sessions this layer starts. It must differ for each boot: a random number, or the chip's id mixed with a boot
-	// counter kept in flash. Call it before the first send; until then Send returns noInit and no session starts. The value applies to the
+	// counter kept in flash. Call it ahead of the first send; until then Send returns noInit and no session starts. The value applies to the
 	// sessions that start after the call.
 	void SetSession(uint16 value) {
 		peer.bootValue = value;
@@ -571,7 +571,7 @@ private:
 	}
 
 
-	// The timeout before try number attempts. It doubles after each try up to the backoff cap, when there is one. Without a cap the
+	// The timeout ahead of try number attempts. It doubles after each try up to the backoff cap, when there is one. Without a cap the
 	// timeout is fixed, and the code of the backoff is not in the layer.
 	uint32 TimeoutUs(uint16 attempts) const {
 		uint32 timeout = static_cast<uint32>(options.timeoutMs) * 1000u;
@@ -759,9 +759,9 @@ private:
 	}
 
 
-	// The peer lost the session of the sending side. The session is no longer established, the packets waiting for acknowledgement are
+	// The peer lost the session of the sending side. The session is not established, the packets waiting for acknowledgement are
 	// reset, and the next Send starts a session with a counter of its own. A sync still waiting is dropped with no outcome: the session it
-	// would start is one the peer no longer holds. The restart handler runs at the next Process.
+	// would start is one the peer does not hold. The restart handler runs at the next Process.
 	void ResetSending() {
 		peer.established = false;
 		peer.newSession = true;
@@ -827,9 +827,10 @@ private:
 
 
 	// A sync of the sender's boot with a counter 1 to 127 ahead of the held one (serial arithmetic) opens its session. A sync of another
-	// boot opens its session: the sender rebooted, and the sending side resets its packets in flight. A sync of the held counter is a copy
-	// of the held session's sync: it is acknowledged again. A sync of an older counter is stale: it is ignored and not acknowledged.
-	// Returns true when the session was opened.
+	// boot opens its session. When a session of the sender is held, the packets in flight of the sending side are reset here, at once,
+	// and the restart runs. With no session held, nothing is reset here: the reset comes with the resync of the first refused packet. A
+	// sync of the held counter is a copy of the held session's sync: it is acknowledged again. A sync of an older counter is stale: it is
+	// ignored and not acknowledged. Returns true when the session was opened.
 	bool ReceiveSync(uint16 boot, uint8 counter) {
 		if (peer.open && boot == peer.heldBoot) {
 			uint8 distance = static_cast<uint8>(counter - peer.heldCounter);
@@ -916,8 +917,8 @@ private:
 	}
 
 
-	// The base moves forward to target. The numbers before it are settled at the sender, so they are dropped from the window. With InOrder
-	// the move is only recorded in held.settled: the held packets before it go up first, in ReleaseInOrder.
+	// The base moves forward to target. The numbers below it are settled at the sender, so they are dropped from the window. With InOrder
+	// the move is only recorded in held.settled: the held packets below it go up first, in ReleaseInOrder.
 	void MoveBase(uint16 target) {
 		if constexpr (InOrder) {
 			uint16 advance = static_cast<uint16>((target - held.settled) & Mask());
@@ -937,7 +938,7 @@ private:
 	}
 
 
-	// The lowest number is received: the base moves past it, and past every later number that is already received.
+	// The lowest number is received: the base moves past it, and past every following number that is already received.
 	void AdvanceBase() {
 		uint16 mask = Mask();
 		peer.base = static_cast<uint16>((peer.base + 1) & mask);
@@ -955,7 +956,7 @@ private:
 	}
 
 
-	// In order: keeps a data packet inside the window until the packets before it have gone up. It is acknowledged when it goes up, so an
+	// In order: keeps a data packet inside the window until the packets below it have gone up. It is acknowledged when it goes up, so an
 	// acknowledgement means the packet was passed up. A copy of a held packet is not kept again. A payload larger than PayloadCapacity is
 	// not kept and not acknowledged.
 	bool HoldPacket(uint16 ahead, std::span<const uint8> payload) {
@@ -986,7 +987,7 @@ private:
 	void ReleaseInOrder(const Outbox& outbox) {
 		uint16 mask = Mask();
 		// The base passes settled numbers when packets are delivered, so settled can fall behind it. Behind is the same as far ahead in
-		// serial arithmetic, so settled follows the base then, before it is used.
+		// serial arithmetic, so settled follows the base at that point, ahead of its use.
 		if (((held.settled - peer.base) & mask) >= ((mask >> 1) + 1)) {
 			held.settled = peer.base;
 		}
@@ -1033,7 +1034,7 @@ private:
 	}
 
 
-	// Reports the packets acknowledged or reset, and frees their slots. The handler runs before the slot is freed, so the payload it
+	// Reports the packets acknowledged or reset, and frees their slots. The handler runs ahead of the slot being freed, so the payload it
 	// is given stays in place during the call.
 	void SettleSlots() {
 		for (Slot& slot : peer.slots) {

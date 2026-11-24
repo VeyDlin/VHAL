@@ -33,7 +33,7 @@ struct BlockEntry {
 
 
 	// The packet size after this block, for the packet that enters the block with size bound. Layers add their header and transforms
-	// their growth. Framing and the link add nothing: a packet is measured before framing.
+	// their growth. Framing and the link add nothing: a packet is measured ahead of framing.
 	static constexpr std::size_t PacketAdd(std::size_t bound) {
 		if constexpr (Kind == BlockKind::layer) {
 			return bound + Block::header;
@@ -379,7 +379,7 @@ public:
 	}
 
 
-	// The block methods take any type and check it first, so the message names the block's kind before the concept's notes.
+	// The block methods take any type and check it first, so the message names the block's kind ahead of the concept's notes.
 	template<typename Block>
 	constexpr Builder<Entries..., BlockEntry<BlockKind::link, Block, None>> Link() const {
 		static_assert(LinkBlock<Block>, "the link does not satisfy VUB::LinkBlock: a link needs traits, and Write (a byte stream) or Send (packets)");
@@ -622,7 +622,7 @@ public:
 		(CheckOptions<Entries>(), ...);
 
 		// The lengths of a packet and of a framed packet are 16-bit. The size rules come first: a constant expression stops at its first
-		// failed check, so a size error is reported before a link error that follows from the same size.
+		// failed check, so a size error is reported ahead of a link error that follows from the same size.
 		Require<"a packet of 65536 bytes or more does not fit the 16-bit lengths: lower MaxPayload or the block headers and growths">(
 			PacketBound(values) <= 65535);
 		Require<"a framed packet of 65536 bytes or more does not fit the 16-bit lengths: lower MaxPayload or the framing growth">(

@@ -16,7 +16,7 @@ In the high byte first form (see [Byte order](#byte-order)) the CRC bytes are in
 Example: CRC-16/MODBUS of the nine bytes `31 32 33 34 35 36 37 38 39` ("123456789"). The check value of MODBUS is `4B37`, so the packet
 on the wire ends with `37 4B` (the default, as Modbus RTU), or with `4B 37` in the high byte first form.
 
-On receive, Decode checks the last `width / 8` bytes against the CRC of the bytes before them, and returns the packet without them.
+On receive, Decode checks the last `width / 8` bytes against the CRC of the bytes ahead of them, and returns the packet without them.
 A mismatch is `crcError`; the stack drops the packet and counts it as `transformError`. A packet shorter than the CRC is
 `invalidData`.
 

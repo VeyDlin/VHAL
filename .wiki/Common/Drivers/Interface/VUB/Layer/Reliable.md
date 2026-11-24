@@ -1,6 +1,6 @@
 # VUB::Reliable
 
-Delivery layer. Each packet carries a sequence number, the session tag of its sender and the sender's window base. The receiver acknowledges each packet, and the sender resends a packet that is not acknowledged in time, up to a set number of times. With the in-order option a held packet is acknowledged when it goes up, and a copy of a held packet is not acknowledged (see In order). A session starts with a sync packet, which the receiver acknowledges before the sender sends any data. The sender needs a session value, given with `SetSession` (see Application), before its first send: until then `Send` returns `noInit`. The application learns the outcome of every packet it sent with delivery, once.
+Delivery layer. Each packet carries a sequence number, the session tag of its sender and the sender's window base. The receiver acknowledges each packet, and the sender resends a packet that is not acknowledged in time, up to a set number of times. With the in-order option a held packet is acknowledged when it goes up, and a copy of a held packet is not acknowledged (see In order). A session starts with a sync packet, which the receiver acknowledges ahead of the sender sending any data. The sender needs a session value, given with `SetSession` (see Application), ahead of its first send: until then `Send` returns `noInit`. The application learns the outcome of every packet it sent with delivery, once.
 
 The layer is added with `.Layer<VUB::Reliable>()` and its options follow it: `.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4)`.
 
@@ -65,9 +65,9 @@ A path that reorders packets (several routes, a retry queue below the layer) is 
 
 - no packet is held longer than the packet lifetime that the application states for that path;
 - the sequence numbers do not wrap within that lifetime;
-- after a reboot, a node waits one packet lifetime before its first send, so every packet of its earlier boot has left the
+- after a reboot, a node waits one packet lifetime ahead of its first send, so every packet of its earlier boot has left the
   path (as TCP's quiet time). Without the wait, a delayed acknowledgement of the earlier boot whose one-byte tag matches
-  the new session can acknowledge a packet that was not passed up (see Limits).
+  the current session can acknowledge a packet that was not passed up (see Limits).
 
 The layer does not check either condition. Sixteen-bit sequence numbers are the default, and they wrap after 65536 packets of one session. Eight-bit numbers (`SequenceBits(8)`) wrap after 256 packets, so they are for paths that keep the order only. On such a path a copy of a packet that the path held for a whole session is refused by the session rules (see Sessions), and a copy of a packet that is behind the window is not passed up (see Receiving).
 
@@ -148,11 +148,11 @@ A session is one run of sequence numbers from one sender. A session starts with 
 The sender's values:
 
 - The boot value is the value given to `SetSession(value)`. It is required: until it is given, `Send` returns `noInit` and no session starts. It must differ for each boot. Where it comes from: a random number from the board's RNG adapter, the chip's unique id mixed with a boot counter kept in flash, or `std::random_device` on a PC. The same value on two boots breaks delivery (see Limits). `SetSession` applies to the sessions that start after the call.
-- The session counter is 0 for the first session of a boot. Each new session of the same boot takes the next counter, one byte, so it wraps after 256 sessions.
+- The session counter is 0 for the first session of a boot. Each session of the same boot takes the next counter, one byte, so it wraps after 256 sessions.
 - The tag is the counter plus the low byte of the boot value, one byte. Consecutive sessions of one boot have different tags for 256 sessions.
 - A session's sync has the number 0 and the delta 0. The data of the session starts at number 1.
 
-A session starts when the application sends, once `SetSession` has been called. The first `Send` after that returns `busy`, and it starts the session: the sync goes out at the next `Process`. A `Send` before `SetSession` returns `noInit`, sends nothing, and starts nothing. The sync is a control packet of its own. It carries no application data, so it has no outcome. `Send` returns `busy` until the sync is acknowledged. A session therefore costs one round trip at its start.
+A session starts when the application sends, once `SetSession` has been called. The first `Send` after that returns `busy`, and it starts the session: the sync goes out at the next `Process`. A `Send` made while `SetSession` has not been called returns `noInit`, sends nothing, and starts nothing. The sync is a control packet of its own. It carries no application data, so it has no outcome. `Send` returns `busy` until the sync is acknowledged. A session therefore costs one round trip at its start.
 
 A sync that is sent again after it got no answer keeps its counter. So does a sync that is sent again after the sender gave it up: the sender's next `Send` sends the sync with the same counter.
 
@@ -160,7 +160,8 @@ The receiver's rules for a sync, with the boot value and counter it holds (the h
 
 | The sync | Result |
 |---|---|
-| another boot value | opens its session: the sender rebooted. The sending side of this peer resets its packets in flight at once (see the sender's rules), and the restart handler runs. |
+| another boot value, with a session of the peer held | opens its session: the sender rebooted. The sending side of this peer resets its packets in flight at once (see the sender's rules), and the restart handler runs. |
+| another boot value, with no session of the peer held | opens its session. Nothing is reset and no restart runs here: the packets in flight of this side's sender wait. The rebooted peer refuses the packets of the old session and asks for a resync, and the resync resets them (see the sender's rules). |
 | the held boot value, counter 1 to 127 ahead of the held counter (serial arithmetic) | opens its session. The restart handler runs when a session was held. |
 | the held boot value and the held counter | a copy of the held session's sync: it is acknowledged again. Nothing else. |
 | the held boot value, counter 128 to 255 ahead of the held counter (an older counter) | stale: it is not acknowledged and nothing else changes. The receiver sends a counter reply (0x18) with the held boot value and counter. |
@@ -177,7 +178,10 @@ The sender's rules for a resync request:
 
 - A resync request is acted on only when its tag is the sender's current tag and the sender's session is established (its sync is acknowledged). The packets waiting for acknowledgement get the outcome `reset`, and they are not sent again. The restart handler runs. The next `Send` starts a session with the next counter.
 - A resync request for another tag is ignored. So is one that arrives while the sync is still waiting for its acknowledgement: the sync gives the peer its session.
-- A sync of another boot value, accepted by the receiving side (see the table above), means the peer rebooted and lost the session its packets were sent in. The sending side then resets as for an accepted resync request, at the moment the sync is accepted: the packets waiting for acknowledgement get `reset`, a sync still waiting is dropped without an outcome, and the next `Send` starts a session with the next counter. A packet sent after the peer's sync was accepted is therefore in a session the peer holds, and it is delivered. Sim test `TestVubReliableRejoin` rebuilds either side with packets in flight, over a packet line and a stream line.
+- A sync of another boot value, accepted by the receiving side while it holds a session of that peer (see the table above), means the peer rebooted and lost the session its packets were sent in. The sending side then resets as for an accepted resync request, at the moment the sync is accepted: the packets waiting for acknowledgement get `reset`, a sync still waiting is dropped without an outcome, and the next `Send` starts a session with the next counter. A packet sent after the peer's sync was accepted is therefore in a session the peer holds, and it is delivered.
+- A sync of another boot value, accepted by a receiving side that holds no session of that peer, resets nothing at the sync. The packets waiting for acknowledgement keep waiting. The rebooted peer refuses the first packet of the old session that reaches it and asks for a resync (see the receiver's rules), and the resync resets the packets waiting then, as above. The packets sent after that resync start a session and are delivered.
+
+Sim test `TestVubReliableSyncReset` pins both cases, with packets in flight. Sim test `TestVubReliableRejoin` rebuilds either side with packets in flight, over a packet line and a stream line.
 
 The sender's rules for a counter reply, which the receiver sends for a stale sync:
 
@@ -198,11 +202,11 @@ A duplicate of a packet is acknowledged again, because the first acknowledgement
 
 ## Sending
 
-`Send` returns `busy` while the session is starting, when the window is full, or when the new packet would lie a window or more after an unacknowledged one. The packets the sender has unsettled therefore always fit in one window, so the receiver's window covers them.
+`Send` returns `busy` while the session is starting, when the window is full, or when the packet would lie a window or more after an unacknowledged one. The packets the sender has unsettled therefore always fit in one window, so the receiver's window covers them.
 
 The window base of a packet is the oldest packet the sender has not settled: the oldest unacknowledged and not given up packet, or the next number when none is unsettled. Each sequenced packet carries its delta from that base, which is smaller than the window. A resend is built again with the base of its time, so it carries the base as it is then.
 
-The first transmission is made with `Send`. A packet not acknowledged is resent when its timeout passes. The timeout before the first resend is `TimeoutMs`. After each resend the timeout doubles, up to `BackoffMaxMs`; with 0 the timeout stays the same.
+The first transmission is made with `Send`. A packet not acknowledged is resent when its timeout passes. The timeout until the first resend is `TimeoutMs`. After each resend the timeout doubles, up to `BackoffMaxMs`; with 0 the timeout stays the same.
 
 A packet is sent at most `Retries + 1` times. When the timeout passes after the last one, the outcome is `retryExhausted`. With `Retries(3)` and `TimeoutMs(200)`, a packet sent at time 0 is sent again at 200, 400 and 600 ms, and reported at 800 ms.
 
@@ -214,7 +218,7 @@ The timers compare the clock with wrap: the clock is a 32-bit count of microseco
 
 The receiver's window starts at its base, the lowest number it has not received, and holds `Window` numbers.
 
-Each sequenced packet of the held session first moves the receiver's base to the sender's base (the packet's number minus its delta), when that base is newer. The base moves only forward, and only to the sender's base: the numbers before it are settled at the sender, so they are acknowledged or given up. A packet from far ahead moves the base to the sender's base and no further, so it does not slide the window over numbers the sender still has.
+Each sequenced packet of the held session first moves the receiver's base to the sender's base (the packet's number minus its delta), when that base is newer. The base moves only forward, and only to the sender's base: the numbers below it are settled at the sender, so they are acknowledged or given up. A packet from far ahead moves the base to the sender's base and no further, so it does not slide the window over numbers the sender still has.
 
 Then the packet is checked against the window:
 
@@ -233,7 +237,7 @@ The outcome handler (`OnOutcome`) is called once for each data packet sent with 
 |---|---|
 | `ok` | the peer acknowledged the packet, and it was passed up |
 | `retryExhausted` | no acknowledgement came after the last resend. The sender got no acknowledgement, so the packet may or may not have been passed up by the receiver. It is not sent again. |
-| `reset` | the peer lost the session before the packet was acknowledged; it may or may not have arrived, and it is not sent again |
+| `reset` | the peer lost the session while the packet was not acknowledged; it may or may not have arrived, and it is not sent again |
 
 A `retryExhausted` packet is not a promise that it was not passed up. When every acknowledgement is lost, the receiver passes the packet up and the sender still reports `retryExhausted`. The same holds for `reset`. Only `ok` is a promise, and it is a promise that the packet was passed up once.
 
@@ -245,10 +249,10 @@ The restart handler (`OnRestart`) is called when the peer lost the session, on t
 
 ## Application: the session value through the stack
 
-The application reaches the layer of a stack with `Find<Block>()` and sets its boot value once per boot, before the first send:
+The application reaches the layer of a stack with `Find<Block>()` and sets its boot value once per boot, ahead of the first send:
 
 ```cpp
-// The application gives the board's layer its session value once per boot, before the first send. The layer is reached with Find<Block>().
+// The application gives the board's layer its session value once per boot, ahead of the first send. The layer is reached with Find<Block>().
 // The value differs for each boot: a random number, or the chip's identifier mixed with a boot counter.
 void BoardStartSession(uint16 bootValue) {
 	board.Find<VUB::Reliable>().SetSession(bootValue);
@@ -269,8 +273,8 @@ The options are set by the methods right after the block. Each has a default.
 
 | Method | Meaning | Default |
 |---|---|---|
-| `Retries(n)` | resends before `retryExhausted`; 0 is a compile error with the in-order option (an options value built by hand is not checked) | 3 |
-| `TimeoutMs(ms)` | timeout before the first resend, in milliseconds | 200 |
+| `Retries(n)` | resends, then `retryExhausted`; 0 is a compile error with the in-order option (an options value built by hand is not checked) | 3 |
+| `TimeoutMs(ms)` | timeout until the first resend, in milliseconds | 200 |
 | `Window(n)` | packets unsettled at once: 1 to `WindowCapacity`, and at most 32 | 4, or `WindowCapacity` when that is smaller |
 | `SequenceBits(bits)` | width of the sequence and acknowledgement numbers: 8 or 16. Use 8 only on a path that keeps the send order. | 16 |
 | `BackoffMaxMs(ms)` | the timeout doubles after each try, up to this cap; 0 keeps it fixed | 0 |
@@ -286,22 +290,22 @@ The in-order option is not a method: it is the third template argument (`.Layer<
 
 With `VUB::ReliableOf<PayloadCapacity, WindowCapacity, true>` the packets go up in the order of their numbers. The wire format and the sender are the same as without the option; only the receiver changes.
 
-- A data packet inside the window is held until the packets before it have gone up. A packet that arrives ahead of a gap is not passed up at once.
+- A data packet inside the window is held until the packets below it have gone up. A packet that arrives ahead of a gap is not passed up at once.
 - Held packets go up from `Process`, through the outbox's `Deliver` (the layer declares `passesUp`). Each one goes up once, in sequence order.
 - A held packet is acknowledged when it goes up. So an acknowledgement means the packet was passed up, and an outcome of `ok` means the same. A copy of a held packet is neither acknowledged nor kept again.
 - The gap fills: the held packets after it go up in order, and each is acknowledged.
-- The sender gives up on a gap (`retryExhausted`): the sender's next data packet carries its new window base in the delta, and the receiver then passes the held packets up past the gap. The numbers below the sender's base are not passed up, so the gap packets are not passed up later.
-- A packet acknowledged after a give-up of a packet before it can carry `retryExhausted`: it was held, and it went up after the sender had stopped waiting for it. This is allowed by the outcome table.
-- A receiver reboot clears the held packets with its session. The sender's resends of them are refused by the new receiver, which asks for a resync, and the sender reports them `reset`.
+- The sender gives up on a gap (`retryExhausted`): the sender's next data packet carries its window base in the delta, and the receiver then passes the held packets up past the gap. The numbers below the sender's base are not passed up, so the gap packets are never passed up.
+- A packet acknowledged after a give-up of a packet below it can carry `retryExhausted`: it was held, and it went up after the sender had stopped waiting for it. This is allowed by the outcome table.
+- A receiver reboot clears the held packets with its session. The sender's resends of them are refused by the rebooted receiver, which asks for a resync, and the sender reports them `reset`.
 - A payload larger than `PayloadCapacity` is not held and not acknowledged.
 - The option is off by default. With it off the layer has no held store: its type is the same as the plain layer's, and the code of the option is not instantiated.
 
 Limits of the option:
 
-- The window moves in `Process`. A packet that arrives after the sender gave up on a gap is refused while the receiver still has the gap, unless the sender sends it again. The sender sends it again only with `Retries` of 1 or more. `Retries(0)` with this option is a compile error. A held packet is acknowledged only when it goes up, so with no retry each held packet is given up at its first timeout, before the gap in front of it fills. The model check of the option with `Retries(0)` fails that way: once the faults stop, packets sent after them are not reported `ok`. Use at least one retry on an in-order path.
-- A packet held behind a gap waits for the next packet of the sender, which carries the new window base. When the sender sends nothing more after giving up on a gap, the held packets wait: they are passed up by the next packet of the sender, and until then they are not acknowledged, so the sender reports them `retryExhausted`.
+- The window moves in `Process`. A packet that arrives after the sender gave up on a gap is refused while the receiver still has the gap, unless the sender sends it again. The sender sends it again only with `Retries` of 1 or more. `Retries(0)` with this option is a compile error. A held packet is acknowledged only when it goes up, so with no retry each held packet is given up at its first timeout, ahead of the gap in front of it filling. The model check of the option with `Retries(0)` fails that way: once the faults stop, packets sent after them are not reported `ok`. Use at least one retry on an in-order path.
+- A packet held behind a gap waits for the next packet of the sender, which carries the window base as it is then. When the sender sends nothing more after giving up on a gap, the held packets wait: they are passed up by the next packet of the sender, and until then they are not acknowledged, so the sender reports them `retryExhausted`.
 
-Storage: each window slot holds one payload (`PayloadCapacity` bytes), and there are `WindowCapacity` slots, plus a length of 2 bytes per slot, a 2-byte settled base and a 1-byte head. Measured in the storage section below: 168 bytes for `VUB::ReliableOf<40, 4, true>` over `VUB::ReliableOf<40, 4>`, and 336 bytes for `VUB::ReliableOf<40, 8, true>` over `VUB::ReliableOf<40, 8>`.
+Storage: each window slot holds one payload (`PayloadCapacity` bytes) and a length of 2 bytes, so the store takes `WindowCapacity` times `PayloadCapacity + 2` bytes. The settled base (2 bytes) and the head (1 byte) fit in the padding of the state and add no bytes. Measured in the storage section below: 168 bytes for `VUB::ReliableOf<40, 4, true>` over `VUB::ReliableOf<40, 4>` (4 payloads of 40 bytes and 4 lengths of 2 bytes), and 336 bytes for `VUB::ReliableOf<40, 8, true>` over `VUB::ReliableOf<40, 8>` (8 payloads and 8 lengths). These deltas are the payloads and the lengths only.
 
 Sim test `TestVubReliableInOrder` checks the option: the packets of a faulty line come up in order and each once, a gap that the sender gives up releases the packets after it, a receiver reboot clears the held packets, a copy of a held packet is not acknowledged, eight-bit numbers wrap over 300 packets, and a payload over the capacity is not held. Its chain is the chain of the faulty line with `VUB::ReliableOf<40, 4, true>`.
 
@@ -359,19 +363,18 @@ The out-of-line functions of the layer in configuration (i), on the Cortex-M4 (`
 `ReleaseInOrder`, `ShiftBase`) have no symbol in configuration (i), since the option is off. The receiving path (the take of a packet, the
 session and the window) has no symbol of its own in the image: it is inlined into the stack's functions.
 
-The table of the previous version had `RunTimers` (134 bytes) and `Settle` (66 bytes) as symbols of their own; they are inlined now, into
-`Process` and into the callers of `Settle`.
+`RunTimers` and `Settle` have no symbol of their own: they are inlined into `Process` and into the callers of `Settle`.
 
 ## Limits
 
-- The tag is one byte. Sessions of different boots can have the same tag: about 1 in 256 for each pair of sessions. On an order-keeping path a packet of an earlier boot cannot arrive after the sync of a later one, so this does not reach the data. On a reordering path a packet of an earlier session that carries the tag of the current session is taken as part of the current session. The same holds for an acknowledgement: an acknowledgement of an earlier session with the tag and number of a packet in flight acknowledges that packet, so the sender can report `ok` for a packet that was not passed up. This needs two boots with the same tag, and an acknowledgement of the earlier boot that is delayed past the start of the later boot's session.
+- The tag is one byte. Sessions of different boots can have the same tag: about 1 in 256 for each pair of sessions. On an order-keeping path a packet of an older boot cannot arrive after the sync of the boot that follows it, so this does not reach the data. On a reordering path a packet of an older session that carries the tag of the current session is taken as part of the current session. The same holds for an acknowledgement: an acknowledgement of an older session with the tag and number of a packet in flight acknowledges that packet, so the sender can report `ok` for a packet that was not passed up. This needs two boots with the same tag, and an acknowledgement of the older boot that is delayed past the start of the following boot's session.
 - The layer cannot tell a boot value that repeats from a fresh one. A sender that restarts with a boot value the receiver already holds can see its data acknowledged as duplicates and reported `ok` without being passed up, or see `busy` for as long as the receiver holds the session. The value must differ for each boot (see Application).
-- A receiver that reboots after delivering a packet and before acknowledging it cannot know that it did. It has no session, so the sender's resend is refused and a resync request comes back. The sender reports the packet `reset`, never `ok`, and does not send it again. The packet may have been delivered once, by the receiver before the reboot. The sync carries no data, so a reboot after the sync's acknowledgement delivers nothing twice.
-- A sender learns that its peer's receiver rebooted only from a refused packet: the first packet it sends after the reboot is refused, and it is reset (see the resync rules). The packets sent after that resync start a session and are delivered. A rebooted sender is learned by its peer from its sync, and the peer resets its packets in flight at once (see Sessions).
+- A receiver that reboots after delivering a packet, with the acknowledgement still unsent, cannot know that it did. It has no session, so the sender's resend is refused and a resync request comes back. The sender reports the packet `reset`, never `ok`, and does not send it again. The packet may have been delivered once, by the receiver up to the reboot. The sync carries no data, so a reboot after the sync's acknowledgement delivers nothing twice.
+- A sender learns that its peer's receiver rebooted only from a refused packet: the first packet it sends after the reboot is refused, and it is reset (see the resync rules). The packets sent after that resync start a session and are delivered. A rebooted sender is learned by its peer from its sync. When the peer holds a session of that sender, it resets the packets in flight at once; when it holds none, the reset comes with the resync (see Sessions).
 - A sync that gets no acknowledgement gives `busy` from `Send` for as long as it is unanswered, and no outcome. The application learns of the peer's absence only from the `busy` answers.
-- A receiver that holds a session takes a sync as newer only when its counter is 1 to 127 ahead. The sender's counter moves by one for each new session, so after an accepted session the next one is one ahead. A receiver that has no session takes any counter. A sync that is behind the held counter is answered with a counter reply, not taken as newer.
+- A receiver that holds a session takes a sync as newer only when its counter is 1 to 127 ahead. The sender's counter moves by one for each session, so after an accepted session the next one is one ahead. A receiver that has no session takes any counter. A sync that is behind the held counter is answered with a counter reply, not taken as newer.
 - In order: see the limits of the option in In order.
 
-## Not in this version
+## Not built
 
-- Addressing: the layer keeps the state of one peer. The state is one struct, so a table of peers is a later stage.
+- Addressing: the layer keeps the state of one peer. The state is one struct; there is no table of peers.

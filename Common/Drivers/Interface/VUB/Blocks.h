@@ -25,7 +25,7 @@ enum class BlockKind : uint8 {
 };
 
 
-// The outcome of one byte pushed into a framing. pending: no packet is complete yet. packet: a whole packet is in the output, and its
+// The outcome of one byte pushed into a framing. pending: no packet is complete. packet: a whole packet is in the output, and its
 // length is set. broken: the bytes were not a frame; they are dropped. tooLong: the frame does not fit in the output; it is dropped.
 enum class FrameStatus : uint8 {
 	pending,
@@ -48,9 +48,9 @@ struct None {
 };
 
 
-// The lane a packet waits in on the send side. Control packets (from the application) go before bulk packets, which the stack pulls
+// The lane a packet waits in on the send side. Control packets (from the application) go ahead of bulk packets, which the stack pulls
 // from the layers' Next only when the link is free. A layer's own packet (from its Process or its outbox) is on the own lane: it goes
-// before the control packets, and it goes while the peer is down. A chain whose layers do not report their peer keeps the own packets
+// ahead of the control packets, and it goes while the peer is down. A chain whose layers do not report their peer keeps the own packets
 // in the control lane.
 enum class Lane : uint8 {
 	control,
@@ -77,7 +77,7 @@ concept StreamLink = requires(
 };
 
 
-// A link that takes whole packets: Send returns ok when it took the packet, busy when it cannot take it now (the stack keeps the
+// A link that takes whole packets: Send returns ok when it took the packet, busy when it has no room for it (the stack keeps the
 // packet and tries again), or another status for an error (the packet is then dropped and counted). Received packets come in through
 // the stack's FeedPacket.
 template<typename Link>
@@ -117,7 +117,7 @@ concept ReceivingLink = requires(
 };
 
 
-// A link that reads on request. Process calls Poll(receiver) before it drains the receive ring or queue, so what the link feeds is handled
+// A link that reads on request. Process calls Poll(receiver) and then drains the receive ring or queue, so what the link feeds is handled
 // in the same Process. Poll must not block, and it feeds at most receiver.Room() bytes or packets.
 template<typename Link>
 concept PollingLink = requires(
@@ -129,7 +129,7 @@ concept PollingLink = requires(
 
 
 // Finds packet boundaries in a byte stream. Frame writes the bytes of one packet with its boundaries. Push takes one received byte and
-// reports, through FrameStatus, whether a packet is now complete. Growth(length) is the most bytes Frame adds to a packet of that length.
+// reports, through FrameStatus, whether a packet is complete. Growth(length) is the most bytes Frame adds to a packet of that length.
 // usesTime says whether the framing reads the clock (the gap framing does), so a chain that has one needs a clock. usesTime and
 // Growth are constant expressions: the builder reads them at compile time. An optional Reset() drops a partial frame; the stack calls it
 // when the link changes state (up or down), if the framing has it.
@@ -137,7 +137,7 @@ concept PollingLink = requires(
 // A framing with usesTime takes the time of each byte: Push(byte, nowUs, out, length), and Poll(nowUs, out, length) which the stack
 // calls from Process, so a frame that ends in silence comes out without a byte after it. Ready(nowUs) says whether a frame may start
 // on the wire (false while the gap after the last byte, received or sent, has not passed), and Sent(nowUs, count) tells the framing
-// how many bytes the link took. The stack calls Ready before it frames a packet and Sent after each Write.
+// how many bytes the link took. The stack calls Ready when it starts to frame a packet, and Sent after each Write.
 template<typename Framing>
 concept PushesBytes = requires(
 	Framing& framing,
@@ -198,7 +198,7 @@ concept TransformBlock = requires(
 };
 
 
-// A synchronous engine computes what a transform describes (a CRC, AES). Version 1 has synchronous engines only. Engine has no state of
+// A synchronous engine computes what a transform describes (a CRC, AES). Engines are synchronous only. Engine has no state of
 // its own: the transform calls its static members.
 template<typename Engine>
 concept EngineBlock = requires {

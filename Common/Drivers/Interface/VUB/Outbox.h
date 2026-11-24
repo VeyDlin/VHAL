@@ -7,7 +7,7 @@ namespace VUB {
 
 
 // The way a layer sends a packet of its own from Process. The packet is complete at the layer's level: the layer added its header
-// to it, and the blocks below the layer add theirs. The stack queues it on the control lane, so it goes before bulk traffic.
+// to it, and the blocks below the layer add theirs. The stack queues it on the control lane, so it goes ahead of bulk traffic.
 // Send returns busy when the control queue is full; the layer keeps the packet and tries again on the next Process. While the connection
 // is down under the Fail option, Send returns noConnection, and the layer keeps the packet as well.
 //
