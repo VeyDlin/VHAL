@@ -93,7 +93,7 @@ compared with the same chain without the layer:
 | Chain | Cortex-M4 text | Cortex-M4 RAM | Cortex-M0+ text | Cortex-M0+ RAM |
 |---|---:|---:|---:|---:|
 | (j) stream link, COBS, CRC-16/MODBUS table, `VUB::KeepAlive`, against (c) | +980 | +232 | +1044 | +232 |
-| (k) (g) plus `VUB::KeepAlive`, against (g) | +1052 | +284 | +1072 | +284 |
+| (k) (g) plus `VUB::KeepAlive`, against (g) | +1048 | +284 | +1068 | +284 |
 
 The cost is all of what the layer adds to the chain: its own state and code, and the peer report, which brings the own-packet queue
 and the link record into the stack. Both rows use the default times, 1 s and 3 s.

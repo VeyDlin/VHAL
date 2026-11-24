@@ -311,32 +311,29 @@ The storage depends on the template arguments, not on the options. Each window s
 
 Sizes, measured with arm-none-eabi-g++ 15.2.1 for Cortex-M4 (`-std=c++20 -Os -mcpu=cortex-m4 -mthumb -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti`). The method: `sizeof` of each layer type, read at compile time (a declaration `Show<sizeof(T)> x;` whose error message names the value, with `arm-none-eabi-g++ -fsyntax-only`):
 
-| Layer | `sizeof` | `sizeof` before the options became template arguments |
-|---|---|---|
-| `VUB::ReliableOf<32, 4>` | 316 bytes | 336 bytes |
-| `VUB::ReliableOf<40, 4>` | 348 bytes | 368 bytes |
-| `VUB::ReliableOf<40, 8>` | 644 bytes | 664 bytes |
-| `VUB::ReliableOf<40, 4, true>` | 516 bytes (+168) | 536 bytes (+168) |
-| `VUB::ReliableOf<40, 8, true>` | 980 bytes (+336) | 1000 bytes (+336) |
+| Layer | `sizeof` |
+|---|---|
+| `VUB::ReliableOf<32, 4>` | 316 bytes |
+| `VUB::ReliableOf<40, 4>` | 348 bytes |
+| `VUB::ReliableOf<40, 8>` | 644 bytes |
+| `VUB::ReliableOf<40, 4, true>` | 516 bytes (+168) |
+| `VUB::ReliableOf<40, 8, true>` | 980 bytes (+336) |
 
-The options take no RAM: a layer of a chain holds none of them, so each size is 20 bytes less than before, the size of the option fields.
-The counter reply adds no bytes. The growth in the previous version came from the header area of each slot, from 7 to 11 bytes: 4 bytes
-for each slot.
+The options take no RAM: a layer of a chain holds none of them. The counter reply adds no bytes.
 
 The code is measured in the size table. Each row is a whole program minus its baseline (see the README), so the layer's code is in the
 rows with the layer:
 
-| Row | Before: text M4 / RAM M4 | After: text M4 / RAM M4 |
-|---|---|---|
-| (g) (c) + `VUB::Reliable` (Retries 3, Window 4) | 4708 / 1136 | 4096 / 1116 |
-| (h) (g) with the in-order option | 5044 / 1272 | 4404 / 1252 |
-| (i) COBS, CRC-8, `VUB::ReliableOf` window 1, Retries 3 | 3780 / 932 | 3200 / 912 |
-| (k) (g) + `VUB::KeepAlive` (default times) | 5724 / 1428 | 5148 / 1400 |
+| Row | text M4 | RAM M4 |
+|---|---:|---:|
+| (g) (c) + `VUB::Reliable` (Retries 3, Window 4) | 4136 | 1116 |
+| (h) (g) with the in-order option | 4436 | 1252 |
+| (i) COBS, CRC-8, `VUB::ReliableOf` window 1, Retries 3 | 3236 | 912 |
+| (k) (g) + `VUB::KeepAlive` (default times) | 5184 | 1400 |
 
 The options are template arguments of the stored layer, so an option that is off is compiled out: with `BackoffMaxMs` 0 the backoff code
-is not in the image, with `SequenceBits` 16 the 8-bit branches are not, and without a handler the handler calls are not. Row (i) is 580
-bytes of text smaller on the Cortex-M4 and 20 bytes smaller in RAM. The figures are the sum of the `.text` sections of the linked program
-(`arm-none-eabi-size`), so the change is the whole effect of the change on the program, the options that are off and the inlining.
+is not in the image, with `SequenceBits` 16 the 8-bit branches are not, and without a handler the handler calls are not. The figures are
+the sum of the `.text` sections of the linked program (`arm-none-eabi-size`).
 
 The in-order code exists only in a layer with the option. With the in-order option the packets wait in the layer's held store, which costs
 `WindowCapacity` payloads: the rows (h) and the `VUB::ReliableOf<40, 4, true>` sizes above show it.

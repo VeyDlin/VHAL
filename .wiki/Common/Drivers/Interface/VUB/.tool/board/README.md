@@ -195,6 +195,31 @@ To read a failed run from the board: a non-zero `echoDropped` with the default `
 `outcomesFailed` means the board gave up on echoes it sent. Each run's counters are the counters since the board's last reset, so a second
 run needs the counters of the first subtracted, or a reset before it.
 
+## Results
+
+Measured on 2026-11-24 on an STM32G431 with the RelSpeed image of this demo (112232 bytes of text, 14116 bytes of data and bss), and
+vubcheck built with MinGW g++ 15.2 on Windows 11. USART1 goes through a CH343 adapter (COM3); the CDC port was COM13. Each line is one
+vubcheck run; each run is a new PC stack against the board's running stack, so every run after the first on a link also checks a restart
+of the PC side.
+
+| Run | Sent | Echoed | ok | Retried | Dropped | Rate | Result |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `uart`, twice | 200 | 200 | 200 | 0 | 0 | 256 per second | PASS |
+| `cdc`, twice | 200 | 200 | 200 | 0 | 0 | 263 to 267 per second | PASS |
+| `bulk`, twice | 200 | 200 | 200 | 0 | 0 | 263 to 268 per second | PASS |
+| `uart --count 2000` | 2000 | 2000 | 2000 | 0 | 0 | 258 per second | PASS |
+| `cdc --count 2000` | 2000 | 2000 | 2000 | 0 | 0 | 267 per second | PASS |
+| `bulk --count 2000` | 2000 | 2000 | 2000 | 0 | 0 | 270 per second | PASS |
+| `uart --loss 5` | 200 | 200 | 200 | 51 | 100 | 19 per second | PASS |
+| `cdc --loss 5` | 200 | 200 | 200 | 48 | 100 | 19 per second | PASS |
+| `bulk --loss 5` | 200 | 200 | 200 | 40 | 100 | 17 per second | PASS |
+| `bulk --loss 3 --count 500` | 500 | 498 | 498 | 375 | 498 | 4 per second | FAIL |
+
+With `--loss 3` one frame in three of the PC side is dropped, acknowledgements included, and two payloads lost all four attempts
+(`Retries(3)`): their outcome is `retryExhausted`, which the delivery layer reports for a packet it gave up on. A run at that loss rate
+needs more retries. The rate is limited by the PC loop and the window of 4 payloads in flight, not by the links. The `hid` check was
+not run: it opens the board's HID device on the PC, and waits for the owner's go-ahead.
+
 ## Notes
 
 - The session values differ on every boot when `sessionSource` is 1: the RNG gives four words, and each stack takes the low 16 bits

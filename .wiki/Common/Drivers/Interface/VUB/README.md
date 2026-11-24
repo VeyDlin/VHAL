@@ -9,6 +9,11 @@ built-in blocks of stage 1: the CRC transform ([CRC](Transform/Crc)), the framin
 ([VUB::Reliable](Layer/Reliable)), and the keep-alive layer for a link that cannot report its state
 ([VUB::KeepAlive](Layer/KeepAlive)). A chain is made of these, of user blocks, and of the test kit's loopback.
 
+Stage 2 adds the links. On a microcontroller ([links](Link/README)): a UART, a USB CDC serial port, a USB vendor bulk interface and a USB
+HID interface, each a template over the VHAL adapter or USB function. On a PC ([PC links](PC/README)): a serial port, TCP, USB bulk and
+HID, on Windows and Linux, so the PC side of a product uses the same blocks. The [board check](.tool/board/README) runs each link between
+an STM32G431 and a PC.
+
 ## The chain
 
 A chain is written from the application down to the link:
@@ -361,13 +366,13 @@ ring, and a link with `MaxPacket(64)`.
 | (d) (b) + CRC-16/MODBUS bitwise | 1144 | 700 | 1432 | 700 |
 | (e) stream link, length prefix 1, CRC-8 bitwise | 1056 | 672 | 1348 | 672 |
 | (f) stream link, gap framing, CRC-16 table | 2716 | 1720 | 2868 | 1720 |
-| (g) (c) + VUB::Reliable (Retries 3, Window 4) | 4096 | 1116 | 4580 | 1116 |
-| (h) (g) with the in-order option | 4404 | 1252 | 4920 | 1252 |
-| (i) COBS, CRC-8, VUB::ReliableOf window 1, Retries 3 | 3200 | 912 | 3676 | 912 |
+| (g) (c) + VUB::Reliable (Retries 3, Window 4) | 4136 | 1116 | 4612 | 1116 |
+| (h) (g) with the in-order option | 4436 | 1252 | 4952 | 1252 |
+| (i) COBS, CRC-8, VUB::ReliableOf window 1, Retries 3 | 3236 | 912 | 3708 | 912 |
 | breakdown of (i): the same without VUB::ReliableOf | 1096 | 692 | 1388 | 692 |
 | CompactStreamingProtocol<20, 4> (bootloader use) | 2292 | 1116 | 2880 | 1116 |
 | (j) stream link, COBS, CRC-16/MODBUS table, VUB::KeepAlive (default times) | 2604 | 932 | 2956 | 932 |
-| (k) (g) + VUB::KeepAlive (default times) | 5148 | 1400 | 5652 | 1400 |
+| (k) (g) + VUB::KeepAlive (default times) | 5184 | 1400 | 5680 | 1400 |
 
 Measured with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203` on Windows 11, through Git Bash,
 with `Common/Drivers/Interface/VUB/.tool/size/size.sh`.
@@ -421,11 +426,11 @@ the wire that has not been fed. Every fragment and every acknowledgement goes th
 - Configuration (i) uses the default ring of 256 bytes. The protocol's ring is 80 bytes. A bootloader that sets `ReceiveRing` smaller
   is not measured here.
 
-Against the protocol, configuration (i) is 908 bytes larger in text on the M4 (3200 against 2292) and 796 bytes larger on the M0+
-(3676 against 2880). Its RAM is 204 bytes smaller on the M4 (912 against 1116) and on the M0+ (912 against 1116). The design asks for
+Against the protocol, configuration (i) is 944 bytes larger in text on the M4 (3236 against 2292) and 828 bytes larger on the M0+
+(3708 against 2880). Its RAM is 204 bytes smaller on the M4 (912 against 1116) and on the M0+ (912 against 1116). The design asks for
 a stack with the protocol's properties to be no larger than the protocol on the same target, so this stage does not meet it in text.
 The breakdown row shows where the text goes: without `VUB::ReliableOf`, configuration (i) is 1096 bytes of text on the M4, and the layer
-adds 2104 bytes. The layer carries what the protocol does not: sequence numbers with sessions and a sync, a window, a ring of owed
+adds 2140 bytes. The layer carries what the protocol does not: sequence numbers with sessions and a sync, a window, a ring of owed
 acknowledgements, retries with timeouts, and outcome reporting (see [VUB::Reliable](Layer/Reliable)). The measurement gives the size of
 the layer as a whole; it does not split the layer's code further.
 
@@ -1006,4 +1011,5 @@ not tested.
 ## Status
 
 Stage 1: the core, the link state, the test kit, the host tests, the built-in blocks (CRC, COBS, length prefix, gap framing, delivery, keep-alive) and
-the size table. The links for the boards, addressing and requests are later stages. Nothing is built for a board yet.
+the size table. Stage 2: the links on a microcontroller and on a PC, and the board check on the STM32G431 over UART, USB CDC and USB bulk.
+Requests, addressing, large data, encryption, values and the SPI links are later stages.
