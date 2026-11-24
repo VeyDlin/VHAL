@@ -21,8 +21,9 @@ Members: `Connect(host, port)`, `Listen(address, port)`, `BoundPort()`, `Close()
   stays true meanwhile. The link reports failure only when the last address has refused: `IsConnecting()` turns false, `IsConnected()`
   stays false. `Connect` is then called again to try once more. On Windows `localhost` resolves to `::1` first, and the listener of
   `Listen` is IPv4 only, so the attempt on `::1` is refused and the one on `127.0.0.1` connects.
-- `Connect` returns `notFound` when the name does not resolve, `ioError` when no socket can be made for any address, and `noConnection`
-  when every address refuses at once. On Windows a refused connect is seen in the except set of the `select`, and on Linux in the writable
+- `Connect` returns `notFound` when the name does not resolve, `noConnection` when at least one address got a socket and its connection
+  was refused at once, and `ioError` when no address got a socket. The status does not depend on the order of the addresses: a socket
+  that could not be made does not hide a refusal, and a refusal does not hide a socket that could not be made. On Windows a refused connect is seen in the except set of the `select`, and on Linux in the writable
   set with `SO_ERROR` set. A `select` that a signal interrupts (`EINTR`) is checked again in the next `Poll`.
 - `Listen(address, port)` binds an IPv4 address (for example `127.0.0.1`) and listens with a backlog of one. A port of zero lets the system
   pick; `BoundPort()` reads it back. The listener accepts one peer in `Poll` whenever no peer is connected. When the peer goes away the

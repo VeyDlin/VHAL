@@ -39,6 +39,7 @@ struct Record {
 	std::vector<std::vector<uint8>> outputs;
 	std::vector<std::vector<uint8>> featureSets;
 	uint32 featureGets = 0;
+	uint32 resets = 0;
 	bool featureSetAccept = true;
 };
 
@@ -48,6 +49,11 @@ Record record;
 
 void OnOutput(std::span<const uint8> report) {
 	record.outputs.emplace_back(report.begin(), report.end());
+}
+
+
+void OnReset() {
+	record.resets++;
 }
 
 
@@ -552,13 +558,57 @@ void CheckOutEndpoint() {
 }
 
 
-// A set-delegate call after configuration is refused, because the callbacks run from the device's context.
+// A non-empty set-delegate call after configuration is refused, because the callbacks run from the device's context.
 void CheckDelegatesBeforeStart() {
 	IdentifiedDevice device;
 	SIM_EXPECT_EQ(device.function.SetOutputDelegate(HidFunction<8>::OutputDelegate::Bind<&OnOutput>()), ResultStatus::ok);
 	device.Configure();
 	SIM_EXPECT_EQ(device.function.SetOutputDelegate(HidFunction<8>::OutputDelegate::Bind<&OnOutput>()), ResultStatus::busy);
 	SIM_EXPECT_EQ(device.function.SetFeatureSetDelegate(HidFunction<8>::FeatureSetDelegate::Bind<&OnFeatureSet>()), ResultStatus::busy);
+}
+
+
+// The output delegate is cleared while the device is configured, as a link destroyed with its device running does. The next output report
+// then reaches no delegate, and setting a delegate again is busy.
+void CheckClearOutputWhileConfigured() {
+	IdentifiedDevice device;
+	record = Record();
+	SIM_EXPECT_EQ(device.function.SetOutputDelegate(HidFunction<8>::OutputDelegate::Bind<&OnOutput>()), ResultStatus::ok);
+	device.Configure();
+	SimUSBDeviceAdapter& sim = device.sim;
+
+	SIM_EXPECT_EQ(device.function.SetOutputDelegate(HidFunction<8>::OutputDelegate()), ResultStatus::ok);
+	SIM_EXPECT_EQ(device.function.SetOutputDelegate(HidFunction<8>::OutputDelegate::Bind<&OnOutput>()), ResultStatus::busy);
+
+	std::array<uint8, 2> output = { 0x03, 0x55 };
+	SIM_EXPECT_EQ(Out(sim, ReportRequest(false, SetReport, TypeOutput, 3, 2), output), ResultStatus::ok);
+	SIM_EXPECT_EQ(record.outputs.size(), 0);
+}
+
+
+// The feature and reset delegates are cleared the same way while the device is configured. Cleared, a feature request is refused and a bus
+// reset calls nothing; setting them again is busy.
+void CheckClearFeatureAndResetWhileConfigured() {
+	IdentifiedDevice device;
+	record = Record();
+	SIM_EXPECT_EQ(device.function.SetFeatureGetDelegate(HidFunction<8>::FeatureGetDelegate::Bind<&OnFeatureGet>()), ResultStatus::ok);
+	SIM_EXPECT_EQ(device.function.SetFeatureSetDelegate(HidFunction<8>::FeatureSetDelegate::Bind<&OnFeatureSet>()), ResultStatus::ok);
+	SIM_EXPECT_EQ(device.function.SetResetDelegate(HidFunction<8>::ResetDelegate::Bind<&OnReset>()), ResultStatus::ok);
+	device.Configure();
+	SimUSBDeviceAdapter& sim = device.sim;
+
+	SIM_EXPECT_EQ(device.function.SetFeatureGetDelegate(HidFunction<8>::FeatureGetDelegate()), ResultStatus::ok);
+	SIM_EXPECT_EQ(device.function.SetFeatureSetDelegate(HidFunction<8>::FeatureSetDelegate()), ResultStatus::ok);
+	SIM_EXPECT_EQ(device.function.SetResetDelegate(HidFunction<8>::ResetDelegate()), ResultStatus::ok);
+	SIM_EXPECT_EQ(device.function.SetFeatureGetDelegate(HidFunction<8>::FeatureGetDelegate::Bind<&OnFeatureGet>()), ResultStatus::busy);
+	SIM_EXPECT_EQ(device.function.SetFeatureSetDelegate(HidFunction<8>::FeatureSetDelegate::Bind<&OnFeatureSet>()), ResultStatus::busy);
+	SIM_EXPECT_EQ(device.function.SetResetDelegate(HidFunction<8>::ResetDelegate::Bind<&OnReset>()), ResultStatus::busy);
+
+	SIM_EXPECT_EQ(In(sim, ReportRequest(true, GetReport, TypeFeature, 2, 4)).status, ResultStatus::accessError);
+	uint32 resetsBefore = record.resets;
+	device.Enumerate();
+	SIM_EXPECT_EQ(record.resets, resetsBefore);
+	SIM_EXPECT_EQ(record.featureGets, 0);
 }
 
 
@@ -746,6 +796,8 @@ int main() {
 	CheckVendorRawPaths();
 	CheckOutEndpoint();
 	CheckDelegatesBeforeStart();
+	CheckClearOutputWhileConfigured();
+	CheckClearFeatureAndResetWhileConfigured();
 	CheckIdleWaitsForPeriod();
 	CheckIdleSkipsQueuedId();
 	CheckBootLengthAtSend();

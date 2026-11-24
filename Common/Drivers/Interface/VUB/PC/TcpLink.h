@@ -58,6 +58,14 @@ public:
 	static constexpr LinkTraits traits = LinkTraits().Reliable().FullDuplex().ReportsState().MaxPacket(256);
 
 
+	// The outcome of one attempt at an address of a connect: noSocket when no socket could be made for the address, refused when the socket
+	// was made and the connection failed.
+	enum class Attempt : std::uint8_t {
+		noSocket,
+		refused
+	};
+
+
 private:
 	static constexpr std::size_t maxAddresses = 8;
 
@@ -71,6 +79,8 @@ private:
 	std::array<socklen_t, maxAddresses> addressLengths{};
 	std::size_t addressCount = 0;
 	std::size_t nextAddress = 0;
+	std::array<Attempt, maxAddresses> attempts{};
+	std::size_t attemptCount = 0;
 
 
 public:
@@ -88,8 +98,8 @@ public:
 
 	// Starts a connection to host and port. Returns ok when the connection is started (it may still be completing; the link is up once
 	// Poll sees it complete). Returns notFound when the name does not resolve, and an error when no address of it can be connected at
-	// once: ioError when no socket could be made, noConnection when every address refused. The addresses are kept until the next Connect,
-	// so Poll tries the next one when an attempt fails, without allocating.
+	// once: noConnection when at least one address got a socket and its connection was refused, ioError when no address got a socket (see
+	// FailureStatus). The addresses are kept until the next Connect, so Poll tries the next one when an attempt fails, without allocating.
 	ResultStatus Connect(const std::string& host, std::uint16_t port) {
 		Close();
 		if (!WinsockReady()) {
@@ -119,6 +129,7 @@ public:
 
 		freeaddrinfo(found);
 		nextAddress = 0;
+		attemptCount = 0;
 		return StartNextAttempt();
 	}
 
@@ -264,6 +275,20 @@ public:
 	}
 
 
+	// The status of a connect that failed for every address, from the outcome of each attempt in the order they were made: noConnection
+	// when at least one attempt got a socket and its connection was refused, ioError when no attempt got a socket (or none was made). The
+	// order of the attempts does not change the status.
+	static constexpr ResultStatus FailureStatus(std::span<const Attempt> outcomes) {
+		for (Attempt outcome : outcomes) {
+			if (outcome == Attempt::refused) {
+				return ResultStatus::noConnection;
+			}
+		}
+
+		return ResultStatus::ioError;
+	}
+
+
 private:
 	void SetUp(bool value) {
 		if (up == value) {
@@ -301,17 +326,25 @@ private:
 	}
 
 
+	// Keeps the outcome of an attempt for FailureStatus. Each address is tried once per Connect, so the list holds at most maxAddresses.
+	void RecordAttempt(Attempt outcome) {
+		if (attemptCount < maxAddresses) {
+			attempts[attemptCount] = outcome;
+			attemptCount++;
+		}
+	}
+
+
 	// Starts a connection to the next candidate address that can be started. A candidate whose socket cannot be made, or that refuses at
-	// once, is skipped. Returns ok when a connection is started (up at once, or completing), or the error of the last candidate skipped
-	// when none is left. Connecting is false when no connection is started.
+	// once, is skipped and its outcome is recorded. Returns ok when a connection is started (up at once, or completing). When no candidate
+	// is left, returns FailureStatus of the outcomes so far. Connecting is false when no connection is started.
 	ResultStatus StartNextAttempt() {
-		ResultStatus status = ResultStatus::noConnection;
 		while (nextAddress < addressCount) {
 			std::size_t index = nextAddress;
 			nextAddress++;
 			Socket created = socket(static_cast<int>(addresses[index].ss_family), SOCK_STREAM, IPPROTO_TCP);
 			if (created == noSocket) {
-				status = ResultStatus::ioError;
+				RecordAttempt(Attempt::noSocket);
 				continue;
 			}
 
@@ -320,7 +353,7 @@ private:
 			int result = connect(created, reinterpret_cast<const sockaddr*>(&addresses[index]), addressLengths[index]);
 			if (result != 0 && !ConnectInProgress()) {
 				CloseSocket(created);
-				status = ResultStatus::noConnection;
+				RecordAttempt(Attempt::refused);
 				continue;
 			}
 
@@ -333,7 +366,7 @@ private:
 			return ResultStatus::ok;
 		}
 
-		return status;
+		return FailureStatus(std::span<const Attempt>(attempts.data(), attemptCount));
 	}
 
 
@@ -381,6 +414,7 @@ private:
 		}
 
 		CloseConnection();
+		RecordAttempt(Attempt::refused);
 		StartNextAttempt();
 	}
 

@@ -282,6 +282,59 @@ void TestReliableStackOverHid() {
 }
 
 
+// A link destroyed while the device is configured clears its output delegate, so no output report reaches the destroyed link. The
+// function accepts the clearing while it is configured.
+void TestLinkDestroyedWhileConfiguredClearsTheDelegate() {
+	HidDouble hid;
+	FeedRecord record;
+	{
+		HidLinkType link(hid);
+		link.SetReceiver(RecordReceiver(record));
+		SIM_EXPECT(hid.HasOutputDelegate());
+		hid.SetConfigured(true);
+	}
+
+	SIM_EXPECT(!hid.HasOutputDelegate());
+	if (!hid.HasOutputDelegate()) {
+		std::array<uint8, 64> report{};
+		report[0] = 1;
+		hid.DeliverOutput(report);
+	}
+
+	SIM_EXPECT(record.packetCount == 0);
+}
+
+
+// A stack destroyed while the device is configured gives its empty receiver back to the link (ReceiverDetach), which clears the delegate.
+// The function accepts the clearing while it is configured, so the delegate is gone when the stack is.
+void TestStackDestroyedWhileConfiguredLeavesNoDelegate() {
+	ResetLinkKit();
+	HidDouble hid;
+	HidLinkType link(hid);
+	{
+		HidStackA stack(link);
+		hid.SetConfigured(true);
+		SIM_EXPECT(hid.HasOutputDelegate());
+	}
+
+	SIM_EXPECT(!hid.HasOutputDelegate());
+	SIM_EXPECT(link.ReceiveStatus() == ResultStatus::ok);
+}
+
+
+// Setting a receiver while the device is configured is busy: the function refuses a non-empty delegate once configured, and the link keeps
+// that status. No delegate is set, so no output report reaches the receiver.
+void TestSettingWhileConfiguredIsBusy() {
+	HidDouble hid;
+	HidLinkType link(hid);
+	hid.SetConfigured(true);
+	FeedRecord record;
+	link.SetReceiver(RecordReceiver(record));
+	SIM_EXPECT(link.ReceiveStatus() == ResultStatus::busy);
+	SIM_EXPECT(!hid.HasOutputDelegate());
+}
+
+
 // A link whose ReportBytes differs from the function's report length is refused at SetReceiver with invalidParameter, and no output
 // delegate is set. The function refuses every report of the other length, so the mistake shows at once.
 void TestReportBytesMustMatchTheFunctionsReports() {
@@ -311,6 +364,9 @@ int main() {
 	TestNotReadyAndFullQueueAreBusy();
 	TestOutputReportsFeedThePacketsAndDropTheRest();
 	TestTakingTheReceiverBackClearsTheDelegate();
+	TestLinkDestroyedWhileConfiguredClearsTheDelegate();
+	TestStackDestroyedWhileConfiguredLeavesNoDelegate();
+	TestSettingWhileConfiguredIsBusy();
 	TestReportBytesMustMatchTheFunctionsReports();
 	TestStacksExchangeOverHidWithBusyReports();
 	TestReliableStackOverHid();

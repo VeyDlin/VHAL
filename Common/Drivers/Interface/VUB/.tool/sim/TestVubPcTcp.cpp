@@ -222,10 +222,27 @@ inline void ConnectsByName() {
 }
 
 
+// The status of a connect that failed for every address is noConnection when at least one attempt got a socket and the connection was
+// refused, and ioError only when no attempt got a socket. The order of the attempts does not change it.
+inline void FailureStatusFollowsTheAttempts() {
+	using Attempt = VUB::PC::TcpLink::Attempt;
+	const std::array<Attempt, 2> noSocketThenRefused = { Attempt::noSocket, Attempt::refused };
+	const std::array<Attempt, 2> refusedThenNoSocket = { Attempt::refused, Attempt::noSocket };
+	const std::array<Attempt, 2> twoNoSockets = { Attempt::noSocket, Attempt::noSocket };
+	const std::array<Attempt, 2> twoRefused = { Attempt::refused, Attempt::refused };
+	SIM_EXPECT(VUB::PC::TcpLink::FailureStatus(noSocketThenRefused) == ResultStatus::noConnection);
+	SIM_EXPECT(VUB::PC::TcpLink::FailureStatus(refusedThenNoSocket) == ResultStatus::noConnection);
+	SIM_EXPECT(VUB::PC::TcpLink::FailureStatus(twoNoSockets) == ResultStatus::ioError);
+	SIM_EXPECT(VUB::PC::TcpLink::FailureStatus(twoRefused) == ResultStatus::noConnection);
+	SIM_EXPECT(VUB::PC::TcpLink::FailureStatus(std::span<const Attempt>()) == ResultStatus::ioError);
+}
+
+
 int main() {
 	EndToEnd();
 	DisconnectAndReconnect();
 	RefusedConnect();
 	ConnectsByName();
+	FailureStatusFollowsTheAttempts();
 	return SimFinish("TestVubPcTcp");
 }

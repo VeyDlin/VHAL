@@ -61,6 +61,16 @@ public:
 	}
 
 
+	// The output delegate captures this link, so a link that still has a receiver clears it when it is destroyed. The function accepts
+	// the clearing while it is configured, so no output report reaches a link that is gone. A link without a receiver set no delegate,
+	// so it leaves the function's delegate alone. The function must outlive the link.
+	~HidLink() {
+		if (receiver.Attached()) {
+			SetReceiver(Receiver());
+		}
+	}
+
+
 	// The output delegate captures this link, so it stays where it is.
 	HidLink(const HidLink&) = delete;
 
@@ -69,8 +79,8 @@ public:
 
 
 	// The stack gives its receiver here in its constructor, and an empty one in its destructor. An attached receiver sets the output
-	// delegate; an empty one clears it. The function refuses a delegate once it is configured, and that status is kept. When the
-	// function is configured, the delegate of a detached link stays, and its reports then find an empty receiver, which drops them.
+	// delegate; an empty one clears it, and the function accepts the clearing at any time. Setting the delegate is busy once the function
+	// is configured, and that status is kept in ReceiveStatus(): the receiver is then given to the link, but no report reaches it.
 	void SetReceiver(Receiver value) {
 		if (!value.Attached()) {
 			receiveStatus = function->SetOutputDelegate(typename Hid::OutputDelegate());

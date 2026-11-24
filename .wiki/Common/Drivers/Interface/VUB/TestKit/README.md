@@ -18,8 +18,11 @@ A line has two directions. A stack on end `a` sends into one wire, and the stack
 `DeliverToB`:
 
 ```cpp
+std::vector<std::vector<uint8>> received;
+
+
 void OnPacket(const VUB::Meta&, std::span<const uint8> payload) {
-	(void)payload;
+	received.emplace_back(payload.begin(), payload.end());
 }
 
 
@@ -31,7 +34,8 @@ using Chain = VUB::Stack<+[] {
 }>;
 
 
-void Run() {
+// Returns the counts of the wire that carries the packets from the sender to the receiver.
+VUB::WireCounts Run() {
 	VUB::Faults faults;
 	faults.dropPercent = 5;
 	faults.corruptPercent = 5;
@@ -43,19 +47,29 @@ void Run() {
 	Chain sender(line.a);
 	Chain receiver(line.b);
 
-	// Each step sets the time, the stacks process, and the line delivers what was sent to the receiving end.
+	// Each step sets the time, the sender sends a packet, the stacks process, and the line delivers what was sent to the receiving end.
 	uint32 now = 0;
-	for (int step = 0; step < 10; step++) {
+	for (uint8 step = 0; step < 10; step++) {
 		now += 1000;
 		line.SetNow(now);
+		std::array<uint8, 1> payload = { step };
+		sender.Send(payload);
 		sender.Process();
 		line.DeliverToB(receiver);
 		receiver.Process();
 	}
+
+	// The packets of the last step are delayed by up to maxDelayUs. The line delivers them at the next time, and the receiver takes them.
+	now += 1000;
+	line.SetNow(now);
+	line.DeliverToB(receiver);
+	receiver.Process();
+	return line.toB.Counts();
 }
 ```
 
-Each item is dropped, corrupted (one bit flipped), duplicated or delayed by a random amount up to `maxDelayUs`, so the items can
+`Run()` returns the counts of the wire that carries the packets from `a` to `b`, and `received` holds the payloads the receiver got. Each item is
+dropped, corrupted (one bit flipped), duplicated or delayed by a random amount up to `maxDelayUs`, so the items can
 arrive out of the order they were sent in. The same seed gives the same faults, and the same output on each run. The rates are the configured percentages over
 many items (the tests check 10, 20 and 15 percent over 10000 and 20000 items within 1.5 points). A packet is never cut short: a packet
 longer than the wire's packet size is not stored, and it is counted as overflowed. `Counts()` on a wire says how many items it dropped,
@@ -121,7 +135,8 @@ A schedule of outages comes from the seed. `faults.outageForUs` is how long the 
 it is up ahead of the next outage (the up time is drawn from the seed). The schedule runs in `SetNow`:
 
 ```cpp
-void Run() {
+// Returns the counts of the wire that carries the packets from end a: a packet every 10 us for 2 ms, on a line with a schedule of outages.
+VUB::WireCounts Run() {
 	// A line that reports its state, and a schedule of outages from the seed.
 	VUB::Faults faults;
 	faults.seed = 7;
@@ -129,6 +144,13 @@ void Run() {
 	faults.outageForUs = 100;
 	VUB::PacketLine<64, 512, true> scheduled(faults);
 	scheduled.SetNow(0);
+	std::array<uint8, 1> payload = { 0 };
+	for (uint32 now = 10; now <= 2000; now += 10) {
+		scheduled.SetNow(now);
+		scheduled.a.Send(payload);
+	}
+
+	return scheduled.toB.Counts();
 }
 ```
 
@@ -143,8 +165,11 @@ back when its stack is destroyed, so an outage that comes while the peer is gone
 `std::optional`:
 
 ```cpp
+std::vector<std::vector<uint8>> received;
+
+
 void OnPacket(const VUB::Meta&, std::span<const uint8> payload) {
-	(void)payload;
+	received.emplace_back(payload.begin(), payload.end());
 }
 
 
@@ -164,7 +189,8 @@ using Near = VUB::Stack<+[] {
 }>;
 
 
-void Run() {
+// Returns the near stack's link state during the outage, and after the reboot.
+std::array<bool, 2> Run() {
 	VUB::PacketLine<64, 512, true> line(VUB::Faults{});
 	Near near(line.a);
 	std::optional<Near> far;
@@ -172,10 +198,16 @@ void Run() {
 	far.reset();                 // the far stack is destroyed; its end gives the line back its sink
 	line.SetLinkUp(false);       // reported to no one
 	near.Process();              // near.LinkUp() is false
+	bool linkDuringOutage = near.LinkUp();
 	line.SetLinkUp(true);
 	far.emplace(line.b);         // the rebooted far stack
 	near.Process();              // near.LinkUp() is true again
+	std::array<uint8, 1> payload = { 1 };
+	near.Send(payload);          // the near stack keeps working: the packet reaches the rebooted far stack
+	near.Process();
+	line.DeliverToB(*far);
 	far->Process();
+	return { linkDuringOutage, near.LinkUp() };
 }
 ```
 

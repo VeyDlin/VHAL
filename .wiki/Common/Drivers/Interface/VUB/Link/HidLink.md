@@ -40,14 +40,14 @@ must be `ReportBytes` long.
 | Member | Used by | Context |
 |---|---|---|
 | `SendReport(std::span<const uint8>)` | `Send` | main (`Process`) |
-| `SetOutputDelegate(OutputDelegate)` | `SetReceiver` | main, before the device starts |
+| `SetOutputDelegate(OutputDelegate)` | `SetReceiver`, the destructor | main. Setting is `busy` while the device is configured; clearing is accepted at any time |
 | `OutputDelegate` (`VSTD::Delegate<void(std::span<const uint8>)>`) | the output reports | interrupt |
 | `Report()`, with `InputLength(0)` and `OutputLength(0)` | `SetReceiver` | main |
 | `MaxReportLength` (optional) | the bound of `ReportBytes` | compile time |
 
 `SendReport` takes exactly `ReportBytes` bytes and returns `invalidParameter` otherwise, `notReady` before the device is configured, and
-`busy` when the queue of input reports is full. `SetOutputDelegate` returns `busy` once the device is configured, so a link that is given its
-receiver after that keeps the status in `ReceiveStatus()`.
+`busy` when the queue of input reports is full. `SetOutputDelegate` returns `busy` when the delegate is not empty and the device is configured. The link keeps that status in
+`ReceiveStatus()`, and the receiver is still given to the link, but no output report reaches it.
 
 `SetReceiver` with an attached receiver first checks that the input and output reports without a report ID are `ReportBytes` long. When
 they are not, the receiver is not given to the link, no delegate is set, and `ReceiveStatus()` is `invalidParameter`, so the mismatch shows
@@ -69,8 +69,14 @@ interrupt for each output report, and the link decodes the report (`HidReportPay
 `FeedPacket`. A report whose length byte is 0, or larger than `ReportBytes - 1`, is dropped without a count.
 
 `SetReceiver` with an empty receiver clears the output delegate, so no report reaches the link after the stack is gone. The delegate is
-cleared first and the receiver after it, in a critical section, so an output report never reads a receiver that is being written. A
-function that is configured refuses the clearing: its delegate then stays, and its reports find an empty receiver, which drops them.
+cleared first and the receiver after it, in a critical section, so an output report never reads a receiver that is being written. The
+function accepts the clearing whether or not the device is configured.
+
+## Destruction
+
+The function's output delegate captures the link, so the link clears the delegate in its destructor. The function accepts the clearing
+while the device is configured, so the delegate is gone when the link is destroyed, and no output report reaches a link that is gone. The
+function must outlive the link, since the destructor calls it.
 
 ## Contexts
 
@@ -117,7 +123,8 @@ and the status of the last `SetReceiver`, so its report buffer is `ReportBytes` 
 
 ## Tests
 
-`TestVubHidLink.cpp` runs the link over `FakeHid`, which has the function's `SendReport`, its refusals and its output delegate. It checks the
-report bytes, the refusals, busy and not-ready, the output delivery and the drops, and two stacks with and without `VUB::Reliable` over two
-functions with busy reports, which keep packets in the stack. `TestVubLinkUsb.cpp` runs the link over the real `HidFunction`: the host
+`TestVubHidLink.cpp` runs the link over `FakeHid`, which has the function's `SendReport`, its refusals and its output delegate, and refuses a
+non-empty delegate once configured as the function does. It checks the report bytes, the refusals, busy and not-ready, the output delivery
+and the drops, a link and a stack destroyed while configured (no delegate is left set), a receiver set while configured (busy), and two
+stacks with and without `VUB::Reliable` over two functions with busy reports, which keep packets in the stack. `TestVubLinkUsb.cpp` runs the link over the real `HidFunction`: the host
 reads the report with `HostIn` and writes an output report with `HostOut`.

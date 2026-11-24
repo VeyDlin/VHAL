@@ -200,7 +200,8 @@ private:
 
 
 // The members of HidFunction that a link uses: SendReport, which takes exactly ReportBytes bytes (invalidParameter otherwise),
-// returns notReady before configuration and busy when QueueDepth reports wait, and SetOutputDelegate, which is refused once configured.
+// returns notReady before configuration and busy when QueueDepth reports wait, and SetOutputDelegate, which refuses a non-empty delegate
+// once configured and accepts an empty one (the clearing) at any time, as HidFunction does.
 // The host side is HostTake, which pops the next input report, and DeliverOutput, which runs the output delegate as an OUT report does.
 template<std::size_t ReportBytes, std::size_t QueueDepth>
 class FakeHid {
@@ -293,7 +294,7 @@ public:
 
 
 	ResultStatus SetOutputDelegate(OutputDelegate value) {
-		if (configured) {
+		if (configured && value) {
 			return ResultStatus::busy;
 		}
 

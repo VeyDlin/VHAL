@@ -164,10 +164,11 @@ public:
 	}
 
 
-	// Output reports of the interface. Set before the device starts: busy once the function is configured.
+	// Output reports of the interface. Clearing it (an empty delegate) is accepted at any time, so the owner of a delegate that is destroyed
+	// while the device is configured can take it back. Setting a delegate is busy once the function is configured.
 	ResultStatus SetOutputDelegate(OutputDelegate value) {
 		System::CriticalSection(true);
-		if (configured) {
+		if (configured && value) {
 			System::CriticalSection(false);
 			return ResultStatus::busy;
 		}
@@ -178,10 +179,10 @@ public:
 	}
 
 
-	// Feature reports of GET_REPORT. Set before the device starts: busy once the function is configured.
+	// Feature reports of GET_REPORT. Clearing is accepted at any time; setting is busy once the function is configured.
 	ResultStatus SetFeatureGetDelegate(FeatureGetDelegate value) {
 		System::CriticalSection(true);
-		if (configured) {
+		if (configured && value) {
 			System::CriticalSection(false);
 			return ResultStatus::busy;
 		}
@@ -192,10 +193,10 @@ public:
 	}
 
 
-	// Feature reports of SET_REPORT. Set before the device starts: busy once the function is configured.
+	// Feature reports of SET_REPORT. Clearing is accepted at any time; setting is busy once the function is configured.
 	ResultStatus SetFeatureSetDelegate(FeatureSetDelegate value) {
 		System::CriticalSection(true);
-		if (configured) {
+		if (configured && value) {
 			System::CriticalSection(false);
 			return ResultStatus::busy;
 		}
@@ -206,10 +207,10 @@ public:
 	}
 
 
-	// The reset delegate (see ResetDelegate). Set before the device starts: busy once the function is configured.
+	// The reset delegate (see ResetDelegate). Clearing is accepted at any time; setting is busy once the function is configured.
 	ResultStatus SetResetDelegate(ResetDelegate value) {
 		System::CriticalSection(true);
-		if (configured) {
+		if (configured && value) {
 			System::CriticalSection(false);
 			return ResultStatus::busy;
 		}
