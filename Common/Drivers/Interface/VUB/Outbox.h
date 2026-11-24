@@ -1,4 +1,5 @@
 #pragma once
+#include <Drivers/Interface/VUB/Drops.h>
 #include <Drivers/Interface/VUB/Meta.h>
 #include <Utilities/Result/ResultStatus.h>
 #include <span>
@@ -22,6 +23,7 @@ namespace VUB {
 // LinkUp tells whether the physical link is up, as of this Process. A link that does not report its state is always up. A layer that
 // declares usesLinkState = true may ask; the stack gives the query only to such a layer on a link that reports its state, and any other
 // layer gets a query that answers true.
+//
 class Outbox {
 public:
 	Outbox(
@@ -66,12 +68,41 @@ public:
 	}
 
 
-private:
+protected:
 	void* owner;
+
+
+private:
 	ResultStatus (*sendFn)(void*, std::span<const uint8>, const Meta&);
 	void (*peerFn)(void*, bool);
 	ResultStatus (*deliverFn)(void*, std::span<const uint8>);
 	bool (*linkFn)(void*);
+};
+
+
+// The outbox of a layer that declares usesCounters = true. It is the outbox above with the stack's counters: Counters returns a StackCounters
+// (the drop counters, Reliable's resends and peer restarts, and the high-water marks). The stack gives this type to such a layer only, so a
+// layer that does not read the counters has no field for them. A layer that declares usesCounters takes const CountingOutbox& in Process.
+class CountingOutbox : public Outbox {
+public:
+	CountingOutbox(
+		void* ownerObject,
+		ResultStatus (*sendFunction)(void*, std::span<const uint8>, const Meta&),
+		void (*peerFunction)(void*, bool),
+		ResultStatus (*deliverFunction)(void*, std::span<const uint8>),
+		bool (*linkFunction)(void*),
+		StackCounters (*countersFunction)(void*)) :
+		Outbox(ownerObject, sendFunction, peerFunction, deliverFunction, linkFunction), countersFn(countersFunction) {
+	}
+
+
+	StackCounters Counters() const {
+		return countersFn(owner);
+	}
+
+
+private:
+	StackCounters (*countersFn)(void*);
 };
 
 }

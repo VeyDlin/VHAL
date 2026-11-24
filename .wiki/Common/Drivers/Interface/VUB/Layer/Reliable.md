@@ -247,6 +247,30 @@ A send that returns an error (`busy`, `messageTooLong`) did not take the packet,
 
 The restart handler (`OnRestart`) is called when the peer lost the session, on the side that sees it: the sender when its packets are reset, and the receiver when a sync opens a session over a held one or of another boot.
 
+The restart handler with the owner pointer (`OnRestartOwner<&Fn>()`) takes a `void*`, which is the owner of this layer: the layer above it when that layer declares `static constexpr bool wantsOwner = true`, and null otherwise.
+
+A layer above with `wantsOwner = true` takes the outcomes and the restarts of this layer itself. The builder sets this layer's outcome handler to the layer's static `DeliveryOutcome(const VUB::Outcome&)`, and its restart handler to its static `DeliveryRestart(void*)`. The stack stores the address of the layer above in this layer when it is built, and `Outcome::owner` carries it. Two stacks in one program do not share a handler, since each outcome names its own layer. The application's `OnOutcome`, `OnRestart` and `OnRestartOwner` on such a layer are a compile error, since the layer above takes them.
+
+```cpp
+// A layer above Reliable with the owner form. Its handlers get the layer through the owner pointer, so the handlers are static.
+struct Acknowledged {
+	static constexpr bool wantsOwner = true;
+
+	static void DeliveryOutcome(const VUB::Outcome& outcome) {
+		static_cast<Acknowledged*>(outcome.owner)->outcomes++;
+	}
+
+	static void DeliveryRestart(void* owner) {
+		static_cast<Acknowledged*>(owner)->restarts++;
+	}
+
+	uint32 outcomes = 0;
+	uint32 restarts = 0;
+};
+```
+
+The layer with `wantsOwner` must sit directly above the Reliable layer: a chain that puts it above another block does not compile. The application sends through the layer above, with its handle (see [Optional members](../README#optional-members)).
+
 ## Application: the session value through the stack
 
 The application reaches the layer of a stack with `Find<Block>()` and sets its boot value once per boot, ahead of the first send:
@@ -281,6 +305,10 @@ The options are set by the methods right after the block. Each has a default.
 | `PayloadBytes(n)` | the largest payload; larger payloads are refused with `messageTooLong` | `PayloadCapacity` |
 | `OnOutcome<&Fn>()` | the outcome handler | none |
 | `OnRestart<&Fn>()` | the restart handler | none |
+| `OnRestartOwner<&Fn>()` | the restart handler with the owner pointer (see Outcomes) | none |
+| `Counted()` | counts the resends and the peer restarts, read with `Resends()` and `PeerRestarts()`, and through `CountingOutbox::Counters()` (see [Optional members](../README#optional-members)) | off |
+
+`payloadCapacity` is the `PayloadCapacity` argument as a constant. A layer above that declares `largestPacket` must not be larger than it: the builder names the capacity to set when it is.
 
 A value out of range is a compile error: `TimeoutMs(0)`, `Window` above `WindowCapacity` or 32, `SequenceBits` other than 8 or 16, `PayloadBytes` above `PayloadCapacity`, and `Retries(0)` with the in-order option (see In order). Options are set in the chain, for example `.Layer<VUB::Reliable>().Retries(5).TimeoutMs(100).Window(2).BackoffMaxMs(800)`.
 
@@ -323,7 +351,7 @@ Sizes, measured with arm-none-eabi-g++ 15.2.1 for Cortex-M4 (`-std=c++20 -Os -mc
 | `VUB::ReliableOf<40, 4, true>` | 516 bytes (+168) |
 | `VUB::ReliableOf<40, 8, true>` | 980 bytes (+336) |
 
-The options take no RAM: a layer of a chain holds none of them. The counter reply adds no bytes.
+The options take no RAM: a layer of a chain holds none of them. The counter reply adds no bytes. Two features keep state when they are on, and nothing when they are off: `Counted()` adds two 16-bit counts, and a layer above with `wantsOwner` adds the owner pointer. Each makes `sizeof(VUB::ReliableOf<32, 4>)` 320 bytes (316 without it).
 
 The code is measured in the size table. Each row is a whole program minus its baseline (see the README), so the layer's code is in the
 rows with the layer:

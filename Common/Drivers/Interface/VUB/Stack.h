@@ -9,6 +9,7 @@
 #include <Drivers/Interface/VUB/Require.h>
 #include <Drivers/Interface/VUB/Ring.h>
 #include <Drivers/Interface/VUB/Storage.h>
+#include <System/System.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -19,6 +20,58 @@
 #include <utility>
 
 namespace VUB {
+
+
+// The options that have a concurrent member: a layer that reads the chain's Concurrent() flag has one.
+template<typename Options>
+concept HasConcurrentMember = requires(Options& options) {
+	options.concurrent;
+};
+
+
+// A block that takes the owner of the layer above it: its Options can be wired with OwnedBy<Above>.
+template<typename Block, typename Above>
+concept TakesOwnerOf = requires(typename Block::Options options) {
+	Block::template OwnedBy<Above>(options);
+};
+
+
+// A block that counts resends and peer restarts, as Reliable does when it is Counted().
+template<typename Block>
+concept ReportsCounts = requires(const Block& block) {
+	block.Resends();
+	block.PeerRestarts();
+};
+
+
+// Raises a high-water value to fill, saturating at 255. Called from the receive interrupt for the receive ring, so the value is volatile.
+inline void RaiseHighWater(volatile uint8& high, std::size_t fill) {
+	uint8 level = fill > 255 ? static_cast<uint8>(255) : static_cast<uint8>(fill);
+	if (level > high) {
+		high = level;
+	}
+}
+
+
+// The options of entry Index of a chain, with what the chain gives them. The block below a layer that declares wantsOwner takes the owner
+// handlers of that layer, when the block declares OwnedBy. A layer whose options have a concurrent member gets the chain's Concurrent() flag.
+template<std::size_t Index, typename Chain>
+constexpr typename std::tuple_element_t<Index, typename Chain::Tuple>::OptionsType WiredOptionsOf(const Chain& chain) {
+	using Entry = std::tuple_element_t<Index, typename Chain::Tuple>;
+	typename Entry::OptionsType value = ListAt<Index>(chain.entries).options;
+	if constexpr (Index > 0) {
+		using Above = std::tuple_element_t<(Index > 0 ? Index - 1 : 0), typename Chain::Tuple>;
+		if constexpr (Above::WantsOwner() && TakesOwnerOf<typename Entry::BlockType, typename Above::BlockType>) {
+			value = Entry::BlockType::template OwnedBy<typename Above::BlockType>(value);
+		}
+	}
+
+	if constexpr (Entry::kind == BlockKind::layer && HasConcurrentMember<decltype(value)>) {
+		value.concurrent = chain.settings.concurrent;
+	}
+
+	return value;
+}
 
 
 // A stack built from a chain. Make is a captureless lambda that returns the Builder of the chain:
@@ -86,9 +139,9 @@ public:
 	static_assert(checked, "the chain was not checked");
 
 
-	// The options of entry Index of the chain, as a constant value.
+	// The options of entry Index of the chain, as a constant value, with the chain's wiring (WiredOptionsOf).
 	template<std::size_t Index>
-	static constexpr auto OptionsAt = ListAt<Index>(built.entries).options;
+	static constexpr typename std::tuple_element_t<Index, Tuple>::OptionsType OptionsAt = WiredOptionsOf<Index>(built);
 
 
 	// The type stored for entry Index. A block that declares Configured is stored as that alias, with its options as constants; any other
@@ -130,6 +183,10 @@ public:
 	static constexpr void (*receiveFn)(const Meta&, std::span<const uint8>) = built.settings.receiveFn;
 	static constexpr uint32 (*clockFn)() = built.settings.clockFn;
 	static constexpr bool hasClock = built.settings.hasClock;
+	static constexpr bool concurrent = built.settings.concurrent;
+	static constexpr bool highWater = built.settings.highWater;
+	static constexpr bool wantsOwners = Builder::WantsOwners();
+	static constexpr std::size_t requestsIndex = Builder::RequestsIndex();
 
 
 	explicit Stack(LinkType& linkObject) : link(&linkObject), detach(link), receiverDetach(link), blocks(MakeBlocks(std::make_index_sequence<count>{})) {
@@ -147,6 +204,10 @@ public:
 		if constexpr (linkReceives) {
 			link->SetReceiver(MakeReceiver());
 		}
+
+		if constexpr (wantsOwners) {
+			SetOwners<0>();
+		}
 	}
 
 
@@ -154,27 +215,27 @@ public:
 	// nothing is counted: the caller sends it again), messageTooLong when it is larger than MaxPayload, noConnection while the
 	// connection is down under the Fail option, or the status of a block that refused it.
 	ResultStatus Send(std::span<const uint8> payload, const Meta& meta = Meta()) {
-		if (payload.size() > built.settings.maxPayload) {
-			return ResultStatus::messageTooLong;
+		if constexpr (concurrent) {
+			System::CriticalSection(true);
 		}
 
-		if constexpr (hasLinkState) {
-			if (whileDown == Down::Fail && !LinkUp()) {
-				return ResultStatus::noConnection;
-			}
+		ResultStatus status = SendLocked(payload, meta);
+		if constexpr (concurrent) {
+			System::CriticalSection(false);
 		}
 
-		if (QueueFull(control.indexes, sendSlots)) {
-			return ResultStatus::busy;
-		}
-
-		return SendFrom<0>(payload, meta, Lane::control, true);
+		return status;
 	}
 
 
 	// The main loop call. Reads the clock, polls the link if it has Poll, applies the link's state, takes the received bytes and packets up
-	// the chain, runs the layers' Process, and sends.
+	// the chain, runs the layers' Process, and sends. On a concurrent stack it runs in a critical section, so a send from another task waits
+	// for it.
 	void Process() {
+		if constexpr (concurrent) {
+			System::CriticalSection(true);
+		}
+
 		uint32 now = 0;
 		if constexpr (hasClock) {
 			now = clockFn();
@@ -200,21 +261,27 @@ public:
 		}
 
 		Egress(now);
+		if constexpr (concurrent) {
+			System::CriticalSection(false);
+		}
 	}
 
 
 	// Takes one received byte. Called from the receive interrupt of a byte-stream link. A full ring drops the byte and counts it. A
 	// framing that uses time gets the time of the byte from the clock, here, so the byte keeps the time it arrived at.
 	void Feed(uint8 byte) requires (streamLink) {
+		bool stored = false;
 		if constexpr (framingTimed) {
 			uint32 stamp = clockFn();
-			if (!TimedRingPush(ring.indexes, ring.Span(), stamps.Span(), byte, stamp)) {
-				CountIsr(ringFullIsr);
-			}
+			stored = TimedRingPush(ring.indexes, ring.Span(), stamps.Span(), byte, stamp);
 		} else {
-			if (!ByteRingPush(ring.indexes, ring.Span(), byte)) {
-				CountIsr(ringFullIsr);
-			}
+			stored = ByteRingPush(ring.indexes, ring.Span(), byte);
+		}
+
+		if (stored) {
+			NoteReceiveFill();
+		} else {
+			CountIsr(ringFullIsr);
 		}
 	}
 
@@ -240,6 +307,10 @@ public:
 			CountIsr(tooLongIsr);
 		} else if (status == ResultStatus::busy) {
 			CountIsr(queueFullIsr);
+		}
+
+		if (status == ResultStatus::ok) {
+			NoteReceiveFill();
 		}
 	}
 
@@ -273,7 +344,45 @@ public:
 	}
 
 
+	// The outbox of the layer at Index for the application, from its own context (not from Process). Its send enters the blocks below the
+	// layer, at Index + 1, and runs them down to the control queue. A refusal goes back to the caller and is not counted as a drop, so the
+	// caller keeps the packet and sends it again. The layer's Process gets its own outbox, which also has LinkUp.
+	template<std::size_t Index>
+	Outbox LayerOutbox() {
+		static_assert(Index < count, "the chain has no block at this index");
+		static_assert(std::tuple_element_t<(Index < count ? Index : 0), Tuple>::kind == BlockKind::layer,
+			"LayerOutbox is for a layer: the block at this index is not a layer");
+		return Outbox(this, &Stack::template AppSendThunk<Index + 1>, PeerFor<Index>(), DeliverFor<Index>(), LinkFor<Index>());
+	}
+
+
+	// The handle of the layer at Index: the layer's nested type Handle, built from the layer and its application-side outbox (LayerOutbox).
+	// A layer declares Handle when the application sends through it.
+	template<std::size_t Index>
+	auto HandleAt() {
+		static_assert(Index < count, "the chain has no block at this index");
+		static_assert(requires { typename StoredAt<(Index < count ? Index : 0)>::Handle; },
+			"the layer has no Handle: declare a nested type Handle, constructible from the layer and its Outbox");
+		using HandleType = typename StoredAt<(Index < count ? Index : 0)>::Handle;
+		return HandleType(std::get<(Index < count ? Index : 0)>(blocks), LayerOutbox<(Index < count ? Index : 0)>());
+	}
+
+
+	// The handle of the first layer that declares requestsLayer = true. Without one the chain is refused here.
+	auto Requests() {
+		static_assert(requestsIndex < count, "the chain has no requests layer: a layer declares static constexpr bool requestsLayer = true");
+		return HandleAt<(requestsIndex < count ? requestsIndex : 0)>();
+	}
+
+
 private:
+	// The high-water marks of the stack. Only the receive interrupt writes the ring's mark, and only the send side writes the control queue's.
+	struct HighWaterState {
+		volatile uint8 ring = 0;
+		volatile uint8 control = 0;
+	};
+
+
 	struct FramedState {
 		uint16 length = 0;
 		uint16 sent = 0;
@@ -311,6 +420,7 @@ private:
 	volatile uint16 ringFullIsr = 0;
 	volatile uint16 queueFullIsr = 0;
 	volatile uint16 tooLongIsr = 0;
+	[[no_unique_address]] State<highWater, HighWaterState, 15> highWaterState;
 
 
 	// The step with index From is applied to packet and its result goes into a step buffer, alternating between the two buffers. The
@@ -381,6 +491,141 @@ private:
 	}
 
 
+	// The body of Send. Runs in the critical section of a concurrent stack.
+	ResultStatus SendLocked(std::span<const uint8> payload, const Meta& meta) {
+		if (payload.size() > built.settings.maxPayload) {
+			return ResultStatus::messageTooLong;
+		}
+
+		if constexpr (hasLinkState) {
+			if (whileDown == Down::Fail && !LinkUp()) {
+				return ResultStatus::noConnection;
+			}
+		}
+
+		if (QueueFull(control.indexes, sendSlots)) {
+			return ResultStatus::busy;
+		}
+
+		return SendFrom<0>(payload, meta, Lane::control, true);
+	}
+
+
+	// The application-side send into the blocks from From on: the packet enters at From, from the caller's context. A refusal goes back to
+	// the caller and none is counted. A concurrent stack runs the send in a critical section.
+	template<std::size_t From>
+	static ResultStatus AppSendThunk(void* owner, std::span<const uint8> packet, const Meta& meta) {
+		Stack* self = static_cast<Stack*>(owner);
+		if constexpr (concurrent) {
+			System::CriticalSection(true);
+			ResultStatus status = self->template AppSend<From>(packet, meta);
+			System::CriticalSection(false);
+			return status;
+		} else {
+			return self->template AppSend<From>(packet, meta);
+		}
+	}
+
+
+	template<std::size_t From>
+	ResultStatus AppSend(std::span<const uint8> packet, const Meta& meta) {
+		if (packet.size() > packetBytes) {
+			return ResultStatus::messageTooLong;
+		}
+
+		if constexpr (hasLinkState) {
+			if (whileDown == Down::Fail && !LinkUp()) {
+				return ResultStatus::noConnection;
+			}
+		}
+
+		if (QueueFull(control.indexes, sendSlots)) {
+			return ResultStatus::busy;
+		}
+
+		return SendFrom<From>(packet, meta, Lane::control, true);
+	}
+
+
+	// Gives each layer that declares wantsOwner the address of the layer, to the Reliable layer below it. The chain's options gave that
+	// layer the owner handlers (WiredOptionsOf), so its outcomes and restarts reach the layer with the owner pointer.
+	template<std::size_t Index>
+	void SetOwners() {
+		if constexpr (Index < count) {
+			using Entry = std::tuple_element_t<Index, Tuple>;
+			if constexpr (Entry::WantsOwner()) {
+				static_assert(Index + 1 < count, "a layer that declares wantsOwner has no block below it: its owner goes to the layer below");
+				if constexpr (Index + 1 < count) {
+					using Below = std::tuple_element_t<Index + 1, Tuple>;
+					static_assert(TakesOwnerOf<typename Below::BlockType, typename Entry::BlockType>,
+						"the block below a layer that declares wantsOwner must take its owner: use VUB::Reliable");
+					std::get<Index + 1>(blocks).SetOwner(static_cast<void*>(&std::get<Index>(blocks)));
+				}
+			}
+
+			SetOwners<Index + 1>();
+		}
+	}
+
+
+	// The counters a layer reads through CountingOutbox::Counters. Only the outbox of a layer that declares usesCounters gets the function.
+	static StackCounters CountersThunk(void* owner) {
+		Stack* self = static_cast<Stack*>(owner);
+		return self->Snapshot();
+	}
+
+
+	// The counters as one value: the drop counters, the resends and peer restarts of the Reliable layer (zero when the chain has none, or
+	// it is not Counted), and the high-water marks (zero unless the stack is HighWater).
+	StackCounters Snapshot() const {
+		StackCounters snapshot;
+		snapshot.drops = Drops();
+		CollectReliable<0>(snapshot);
+		if constexpr (highWater) {
+			snapshot.highWaterRing = highWaterState.Get().ring;
+			snapshot.highWaterControl = highWaterState.Get().control;
+		}
+
+		return snapshot;
+	}
+
+
+	template<std::size_t Index>
+	void CollectReliable(StackCounters& snapshot) const {
+		if constexpr (Index < count) {
+			if constexpr (ReportsCounts<StoredAt<Index>>) {
+				snapshot.resends = std::get<Index>(blocks).Resends();
+				snapshot.peerRestarts = std::get<Index>(blocks).PeerRestarts();
+			}
+
+			CollectReliable<Index + 1>(snapshot);
+		}
+	}
+
+
+	// The high-water mark of the receive side: the fill of the receive ring on a byte-stream link, of the receive queue on a packet link.
+	// Nothing is built when the stack is not HighWater().
+	void NoteReceiveFill() {
+		if constexpr (highWater) {
+			if constexpr (streamLink) {
+				RaiseHighWater(highWaterState.Get().ring, SlotsHeld(ring.indexes, ringSlots));
+			} else {
+				RaiseHighWater(highWaterState.Get().ring, SlotsHeld(rxQueue.indexes, receiveSlots));
+			}
+		}
+	}
+
+
+	// The high-water mark of the control queue, after a packet was queued (status ok). Nothing is built when the stack is not HighWater().
+	void NoteControlFill(ResultStatus status) {
+		if constexpr (highWater) {
+			if (status == ResultStatus::ok) {
+				RaiseHighWater(highWaterState.Get().control, SlotsHeld(control.indexes, sendSlots));
+			}
+		}
+	}
+
+
 	// Puts a finished packet on its lane: a queue, or the one bulk slot. The own lane is used only by a chain that has an own queue.
 	ResultStatus Stage(std::span<const uint8> packet, const Meta& meta, Lane lane) {
 		if constexpr (peersReport) {
@@ -390,7 +635,13 @@ private:
 		}
 
 		if (lane == Lane::control) {
-			return QueuePush(control.indexes, control.View(), packet, meta.flags);
+			if constexpr (highWater) {
+				ResultStatus status = QueuePush(control.indexes, control.View(), packet, meta.flags);
+				NoteControlFill(status);
+				return status;
+			} else {
+				return QueuePush(control.indexes, control.View(), packet, meta.flags);
+			}
 		}
 
 		if constexpr (hasBulk) {
@@ -525,7 +776,7 @@ private:
 		} else if constexpr (std::is_same_v<typename Entry::OptionsType, None>) {
 			return typename Entry::BlockType{};
 		} else {
-			return typename Entry::BlockType(ListAt<Index>(built.entries).options);
+			return typename Entry::BlockType(OptionsAt<Index>);
 		}
 	}
 
@@ -566,8 +817,20 @@ private:
 		if constexpr (Index < count) {
 			using Entry = std::tuple_element_t<Index, Tuple>;
 			if constexpr (Entry::kind == BlockKind::layer) {
-				Outbox outbox(this, &Stack::template SendThunk<Index + 1>, PeerFor<Index>(), DeliverFor<Index>(), LinkFor<Index>());
-				std::get<Index>(blocks).Process(now, outbox);
+				if constexpr (Entry::UsesCounters()) {
+					CountingOutbox outbox(
+						this,
+						&Stack::template SendThunk<Index + 1>,
+						PeerFor<Index>(),
+						DeliverFor<Index>(),
+						LinkFor<Index>(),
+						&Stack::CountersThunk
+					);
+					std::get<Index>(blocks).Process(now, outbox);
+				} else {
+					Outbox outbox(this, &Stack::template SendThunk<Index + 1>, PeerFor<Index>(), DeliverFor<Index>(), LinkFor<Index>());
+					std::get<Index>(blocks).Process(now, outbox);
+				}
 			}
 
 			ProcessLayers<Index + 1>(now);

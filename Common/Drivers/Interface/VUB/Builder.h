@@ -113,6 +113,86 @@ struct BlockEntry {
 			return false;
 		}
 	}
+
+
+	// Whether the block is a layer that takes the owner of the block below it (wantsOwner = true): the block below gets the layer's address.
+	static constexpr bool WantsOwner() {
+		if constexpr (Kind == BlockKind::layer) {
+			if constexpr (requires { Block::wantsOwner; }) {
+				return Block::wantsOwner;
+			} else {
+				return false;
+			}
+		} else {
+			return false;
+		}
+	}
+
+
+	// Whether the block is a layer that reads the stack's counters (usesCounters = true): it may call outbox.Counters().
+	static constexpr bool UsesCounters() {
+		if constexpr (Kind == BlockKind::layer) {
+			if constexpr (requires { Block::usesCounters; }) {
+				return Block::usesCounters;
+			} else {
+				return false;
+			}
+		} else {
+			return false;
+		}
+	}
+
+
+	// Whether the block is the requests layer of the chain (requestsLayer = true): Stack::Requests() gives its handle.
+	static constexpr bool RequestsLayer() {
+		if constexpr (Kind == BlockKind::layer) {
+			if constexpr (requires { Block::requestsLayer; }) {
+				return Block::requestsLayer;
+			} else {
+				return false;
+			}
+		} else {
+			return false;
+		}
+	}
+
+
+	// Whether the block is a layer that declares the largest packet it sends to the block below (largestPacket).
+	static constexpr bool LargestPacketDeclared() {
+		if constexpr (Kind == BlockKind::layer) {
+			return requires { Block::largestPacket; };
+		} else {
+			return false;
+		}
+	}
+
+
+	static constexpr std::size_t LargestPacket() {
+		if constexpr (LargestPacketDeclared()) {
+			return Block::largestPacket;
+		} else {
+			return 0;
+		}
+	}
+
+
+	// Whether the block declares the payload it can hold (payloadCapacity), as Reliable does.
+	static constexpr bool PayloadCapacityDeclared() {
+		if constexpr (Kind == BlockKind::layer) {
+			return requires { Block::payloadCapacity; };
+		} else {
+			return false;
+		}
+	}
+
+
+	static constexpr std::size_t PayloadCapacity() {
+		if constexpr (PayloadCapacityDeclared()) {
+			return Block::payloadCapacity;
+		} else {
+			return 0;
+		}
+	}
 };
 
 
@@ -179,6 +259,11 @@ struct Settings {
 	void (*receiveFn)(const Meta&, std::span<const uint8>) = nullptr;
 	bool hasReceive = false;
 	Down whileDown = Down::Wait;
+	// Concurrent(): the stack's sends and its processing run in a critical section, and the layers that take options with a concurrent
+	// member are given the flag.
+	bool concurrent = false;
+	// HighWater(): the stack keeps the highest fill of its receive ring and of its control queue.
+	bool highWater = false;
 };
 
 
@@ -493,6 +578,25 @@ public:
 	}
 
 
+	// The stack may be used from another task while its Process runs: the control queue, the sends from the application and the Process
+	// run in a critical section (System::CriticalSection). A layer that takes options with a concurrent member is given the flag, so its
+	// own shared state can be guarded the same way. Without this call no critical section is built.
+	constexpr Builder Concurrent() const {
+		Builder next = *this;
+		next.settings.concurrent = true;
+		return next;
+	}
+
+
+	// The highest fill of the receive ring and of the control queue, kept by the stack and given through Outbox::Counters() to a layer
+	// that declares usesCounters. Without this call no high-water code or RAM is built.
+	constexpr Builder HighWater() const {
+		Builder next = *this;
+		next.settings.highWater = true;
+		return next;
+	}
+
+
 	// The receive handler: called from Process with each packet that reached the top of the chain.
 	template<void (*Fn)(const Meta&, std::span<const uint8>)>
 	constexpr Builder OnReceive() const {
@@ -596,6 +700,37 @@ public:
 	}
 
 
+	// Whether a layer of the chain declares that it takes the owner of the block below it (wantsOwner).
+	static constexpr bool WantsOwners() {
+		return (false || ... || Entries::WantsOwner());
+	}
+
+
+	// Whether a layer of the chain reads the stack's counters (usesCounters).
+	static constexpr bool UsesAnyCounters() {
+		return (false || ... || Entries::UsesCounters());
+	}
+
+
+	// Whether each block of the chain, in chain order, is the requests layer (requestsLayer).
+	static constexpr std::array<bool, count> RequestsFlags() {
+		return std::array<bool, count>{Entries::RequestsLayer()...};
+	}
+
+
+	// The position of the requests layer, the first block that declares requestsLayer, or count when there is none.
+	static constexpr std::size_t RequestsIndex() {
+		const std::array<bool, count> flags = RequestsFlags();
+		for (std::size_t index = 0; index < count; index++) {
+			if (flags[index]) {
+				return index;
+			}
+		}
+
+		return count;
+	}
+
+
 	static constexpr LinkTraits ChainLinkTraits() {
 		return TraitsOf<LinkType>();
 	}
@@ -669,6 +804,8 @@ public:
 		Require<"a layer that declares reportsPeer must be the lowest layer of the chain: it is a hop-level block, below every other layer">(
 			peerLayers == 0 || reports[lowestLayer]);
 
+		CheckPayloadFits(std::make_index_sequence<(count > 0 ? count - 1 : 0)>{});
+
 		constexpr LinkTraits traits = ChainLinkTraits();
 		if constexpr (PacketLink<LinkType>) {
 			Require<"a packet link takes no framing: remove the Framing<Type>() block">(framings == 0);
@@ -710,6 +847,27 @@ public:
 
 
 private:
+	// The largest packet a layer declares must fit the payload capacity of the block directly below it, when that block declares one (the
+	// Reliable layer does). The message shows the largest packet, the value to set as the capacity.
+	template<std::size_t Index>
+	static constexpr void CheckPayloadFit() {
+		using Above = std::tuple_element_t<Index, Tuple>;
+		using Below = std::tuple_element_t<Index + 1, Tuple>;
+		if constexpr (Above::LargestPacketDeclared() && Below::PayloadCapacityDeclared()) {
+			constexpr std::size_t need = Above::LargestPacket();
+			constexpr std::size_t capacity = Below::PayloadCapacity();
+			RequireValue<"the largest requests packet does not fit Reliable's payload: raise PayloadCapacity to the value shown", need>(
+				need <= capacity);
+		}
+	}
+
+
+	template<std::size_t... Index>
+	static constexpr void CheckPayloadFits(std::index_sequence<Index...>) {
+		(CheckPayloadFit<Index>(), ...);
+	}
+
+
 	// A block given options must be built from them, unless it declares Configured: then its options are template arguments and it needs no
 	// constructor. The message names the block's kind; a link and a block with no options pass.
 	template<typename Entry>

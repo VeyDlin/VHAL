@@ -118,7 +118,12 @@ in the control queue. `Process()` does the rest, in this order:
 5. sends.
 
 `Feed(byte)` (byte-stream link) and `FeedPacket(packet)` (packet link) are called from the receive interrupt. They store the data;
-everything else runs in `Process`. A chain whose framing uses time stores the time of each byte in `Feed`, so the clock is read there too.
+everything else runs in `Process`, and `Send` from the application's task takes the same queue.
+
+A layer that the application sends through is reached with `HandleAt<I>()`, or with `Requests()` for the layer that declares
+`requestsLayer` (see "Optional members" under "Writing a block"). The handle's send enters the blocks below its layer, and it returns a
+refusal to the caller without counting it. A chain built with `Concurrent()` runs `Send` and `Process` in a critical section, so a send
+from another task is safe while `Process` runs. A chain whose framing uses time stores the time of each byte in `Feed`, so the clock is read there too.
 
 `Find<Block>()` returns the block of that type in the chain, for the settings that change at run time, such as the gap framing's baud
 rate: `stack.Find<VUB::Gap>().SetBaud(19200)`. A chain without that block does not compile the call. A chain with two blocks of that type
@@ -341,6 +346,12 @@ raise the count.
 
 The counters are 16-bit and stop at 65535.
 
+A layer that declares `usesCounters` reads them with `Counters()`, with the two counts of Reliable (`resends` and `peerRestarts`, when the
+Reliable is `Counted()`) and the high-water marks of the stack (`highWaterRing` and `highWaterControl`, when the chain is `HighWater()`).
+`Counters()` returns a `VUB::StackCounters`, which holds these fields with the `drops` of `Drops()`. The marks are the highest fill of the
+receive ring (on a packet link, of the receive queue) and of the control queue, and they stop at 255. See "Optional members" under
+"Writing a block".
+
 ## Size
 
 A block or an option that is not in the chain has no RAM. The buffers are sized at compile time from the chain: the packet size is the
@@ -366,13 +377,16 @@ ring, and a link with `MaxPacket(64)`.
 | (d) (b) + CRC-16/MODBUS bitwise | 1144 | 700 | 1432 | 700 |
 | (e) stream link, length prefix 1, CRC-8 bitwise | 1056 | 672 | 1348 | 672 |
 | (f) stream link, gap framing, CRC-16 table | 2716 | 1720 | 2868 | 1720 |
-| (g) (c) + VUB::Reliable (Retries 3, Window 4) | 4136 | 1116 | 4612 | 1116 |
+| (g) (c) + VUB::Reliable (Retries 3, Window 4) | 4136 | 1116 | 4616 | 1116 |
 | (h) (g) with the in-order option | 4436 | 1252 | 4952 | 1252 |
-| (i) COBS, CRC-8, VUB::ReliableOf window 1, Retries 3 | 3236 | 912 | 3708 | 912 |
+| (i) COBS, CRC-8, VUB::ReliableOf window 1, Retries 3 | 3236 | 912 | 3712 | 912 |
 | breakdown of (i): the same without VUB::ReliableOf | 1096 | 692 | 1388 | 692 |
 | CompactStreamingProtocol<20, 4> (bootloader use) | 2292 | 1116 | 2880 | 1116 |
 | (j) stream link, COBS, CRC-16/MODBUS table, VUB::KeepAlive (default times) | 2604 | 932 | 2956 | 932 |
-| (k) (g) + VUB::KeepAlive (default times) | 5184 | 1400 | 5680 | 1400 |
+| (k) (g) + VUB::KeepAlive (default times) | 5184 | 1400 | 5676 | 1400 |
+
+On Cortex-M0+, the text of rows (g), (i) and (k) can move by 4 bytes with the link order of two functions. The functions themselves keep
+their sizes: the padding between two of them depends on the order the linker places them in.
 
 Measured with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203` on Windows 11, through Git Bash,
 with `Common/Drivers/Interface/VUB/.tool/size/size.sh`.
@@ -1001,6 +1015,355 @@ using ConfiguredBoard = VUB::Stack<+[] {
 		.Link<BoardLink>()
 		.MaxPayload(32)
 		.OnReceive<&OnPacket>();
+}>;
+```
+
+### Optional members
+
+A layer declares these members to use a feature of the stack. Each one is off when the layer does not declare it, and then the stack
+builds no code and keeps no RAM for it. The snippets of this section are compiled by the wiki test (`TestVubWikiExamples.cpp`). They
+use these three definitions, a packet link that takes every packet at once, its handler and its clock:
+
+```cpp
+struct OptionalLink {
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64).FullDuplex();
+
+	ResultStatus Send(std::span<const uint8> packet) {
+		(void)packet;
+		return ResultStatus::ok;
+	}
+};
+
+void OptionalPacket(const VUB::Meta&, std::span<const uint8> payload) {
+	(void)payload;
+}
+
+uint32 OptionalNow() {
+	return 0;
+}
+```
+
+#### Sending from the application: Handle and requestsLayer
+
+A layer that the application sends through declares a nested type `Handle`, constructible from the layer and an `Outbox`. The stack
+builds the outbox with `LayerOutbox<I>()`: its send enters the blocks below the layer at index `I`, from the caller's context, and it
+does not run the layer's own `Add`, so a layer with a header writes the header in its handle. A refusal (`busy`, `messageTooLong`,
+`noConnection`) goes back to the caller and is not counted as a drop. `HandleAt<I>()` gives the handle of the layer at `I`, and
+`Requests()` gives the handle of the first layer that declares `static constexpr bool requestsLayer = true`. A chain without such a layer
+does not compile where `Requests()` is called.
+
+```cpp
+// The relay: a layer without a header, so its handle sends the payload as it is. The handle is the relay's requests handle.
+struct Relay {
+	static constexpr std::size_t header = 0;
+	static constexpr uint32 fingerprint = 0x52454C59;
+	static constexpr bool usesTime = false;
+	static constexpr bool makesBulk = false;
+	static constexpr bool requestsLayer = true;
+
+	struct Handle {
+		Handle(Relay& owner, VUB::Outbox sender) : layer(owner), outbox(sender) {
+		}
+
+		ResultStatus Send(std::span<const uint8> payload) const {
+			return outbox.Send(payload);
+		}
+
+		Relay& layer;
+		VUB::Outbox outbox;
+	};
+
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = in[index];
+		}
+
+		return in.size();
+	}
+
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
+	}
+
+	void Process(uint32, const VUB::Outbox&) {
+	}
+};
+
+using RelayBoard = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Layer<Relay>()
+		.Link<OptionalLink>()
+		.MaxPayload(32)
+		.OnReceive<&OptionalPacket>()
+		.Clock<&OptionalNow>();
+}>;
+
+void SendThroughRelay(RelayBoard& board) {
+	std::array<uint8, 2> hello = {1, 2};
+	board.Requests().Send(std::span<const uint8>(hello.data(), hello.size()));
+	board.Process();
+}
+```
+
+#### The owner of the layer below: wantsOwner
+
+A layer that declares `static constexpr bool wantsOwner = true` sits directly above a `VUB::Reliable`. The builder gives Reliable two
+static functions of the layer: `static void DeliveryOutcome(const VUB::Outcome&)`, called for each outcome, and
+`static void DeliveryRestart(void*)`, called when the peer restarts. The stack stores the address of the layer in Reliable when it is
+built, so `Outcome::owner` and the argument of the restart are that address, and two stacks in one program do not share a handler. The
+stack must therefore stay where it was built: the address is taken at construction, and a copy or a move of the stack would leave the
+owner pointing at the old one.
+A layer above with `wantsOwner` takes both handlers, so the application's `OnOutcome` and `OnRestart` on that Reliable do not compile.
+`OnRestartOwner<&Fn>()` is the restart with the owner pointer for a Reliable with no such layer above it; there the owner is null.
+
+```cpp
+// A layer above Reliable that counts the outcomes of its packets and the restarts, through its owner pointer.
+struct Owned {
+	static constexpr std::size_t header = 0;
+	static constexpr uint32 fingerprint = 0x4F574E31;
+	static constexpr bool usesTime = false;
+	static constexpr bool makesBulk = false;
+	static constexpr bool wantsOwner = true;
+	static constexpr bool requestsLayer = true;
+
+	struct Handle {
+		Handle(Owned& owner, VUB::Outbox sender) : layer(owner), outbox(sender) {
+		}
+
+		ResultStatus Send(std::span<const uint8> payload) const {
+			return outbox.Send(payload);
+		}
+
+		Owned& layer;
+		VUB::Outbox outbox;
+	};
+
+	static void DeliveryOutcome(const VUB::Outcome& outcome) {
+		Owned* self = static_cast<Owned*>(outcome.owner);
+		if (outcome.status == ResultStatus::ok) {
+			self->acknowledged++;
+		}
+	}
+
+	static void DeliveryRestart(void* owner) {
+		static_cast<Owned*>(owner)->restarts++;
+	}
+
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = in[index];
+		}
+
+		return in.size();
+	}
+
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
+	}
+
+	void Process(uint32, const VUB::Outbox&) {
+	}
+
+	uint32 acknowledged = 0;
+	uint32 restarts = 0;
+};
+
+using OwnedBoard = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Layer<Owned>()
+		.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).PayloadBytes(32)
+		.Link<OptionalLink>()
+		.MaxPayload(32)
+		.OnReceive<&OptionalPacket>()
+		.Clock<&OptionalNow>();
+}>;
+```
+
+#### The largest packet: largestPacket
+
+A layer that sends packets of at most `N` bytes to the layer below declares `static constexpr std::size_t largestPacket = N`. Reliable
+exposes its capacity as `payloadCapacity`. When the layer directly above a Reliable declares `largestPacket`, the builder requires
+`largestPacket <= payloadCapacity`, and the message shows `largestPacket`: that is the `PayloadCapacity` to give `VUB::ReliableOf`.
+
+```cpp
+// A layer whose packets are at most 40 bytes. Over Reliable it needs a payload capacity of 40, so the Reliable is ReliableOf<40, 4>.
+struct Bulky {
+	static constexpr std::size_t header = 0;
+	static constexpr std::size_t largestPacket = 40;
+	static constexpr uint32 fingerprint = 0x42554C4B;
+	static constexpr bool usesTime = false;
+	static constexpr bool makesBulk = false;
+
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = in[index];
+		}
+
+		return in.size();
+	}
+
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
+	}
+
+	void Process(uint32, const VUB::Outbox&) {
+	}
+};
+
+using BulkyBoard = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Layer<Bulky>()
+		.Layer<VUB::ReliableOf<40, 4>>()
+		.Link<OptionalLink>()
+		.MaxPayload(40)
+		.OnReceive<&OptionalPacket>()
+		.Clock<&OptionalNow>();
+}>;
+```
+
+#### Counters: usesCounters, Counted and HighWater
+
+A layer that reads the stack's counters declares `static constexpr bool usesCounters = true` and takes `const VUB::CountingOutbox&` in
+`Process`. Its `Counters()` returns a `VUB::StackCounters`: the drop counters (`drops`), Reliable's resends and peer restarts (`resends`
+and `peerRestarts`), and the highest fill of the receive ring and of the control queue (`highWaterRing` and `highWaterControl`, saturating
+at 255). Reliable keeps its two counts when the layer is `Counted()`, which is 4 bytes of RAM, and the stack keeps its marks when the
+chain is `HighWater()`, which is 2 bytes. A part that is off reads zero. The layers above a layer are processed first, so the counts a
+layer reads in its `Process` are those of the previous call.
+
+```cpp
+// A layer that keeps the resends of the Reliable layer below it and the highest control queue fill.
+struct Watch {
+	static constexpr std::size_t header = 0;
+	static constexpr uint32 fingerprint = 0x57415443;
+	static constexpr bool usesTime = false;
+	static constexpr bool makesBulk = false;
+	static constexpr bool usesCounters = true;
+
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = in[index];
+		}
+
+		return in.size();
+	}
+
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
+	}
+
+	void Process(uint32, const VUB::CountingOutbox& outbox) {
+		VUB::StackCounters counters = outbox.Counters();
+		resends = counters.resends;
+		queueHighWater = counters.highWaterControl;
+	}
+
+	uint16 resends = 0;
+	uint8 queueHighWater = 0;
+};
+
+using WatchedBoard = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Layer<Watch>()
+		.Layer<VUB::ReliableOf<32, 4>>().Counted()
+		.Link<OptionalLink>()
+		.MaxPayload(32)
+		.OnReceive<&OptionalPacket>()
+		.Clock<&OptionalNow>()
+		.HighWater();
+}>;
+```
+
+#### Concurrent: the Concurrent option and the concurrent flag
+
+`Concurrent()` on the builder makes the stack run its sends from another task, and its `Process`, in `System::CriticalSection`: a send
+waits for a call of `Process` that is under way, and the two never change the queues at once. A layer that guards its own shared state
+the same way declares an options member `bool concurrent = false`, with a `Step` and `Configured` (see Two ways to take options). The stack
+sets the member from `Concurrent()`, and the layer reads it as a constant: `static constexpr bool concurrent = Value.concurrent`. A
+chain without `Concurrent()` builds no section, and a layer with no `concurrent` member is given nothing.
+
+```cpp
+// A layer whose shared count changes in a critical section when the stack is concurrent. Its options carry the flag.
+struct GuardOptions {
+	bool concurrent = false;
+};
+
+template<GuardOptions Value = GuardOptions{}>
+struct Guarded {
+	using Options = GuardOptions;
+
+	template<Options value>
+	using Configured = Guarded<value>;
+
+	template<typename Builder>
+	struct Step : Builder {
+		explicit constexpr Step(const Builder& base) : Builder(base) {
+		}
+	};
+
+	static constexpr bool concurrent = Value.concurrent;
+	static constexpr std::size_t header = 0;
+	static constexpr uint32 fingerprint = 0x47554152;
+	static constexpr bool usesTime = false;
+	static constexpr bool makesBulk = false;
+
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = in[index];
+		}
+
+		return in.size();
+	}
+
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
+	}
+
+	void Process(uint32, const VUB::Outbox&) {
+	}
+
+	// Called from an application task. The count changes inside a critical section when the stack is concurrent.
+	void Increment() {
+		if constexpr (concurrent) {
+			System::CriticalSection(true);
+		}
+
+		count++;
+		if constexpr (concurrent) {
+			System::CriticalSection(false);
+		}
+	}
+
+	uint32 count = 0;
+};
+
+using GuardedBoard = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Layer<Guarded<>>()
+		.Link<OptionalLink>()
+		.MaxPayload(8)
+		.OnReceive<&OptionalPacket>()
+		.Clock<&OptionalNow>()
+		.Concurrent();
 }>;
 ```
 

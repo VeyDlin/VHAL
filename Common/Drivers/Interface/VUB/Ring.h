@@ -126,6 +126,12 @@ inline std::size_t SlotsFree(const Indexes& indexes, std::size_t slotCount) {
 }
 
 
+// The entries a ring or a queue of slotCount slots holds: the complement of SlotsFree.
+inline std::size_t SlotsHeld(const Indexes& indexes, std::size_t slotCount) {
+	return slotCount - 1 - SlotsFree(indexes, slotCount);
+}
+
+
 // Puts a packet at the back of the queue. messageTooLong when it is longer than a slot, busy when the queue is full. Called from the
 // receive interrupt (for received packets) or the main context (for packets to send).
 inline ResultStatus QueuePush(Indexes& indexes, const QueueView& view, std::span<const uint8> packet, uint8 packetFlags) {

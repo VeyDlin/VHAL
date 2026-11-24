@@ -1,6 +1,7 @@
 #pragma once
 #include <Drivers/Interface/VUB/Blocks.h>
 #include <Drivers/Interface/VUB/Bytes.h>
+#include <Drivers/Interface/VUB/Drops.h>
 #include <Drivers/Interface/VUB/Meta.h>
 #include <Drivers/Interface/VUB/Outbox.h>
 #include <Drivers/Interface/VUB/Require.h>
@@ -18,12 +19,14 @@ namespace VUB {
 // What the application learns about a packet it sent with delivery, once. status ok: the peer acknowledged it, and it was passed up.
 // retryExhausted: no acknowledgement came after the last resend, so the packet may or may not have been passed up; it is not sent again.
 // reset: the peer lost the session while the packet was not acknowledged, so it may or may not have arrived; it is not sent again. payload
-// is the packet's payload, valid only during the call. attempts is how many times it was sent.
+// is the packet's payload, valid only during the call. attempts is how many times it was sent. owner is the owner pointer of the layer
+// above, set when that layer declares wantsOwner (null otherwise).
 struct Outcome {
 	ResultStatus status;
 	uint16 sequence;
 	uint16 attempts;
 	std::span<const uint8> payload;
+	void* owner = nullptr;
 };
 
 
@@ -61,9 +64,15 @@ template<void (*Fn)()>
 inline constexpr void (*RestartHandler)() = Fn;
 
 
+// The same for the restart handler that takes the owner pointer of the layer above.
+template<void (*Fn)(void*)>
+inline constexpr void (*RestartOwnerHandler)(void*) = Fn;
+
+
 // The options of the delivery layer. The layer takes them as its last template argument, so each option is a constant of the layer: an
 // option that is off costs no code and no RAM. The fields are structural (integers and addresses of variables), so a value of this type can
-// be a template argument. The defaults are the layer's defaults for the two capacities.
+// be a template argument. The defaults are the layer's defaults for the two capacities. wantsOwner and the two handlers of the owner are set
+// by the stack, for a layer above that declares wantsOwner; a user handler on such a layer is refused.
 template<std::size_t PayloadCapacity, std::size_t WindowCapacity>
 struct ReliableOptions {
 	uint8 retries = 3;
@@ -72,8 +81,11 @@ struct ReliableOptions {
 	uint8 sequenceBits = 16;
 	uint16 backoffMaxMs = 0;
 	uint16 payloadBytes = PayloadCapacity;
+	bool counted = false;
+	bool wantsOwner = false;
 	void (* const* outcomeFn)(const Outcome&) = nullptr;
 	void (* const* restartFn)() = nullptr;
+	void (* const* restartOwnerFn)(void*) = nullptr;
 };
 
 
@@ -193,7 +205,44 @@ public:
 			next.restartFn = &RestartHandler<Fn>;
 			return Step(this->WithLastOptions(next));
 		}
+
+
+		// The same restart, with the owner pointer of the layer above (the owner is null unless that layer declares wantsOwner).
+		template<void (*Fn)(void*)>
+		constexpr Step OnRestartOwner() const {
+			Options next = this->LastOptions();
+			next.restartOwnerFn = &RestartOwnerHandler<Fn>;
+			return Step(this->WithLastOptions(next));
+		}
+
+
+		// Counts the resends and the peer restarts of the layer: Resends() and PeerRestarts() read them, and a layer above that declares
+		// usesCounters gets them through CountingOutbox::Counters(). Without it no counter is kept.
+		constexpr Step Counted() const {
+			Options next = this->LastOptions();
+			next.counted = true;
+			return Step(this->WithLastOptions(next));
+		}
 	};
+
+
+	// The options of the layer with the owner of the layer above (wantsOwner): its outcomes go to Above::DeliveryOutcome and its restarts to
+	// Above::DeliveryRestart, which get the owner pointer. A handler the application gave this layer is refused, since the layer above
+	// takes them.
+	template<typename Above>
+	static constexpr Options OwnedBy(Options value) {
+		Require<"the layer below a layer with wantsOwner has an OnOutcome or OnRestart: the layer with wantsOwner takes them, remove the handler">(
+			value.outcomeFn == nullptr && value.restartFn == nullptr && value.restartOwnerFn == nullptr);
+		value.wantsOwner = true;
+		value.outcomeFn = &OutcomeHandler<&Above::DeliveryOutcome>;
+		value.restartOwnerFn = &RestartOwnerHandler<&Above::DeliveryRestart>;
+		return value;
+	}
+
+
+	// The payload capacity of the layer's storage: the largest payload its storage holds. A layer above that declares largestPacket is
+	// checked against it by the builder.
+	static constexpr std::size_t payloadCapacity = PayloadCapacity;
 
 
 private:
@@ -230,6 +279,27 @@ private:
 
 	// The store of a layer that does not hold packets: it has no size.
 	struct NoHeldStore {
+	};
+
+
+	// The owner pointer of the layer above, given to the outcomes and restarts. A layer without wantsOwner has none.
+	struct OwnerPointer {
+		void* owner = nullptr;
+	};
+
+
+	struct NoOwner {
+	};
+
+
+	// The resends and peer restarts counted by Counted(). A layer that is not counted has none.
+	struct CountStore {
+		uint16 resends = 0;
+		uint16 peerRestarts = 0;
+	};
+
+
+	struct NoCountStore {
 	};
 
 
@@ -291,6 +361,8 @@ private:
 
 	Peer peer;
 	[[no_unique_address]] std::conditional_t<InOrder, HeldStore, NoHeldStore> held{};
+	[[no_unique_address]] std::conditional_t<Value.wantsOwner, OwnerPointer, NoOwner> ownerSlot{};
+	[[no_unique_address]] std::conditional_t<Value.counted, CountStore, NoCountStore> counts{};
 	bool linkUp = true;
 	uint32 lastNowUs = 0;
 
@@ -497,6 +569,10 @@ public:
 			if constexpr (options.restartFn != nullptr) {
 				(*options.restartFn)();
 			}
+
+			if constexpr (options.restartOwnerFn != nullptr) {
+				(*options.restartOwnerFn)(OwnerValue());
+			}
 		}
 
 		if constexpr (InOrder) {
@@ -551,7 +627,46 @@ public:
 	}
 
 
+	// The owner pointer that the outcomes and the restart handler get: the layer above, given by the stack when it is built. Present only
+	// when the layer above declares wantsOwner.
+	void SetOwner(void* owner) requires (options.wantsOwner) {
+		ownerSlot.owner = owner;
+	}
+
+
+	// The packets this layer sent again, counted from the first resend. Present only when the layer is Counted().
+	uint16 Resends() const requires (options.counted) {
+		return counts.resends;
+	}
+
+
+	// The peer restarts this layer reported. Present only when the layer is Counted().
+	uint16 PeerRestarts() const requires (options.counted) {
+		return counts.peerRestarts;
+	}
+
+
 private:
+	// The owner pointer for the outcomes and restarts: the stored one when the layer above wants it, null otherwise.
+	void* OwnerValue() const {
+		if constexpr (options.wantsOwner) {
+			return ownerSlot.owner;
+		} else {
+			return nullptr;
+		}
+	}
+
+
+	// A peer restart is reported: it is counted when the layer is counted.
+	void ReportRestart() {
+		peer.restartReport = true;
+		if constexpr (options.counted) {
+			CountDrop(counts.peerRestarts);
+		}
+	}
+
+
+
 	// The sequence width in bytes.
 	std::size_t SeqBytes() const {
 		if constexpr (options.sequenceBits == 8) {
@@ -778,7 +893,7 @@ private:
 			}
 		}
 
-		peer.restartReport = true;
+		ReportRestart();
 	}
 
 
@@ -850,7 +965,7 @@ private:
 				// The peer rebooted, so the session of our packets is gone at the peer too: they are reset here, at once.
 				ResetSending();
 			} else {
-				peer.restartReport = true;
+				ReportRestart();
 			}
 		}
 
@@ -1052,7 +1167,7 @@ private:
 		if constexpr (options.outcomeFn != nullptr) {
 			if (!slot.sync) {
 				Outcome outcome{status, slot.sequence, slot.attempts,
-					std::span<const uint8>(slot.bytes.data() + header, slot.length)};
+					std::span<const uint8>(slot.bytes.data() + header, slot.length), OwnerValue()};
 				(*options.outcomeFn)(outcome);
 			}
 		}
@@ -1135,6 +1250,14 @@ private:
 
 			if (!Transmit(slot, outbox)) {
 				continue;
+			}
+
+			// The first send of a data packet is made in Add, so a send from here is a resend. The first send of a sync is made here, and is not
+			// counted.
+			if constexpr (options.counted) {
+				if (slot.attempts > 0) {
+					CountDrop(counts.resends);
+				}
 			}
 
 			slot.attempts++;

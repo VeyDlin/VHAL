@@ -25,6 +25,18 @@ struct DropCounters : DropCounts {
 };
 
 
+// The counters a layer gets from Outbox::Counters() when it declares usesCounters = true: the drop counters, the resends and peer restarts
+// of Reliable (zero unless Reliable is Counted()), and the highest fill of the receive ring and of the control queue, saturating at 255
+// (zero unless the stack is HighWater()).
+struct StackCounters {
+	DropCounters drops;
+	uint16 resends = 0;
+	uint16 peerRestarts = 0;
+	uint8 highWaterRing = 0;
+	uint8 highWaterControl = 0;
+};
+
+
 // Adds one to a counter, stopping at the maximum.
 inline void CountDrop(uint16& counter) {
 	if (counter < 65535) {

@@ -226,6 +226,9 @@ concept EngineFor = EngineBlock<Engine> && requires(std::span<const uint8> data)
 // up; the stack treats that as a change of the connection. A layer that declares passesUp = true may call outbox.Deliver(packet) from its
 // Process to pass a packet up the receive path from its own position. A layer that declares usesLinkState = true may call outbox.LinkUp()
 // from its Process to ask whether the physical link is up; on a link that does not report its state the answer is always true.
+// A layer that declares usesCounters = true reads the stack's counters from a CountingOutbox, which Process takes as const
+// CountingOutbox&; a layer that does not takes const Outbox&, which a CountingOutbox also converts to. Further optional members are
+// described on the wiki page (Optional members): wantsOwner, largestPacket, requestsLayer, and a nested Handle.
 template<typename Layer>
 concept LayerBlock = requires(
 	Layer& layer,
@@ -233,7 +236,7 @@ concept LayerBlock = requires(
 	std::span<const uint8> in,
 	std::span<uint8> out,
 	std::span<const uint8> packet,
-	const Outbox& outbox,
+	const CountingOutbox& outbox,
 	uint32 nowUs
 ) {
 	typename Constant<Layer::header>;
