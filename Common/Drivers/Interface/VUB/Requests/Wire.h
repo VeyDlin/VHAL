@@ -14,11 +14,13 @@ namespace RequestWire {
 	inline constexpr uint8 KindRequest = 0x01;
 	inline constexpr uint8 KindInterim = 0x02;
 	inline constexpr uint8 KindFinal = 0x03;
+	inline constexpr uint8 KindEvent = 0x04;
 	inline constexpr uint8 KindCancel = 0x05;
 	inline constexpr std::size_t RequestHeader = 5;
 	inline constexpr std::size_t InterimSize = 6;
 	inline constexpr std::size_t FinalHeader = 6;
 	inline constexpr std::size_t FinalErrorSize = 5;
+	inline constexpr std::size_t EventHeader = 2;
 	inline constexpr std::size_t CancelSize = 4;
 	inline constexpr uint8 CodeOk = 0;
 	inline constexpr uint8 CodeCancelled = 1;

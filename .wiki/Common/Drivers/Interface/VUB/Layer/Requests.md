@@ -167,11 +167,13 @@ needs its session value (`SetSession`, see Reliable).
   calls `Start`, `Fire`, the takes of a final and an interim, the deadlines, the outcomes and the restart.
 - `Requests/Responder.h` (`ResponderOf`): the responder part. It holds the tickets and the refusal ring, and the calls of the received requests,
   the finals, the interims, the deadlines and the restart.
+- `Requests/Events.h` (`EventsOf`): the emitter of the events and the receiver of the event packets. It holds no state.
 - `Requests/Ticket.h`: `RequestId`, `TicketOps` and `Ticket`. `Requests/Wire.h`: the wire kinds, the codes and their results, and the
   deadline compare.
 - Tests: `TestVubRequestsWire.cpp` (the bytes), `TestVubRequestsRequester.cpp`, `TestVubRequestsResponder.cpp`,
-  `TestVubRequestsPath.cpp` (chains, links and restarts) and `TestVubRequestsLayerWiki.cpp` (the example above). Their command sets and
-  helpers are in `.tool/sim/RequestsChains.h` and `.tool/sim/RequestsMotor.h`.
+  `TestVubRequestsPath.cpp` (chains, links and restarts), `TestVubRequestsEvents.cpp` (events and counters) and
+  `TestVubRequestsLayerWiki.cpp` (the example above). Their command sets and helpers are in `.tool/sim/RequestsChains.h` and
+  `.tool/sim/RequestsMotor.h`.
 
 A part that is off has no storage: its member is an empty type.
 
@@ -364,7 +366,91 @@ Responder:
 A request the layer does not admit is answered by a final from the refusal ring, decided in `Take` and sent from `Process`. The codes are the
 fixed codes of the wire (below): 2 for an unknown command id or a command with no handler, 3 for a body that is too short or has a bad bool,
 and 4 (busy) for no free ticket. A refused command with no reply gets no answer. A refusal that finds the ring full is dropped and the
-requester's deadline ends the request.
+requester's deadline ends the request. In a Counted() layer that refusal is counted in `refused` (see Counters).
+
+## Events
+
+An event is a packet from one side with an id and a body, and no reply. The sender declares it with `Event<Id>()` and `Body<T>()` in the
+command set; `Body<VUB::NoBody>()` is an event with no body. The receiver handles it with `OnEvent<Id, &Fn>`: `void(const Body&)`, or
+`void()` for an event with no body. An event and a command may share a value (the kind byte tells them apart), and each set holds events
+of its own: a side that handles an event has it in its set.
+
+```cpp
+namespace WikiEvents {
+
+enum class Event : uint8 {
+	fault = 0x40,
+	ready = 0x41,
+	alarm = 0x42
+};
+
+
+using DeviceEvents = VUB::CommandSet<+[]() {
+	return VUB::Commands()
+		.Event<Event::fault>()
+			.Body<Motor::MotorFault>()
+		.Event<Event::ready>()
+			.Body<VUB::NoBody>()
+		.Event<Event::alarm>()
+			.Body<Motor::MotorFault>()
+			.Delivered();
+}>;
+
+
+void OnFault(const Motor::MotorFault& fault);
+void OnReady();
+
+
+using PcHandlers = VUB::Handlers<
+	VUB::OnEvent<Event::fault, &OnFault>,
+	VUB::OnEvent<Event::ready, &OnReady>>;
+
+
+// The device emits: an unacknowledged event, an event with no body, and a Delivered event.
+template<typename StackT>
+void EmitFromDevice(StackT& stack) {
+	auto handle = stack.Requests();
+	(void)handle.template Emit<Event::fault>(Motor::MotorFault{3});
+	(void)handle.template Emit<Event::ready>();
+	(void)handle.template Emit<Event::alarm>(Motor::MotorFault{5});
+}
+
+}
+```
+
+`Emit<Id>(body)` returns what the stack's send returns: `ok`, `busy` (the control queue or the window is full), `noInit` (Reliable has no
+session) or `noConnection` (under `Down::Fail` while the link is down). Under `Down::Wait` the packet waits in the control queue until the
+link returns. `Emit<Id>()` is the form for an event with no body.
+
+- An event is unacknowledged by default: Reliable sends it with the no-acknowledgement flag, so it is not resent and keeps no slot. The sender
+  does not learn that it was lost.
+- `Delivered()` sends the event sequenced, through Reliable. Its packet is resent as a request is, and it is handled once. When Reliable gives
+  up on it (`retryExhausted`) or the peer restarts with it pending (`reset`), the sender counts a loss in `eventsLost`. An acknowledged event
+  counts nothing. A `Delivered` event needs Reliable below the layer: without it the build stops with
+  `an event with Delivered() needs Reliable below Requests: a Delivered event is sequenced by Reliable`.
+- The first sequenced send of a session is `busy`: Reliable starts the session with it and queues nothing. The sends after the session's
+  sync is acknowledged are accepted.
+- The handler of an event runs in the walk that takes its packet, after the requests received earlier in that walk, so the events and the
+  requests of one burst run in arrival order.
+- An event whose id is unknown to the receiver, or that the receiver has no handler for, is refused: it is not handled and it is counted in
+  `refused` (see Counters). A body shorter than the handler's body is `invalidData` and is counted in the stack's layer errors. A longer body
+  is read as far as the handler's body goes, so a newer sender may add fields at the end.
+
+What is built: a side that declares no event has no event code. A side that emits only has the `Emit` code. A side with an `OnEvent`
+handler has the receive code. A side with events declared but no `OnEvent` handler has no receive code either, so an EVENT packet that
+arrives there is `invalidData` and is counted in the stack's layer errors, not in `refused`; the same holds for a side that declares no
+event. A set with no `Delivered()` event has no outcome code for events, and a layer without Reliable below has none at all.
+
+## Counters
+
+`Counted()` on the layer's Step gives three counters, each a 16-bit count that stops at 65535:
+
+- `refused`: an event with an unknown id or with no handler, and a request whose refusal the ring had no room for.
+- `lateReplies`: a FINAL or an INTERIM whose number and tag match no open request (for example one that came after its deadline).
+- `eventsLost`: a `Delivered` event whose outcome is not ok (see Events).
+
+They are read with `Refused()`, `LateReplies()` and `EventsLost()` on the handle or on the layer. Without `Counted()` the layer keeps no
+counter and builds no code that counts.
 
 ## Wire
 
@@ -473,11 +559,26 @@ A set with a cancellable command and no interim command has no interim field in 
 requester, and the responder keeps a flag in the ticket. In the size configuration the ticket's body is 6 bytes, and the cancel flags fit in
 its padding, so the responder row has no RAM cost there.
 
+Events and counters, measured as differences against the same program with no event declared and no counter (the layer on
+`VUB::ReliableOf<40, 4>` over CRC-16/MODBUS and COBS, arm-none-eabi-g++ 15.2, `-Os`, nano specs). The emit-only row against a
+program with no send includes the application-side send entry of the layer above Reliable and the body encoder, which any
+`Send` needs too. The row for a program that already sends measures the emit alone.
+
+| Feature | M4 text | M4 RAM | M0+ text | M0+ RAM |
+|---|---:|---:|---:|---:|
+| one event declared, not used | 0 | 0 | 0 | 0 |
+| emit only (plain event), the layer already sends a request | 108 | 0 | 104 | 0 |
+| emit only (plain event), no send in the program | 1060 | 0 | 1144 | 0 |
+| receive only (one OnEvent handler) | 384 | 4 | 420 | 4 |
+| emit and receive (plain event) | 1396 | 4 | 1496 | 4 |
+| `Delivered()` against plain, emit only | 0 | 0 | 0 | 0 |
+| `Delivered()` against plain, emit and receive | 0 | 0 | 0 | 0 |
+| `Counted()` alone | 16 | 8 | 28 | 8 |
+| `Delivered()` against plain, emit and receive, `Counted()` | 36 | 0 | 44 | 0 |
+
 ## Not built
 
 These are not in this layer:
 
-- Events: no event packet (kind 0x04), no `Emit` and no event handler. A command set may still declare an event; the layer takes no event for
-  it.
 - Ping (0xF0) and health (0xF1), with their counters.
 - `Await`.

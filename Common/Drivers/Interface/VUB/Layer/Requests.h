@@ -1,12 +1,14 @@
 #pragma once
 #include <Drivers/Interface/VUB/Blocks.h>
 #include <Drivers/Interface/VUB/Bytes.h>
+#include <Drivers/Interface/VUB/Drops.h>
 #include <Drivers/Interface/VUB/Layer/Reliable.h>
 #include <Drivers/Interface/VUB/Meta.h>
 #include <Drivers/Interface/VUB/Outbox.h>
 #include <Drivers/Interface/VUB/Require.h>
 #include <Drivers/Interface/VUB/Requests/Body.h>
 #include <Drivers/Interface/VUB/Requests/Commands.h>
+#include <Drivers/Interface/VUB/Requests/Events.h>
 #include <Drivers/Interface/VUB/Requests/Handlers.h>
 #include <Drivers/Interface/VUB/Requests/Requester.h>
 #include <Drivers/Interface/VUB/Requests/Responder.h>
@@ -35,6 +37,20 @@ struct RequestsOptions {
 	uint8 tickets = 0;
 	uint8 refusals = 4;
 	bool ownerBelow = false;
+	bool counted = false;
+};
+
+
+// The counters of a layer that is Counted(): the refusals and the Delivered events lost. Each one stops at 65535. The replies that match no
+// open request are counted by the requester part.
+struct RequestCounts {
+	uint16 refused = 0;
+	uint16 eventsLost = 0;
+};
+
+
+// The empty stand-in of RequestCounts for a layer that is not Counted().
+struct NoRequestCounts {
 };
 
 
@@ -86,6 +102,14 @@ constexpr bool HasTicketHandler(const std::array<std::size_t, Commands::commandC
 }
 
 
+// True when the handler list has an entry for a command (On or OnCancel). Only such a layer serves requests: an event handler alone builds
+// no responder.
+template<typename... Entry>
+constexpr bool AnyCommandEntry(std::tuple<Entry...>) {
+	return (false || ... || (Entry::kind != HandlerKind::onEvent));
+}
+
+
 // The shape of a layer with its options: which parts of the layer exist. Each flag is a constant, so a part that is off builds no code and
 // takes no storage. The layer and its parts read the same plan.
 template<typename Commands, typename HandlerSet, RequestsOptions Value>
@@ -94,7 +118,7 @@ struct RequestsPlan {
 	static constexpr std::array<std::size_t, Commands::commandCount> cancelIndex =
 		BuildHandlerIndex<Commands, HandlerSet, HandlerKind::onCancel>();
 	static constexpr std::size_t handlerCount = std::tuple_size_v<typename HandlerSet::List>;
-	static constexpr bool served = handlerCount > 0;
+	static constexpr bool served = AnyCommandEntry(typename HandlerSet::List{});
 	static constexpr bool ticketed = HasTicketHandler<Commands>(onIndex, handlerCount);
 	static constexpr bool cancellable = AnyCommandFlag(Commands::commandTable, &CommandInfo::cancellable);
 	// Interim slots exist only for interim commands. A cancel-refused interim (0xF8) for a command without one has no handler and is dropped.
@@ -108,6 +132,9 @@ struct RequestsPlan {
 	// The requester keeps cancel state for its requests; the responder for its tickets, and answers a cancel of any of them.
 	static constexpr bool requesterCancels = cancellable && openCount > 0;
 	static constexpr bool responderCancels = cancellable && ticketed;
+	static constexpr bool counted = Value.counted;
+	static constexpr bool eventsReceived = AnyOnEvent(typename HandlerSet::List{});
+	static constexpr bool countsLoss = counted && ownerBelow && AnyEventDelivered<Commands>();
 };
 
 
@@ -129,6 +156,7 @@ class RequestsOf {
 public:
 	using Options = RequestsOptions;
 	using Plan = RequestsPlan<Commands, HandlerSet, Value>;
+	using EventPart = EventsOf<Commands, HandlerSet, Plan>;
 
 	template<Options value>
 	using Configured = RequestsOf<Commands, HandlerSet, value>;
@@ -162,6 +190,15 @@ public:
 		constexpr Step Refusals(uint8 count) const {
 			Options next = this->LastOptions();
 			next.refusals = count;
+			return Step(this->WithLastOptions(next));
+		}
+
+
+		// The counters: refused, lateReplies and eventsLost, read through Refused(), LateReplies() and EventsLost(). Without this call
+		// the layer keeps no counter and builds no code that counts.
+		constexpr Step Counted() const {
+			Options next = this->LastOptions();
+			next.counted = true;
 			return Step(this->WithLastOptions(next));
 		}
 	};
@@ -205,9 +242,39 @@ public:
 		}
 
 
+		// An event of the set: its packet goes out through the outbox, unacknowledged unless the event is Delivered. Returns what the outbox returns.
+		template<auto Id>
+		ResultStatus Emit(const typename EventOf<Commands, Id>::BodyType& body) const {
+			return EventPart::template Emit<Id>(body, outbox);
+		}
+
+
+		// The same for an event with no body.
+		template<auto Id>
+		ResultStatus Emit() const requires (std::is_same_v<typename EventOf<Commands, Id>::BodyType, NoBody>) {
+			return EventPart::template Emit<Id>(NoBody{}, outbox);
+		}
+
+
 		// The session of a layer with no Reliable below: the first request number and tag (see RequesterOf::SetSession). Not a member otherwise.
 		void SetSession(uint16 value) const requires (!Value.ownerBelow) {
 			layer->SetSession(value);
+		}
+
+
+		// The counters of the layer (see Step::Counted). Not members of a layer that is not Counted.
+		uint16 Refused() const requires (Value.counted) {
+			return layer->Refused();
+		}
+
+
+		uint16 LateReplies() const requires (Value.counted) {
+			return layer->LateReplies();
+		}
+
+
+		uint16 EventsLost() const requires (Value.counted) {
+			return layer->EventsLost();
 		}
 
 
@@ -234,22 +301,46 @@ public:
 		RequestWire::RequestHeader + Commands::largestRequest,
 		RequestWire::FinalHeader + Commands::largestReply,
 		RequestWire::InterimSize,
-		RequestWire::FinalErrorSize});
+		RequestWire::FinalErrorSize,
+		RequestWire::EventHeader + Commands::largestEvent});
 
 
 private:
 	static_assert(CheckHandlers<Commands, HandlerSet>(), "the handler list does not match the command set");
 	[[no_unique_address]] RequesterOf<Commands, Plan> requester{};
 	[[no_unique_address]] std::conditional_t<Plan::served, ResponderOf<Commands, HandlerSet, Plan>, NoStorage> responder{};
+	[[no_unique_address]] std::conditional_t<Value.counted, RequestCounts, NoRequestCounts> counts{};
 
 
 public:
-	// The owner of Reliable's outcomes: a REQUEST's outcome settles its request. The other kinds of packet have no outcome here. With no
-	// Reliable below there are no outcomes, and the function does nothing.
+	// The refusals, the replies that matched no open request, and the Delivered events lost. Each reads a counter of a layer that is Counted().
+	uint16 Refused() const requires (Value.counted) {
+		return counts.refused;
+	}
+
+
+	uint16 LateReplies() const requires (Value.counted) {
+		return requester.LateReplies();
+	}
+
+
+	uint16 EventsLost() const requires (Value.counted) {
+		return counts.eventsLost;
+	}
+
+
+	// The owner of Reliable's outcomes: a REQUEST's outcome settles its request, and the outcome of a Delivered event counts a loss. The other
+	// kinds of packet have no outcome here. With no Reliable below there are no outcomes, and the function does nothing.
 	static void DeliveryOutcome(const Outcome& outcome) {
-		if constexpr (Value.ownerBelow && Value.open > 0) {
+		if constexpr (Value.ownerBelow && (Value.open > 0 || Plan::countsLoss)) {
 			RequestsOf* self = static_cast<RequestsOf*>(outcome.owner);
-			self->requester.OnOutcome(outcome);
+			if constexpr (Value.open > 0) {
+				self->requester.OnOutcome(outcome);
+			}
+
+			if constexpr (Plan::countsLoss) {
+				EventPart::OnOutcome(outcome, self->counts.eventsLost);
+			}
 		} else {
 			(void)outcome;
 		}
@@ -314,6 +405,12 @@ public:
 		if constexpr (Plan::cancellable) {
 			if (packet[0] == RequestWire::KindCancel) {
 				return TakeCancel(packet);
+			}
+		}
+
+		if constexpr (Plan::eventsReceived) {
+			if (packet[0] == RequestWire::KindEvent) {
+				return TakeEvent(packet);
 			}
 		}
 
@@ -408,6 +505,8 @@ private:
 
 		if constexpr (Plan::openCount > 0) {
 			requester.TakeFinal(packet);
+		} else {
+			requester.CountLate();
 		}
 
 		return Taken{0, false};
@@ -425,6 +524,37 @@ private:
 			if (status != ResultStatus::ok) {
 				return status;
 			}
+		} else {
+			requester.CountLate();
+		}
+
+		return Taken{0, false};
+	}
+
+
+	// Takes an EVENT, on a layer with an OnEvent handler. The requests received earlier in this walk run first, so the handler runs in arrival
+	// order. An event with no handler, or an id the set does not have, is refused and counted in refused. A short body is invalidData, and the
+	// packet is counted in layerError. A layer with no OnEvent handler takes no event: its EVENT packets are invalidData.
+	Result<Taken> TakeEvent(std::span<const uint8> packet) {
+		if (packet.size() < RequestWire::EventHeader) {
+			return ResultStatus::invalidData;
+		}
+
+		if constexpr (Plan::served) {
+			responder.RunReceived();
+		}
+
+		ResultStatus status = EventPart::Take(packet);
+		if (status == ResultStatus::notFound) {
+			if constexpr (Value.counted) {
+				CountDrop(counts.refused);
+			}
+
+			return Taken{0, false};
+		}
+
+		if (status != ResultStatus::ok) {
+			return status;
 		}
 
 		return Taken{0, false};
@@ -440,6 +570,13 @@ private:
 		} else {
 			static_assert(!Plan::ticketed || Value.tickets > 0, "the layer serves a command and has no tickets: give Tickets(n) with n of at least 1");
 			ResultStatus status = responder.Take(packet);
+			if constexpr (Value.counted) {
+				if (status == ResultStatus::busy) {
+					CountDrop(counts.refused);
+					return Taken{0, false};
+				}
+			}
+
 			if (status != ResultStatus::ok) {
 				return status;
 			}
