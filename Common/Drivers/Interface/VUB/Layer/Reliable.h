@@ -755,10 +755,25 @@ private:
 			return;
 		}
 
+		ResetSending();
+	}
+
+
+	// The peer lost the session of the sending side. The session is no longer established, the packets waiting for acknowledgement are
+	// reset, and the next Send starts a session with a counter of its own. A sync still waiting is dropped with no outcome: the session it
+	// would start is one the peer no longer holds. The restart handler runs at the next Process.
+	void ResetSending() {
 		peer.established = false;
 		peer.newSession = true;
 		for (Slot& slot : peer.slots) {
-			if (slot.state == SlotState::pending) {
+			if (slot.state != SlotState::pending) {
+				continue;
+			}
+
+			if (slot.sync) {
+				slot.state = SlotState::free;
+				peer.inFlight--;
+			} else {
 				slot.state = SlotState::reset;
 			}
 		}
@@ -812,8 +827,9 @@ private:
 
 
 	// A sync of the sender's boot with a counter 1 to 127 ahead of the held one (serial arithmetic) opens its session. A sync of another
-	// boot opens its session: the sender rebooted. A sync of the held counter is a copy of the held session's sync: it is acknowledged
-	// again. A sync of an older counter is stale: it is ignored and not acknowledged. Returns true when the session was opened.
+	// boot opens its session: the sender rebooted, and the sending side resets its packets in flight. A sync of the held counter is a copy
+	// of the held session's sync: it is acknowledged again. A sync of an older counter is stale: it is ignored and not acknowledged.
+	// Returns true when the session was opened.
 	bool ReceiveSync(uint16 boot, uint8 counter) {
 		if (peer.open && boot == peer.heldBoot) {
 			uint8 distance = static_cast<uint8>(counter - peer.heldCounter);
@@ -829,7 +845,12 @@ private:
 		}
 
 		if (peer.open) {
-			peer.restartReport = true;
+			if (boot != peer.heldBoot) {
+				// The peer rebooted, so the session of our packets is gone at the peer too: they are reset here, at once.
+				ResetSending();
+			} else {
+				peer.restartReport = true;
+			}
 		}
 
 		OpenSession(boot, counter);

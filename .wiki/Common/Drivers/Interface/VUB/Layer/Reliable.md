@@ -160,7 +160,7 @@ The receiver's rules for a sync, with the boot value and counter it holds (the h
 
 | The sync | Result |
 |---|---|
-| another boot value | opens its session: the sender rebooted. The restart handler runs. |
+| another boot value | opens its session: the sender rebooted. The sending side of this peer resets its packets in flight at once (see the sender's rules), and the restart handler runs. |
 | the held boot value, counter 1 to 127 ahead of the held counter (serial arithmetic) | opens its session. The restart handler runs when a session was held. |
 | the held boot value and the held counter | a copy of the held session's sync: it is acknowledged again. Nothing else. |
 | the held boot value, counter 128 to 255 ahead of the held counter (an older counter) | stale: it is not acknowledged and nothing else changes. The receiver sends a counter reply (0x18) with the held boot value and counter. |
@@ -177,6 +177,7 @@ The sender's rules for a resync request:
 
 - A resync request is acted on only when its tag is the sender's current tag and the sender's session is established (its sync is acknowledged). The packets waiting for acknowledgement get the outcome `reset`, and they are not sent again. The restart handler runs. The next `Send` starts a session with the next counter.
 - A resync request for another tag is ignored. So is one that arrives while the sync is still waiting for its acknowledgement: the sync gives the peer its session.
+- A sync of another boot value, accepted by the receiving side (see the table above), means the peer rebooted and lost the session its packets were sent in. The sending side then resets as for an accepted resync request, at the moment the sync is accepted: the packets waiting for acknowledgement get `reset`, a sync still waiting is dropped without an outcome, and the next `Send` starts a session with the next counter. A packet sent after the peer's sync was accepted is therefore in a session the peer holds, and it is delivered. Sim test `TestVubReliableRejoin` rebuilds either side with packets in flight, over a packet line and a stream line.
 
 The sender's rules for a counter reply, which the receiver sends for a stale sync:
 
@@ -369,6 +370,7 @@ The table of the previous version had `RunTimers` (134 bytes) and `Settle` (66 b
 - The tag is one byte. Sessions of different boots can have the same tag: about 1 in 256 for each pair of sessions. On an order-keeping path a packet of an earlier boot cannot arrive after the sync of a later one, so this does not reach the data. On a reordering path a packet of an earlier session that carries the tag of the current session is taken as part of the current session. The same holds for an acknowledgement: an acknowledgement of an earlier session with the tag and number of a packet in flight acknowledges that packet, so the sender can report `ok` for a packet that was not passed up. This needs two boots with the same tag, and an acknowledgement of the earlier boot that is delayed past the start of the later boot's session.
 - The layer cannot tell a boot value that repeats from a fresh one. A sender that restarts with a boot value the receiver already holds can see its data acknowledged as duplicates and reported `ok` without being passed up, or see `busy` for as long as the receiver holds the session. The value must differ for each boot (see Application).
 - A receiver that reboots after delivering a packet and before acknowledging it cannot know that it did. It has no session, so the sender's resend is refused and a resync request comes back. The sender reports the packet `reset`, never `ok`, and does not send it again. The packet may have been delivered once, by the receiver before the reboot. The sync carries no data, so a reboot after the sync's acknowledgement delivers nothing twice.
+- A sender learns that its peer's receiver rebooted only from a refused packet: the first packet it sends after the reboot is refused, and it is reset (see the resync rules). The packets sent after that resync start a session and are delivered. A rebooted sender is learned by its peer from its sync, and the peer resets its packets in flight at once (see Sessions).
 - A sync that gets no acknowledgement gives `busy` from `Send` for as long as it is unanswered, and no outcome. The application learns of the peer's absence only from the `busy` answers.
 - A receiver that holds a session takes a sync as newer only when its counter is 1 to 127 ahead. The sender's counter moves by one for each new session, so after an accepted session the next one is one ahead. A receiver that has no session takes any counter. A sync that is behind the held counter is answered with a counter reply, not taken as newer.
 - In order: see the limits of the option in In order.
