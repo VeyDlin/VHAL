@@ -81,7 +81,7 @@ bound would need a value the framing does not have at run time, so this framing 
 The cost of a false header, one whose check passes by chance (the check matches one sync byte in 256):
 
 - A length larger than the buffer costs no bytes: the header is refused at once.
-- A length the buffer holds swallows up to that many bytes, the payload it announces, before the framing finds the next sync. A false
+- A length the buffer holds swallows up to that many bytes, the payload it announces, and the framing then finds the next sync. A false
   header of 255 bytes swallows up to 255 bytes.
 
 The framing needs a byte stream that keeps its order. The count of payload bytes is taken from the stream as it arrives, so under

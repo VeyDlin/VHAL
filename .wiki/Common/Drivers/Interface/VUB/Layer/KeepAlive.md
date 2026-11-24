@@ -28,7 +28,7 @@ For example, the payload `31 32` goes on the wire as `00 31 32`. The ping is the
 | `DownTime(us)` | the time with nothing received after which the peer is down | 3000000 (three seconds) |
 
 The options come after the layer in the chain, and are given in microseconds. The down time should be longer than the quiet time plus
-the round trip of a ping, so that a quiet peer that is alive gets its pong before it is declared down. The layer does not check this.
+the round trip of a ping, so that a quiet peer that is alive gets its pong ahead of being declared down. The layer does not check this.
 
 The rules, from `Process`:
 
@@ -45,7 +45,7 @@ The rules, from `Process`:
 - A quiet peer that is alive answers each ping, and stays up.
 
 Recovery after an outage is bounded by the quiet time: while the peer is down, each end pings at each quiet time, so the first ping
-after the line returns goes at most one quiet time later, and the other end is up when that ping arrives.
+after the line returns goes at most one quiet time after the return, and the other end is up when that ping arrives.
 
 ## The physical link
 
@@ -53,16 +53,16 @@ On a link that reports its state, the layer asks the link at each `Process` thro
 reports as of that `Process`. A link that does not report its state is always up, and the answer is true.
 
 - While the link is down, the layer sends no ping and no pong, declares nothing, and drops what it heard and any pong that was due.
-- The first `Process` that finds the link up starts both timers from its time. The first ping goes one quiet time later, unless
-  something is heard before then, so a ping is never on the wire closer than a quiet time to the one before it.
+- The first `Process` that finds the link up starts both timers from its time. The first ping goes one quiet time after that, unless
+  something is heard in that time, so a ping is never on the wire closer than a quiet time to the one sent ahead of it.
 - A link that falls and comes back between two `Process` calls is not seen. The timers run on as they do for any quiet link.
 
-The layer declares `usesLinkState = true` to get the query. A chain whose layers do not declare it has the same size as before the query
-was added (see Cost).
+The layer declares `usesLinkState = true` to get the query. A chain whose layers do not declare it has the same size as the chain without the
+query (see Cost).
 
 ## Where it goes in the chain
 
-The keep-alive is a layer above the link CRC and the framing, so a corrupted packet is dropped before the layer sees it, and does not
+The keep-alive is a layer above the link CRC and the framing, so a corrupted packet is dropped and the layer does not see it, and it does not
 count as life. The chain from the top down is: the layers of the application, the keep-alive, the transforms, the framing, the link. A
 transform below the keep-alive sees packets that the layer has not checked.
 
@@ -99,8 +99,8 @@ The cost is all of what the layer adds to the chain: its own state and code, and
 and the link record into the stack. Both rows use the default times, 1 s and 3 s.
 
 A chain whose layers do not declare `usesLinkState` is unchanged by the query: with a packet link, with a link that reports its state, and
-with a layer that declares `reportsPeer`, the `sizeof` and `text` are the same as before the query was added. Those chains were measured
-with the same method, at the commit before the query and with it.
+with a layer that declares `reportsPeer`, the `sizeof` and `text` are the same as without the query. Those chains were measured
+with the same method, once without the query and once with it.
 
 The cost is paid only by a chain that has the layer. A chain without it has no queue, no record and no step buffers from it.
 

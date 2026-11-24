@@ -52,8 +52,8 @@ struct LinkRecord {
 	uint16 dropped = 0;
 
 
-	// Records what the link reports. Called from the link's interrupt: the stack acts on it in Process. The state is written before a
-	// fall is counted, so a Process that reads the count first reads a state at least as new as the fall.
+	// Records what the link reports. Called from the link's interrupt: the stack acts on it in Process. The state is written ahead of a
+	// fall being counted, so a Process that reads the count first reads a state at least as recent as the fall.
 	void Report(bool up) {
 		reportedUp = up;
 		if (!up) {

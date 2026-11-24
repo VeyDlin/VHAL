@@ -46,6 +46,15 @@ using Small = VUB::Stack<+[] {
 		.OnReceive<&OnPacket>();
 }>;
 
+BoardLink boardLink;
+Board board(boardLink);
+
+void BoardSend() {
+	std::array<uint8, 3> hello = {1, 2, 3};
+	board.Send(std::span<const uint8>(hello.data(), hello.size()));
+	board.Process();
+}
+
 // CRC-16/AUG-CCITT: polynomial 1021, initial 1D0F, not reflected, final XOR 0000, check E5CC.
 inline constexpr VUB::CrcParameters augCcitt = VUB::CrcParameters()
 	.Width(16)
@@ -55,15 +64,6 @@ inline constexpr VUB::CrcParameters augCcitt = VUB::CrcParameters()
 	.Check(0xE5CC);
 
 using AugCcitt = VUB::Crc<augCcitt>;
-
-BoardLink boardLink;
-Board board(boardLink);
-
-void BoardSend() {
-	std::array<uint8, 3> hello = {1, 2, 3};
-	board.Send(std::span<const uint8>(hello.data(), hello.size()));
-	board.Process();
-}
 }  // namespace WikiCrc
 
 

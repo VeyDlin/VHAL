@@ -23,14 +23,14 @@ namespace VUB {
 // under layerError.
 //
 // The layer's own packets go while only the peer is down, so a ping reaches the peer while both ends have declared the other down. Put the
-// layer above the link's CRC, so that a corrupted packet is dropped before it counts as life.
+// layer above the link's CRC, so that a corrupted packet is dropped and does not count as life.
 //
 // The times are options, given after the layer in the chain with QuietTime(us) and DownTime(us), in microseconds. The down time should be
-// longer than the quiet time, so that a ping and its pong fit before the peer is declared down.
+// longer than the quiet time, so that a ping and its pong fit in the window that ends when the peer is declared down.
 //
 // On a link that reports its state, the layer asks the link at each Process (outbox.LinkUp). While the link is down it sends nothing,
 // declares nothing and forgets what it heard; when the link comes up its timers start again from that Process, so the first ping goes
-// one quiet time later. A link that does not report its state is always up, and the query answers true.
+// one quiet time after that. A link that does not report its state is always up, and the query answers true.
 struct KeepAliveOptions {
 	uint32 quietUs = 1000000;
 	uint32 downUs = 3000000;

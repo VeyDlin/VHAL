@@ -88,10 +88,10 @@ void BoardSend() {
 	board.Process();
 }
 
-void CheckContract() {
+bool CheckContract() {
 	SumCheck sumCheck;
 	bool passes = VUB::CheckTransform(sumCheck, 7, 500, 32);
-	SIM_EXPECT(passes);
+	return passes;
 }
 }  // namespace WikiWriting
 
@@ -666,7 +666,7 @@ struct UartLink {
 struct PollLink {
 	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64).FullDuplex();
 
-	// Called from Process, before the stack takes its received packets. Room is the number of free slots of the receive queue.
+	// Called from Process, ahead of the stack taking its received packets. Room is the number of free slots of the receive queue.
 	void Poll(VUB::Receiver receiver) {
 		while (packetsWaiting > 0 && receiver.Room() > 0) {
 			std::array<uint8, 2> packet = {0x01, 0x02};
@@ -737,7 +737,7 @@ void ReceiveSample() {
 
 int main() {
 	WikiReceive::ReceiveSample();
-	WikiWriting::CheckContract();
+	SIM_EXPECT(WikiWriting::CheckContract());
 	WikiWriting::BoardSend();
 	SIM_EXPECT(WikiWriting::board.Drops().sendError == 0);
 	SIM_EXPECT(WikiChain::Board::count == 2);

@@ -29,7 +29,7 @@ void OnPacket(const VUB::Meta&, std::span<const uint8> payload) {
 }
 
 
-using Stack = VUB::Stack<+[] {
+using Device = VUB::Stack<+[] {
 	return VUB::Builder()
 		.Framing<VUB::Cobs>()
 		.Link<Uart>()
@@ -39,13 +39,13 @@ using Stack = VUB::Stack<+[] {
 
 
 Uart uart;
-Stack stack(uart);
+Device device(uart);
 
 
 void Run() {
 	const std::array<uint8, 3> hello = {0x11, 0x00, 0x22};
-	stack.Send(std::span<const uint8>(hello.data(), hello.size()));
-	stack.Process();
+	device.Send(std::span<const uint8>(hello.data(), hello.size()));
+	device.Process();
 }
 }
 
@@ -66,7 +66,7 @@ void OnPacket(const VUB::Meta&, std::span<const uint8> payload) {
 }
 
 
-using Stack = VUB::Stack<+[] {
+using Device = VUB::Stack<+[] {
 	return VUB::Builder()
 		.Framing<VUB::LengthPrefix<1>>()
 		.Link<Uart>()
@@ -76,13 +76,13 @@ using Stack = VUB::Stack<+[] {
 
 
 Uart uart;
-Stack stack(uart);
+Device device(uart);
 
 
 void Run() {
 	const std::array<uint8, 3> hello = {0x11, 0x22, 0x33};
-	stack.Send(std::span<const uint8>(hello.data(), hello.size()));
-	stack.Process();
+	device.Send(std::span<const uint8>(hello.data(), hello.size()));
+	device.Process();
 }
 }
 
@@ -109,7 +109,7 @@ uint32 MicrosecondClock() {
 }
 
 
-using Stack = VUB::Stack<+[] {
+using Device = VUB::Stack<+[] {
 	return VUB::Builder()
 		.Framing<VUB::Gap>()
 		.GapCharacters(35, 9600)
@@ -121,25 +121,25 @@ using Stack = VUB::Stack<+[] {
 
 
 Uart uart;
-Stack stack(uart);
+Device device(uart);
 
 
 // The receive interrupt of the UART calls this for each byte.
 void OnUartByte(uint8 byte) {
-	stack.Feed(byte);
+	device.Feed(byte);
 }
 
 
-// After the UART's parameters change, the framing is given the rate the UART is set to.
+// After the UART's parameters change, the framing gets the baud rate the UART is set to.
 void OnBaudChanged(uint32 baud) {
-	stack.Find<VUB::Gap>().SetBaud(baud);
+	device.Find<VUB::Gap>().SetBaud(baud);
 }
 
 
 void Run() {
 	const std::array<uint8, 2> hello = {0x11, 0x22};
-	stack.Send(std::span<const uint8>(hello.data(), hello.size()));
-	stack.Process();
+	device.Send(std::span<const uint8>(hello.data(), hello.size()));
+	device.Process();
 }
 }
 
@@ -152,13 +152,13 @@ static_assert(VUB::Gap::Growth(3) == 0);
 
 void TestCobsSnippet() {
 	CobsSnippet::Run();
-	SIM_EXPECT(CobsSnippet::stack.Drops().framingError == 0);
+	SIM_EXPECT(CobsSnippet::device.Drops().framingError == 0);
 }
 
 
 void TestLengthSnippet() {
 	LengthSnippet::Run();
-	SIM_EXPECT(LengthSnippet::stack.Drops().framingError == 0);
+	SIM_EXPECT(LengthSnippet::device.Drops().framingError == 0);
 }
 
 
@@ -166,8 +166,8 @@ void TestGapSnippet() {
 	GapSnippet::OnBaudChanged(19200);
 	GapSnippet::OnUartByte(0x55);
 	GapSnippet::Run();
-	SIM_EXPECT(GapSnippet::stack.Drops().framingError == 0);
-	SIM_EXPECT(GapSnippet::stack.Find<VUB::Gap>().SetBaud(9600) == ResultStatus::ok);
+	SIM_EXPECT(GapSnippet::device.Drops().framingError == 0);
+	SIM_EXPECT(GapSnippet::device.Find<VUB::Gap>().SetBaud(9600) == ResultStatus::ok);
 }
 
 

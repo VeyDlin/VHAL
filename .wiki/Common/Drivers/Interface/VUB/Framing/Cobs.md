@@ -34,7 +34,7 @@ With the leading delimiter, `VUB::CobsFlushed`, the bound is one more: `Growth(n
 
 ## Leading delimiter
 
-`VUB::CobsFlushed` sends a zero before each frame too. The zero ends whatever noise came before it on the line.
+`VUB::CobsFlushed` sends a zero ahead of each frame too. The zero ends whatever noise came ahead of it on the line.
 
 It is a separate type and not a `Step` option. `Growth` is a constant of the type, and the stack sizes its buffers from it, so an option
 that changes it would cost buffer space in every chain, whether the option is on or off.

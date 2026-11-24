@@ -5,7 +5,7 @@ namespace VUB {
 
 
 // The addresses and flags of a packet, as the blocks see them. The block that makes a packet sets the flags; every block below it
-// reads them through the const reference it is given. Addresses are added in a later stage.
+// reads them through the const reference it is given. The layer does not address its peers.
 struct Meta {
 	// The packet needs no delivery acknowledgement (the large-data layer marks its parts with it).
 	static constexpr uint8 NoAcknowledgeFlag = 0x01;

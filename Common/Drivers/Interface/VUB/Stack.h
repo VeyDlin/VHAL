@@ -46,7 +46,7 @@ namespace VUB {
 // Send, Process and Drops. Another task calling Send needs a lock of its own.
 //
 // How a link hands its data over. A link with SetReceiver gets a Receiver in its constructor, and feeds it from its interrupt; the stack
-// takes it back in its destructor, so such a stack is not copyable. A link with Poll is polled by Process before the drain, and feeds the
+// takes it back in its destructor, so such a stack is not copyable. A link with Poll is polled by Process ahead of the drain, and feeds the
 // receiver what it reads, up to the receiver's Room. A link with neither is fed by the application through Feed or FeedPacket. A link with
 // both is a compile error.
 //
@@ -151,7 +151,7 @@ public:
 
 
 	// Encodes one payload and queues it. Returns ok when it is queued, busy when the control queue is full (the payload is not queued and
-	// nothing is counted: the caller sends it again later), messageTooLong when it is larger than MaxPayload, noConnection while the
+	// nothing is counted: the caller sends it again), messageTooLong when it is larger than MaxPayload, noConnection while the
 	// connection is down under the Fail option, or the status of a block that refused it.
 	ResultStatus Send(std::span<const uint8> payload, const Meta& meta = Meta()) {
 		if (payload.size() > built.settings.maxPayload) {
@@ -613,7 +613,7 @@ private:
 
 
 	// The deliver function of the layer at Index. The packet is copied into the receive buffer, since the blocks above decode in place. The
-	// receive buffer is free in Process: the bytes and packets were taken before the layers ran. The walk starts at the block just above
+	// receive buffer is free in Process: the bytes and packets were taken ahead of the layers running. The walk starts at the block just above
 	// the layer, ReceiveBelow<Index>, and runs to the handler, as it does for a packet the layer took.
 	template<std::size_t Index>
 	static ResultStatus DeliverThunk(void* owner, std::span<const uint8> packet) {
@@ -725,7 +725,7 @@ private:
 
 
 	// Reads what the link reported since the last Process: whether it fell, and the state it reports. The falls are read first. The report
-	// writes the state before it counts a fall, so a state read after the count is at least as new as the fall. A fall reported after the
+	// writes the state ahead of counting a fall, so a state read after the count is at least as recent as the fall. A fall reported after the
 	// count is read is seen by the next Process.
 	void SampleLink(uint32 now) {
 		LinkRecord& record = linkRecord.Get();
@@ -737,7 +737,7 @@ private:
 	}
 
 
-	// Applies the connection: the link's state and the peer's. A fall of the link is a down even when the link came back up before this
+	// Applies the connection: the link's state and the peer's. A fall of the link is a down even when the link came back up ahead of this
 	// Process. A fall while the stack is already down is not a down: the framing and the receive ring are left as they are. A change in
 	// either direction resets the framing. On a down the queued packets and the receive ring are dropped as DropOnDown says. The layers are
 	// told of each change, in chain order.
