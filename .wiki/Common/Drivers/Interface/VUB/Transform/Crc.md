@@ -74,6 +74,12 @@ The initial value is the value of the unreflected register, as the catalogue giv
 and CRC-16/RIELLO have an initial value that is not symmetric, so their check values show that convention: a reflected CRC that
 started from the initial value as it is would give another value. Both presets are checked with both engines.
 
+A preset with an initial value of 0 and no final XOR (`VUB::Crc16Arc`, for one) has a zero residue: the CRC of a packet with its own
+check bytes at the end is 0. So a packet made of two valid packets joined as one passes its check when the second packet's check is
+the joined CRC. A byte stream that loses a COBS frame end joins two frames this way. `VUB::Crc16Modbus`, with an initial value of
+0xFFFF, rejects the same join. On a byte stream, choose a preset whose initial value is not 0, as the link tests do. `TestVubLinkLoss` checks
+this join with `VUB::Crc16Arc` and `VUB::Crc16Modbus`.
+
 ## Other parameters
 
 A CRC that is not a preset is a chain of `VUB::CrcParameters()` methods, given as the template argument of `VUB::Crc`:

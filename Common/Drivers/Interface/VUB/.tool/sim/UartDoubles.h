@@ -1,4 +1,5 @@
 #pragma once
+#include "LinkFaults.h"
 #include <VHAL.h>
 #include <Adapter/UARTAdapter.h>
 #include <Utilities/DataTypes.h>
@@ -31,9 +32,11 @@ public:
 	FakeUart* peer = nullptr;
 	bool completesInWrite = false;
 	uint32 transfersStarted = 0;
+	uint32 transfersAborted = 0;
 	uint32 bytesLost = 0;
 	uint32 rxStarts = 0;
 	uint32 rxStops = 0;
+	LinkFaults faults;
 
 
 	// The receive interrupt of one byte: the port's last byte, then Irq::Rx. The test plays the wire.
@@ -79,7 +82,13 @@ public:
 	}
 
 
+	// As on the G4 port, an aborted transfer ends without Irq::Tx and leaves the port ready.
 	void AbortTransmit() override {
+		if (txState == ResultStatus::busy) {
+			transfersAborted++;
+		}
+
+		txState = ResultStatus::ready;
 	}
 
 
@@ -150,7 +159,10 @@ private:
 		}
 
 		for (uint32 index = 0; index < txDataNeed; index++) {
-			peer->ReceiveByte(txDataPointer[index]);
+			uint8 value = txDataPointer[index];
+			if (faults.Byte(value) != LinkFaults::Fate::drop) {
+				peer->ReceiveByte(value);
+			}
 		}
 	}
 };

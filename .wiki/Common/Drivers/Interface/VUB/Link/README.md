@@ -37,7 +37,7 @@ A link hands received data to its stack through a `VUB::Receiver`, which the sta
   feeds the report's payload to the receiver as one packet. A report whose length byte is 0 or larger than the report is dropped.
 
 The stack gives each receiver in its constructor and takes it back in its destructor with an empty receiver. An empty receiver stops
-what the link started: a `UartLink` stops its continuous receive and clears the port's callbacks, and a `HidLink` clears the output
+what the link started: a `UartLink` stops its continuous receive and clears the port's callbacks (once no transfer runs), and a `HidLink` clears the output
 delegate. A link never feeds a stack that is gone.
 
 ## How the send path works
