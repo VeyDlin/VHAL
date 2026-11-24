@@ -348,9 +348,10 @@ private:
 	}
 
 
-	// Takes a FINAL of one of this layer's requests: the requester closes the request and calls its handler.
+	// Takes a FINAL of one of this layer's requests: the requester closes the request and calls its handler. A FINAL of code ok has a status
+	// byte; without it the packet is refused, and the request it names stays open.
 	Result<Taken> TakeFinal(std::span<const uint8> packet) {
-		if (packet.size() < RequestWire::FinalErrorSize) {
+		if (packet.size() < RequestWire::FinalErrorSize || (packet[4] == RequestWire::CodeOk && packet.size() < RequestWire::FinalHeader)) {
 			return ResultStatus::invalidData;
 		}
 

@@ -443,6 +443,24 @@ void TestMalformed() {
 }
 
 
+// A FINAL of code 0 with no status byte is an error of the layer: the request it names stays open, and the whole final closes it.
+void TestFinalWithoutStatus() {
+	ResetWireState();
+	Layer layer;
+	Recorder recorder;
+	Layer::Handle handle(layer, OutboxOf(recorder));
+	Motor::MotorStart start{};
+	SIM_EXPECT(SendStart(handle, start));
+	std::array<uint8, 5> noStatus = {0x03, 0x01, 0x00, 0x01, 0x00};
+	SIM_EXPECT(layer.Take(VUB::Meta(), std::span<const uint8>(noStatus.data(), noStatus.size())).IsErr());
+	SIM_EXPECT(finalCount == 0);
+	std::array<uint8, 10> whole = {0x03, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+	SIM_EXPECT(layer.Take(VUB::Meta(), std::span<const uint8>(whole.data(), whole.size())).IsErr() == false);
+	SIM_EXPECT(finalCount == 1);
+	SIM_EXPECT(lastFinalResult == ResultStatus::ok);
+}
+
+
 // The interim index is one byte: 255 interims of one request go out with indexes 1 to 255, and the 256th is refused as invalidParameter
 // without a packet. Each interim is sent in its own Process, as the layer sends one pending interim at a time.
 void TestInterimIndexLimit() {
@@ -605,6 +623,7 @@ int main() {
 	TestFireBytes();
 	TestFireWithoutTickets();
 	TestMalformed();
+	TestFinalWithoutStatus();
 	TestInterimIndexLimit();
 	TestNoSessionIsNoInit();
 	TestSecondBootIsNotDuplicate();

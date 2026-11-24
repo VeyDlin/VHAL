@@ -363,6 +363,7 @@ is `01 13 01 00 01` and its final `started` is `03 01 00 01 00 00`. The bytes of
 | The requester's table is full | `busy` at once; no number used | none |
 | No free ticket | `busy` (code 4) | a `Fire` or `NoReply` still runs its handler |
 | A late or mismatched FINAL or INTERIM | dropped | none |
+| A FINAL of code 0 with no status byte | dropped and counted in the stack's `layerError`; the request stays open | none |
 | A ticket whose slot has taken a later request | the ticket answers `notAvailable`; the later request is untouched | none |
 | A number that wraps while an earlier request with the same number is still open | the old request's final does not close the new one (tag) | none |
 
