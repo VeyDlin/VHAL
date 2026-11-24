@@ -67,11 +67,11 @@ void ResetOrderState() {
 
 // The options of the senders and receivers of this file. A layer takes its options as its template argument, so each set is a constant
 // of its own, and the sender types below are the layers built from them.
-constexpr VUB::ReliableOptions<40, 4> OutcomeOptions{.outcomeFn = &OrderOutcome};
-constexpr VUB::ReliableOptions<40, 4> RetryOnceOptions{.retries = 1, .outcomeFn = &OrderOutcome};
-constexpr VUB::ReliableOptions<40, 4> EightBitOutcomeOptions{.sequenceBits = 8, .outcomeFn = &OrderOutcome};
+constexpr VUB::ReliableOptions<40, 4> OutcomeOptions{.outcomeFn = &VUB::OutcomeHandler<&OrderOutcome>};
+constexpr VUB::ReliableOptions<40, 4> RetryOnceOptions{.retries = 1, .outcomeFn = &VUB::OutcomeHandler<&OrderOutcome>};
+constexpr VUB::ReliableOptions<40, 4> EightBitOutcomeOptions{.sequenceBits = 8, .outcomeFn = &VUB::OutcomeHandler<&OrderOutcome>};
 constexpr VUB::ReliableOptions<40, 4> EightBitOptions{.sequenceBits = 8};
-constexpr VUB::ReliableOptions<64, 4> BigOutcomeOptions{.outcomeFn = &OrderOutcome};
+constexpr VUB::ReliableOptions<64, 4> BigOutcomeOptions{.outcomeFn = &VUB::OutcomeHandler<&OrderOutcome>};
 using OutcomeSender = VUB::ReliableOf<40, 4, false, OutcomeOptions>;
 using RetryOnceSender = VUB::ReliableOf<40, 4, false, RetryOnceOptions>;
 using EightBitSender = VUB::ReliableOf<40, 4, false, EightBitOutcomeOptions>;

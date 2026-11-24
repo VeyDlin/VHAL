@@ -85,12 +85,12 @@ VUB::Outbox ReplayOutbox(ReplayWire& wire) {
 // The options of the sending side: the outcome handler is set, the restart handler is not. A layer takes its options as its template
 // argument, so the options of each window and sequence width the tests use are a constant of their own.
 template<uint8 Window, uint8 SequenceBits>
-constexpr VUB::ReliableOptions<40, 4> SenderOptionsOf{.window = Window, .sequenceBits = SequenceBits, .outcomeFn = &ReplayOutcome};
+constexpr VUB::ReliableOptions<40, 4> SenderOptionsOf{.window = Window, .sequenceBits = SequenceBits, .outcomeFn = &VUB::OutcomeHandler<&ReplayOutcome>};
 
 
 // The options of the receiving side: the restart handler is set.
 template<uint8 Window, uint8 SequenceBits>
-constexpr VUB::ReliableOptions<40, 4> ReceiverOptionsOf{.window = Window, .sequenceBits = SequenceBits, .restartFn = &ReplayRestart};
+constexpr VUB::ReliableOptions<40, 4> ReceiverOptionsOf{.window = Window, .sequenceBits = SequenceBits, .restartFn = &VUB::RestartHandler<&ReplayRestart>};
 
 
 // The layers of the sending and receiving sides with those options.
@@ -451,10 +451,10 @@ void CheckWindowBaseAfterGiveUp() {
 	ResetReplayState();
 	ReplayWire nearWire{};
 	ReplayWire farWire{};
-	constexpr VUB::ReliableOptions<40, Capacity> farOptions{.window = window, .sequenceBits = 16, .restartFn = &ReplayRestart};
+	constexpr VUB::ReliableOptions<40, Capacity> farOptions{.window = window, .sequenceBits = 16, .restartFn = &VUB::RestartHandler<&ReplayRestart>};
 	VUB::ReliableOf<40, Capacity, false, farOptions> far;
 	constexpr VUB::ReliableOptions<40, Capacity> nearOptions{
-		.retries = 1, .timeoutMs = 100, .window = window, .sequenceBits = 16, .outcomeFn = &ReplayOutcome};
+		.retries = 1, .timeoutMs = 100, .window = window, .sequenceBits = 16, .outcomeFn = &VUB::OutcomeHandler<&ReplayOutcome>};
 	VUB::ReliableOf<40, Capacity, false, nearOptions> near;
 	near.SetSession(0x5555);
 	Establish(near, nearWire, far, farWire);

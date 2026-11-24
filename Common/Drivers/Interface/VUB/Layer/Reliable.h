@@ -50,8 +50,19 @@ namespace ReliableWire {
 }
 
 
+// The handlers of the options are held as the address of a variable that holds the function. Some compilers (g++ 11) take the address of a
+// variable as a template argument, but not the address of a function, and an options value is a template argument. The variable is
+// constexpr, so a call through it is a call of the function.
+template<void (*Fn)(const Outcome&)>
+inline constexpr void (*OutcomeHandler)(const Outcome&) = Fn;
+
+
+template<void (*Fn)()>
+inline constexpr void (*RestartHandler)() = Fn;
+
+
 // The options of the delivery layer. The layer takes them as its last template argument, so each option is a constant of the layer: an
-// option that is off costs no code and no RAM. The fields are structural (integers and function pointers), so a value of this type can
+// option that is off costs no code and no RAM. The fields are structural (integers and addresses of variables), so a value of this type can
 // be a template argument. The defaults are the layer's defaults for the two capacities.
 template<std::size_t PayloadCapacity, std::size_t WindowCapacity>
 struct ReliableOptions {
@@ -61,8 +72,8 @@ struct ReliableOptions {
 	uint8 sequenceBits = 16;
 	uint16 backoffMaxMs = 0;
 	uint16 payloadBytes = PayloadCapacity;
-	void (*outcomeFn)(const Outcome&) = nullptr;
-	void (*restartFn)() = nullptr;
+	void (* const* outcomeFn)(const Outcome&) = nullptr;
+	void (* const* restartFn)() = nullptr;
 };
 
 
@@ -170,7 +181,7 @@ public:
 		template<void (*Fn)(const Outcome&)>
 		constexpr Step OnOutcome() const {
 			Options next = this->LastOptions();
-			next.outcomeFn = Fn;
+			next.outcomeFn = &OutcomeHandler<Fn>;
 			return Step(this->WithLastOptions(next));
 		}
 
@@ -179,7 +190,7 @@ public:
 		template<void (*Fn)()>
 		constexpr Step OnRestart() const {
 			Options next = this->LastOptions();
-			next.restartFn = Fn;
+			next.restartFn = &RestartHandler<Fn>;
 			return Step(this->WithLastOptions(next));
 		}
 	};
@@ -484,7 +495,7 @@ public:
 		if (peer.restartReport) {
 			peer.restartReport = false;
 			if constexpr (options.restartFn != nullptr) {
-				options.restartFn();
+				(*options.restartFn)();
 			}
 		}
 
@@ -1020,7 +1031,7 @@ private:
 			if (!slot.sync) {
 				Outcome outcome{status, slot.sequence, slot.attempts,
 					std::span<const uint8>(slot.bytes.data() + header, slot.length)};
-				options.outcomeFn(outcome);
+				(*options.outcomeFn)(outcome);
 			}
 		}
 

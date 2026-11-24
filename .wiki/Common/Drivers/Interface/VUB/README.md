@@ -996,6 +996,13 @@ using ConfiguredBoard = VUB::Stack<+[] {
 }>;
 ```
 
+## Compilers
+
+The host tests (`Common/Drivers/Interface/VUB/.tool/sim/run.sh`) pass with g++ 11.4 (Ubuntu 22.04, under WSL) and g++ 15.2 (MinGW, on
+Windows 11). The header checks and the builder error snippets run with both. The microcontroller headers are checked alone with
+`arm-none-eabi-g++` 15.2 (Arm GNU Toolchain 15.2.Rel1), and the size table is measured with it. Other compilers, clang++ among them, are
+not tested.
+
 ## Status
 
 Stage 1: the core, the link state, the test kit, the host tests, the built-in blocks (CRC, COBS, length prefix, gap framing, delivery, keep-alive) and

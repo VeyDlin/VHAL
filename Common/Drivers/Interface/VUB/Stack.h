@@ -129,6 +129,7 @@ public:
 	static constexpr std::size_t perProcess = built.settings.perProcess;
 	static constexpr void (*receiveFn)(const Meta&, std::span<const uint8>) = built.settings.receiveFn;
 	static constexpr uint32 (*clockFn)() = built.settings.clockFn;
+	static constexpr bool hasClock = built.settings.hasClock;
 
 
 	explicit Stack(LinkType& linkObject) : link(&linkObject), detach(link), receiverDetach(link), blocks(MakeBlocks(std::make_index_sequence<count>{})) {
@@ -175,7 +176,7 @@ public:
 	// the chain, runs the layers' Process, and sends.
 	void Process() {
 		uint32 now = 0;
-		if (clockFn != nullptr) {
+		if constexpr (hasClock) {
 			now = clockFn();
 		}
 

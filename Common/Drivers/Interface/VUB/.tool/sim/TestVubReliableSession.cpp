@@ -145,8 +145,8 @@ void StartSession(NearType& near, SessionWire& nearWire, FarType& far, SessionWi
 
 
 // The options of the far side and of the sending side. The layer takes them as its template argument, so they are constants of it.
-constexpr VUB::ReliableOptions<40, 4> FarOptions{.restartFn = &CountRestart};
-constexpr VUB::ReliableOptions<40, 4> SendingOptions{.outcomeFn = &RecordById};
+constexpr VUB::ReliableOptions<40, 4> FarOptions{.restartFn = &VUB::RestartHandler<&CountRestart>};
+constexpr VUB::ReliableOptions<40, 4> SendingOptions{.outcomeFn = &VUB::OutcomeHandler<&RecordById>};
 using FarLayer = VUB::ReliableOf<40, 4, false, FarOptions>;
 using SendingLayer = VUB::ReliableOf<40, 4, false, SendingOptions>;
 

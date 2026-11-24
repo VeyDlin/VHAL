@@ -27,7 +27,9 @@ for snippet in "$dir"/*.cpp; do
         continue
     fi
 
-    if output="$("$cxx" -std=c++20 -fsyntax-only -I "$vhalRoot/Common" "$snippet" 2>&1)"; then
+    # LC_ALL=C makes the compiler quote names with plain apostrophes (g++ 11 uses typographic quotes in a UTF-8 locale), so the expected
+    # texts match on every system.
+    if output="$(LC_ALL=C "$cxx" -std=c++20 -fsyntax-only -I "$vhalRoot/Common" "$snippet" 2>&1)"; then
         echo "COMPILED, an error was expected: $name"
         failures=$((failures + 1))
         continue

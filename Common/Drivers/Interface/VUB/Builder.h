@@ -175,7 +175,9 @@ struct Settings {
 	std::size_t sendQueue = 4;
 	std::size_t perProcess = 8;
 	uint32 (*clockFn)() = nullptr;
+	bool hasClock = false;
 	void (*receiveFn)(const Meta&, std::span<const uint8>) = nullptr;
+	bool hasReceive = false;
 	Down whileDown = Down::Wait;
 };
 
@@ -477,6 +479,7 @@ public:
 	constexpr Builder Clock() const {
 		Builder next = *this;
 		next.settings.clockFn = Fn;
+		next.settings.hasClock = true;
 		return next;
 	}
 
@@ -495,6 +498,7 @@ public:
 	constexpr Builder OnReceive() const {
 		Builder next = *this;
 		next.settings.receiveFn = Fn;
+		next.settings.hasReceive = true;
 		return next;
 	}
 
@@ -698,9 +702,9 @@ public:
 		Require<"SendQueue() is zero">(values.sendQueue > 0);
 		Require<"the send queue holds at most 65535 packets: its indexes are 16-bit">(values.sendQueue <= 65535);
 		Require<"MaxPayload() is not given or is zero: set the largest application payload">(values.maxPayload > 0);
-		Require<"OnReceive<&Fn>() is missing: the receive handler takes each packet">(values.receiveFn != nullptr);
+		Require<"OnReceive<&Fn>() is missing: the receive handler takes each packet">(values.hasReceive);
 		Require<"PerProcess() is zero">(values.perProcess > 0);
-		Require<"a block needs time and the chain has no clock: add Clock<&Fn>() to the builder">(!NeedsTime() || values.clockFn != nullptr);
+		Require<"a block needs time and the chain has no clock: add Clock<&Fn>() to the builder">(!NeedsTime() || values.hasClock);
 		return true;
 	}
 
