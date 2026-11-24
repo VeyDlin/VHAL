@@ -14,10 +14,12 @@ namespace RequestWire {
 	inline constexpr uint8 KindRequest = 0x01;
 	inline constexpr uint8 KindInterim = 0x02;
 	inline constexpr uint8 KindFinal = 0x03;
+	inline constexpr uint8 KindCancel = 0x05;
 	inline constexpr std::size_t RequestHeader = 5;
 	inline constexpr std::size_t InterimSize = 6;
 	inline constexpr std::size_t FinalHeader = 6;
 	inline constexpr std::size_t FinalErrorSize = 5;
+	inline constexpr std::size_t CancelSize = 4;
 	inline constexpr uint8 CodeOk = 0;
 	inline constexpr uint8 CodeCancelled = 1;
 	inline constexpr uint8 CodeNotSupported = 2;
@@ -25,6 +27,7 @@ namespace RequestWire {
 	inline constexpr uint8 CodeBusy = 4;
 	inline constexpr uint8 CodeTimeout = 5;
 	inline constexpr uint8 CodeInvalidParameter = 6;
+	inline constexpr uint8 StatusCancelRefused = 0xF8;
 	inline constexpr uint8 StatusReservedFrom = 0xF0;
 
 

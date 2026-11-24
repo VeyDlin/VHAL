@@ -49,6 +49,34 @@ struct TicketInterimOps : TicketOps {
 };
 
 
+// The table of a set with a cancellable command: the cancelled call.
+struct TicketCancelOps : TicketOps {
+	ResultStatus (*cancelled)(void* layer, uint8 slotIndex, uint8 generation, uint16 number);
+};
+
+
+// The table of a set with interim commands and a cancellable command: both calls.
+struct TicketCancelInterimOps : TicketInterimOps {
+	ResultStatus (*cancelled)(void* layer, uint8 slotIndex, uint8 generation, uint16 number);
+};
+
+
+// True when the command set has a cancellable command. A set without one has no cancel call.
+template<typename Commands>
+inline constexpr bool SetIsCancellable = AnyCommandFlag(Commands::commandTable, &CommandInfo::cancellable);
+
+
+// The table type of a set: it holds exactly the calls the set has, so a call a set does not have is not built.
+template<typename Commands>
+using TicketOpsOf = std::conditional_t<
+	Commands::hasInterim && SetIsCancellable<Commands>,
+	TicketCancelInterimOps,
+	std::conditional_t<
+		Commands::hasInterim,
+		TicketInterimOps,
+		std::conditional_t<SetIsCancellable<Commands>, TicketCancelOps, TicketOps>>>;
+
+
 // The responder's ticket of one request: a value the handler holds and finishes at any time. Its calls are the layer's, through its
 // table. A ticket is valid while its slot holds the same generation and the same request number, and is open; any other ticket answers
 // notAvailable.
@@ -100,8 +128,8 @@ public:
 			return ResultStatus::notAvailable;
 		}
 
-		const TicketInterimOps* interimOps = static_cast<const TicketInterimOps*>(ops);
-		return interimOps->interim(layer, index, generation, number, static_cast<uint8>(status));
+		const TicketOpsOf<Commands>* setOps = static_cast<const TicketOpsOf<Commands>*>(ops);
+		return setOps->interim(layer, index, generation, number, static_cast<uint8>(status));
 	}
 
 
@@ -134,6 +162,18 @@ public:
 		std::array<uint8, replySize> bytes{};
 		(void)Encode(body, std::span<uint8>(bytes.data(), bytes.size()));
 		return ops->finish(layer, index, generation, number, static_cast<uint8>(status), std::span<const uint8>(bytes.data(), bytes.size()));
+	}
+
+
+	// The final operationCancelled. It is queued while the ticket is open, from any handler of the request. Only a set with a cancellable
+	// command has the call.
+	ResultStatus Cancelled() const requires (SetIsCancellable<Commands>) {
+		if (ops == nullptr) {
+			return ResultStatus::notAvailable;
+		}
+
+		const TicketOpsOf<Commands>* setOps = static_cast<const TicketOpsOf<Commands>*>(ops);
+		return setOps->cancelled(layer, index, generation, number);
 	}
 
 

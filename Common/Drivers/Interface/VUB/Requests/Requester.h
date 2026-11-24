@@ -34,8 +34,9 @@ enum class RequestStage : uint8 {
 using RequestFinalFn = void (*)(ResultStatus, uint8, std::span<const uint8>);
 
 
-// The handler of an interim: the status of the interim reply.
-using RequestInterimFn = void (*)(uint8);
+// The handler of an interim: the result and the status of the interim reply. A refused cancel is a progress with result notSupported, and its
+// status is not given.
+using RequestInterimFn = void (*)(ResultStatus, uint8);
 
 
 // The interim state of a requester slot: the handler and the last index. A set without interim commands has none.
@@ -45,13 +46,23 @@ struct RequestInterimSlot {
 };
 
 
+// The cancel state of a requester slot. requested is set by a cancel call (held or sent); sent is set when the CANCEL packet is accepted by
+// the stack; acked is set when Reliable reports the REQUEST as delivered. With no Reliable below, acked is not used.
+struct RequestCancelSlot {
+	bool requested = false;
+	bool sent = false;
+	bool acked = false;
+};
+
+
 // One request on the requester side. The handlers are the call site's, so the slot holds the function of its Send. The interim part is a
-// member only when the set has interim commands. The slot's own calls take no command type: a Send site adds only its encoding and its
-// final handler.
-template<bool Interim>
+// member only when the set has interim commands, and the cancel part only when the requester can cancel. The slot's own calls take no
+// command type: a Send site adds only its encoding and its final handler.
+template<bool Interim, bool Cancel>
 struct RequestSlot {
 	RequestFinalFn finalFn = nullptr;
 	[[no_unique_address]] std::conditional_t<Interim, RequestInterimSlot, NoStorage> interim{};
+	[[no_unique_address]] std::conditional_t<Cancel, RequestCancelSlot, NoStorage> cancel{};
 	uint32 deadlineUs = 0;
 	uint16 number = 0;
 	ResultStatus result = ResultStatus::ok;
@@ -103,7 +114,7 @@ struct RequestLink {
 template<typename Commands, typename Plan>
 class RequesterOf {
 private:
-	using Slot = RequestSlot<Plan::anyInterim>;
+	using Slot = RequestSlot<Plan::anyInterim, Plan::requesterCancels>;
 	[[no_unique_address]] std::conditional_t<(Plan::openCount > 0), std::array<Slot, Plan::openCount>, NoStorage> slots{};
 	[[no_unique_address]] std::conditional_t<Plan::sends, RequestNumbers, NoStorage> numbers{};
 	[[no_unique_address]] std::conditional_t<Plan::usesLink, RequestLink, NoStorage> link{};
@@ -216,17 +227,72 @@ public:
 	}
 
 
-	// Settles each open request whose deadline has passed with timeout. A command with no ReplyTimeoutMs has no deadline.
+	// Settles each open request whose deadline has passed: operationCancelled when a cancel was made for it (a held one counts), otherwise
+	// timeout. A command with no ReplyTimeoutMs has no deadline.
 	void Expire(uint32 nowUs) {
 		if constexpr (Plan::openCount > 0) {
 			for (Slot& slot : slots) {
 				bool timed = Commands::commandTable[slot.command].replyTimeoutMs > 0;
 				if (slot.stage == RequestStage::open && timed && !slot.armNeeded && RequestWire::Due(nowUs, slot.deadlineUs)) {
-					slot.Settle(ResultStatus::timeout);
+					slot.Settle(DeadlineResultOf(slot));
 				}
 			}
 		} else {
 			(void)nowUs;
+		}
+	}
+
+
+	// Sends each held CANCEL that can go at once: its request is acknowledged, or the layer has no Reliable below. A CANCEL the stack does
+	// not take at once stays held, and is tried again at the next call.
+	void SendHeldCancels(const Outbox& outbox) {
+		if constexpr (Plan::requesterCancels) {
+			for (Slot& slot : slots) {
+				if (slot.stage == RequestStage::open) {
+					TrySendCancel(slot, outbox);
+				}
+			}
+		} else {
+			(void)outbox;
+		}
+	}
+
+
+	// The cancel of the request with the number, made for the command with the id Id. It sends the CANCEL at once when the request can take it, and
+	// otherwise holds it. A second cancel changes nothing. Returns notFound when no open request has the number.
+	template<auto Id>
+	ResultStatus Cancel(uint16 number, const Outbox& outbox) {
+		if constexpr (Plan::requesterCancels) {
+			Slot* slot = FindOpenOfCommand<Id>(number);
+			if (slot == nullptr) {
+				return ResultStatus::notFound;
+			}
+
+			if (!slot->cancel.requested) {
+				slot->cancel.requested = true;
+				TrySendCancel(*slot, outbox);
+			}
+
+			return ResultStatus::ok;
+		} else {
+			(void)number;
+			(void)outbox;
+			return ResultStatus::notFound;
+		}
+	}
+
+
+	// Cancels every open request of a cancellable command. Each request gets its own CANCEL, sent at once or held, as Cancel does.
+	void CancelAll(const Outbox& outbox) {
+		if constexpr (Plan::requesterCancels) {
+			for (Slot& slot : slots) {
+				if (slot.stage == RequestStage::open && Commands::commandTable[slot.command].cancellable && !slot.cancel.requested) {
+					slot.cancel.requested = true;
+					TrySendCancel(slot, outbox);
+				}
+			}
+		} else {
+			(void)outbox;
 		}
 	}
 
@@ -287,6 +353,8 @@ public:
 
 			if (outcome.status != ResultStatus::ok || Commands::commandTable[slot->command].level == 2) {
 				slot->Settle(outcome.status);
+			} else if constexpr (Plan::requesterCancels) {
+				slot->cancel.acked = true;
 			}
 		} else {
 			(void)outcome;
@@ -349,7 +417,12 @@ public:
 				return ResultStatus::ok;
 			}
 
-			if (status >= RequestWire::StatusReservedFrom) {
+			bool refused = false;
+			if constexpr (Plan::cancellable) {
+				refused = status == RequestWire::StatusCancelRefused;
+			}
+
+			if (status >= RequestWire::StatusReservedFrom && !refused) {
 				return ResultStatus::invalidData;
 			}
 
@@ -359,9 +432,13 @@ public:
 
 			slot->interim.lastIndex = index;
 			slot->armNeeded = true;
-			void (*handler)(uint8) = slot->interim.interimFn;
+			RequestInterimFn handler = slot->interim.interimFn;
 			if (handler != nullptr) {
-				handler(status);
+				if (refused) {
+					handler(ResultStatus::notSupported, 0);
+				} else {
+					handler(ResultStatus::ok, status);
+				}
 			}
 		}
 
@@ -423,6 +500,9 @@ private:
 		slot->stage = RequestStage::open;
 		slot->armNeeded = true;
 		slot->finalFn = finalFn;
+		if constexpr (Plan::requesterCancels) {
+			slot->cancel = RequestCancelSlot{};
+		}
 		if constexpr (Plan::anyInterim) {
 			slot->interim.lastIndex = 0;
 			slot->interim.interimFn = interimFn;
@@ -522,6 +602,59 @@ private:
 	}
 
 
+	// The open request with the number, made by the command with the id Id, or nullptr.
+	template<auto Id>
+	Slot* FindOpenOfCommand(uint16 number) {
+		constexpr uint8 command = static_cast<uint8>(CommandIndexOf<Id>());
+		for (Slot& slot : slots) {
+			if (slot.stage == RequestStage::open && slot.number == number && slot.command == command) {
+				return &slot;
+			}
+		}
+
+		return nullptr;
+	}
+
+
+	// The result of a deadline: operationCancelled when a cancel was made for the request (a held one counts), otherwise timeout.
+	ResultStatus DeadlineResultOf(const Slot& slot) const {
+		if constexpr (Plan::requesterCancels) {
+			if (slot.cancel.requested) {
+				return ResultStatus::operationCancelled;
+			}
+		}
+
+		(void)slot;
+		return ResultStatus::timeout;
+	}
+
+
+	// Sends the CANCEL of a request that asked for one, when it can go at once: the request is acknowledged, or there is no Reliable below.
+	// A send the stack refuses leaves the cancel held; it is sent by the next call.
+	void TrySendCancel(Slot& slot, const Outbox& outbox) {
+		if constexpr (Plan::requesterCancels) {
+			if (!slot.cancel.requested || slot.cancel.sent) {
+				return;
+			}
+
+			if (Plan::ownerBelow && !slot.cancel.acked) {
+				return;
+			}
+
+			std::array<uint8, RequestWire::CancelSize> packet{};
+			packet[0] = RequestWire::KindCancel;
+			PutLe16(packet.data() + 1, slot.number);
+			packet[3] = slot.tag;
+			if (outbox.Send(std::span<const uint8>(packet.data(), packet.size())) == ResultStatus::ok) {
+				slot.cancel.sent = true;
+			}
+		} else {
+			(void)slot;
+			(void)outbox;
+		}
+	}
+
+
 	uint32 TimeoutUsOf(uint8 command) const {
 		return Commands::commandTable[command].replyTimeoutMs * 1000u;
 	}
@@ -564,10 +697,14 @@ private:
 
 
 	template<auto Id, auto OnInterim>
-	static void RunInterim(uint8 status) {
+	static void RunInterim(ResultStatus result, uint8 status) {
 		using CommandType = CommandOf<Commands, Id>;
 		Progress<typename CommandType::StatusType> progress{};
-		progress.status = static_cast<typename CommandType::StatusType>(status);
+		progress.result = result;
+		if (result == ResultStatus::ok) {
+			progress.status = static_cast<typename CommandType::StatusType>(status);
+		}
+
 		OnInterim(progress);
 	}
 };
