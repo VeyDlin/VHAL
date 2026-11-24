@@ -177,7 +177,7 @@ using PolledPacket = VUB::Stack<+[] {
 }>;
 
 
-// The same chains as the size measurement of the stage 2 notes: their sizes must not change for a link with neither member.
+// Chains of a link with neither SetReceiver nor Poll: the receiver adds nothing to their size.
 using PlainPacketStack = VUB::Stack<+[] {
 	return VUB::Builder()
 		.Link<PlainPacketLink>()

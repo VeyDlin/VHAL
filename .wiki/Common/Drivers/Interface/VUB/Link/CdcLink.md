@@ -43,8 +43,10 @@ in `Poll`, so a change reaches the stack at the next `Process`, which polls firs
 The sample also reads the function's session generation (`GetSessionGeneration()`), which changes at every configuration and bus reset.
 A change of the generation between two samples ends the session the link was up in, so while the link is up it is reported as a fall,
 `Report(false)`, and then as a rise, `Report(true)`, when the state is up again. A session that ends and starts again between two
-`Process` calls is therefore seen, and the stack drops what it held of the old session. A session change while the link is down is no
-event.
+`Process` calls is therefore seen, and the stack handles the fall as any other: it clears its receive ring, and its half-written frame is
+rewound under `WhileDown(VUB::Down::Wait)` or dropped under `VUB::Down::Fail`. The bytes the function already holds stay in the function
+(see the next section). A session change while the link is
+down is no event.
 
 ## Falls in the middle of a frame
 

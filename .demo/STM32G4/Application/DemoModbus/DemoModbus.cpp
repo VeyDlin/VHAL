@@ -1,5 +1,5 @@
 #include <DemoModbus/DemoModbus.h>
-#include <DemoModbus/WrappingClock.h>
+#include <Shared/WrappingClock.h>
 #include <Drivers/Interface/Modbus/ModbusServer.h>
 #include <Drivers/Interface/Modbus/RTU/RtuFramer.h>
 #include <Drivers/Interface/Modbus/RTU/RtuTransport.h>

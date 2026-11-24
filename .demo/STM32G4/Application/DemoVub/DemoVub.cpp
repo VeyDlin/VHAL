@@ -1,5 +1,5 @@
 #include <DemoVub/DemoVub.h>
-#include <DemoModbus/WrappingClock.h>
+#include <Shared/WrappingClock.h>
 #include <DemoVub/Descriptors/VubDescriptors.h>
 #include <DemoVub/Echo/EchoQueue.h>
 #include <DemoVub/Function/VubFunctions.h>

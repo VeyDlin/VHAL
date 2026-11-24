@@ -12,7 +12,7 @@
 #include <span>
 
 // The delivery layer's sessions under the path contract: the path keeps the send order and may lose or duplicate packets. Each case of
-// the version 2 model check (sessions of one boot, a sync of an earlier session, a copy of an old packet, a window slid by a packet from
+// the session model check (sessions of one boot, a sync of an earlier session, a copy of an old packet, a window slid by a packet from
 // far ahead) is run here as a deterministic test. Some of them replay a copy of a packet the path would have to hold for a whole session;
 // the copy is passed to the receiver by hand, and the session rules must refuse it. Payloads start with a 16-bit id.
 
