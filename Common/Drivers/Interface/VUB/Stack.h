@@ -29,6 +29,14 @@ concept HasConcurrentMember = requires(Options& options) {
 };
 
 
+// The options that have an ownerBelow member: a layer that works with and without the owner of its outcomes reads there whether the block
+// below it takes the owner (ownerOptional on the layer).
+template<typename Options>
+concept HasOwnerBelowMember = requires(Options& options) {
+	options.ownerBelow;
+};
+
+
 // A block that takes the owner of the layer above it: its Options can be wired with OwnedBy<Above>.
 template<typename Block, typename Above>
 concept TakesOwnerOf = requires(typename Block::Options options) {
@@ -54,11 +62,18 @@ inline void RaiseHighWater(volatile uint8& high, std::size_t fill) {
 
 
 // The options of entry Index of a chain, with what the chain gives them: a layer whose options have a concurrent member gets the chain's
-// Concurrent() flag.
+// Concurrent() flag, and one whose options have an ownerBelow member gets whether the block below it takes the owner of a layer above it.
 template<std::size_t Index, typename Chain>
 constexpr typename std::tuple_element_t<Index, typename Chain::Tuple>::OptionsType WiredOptionsOf(const Chain& chain) {
 	using Entry = std::tuple_element_t<Index, typename Chain::Tuple>;
 	typename Entry::OptionsType value = ListAt<Index>(chain.entries).options;
+	if constexpr (Entry::kind == BlockKind::layer && HasOwnerBelowMember<decltype(value)>) {
+		if constexpr (Index + 1 < std::tuple_size_v<typename Chain::Tuple>) {
+			using Below = std::tuple_element_t<Index + 1, typename Chain::Tuple>;
+			value.ownerBelow = TakesOwnerOf<typename Below::BlockType, typename Entry::BlockType>;
+		}
+	}
+
 	if constexpr (Entry::kind == BlockKind::layer && HasConcurrentMember<decltype(value)>) {
 		value.concurrent = chain.settings.concurrent;
 	}
@@ -694,9 +709,11 @@ private:
 				static_assert(Index + 1 < count, "a layer that declares wantsOwner has no block below it: its owner goes to the layer below");
 				if constexpr (Index + 1 < count) {
 					using Below = std::tuple_element_t<Index + 1, Tuple>;
-					static_assert(TakesOwnerOf<typename Below::BlockType, typename Entry::BlockType>,
+					static_assert(TakesOwnerOf<typename Below::BlockType, typename Entry::BlockType> || Entry::OwnerOptional(),
 						"the block below a layer that declares wantsOwner must take its owner: use VUB::Reliable");
-					std::get<Index + 1>(blocks).SetOwner(static_cast<void*>(&std::get<Index>(blocks)));
+					if constexpr (TakesOwnerOf<typename Below::BlockType, typename Entry::BlockType>) {
+						std::get<Index + 1>(blocks).SetOwner(static_cast<void*>(&std::get<Index>(blocks)));
+					}
 				}
 			}
 

@@ -1125,6 +1125,11 @@ owner pointing at the old one.
 A layer above with `wantsOwner` takes both handlers, so the application's `OnOutcome` and `OnRestart` on that Reliable do not compile.
 `OnRestartOwner<&Fn>()` is the restart with the owner pointer for a Reliable with no such layer above it; there the owner is null.
 
+A layer that works with and without an owner below it declares `static constexpr bool ownerOptional = true`, so a block below that takes
+no owner (a framing, a link) is no compile error. It reads what is below it through an options member `bool ownerBelow = false`: the
+builder sets it to true when the block below takes the owner, so the layer knows at compile time whether its outcomes exist. A layer
+without `ownerOptional` above a block that takes no owner does not compile.
+
 ```cpp
 // A layer above Reliable that counts the outcomes of its packets and the restarts, through its owner pointer.
 struct Owned {

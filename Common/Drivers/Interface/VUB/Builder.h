@@ -129,6 +129,21 @@ struct BlockEntry {
 	}
 
 
+	// Whether the block is a layer that works with and without the owner of the block below it (ownerOptional = true): a block below that takes
+	// no owner is no error.
+	static constexpr bool OwnerOptional() {
+		if constexpr (Kind == BlockKind::layer) {
+			if constexpr (requires { Block::ownerOptional; }) {
+				return Block::ownerOptional;
+			} else {
+				return false;
+			}
+		} else {
+			return false;
+		}
+	}
+
+
 	// Whether the block is a layer that reads the stack's counters (usesCounters = true): it may call outbox.Counters().
 	static constexpr bool UsesCounters() {
 		if constexpr (Kind == BlockKind::layer) {

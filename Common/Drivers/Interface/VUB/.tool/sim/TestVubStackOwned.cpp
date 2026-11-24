@@ -88,6 +88,94 @@ public:
 };
 
 
+struct OptionalOwnerOptions {
+	uint8 pad = 0;
+	bool ownerBelow = false;
+};
+
+
+// A layer that works with and without the owner of its outcomes: the builder tells it through ownerBelow what is below it.
+template<OptionalOwnerOptions Value = OptionalOwnerOptions{}>
+class OptionalOwnerLayerOf {
+public:
+	using Options = OptionalOwnerOptions;
+
+	template<OptionalOwnerOptions value>
+	using Configured = OptionalOwnerLayerOf<value>;
+
+
+	template<typename Builder>
+	struct Step : Builder {
+		explicit constexpr Step(const Builder& base) : Builder(base) {
+		}
+
+
+		constexpr Step Pad(uint8 value) const {
+			Options next = this->LastOptions();
+			next.pad = value;
+			return Step(this->WithLastOptions(next));
+		}
+	};
+
+
+	static constexpr std::size_t header = 0;
+	static constexpr uint32 fingerprint = 0x4F574E32;
+	static constexpr bool usesTime = false;
+	static constexpr bool makesBulk = false;
+	static constexpr bool wantsOwner = true;
+	static constexpr bool ownerOptional = true;
+	static constexpr bool hasOwner = Value.ownerBelow;
+	static constexpr uint8 padValue = Value.pad;
+
+
+	uint32 okCount = 0;
+
+
+	static void DeliveryOutcome(const VUB::Outcome& outcome) {
+		OptionalOwnerLayerOf* self = static_cast<OptionalOwnerLayerOf*>(outcome.owner);
+		if (outcome.status == ResultStatus::ok) {
+			self->okCount++;
+		}
+	}
+
+
+	static void DeliveryRestart(void*) {
+	}
+
+
+	bool HasOwner() const {
+		return hasOwner;
+	}
+
+
+	uint8 Pad() const {
+		return padValue;
+	}
+
+
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = in[index];
+		}
+
+		return in.size();
+	}
+
+
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
+	}
+
+
+	void Process(uint32, const VUB::Outbox&) {
+	}
+};
+
+
 // The same shape with a Handle: the application reaches the layer through the stack.
 struct HandledLayer {
 	static constexpr std::size_t header = 0;
@@ -166,6 +254,29 @@ using OwnedDefaultStack = VUB::Stack<+[] {
 }>;
 
 
+using OptionalOverReliable = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Layer<OptionalOwnerLayerOf<>>().Pad(3)
+		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
+		.Link<ReportingPacketEnd>()
+		.MaxPayload(40)
+		.ReceiveQueue(4)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
+using OptionalOverLink = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Layer<OptionalOwnerLayerOf<>>().Pad(3)
+		.Link<ReportingPacketEnd>()
+		.MaxPayload(40)
+		.ReceiveQueue(4)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
 using HandledStack = VUB::Stack<+[] {
 	return VUB::Builder()
 		.Layer<HandledLayer>()
@@ -189,7 +300,7 @@ using HandledConcurrentStack = VUB::Stack<+[] {
 }>;
 
 
-// Runs one delivered packet over the two stacks and returns the stack's stored owner layer, or an empty layer for a stack without one.
+// Runs one delivered packet over two stacks, and checks that its outcome reached the stored owner layer and wrote nothing else there.
 template<typename Stack>
 void RunDelivered() {
 	ReportingPacketLine line(VUB::Faults{});
@@ -232,9 +343,46 @@ void TestHandleSendsOnlyOutsideAConcurrentStack() {
 }
 
 
+// A layer with ownerOptional gets its outcomes above Reliable, and builds above a block that takes no owner. It knows which one it is.
+void TestOptionalOwnerFollowsTheBlockBelow() {
+	ReportingPacketLine line(VUB::Faults{});
+	OptionalOverReliable near(line.a);
+	OptionalOverReliable far(line.b);
+	near.Find<VUB::ReliableOf<40, 4>>().SetSession(1);
+	far.Find<VUB::ReliableOf<40, 4>>().SetSession(2);
+	std::array<uint8, 4> payload = {1, 2, 3, 4};
+	ResultStatus sent = ResultStatus::busy;
+	for (int round = 0; round < 12; round++) {
+		if (sent != ResultStatus::ok) {
+			sent = near.Send(std::span<const uint8>(payload.data(), payload.size()));
+		}
+
+		near.Process();
+		line.DeliverToB(far);
+		far.Process();
+		line.DeliverToA(near);
+		near.Process();
+	}
+
+	SIM_EXPECT(sent == ResultStatus::ok);
+	SIM_EXPECT(near.Find<OptionalOwnerLayerOf<>>().HasOwner());
+	SIM_EXPECT(near.Find<OptionalOwnerLayerOf<>>().Pad() == 3);
+	SIM_EXPECT(near.Find<OptionalOwnerLayerOf<>>().okCount == 1);
+
+	ReportingPacketLine plainLine(VUB::Faults{});
+	OptionalOverLink plain(plainLine.a);
+	SIM_EXPECT(!plain.Find<OptionalOwnerLayerOf<>>().HasOwner());
+	SIM_EXPECT(plain.Find<OptionalOwnerLayerOf<>>().Pad() == 3);
+	SIM_EXPECT(plain.Send(std::span<const uint8>(payload.data(), payload.size())) == ResultStatus::ok);
+	plain.Process();
+	SIM_EXPECT(plain.Find<OptionalOwnerLayerOf<>>().okCount == 0);
+}
+
+
 int main() {
 	RunDelivered<OwnedDefaultStack>();
 	RunDelivered<OwnedStack>();
 	TestHandleSendsOnlyOutsideAConcurrentStack();
+	TestOptionalOwnerFollowsTheBlockBelow();
 	return SimFinish("TestVubStackOwned");
 }
