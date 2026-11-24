@@ -17,10 +17,10 @@
 // ActuatorClockUs is the microsecond clock of the stacks. The board defines it in DemoVub.cpp and the host loopback test in its own file.
 namespace DemoVub {
 
-using SetTicket = VUB::Ticket<Actuator::ActuatorCommands, "actuator.set">;
-using SweepTicket = VUB::Ticket<Actuator::ActuatorCommands, "actuator.sweep">;
-using HangTicket = VUB::Ticket<Actuator::ActuatorCommands, "actuator.hang">;
-using CountersTicket = VUB::Ticket<Actuator::ActuatorCommands, "actuator.counters">;
+using SetTicket = VUB::Ticket<Actuator::ActuatorCommands, Actuator::ActuatorCommand::set>;
+using SweepTicket = VUB::Ticket<Actuator::ActuatorCommands, Actuator::ActuatorCommand::sweep>;
+using HangTicket = VUB::Ticket<Actuator::ActuatorCommands, Actuator::ActuatorCommand::hang>;
+using CountersTicket = VUB::Ticket<Actuator::ActuatorCommands, Actuator::ActuatorCommand::counters>;
 
 // The sweeps the device runs at once. Each stack has four tickets, so a sweep that holds one of them is one of eight.
 constexpr std::size_t SweepSlots = 8;
@@ -178,12 +178,12 @@ void OnPayload(const VUB::Meta&, std::span<const uint8> payload) {
 
 
 using DeviceHandlers = VUB::Handlers<
-	VUB::On<"actuator.set", &OnSet>,
-	VUB::On<"actuator.sweep", &OnSweep>,
-	VUB::On<"actuator.kick", &OnKick>,
-	VUB::On<"actuator.nudge", &OnNudge>,
-	VUB::On<"actuator.hang", &OnHang>,
-	VUB::On<"actuator.counters", &OnCounters>>;
+	VUB::On<Actuator::ActuatorCommand::set, &OnSet>,
+	VUB::On<Actuator::ActuatorCommand::sweep, &OnSweep>,
+	VUB::On<Actuator::ActuatorCommand::kick, &OnKick>,
+	VUB::On<Actuator::ActuatorCommand::nudge, &OnNudge>,
+	VUB::On<Actuator::ActuatorCommand::hang, &OnHang>,
+	VUB::On<Actuator::ActuatorCommand::counters, &OnCounters>>;
 
 
 // The chain of the device's UART: the requests over Reliable, CRC-16/MODBUS, then COBS. Four tickets; the payload is 32 bytes, the

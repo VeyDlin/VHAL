@@ -20,8 +20,7 @@
 // A sweep is sent only when no other sweep is open, so the interims between a sweep's send and its final are its own.
 namespace VubBoard {
 	namespace RequestsCheck {
-		using Command = Actuator::ActuatorCommands;
-		using Status = Actuator::ActuatorStatus;
+			using Status = Actuator::ActuatorStatus;
 
 
 		// The kinds of request of the plan. Each kind is one command, except absent, which the device does not serve.
@@ -268,7 +267,7 @@ namespace VubBoard {
 					body.token = token;
 					body.level = planned.level;
 					body.mode = planned.mode;
-					Result<VUB::RequestId> sent = handle.template Send<"actuator.set", &OnSetFinal>(body);
+					Result<VUB::RequestId> sent = handle.template Send<Actuator::ActuatorCommand::set, &OnSetFinal>(body);
 					return sent.IsOk() ? ResultStatus::ok : sent.Error();
 				}
 
@@ -277,32 +276,32 @@ namespace VubBoard {
 					body.token = token;
 					body.steps = planned.steps;
 					body.stepMs = planned.stepMs;
-					Result<VUB::RequestId> sent = handle.template Send<"actuator.sweep", &OnSweepFinal, &OnSweepInterim>(body);
+					Result<VUB::RequestId> sent = handle.template Send<Actuator::ActuatorCommand::sweep, &OnSweepFinal, &OnSweepInterim>(body);
 					return sent.IsOk() ? ResultStatus::ok : sent.Error();
 				}
 
 				case Kind::kick: {
 					Actuator::TokenBody body{};
 					body.token = token;
-					Result<VUB::RequestId> sent = handle.template Send<"actuator.kick", &OnKickFinal>(body);
+					Result<VUB::RequestId> sent = handle.template Send<Actuator::ActuatorCommand::kick, &OnKickFinal>(body);
 					return sent.IsOk() ? ResultStatus::ok : sent.Error();
 				}
 
 				case Kind::nudge: {
 					Actuator::TokenBody body{};
 					body.token = token;
-					return handle.template Fire<"actuator.nudge">(body);
+					return handle.template Fire<Actuator::ActuatorCommand::nudge>(body);
 				}
 
 				case Kind::hang: {
 					Actuator::TokenBody body{};
 					body.token = token;
-					Result<VUB::RequestId> sent = handle.template Send<"actuator.hang", &OnHangFinal>(body);
+					Result<VUB::RequestId> sent = handle.template Send<Actuator::ActuatorCommand::hang, &OnHangFinal>(body);
 					return sent.IsOk() ? ResultStatus::ok : sent.Error();
 				}
 
 				case Kind::absent: {
-					Result<VUB::RequestId> sent = handle.template Send<"actuator.absent", &OnAbsentFinal>(VUB::NoBody{});
+					Result<VUB::RequestId> sent = handle.template Send<Actuator::ActuatorCommand::absent, &OnAbsentFinal>(VUB::NoBody{});
 					return sent.IsOk() ? ResultStatus::ok : sent.Error();
 				}
 			}
@@ -317,7 +316,7 @@ namespace VubBoard {
 		bool ReadCounters(HandleType& handle, StackType& stack, std::chrono::steady_clock::time_point deadline) {
 			countersArrived = false;
 			while (true) {
-				Result<VUB::RequestId> sent = handle.template Send<"actuator.counters", &OnCountersFinal>(VUB::NoBody{});
+				Result<VUB::RequestId> sent = handle.template Send<Actuator::ActuatorCommand::counters, &OnCountersFinal>(VUB::NoBody{});
 				if (sent.IsOk()) {
 					break;
 				}

@@ -71,19 +71,26 @@ namespace VubBoard {
 	using HidLinkType = LossyPacket<VUB::PC::HidLink<64>>;
 
 
-	// The chain of the device's UART: CRC-16/MODBUS over the payload, then COBS.
-	using UartChain = VUB::Stack<+[] {
-		return VUB::Builder()
-			.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
-			.OnOutcome<&OnOutcome>()
-			.OnRestart<&OnRestart>()
-			.Transform<VUB::Crc16Modbus>()
-			.Framing<VUB::Cobs>()
-			.Link<UartLinkType>()
-			.MaxPayload(32)
-			.OnReceive<&OnEcho>()
-			.Clock<&ClockUs>();
-	}>;
+	// The chain of the device's UART: CRC-16/MODBUS over the payload, then COBS. The link is a template argument, so the host loopback
+	// can run the same chain over its own link.
+	template<typename LinkType>
+	struct UartChainOf {
+		using Type = VUB::Stack<+[] {
+			return VUB::Builder()
+				.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
+				.OnOutcome<&OnOutcome>()
+				.OnRestart<&OnRestart>()
+				.Transform<VUB::Crc16Modbus>()
+				.Framing<VUB::Cobs>()
+				.Link<LinkType>()
+				.MaxPayload(32)
+				.template OnReceive<&OnEcho>()
+				.template Clock<&ClockUs>();
+		}>;
+	};
+
+
+	using UartChain = UartChainOf<UartLinkType>::Type;
 
 
 	// The chain of the device's CDC-ACM serial port: COBS.

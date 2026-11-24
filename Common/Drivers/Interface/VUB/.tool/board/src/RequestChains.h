@@ -20,18 +20,24 @@ namespace VubBoard {
 	}
 
 
-	// The chain of the device's UART: CRC-16/MODBUS over the payload, then COBS.
-	using UartRequestsChain = VUB::Stack<+[] {
-		return VUB::Builder()
-			.Layer<VUB::Requests<Actuator::ActuatorCommands, VUB::Handlers<>>>().Open(8)
-			.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
-			.Transform<VUB::Crc16Modbus>()
-			.Framing<VUB::Cobs>()
-			.Link<UartLinkType>()
-			.MaxPayload(32)
-			.OnReceive<&OnRequestPayload>()
-			.Clock<&ClockUs>();
-	}>;
+	// The chain of the device's UART: CRC-16/MODBUS over the payload, then COBS. The link is a template argument (see UartChainOf).
+	template<typename LinkType>
+	struct UartRequestsChainOf {
+		using Type = VUB::Stack<+[] {
+			return VUB::Builder()
+				.Layer<VUB::Requests<Actuator::ActuatorCommands, VUB::Handlers<>>>().Open(8)
+				.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
+				.Transform<VUB::Crc16Modbus>()
+				.Framing<VUB::Cobs>()
+				.Link<LinkType>()
+				.MaxPayload(32)
+				.template OnReceive<&OnRequestPayload>()
+				.template Clock<&ClockUs>();
+		}>;
+	};
+
+
+	using UartRequestsChain = UartRequestsChainOf<UartLinkType>::Type;
 
 
 	// The chain of the device's CDC-ACM serial port: COBS.

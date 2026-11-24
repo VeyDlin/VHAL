@@ -5,14 +5,17 @@
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
+#include <array>
 #include <cstddef>
+#include <map>
 #include <span>
 #include <vector>
 
 
 namespace VubBoard {
 	// Frame ends of the stream framings the board chains use. Each returns the length of the first whole frame in the bytes, or 0 when the
-	// frame is not complete yet. The bytes start at a frame boundary, because the stack writes whole frames in order.
+	// frame is not complete yet. The bytes start at a frame boundary, because the stack writes whole frames in order. Body gives the
+	// packet the frame carries (the Reliable packet), without the framing.
 	struct CobsFrames {
 		// COBS ends a frame with its zero byte, which is the frame's last byte.
 		static std::size_t FrameLength(std::span<const uint8> bytes) {
@@ -23,6 +26,26 @@ namespace VubBoard {
 			}
 
 			return 0;
+		}
+
+
+		// Decodes the frame: its zero byte is left out, and each code byte gives the zero that the frame's data replaces.
+		static std::vector<uint8> Body(std::span<const uint8> frame) {
+			std::vector<uint8> out;
+			std::size_t count = frame.size() - 1;
+			std::size_t index = 0;
+			while (index < count) {
+				uint8 code = frame[index++];
+				for (uint8 step = 1; step < code && index < count; step++) {
+					out.push_back(frame[index++]);
+				}
+
+				if (code != 0xFF && index < count) {
+					out.push_back(0);
+				}
+			}
+
+			return out;
 		}
 	};
 
@@ -41,6 +64,61 @@ namespace VubBoard {
 			std::size_t total = HeaderBytes + length;
 			return bytes.size() < total ? 0 : total;
 		}
+
+
+		static std::vector<uint8> Body(std::span<const uint8> frame) {
+			return std::vector<uint8>(frame.begin() + static_cast<std::ptrdiff_t>(HeaderBytes), frame.end());
+		}
+	};
+
+
+	// The guard of the loss. A periodic loss can take the same packet on every attempt: the resends come at a fixed spacing, and the spacing
+	// can be a multiple of the period. Then Retries gives up on a packet that the stack would have delivered. The guard keeps a frame when
+	// Limit frames of its packet, or of the acknowledgement it carries, have already been dropped. Limit is the chains' Retries(3), so a
+	// packet always has one attempt through, and a give-up under the loss is a fault of the stack. A frame that is kept is counted as sent.
+	// It reads the two-byte sequence layout of Reliable (the board chains use it).
+	class LossGuard {
+	public:
+		static constexpr std::size_t Limit = 3;
+
+
+		// True when the frame may be dropped; the drop is then counted for each of its keys.
+		bool Admit(std::span<const uint8> body) {
+			std::array<uint32, 2> keys{};
+			std::size_t count = 0;
+			if (body.size() >= 4) {
+				uint8 flags = body[0];
+				if ((flags & 0x01) != 0) {
+					keys[count++] = KeyOf(0, body[2], body[3]);
+				}
+
+				std::size_t ackAt = (flags & 0x01) != 0 ? 6 : 2;
+				if ((flags & 0x02) != 0 && body.size() >= ackAt + 2) {
+					keys[count++] = KeyOf(1, body[ackAt], body[ackAt + 1]);
+				}
+			}
+
+			for (std::size_t index = 0; index < count; index++) {
+				if (drops[keys[index]] >= Limit) {
+					return false;
+				}
+			}
+
+			for (std::size_t index = 0; index < count; index++) {
+				drops[keys[index]]++;
+			}
+
+			return true;
+		}
+
+
+	private:
+		static uint32 KeyOf(uint32 kind, uint8 low, uint8 high) {
+			return (kind << 16) | static_cast<uint32>(low) | (static_cast<uint32>(high) << 8);
+		}
+
+
+		std::map<uint32, std::size_t> drops;
 	};
 
 
@@ -62,6 +140,7 @@ namespace VubBoard {
 		std::size_t dropEvery = 0;
 		std::size_t frames = 0;
 		std::size_t dropped = 0;
+		LossGuard guard;
 		// Bytes of the frame at the front of pending that is being sent to the inner link. Zero when no frame is being sent.
 		std::size_t sending = 0;
 
@@ -116,7 +195,7 @@ namespace VubBoard {
 					}
 
 					frames++;
-					if (dropEvery > 0 && frames % dropEvery == 0) {
+					if (dropEvery > 0 && frames % dropEvery == 0 && guard.Admit(Frames::Body(std::span<const uint8>(pending.data(), length)))) {
 						pending.erase(pending.begin(), pending.begin() + static_cast<std::ptrdiff_t>(length));
 						dropped++;
 						continue;
@@ -151,6 +230,7 @@ namespace VubBoard {
 		std::size_t dropEvery = 0;
 		std::size_t sends = 0;
 		std::size_t dropped = 0;
+		LossGuard guard;
 
 
 	public:
@@ -181,7 +261,7 @@ namespace VubBoard {
 
 		ResultStatus Send(std::span<const uint8> packet) {
 			sends++;
-			if (dropEvery > 0 && sends % dropEvery == 0) {
+			if (dropEvery > 0 && sends % dropEvery == 0 && guard.Admit(packet)) {
 				dropped++;
 				return ResultStatus::ok;
 			}

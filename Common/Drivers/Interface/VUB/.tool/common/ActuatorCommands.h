@@ -149,40 +149,55 @@ struct BodyOf<Actuator::Counters> {
 
 namespace Actuator {
 
-// The commands. The ids are the device's and the PC's. actuator.absent has no handler on the device, so the device refuses it as not
-// supported; the PC uses it for that refusal. The description is a named function, not a lambda: a field of a type built on a lambda
-// has internal linkage, and the ticket fields of the device's sweep jobs would warn about it.
+// The ids of the commands: the value is the id on the wire, so it never changes.
+enum class ActuatorCommand : uint8 {
+	set = 0x12,
+	sweep = 0x13,
+	kick = 0x14,
+	nudge = 0x15,
+	hang = 0x16,
+	counters = 0x17,
+	absent = 0x7F
+};
+
+
+// The commands. absent has no handler on the device, so the device refuses it as not supported; the PC uses it for that refusal. The
+// description is a named function, not a lambda: a field of a type built on a lambda has internal linkage, and the ticket fields of the
+// device's sweep jobs would warn about it.
+//
+// The reply deadlines leave room for the loss check: with Retries(3) and TimeoutMs(200) a request can arrive 600 ms late, and its final can
+// wait as long for a free place in the device's window.
 constexpr auto DescribeActuator() {
 	return VUB::Commands()
-		.Command<"actuator.set", 0x12>()
+		.Command<ActuatorCommand::set>()
 			.Request<SetBody>()
 			.Reply<ActuatorStatus, SetReport>()
-			.ReplyTimeoutMs(1000)
+			.ReplyTimeoutMs(3000)
 			.TicketTimeoutMs(1000)
-		.Command<"actuator.sweep", 0x13>()
+		.Command<ActuatorCommand::sweep>()
 			.Request<SweepBody>()
 			.Reply<ActuatorStatus, SweepReport>()
 			.Interim()
 			.ReplyTimeoutMs(12000)
 			.TicketTimeoutMs(2000)
-		.Command<"actuator.kick", 0x14>()
+		.Command<ActuatorCommand::kick>()
 			.Request<TokenBody>()
 			.NoReply()
-		.Command<"actuator.nudge", 0x15>()
+		.Command<ActuatorCommand::nudge>()
 			.Request<TokenBody>()
 			.Fire()
-		.Command<"actuator.hang", 0x16>()
+		.Command<ActuatorCommand::hang>()
 			.Request<TokenBody>()
 			.Reply<ActuatorStatus>()
 			.ReplyTimeoutMs(2000)
 			.TicketTimeoutMs(300)
-		.Command<"actuator.counters", 0x17>()
+		.Command<ActuatorCommand::counters>()
 			.Reply<ActuatorStatus, Counters>()
-			.ReplyTimeoutMs(1000)
+			.ReplyTimeoutMs(3000)
 			.TicketTimeoutMs(1000)
-		.Command<"actuator.absent", 0x7F>()
+		.Command<ActuatorCommand::absent>()
 			.Reply<ActuatorStatus>()
-			.ReplyTimeoutMs(1000);
+			.ReplyTimeoutMs(3000);
 }
 
 using ActuatorCommands = VUB::CommandSet<&DescribeActuator>;
