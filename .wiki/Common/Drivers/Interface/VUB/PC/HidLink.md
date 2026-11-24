@@ -29,8 +29,8 @@ Members: `Open(vendorId, productId, usagePage)`, `Close()`, `IsOpen()`, `Send(sp
    IDs, and `HidP_GetCaps` (from `HidD_GetPreparsedData`) gives the usage page; a usage page of zero matches any.
 3. The report lengths of the OS are read from the caps. Each must be `ReportBytes`, or `ReportBytes + 1` with the ID byte in front of the
    report. The read and the write use the length the caps give.
-4. One overlapped `ReadFile` of an input report is pending into the link's buffer. A report that is complete is held until the receiver has
-   room, then fed as a packet.
+4. One overlapped `ReadFile` of an input report is pending into the link's buffer. A read that the OS can answer from the reports it holds
+   completes at once. A report that is complete is held until the receiver has room, then fed as a packet.
 5. `Send` checks the previous write first. It returns `busy` while that write is pending, and the packet is packed into the output report
    only once the previous write has completed, so a report on its way is never overwritten. Otherwise it packs the packet and starts an
    overlapped `WriteFile`, and returns `ok` once the report is on its way.
@@ -40,11 +40,20 @@ Members: `Open(vendorId, productId, usagePage)`, `Close()`, `IsOpen()`, `Send(sp
 1. The nodes `/dev/hidraw0` to `/dev/hidraw63` are opened with `O_NONBLOCK`. `HIDIOCGRAWINFO` gives the vendor and product IDs of each.
 2. When a usage page is given, it is read from the report descriptor (`HIDIOCGRDESCSIZE` and `HIDIOCGRDESC`): the first Usage Page item of
    the descriptor. Zero matches any usage page.
-3. `Poll` reads one report with `read` when none is held, and feeds it when the receiver has room. `Send` writes the output report with
+3. `Poll` reads a report with `read` when none is held, and feeds it when the receiver has room. `Send` writes the output report with
    `write` and returns `busy` when the kernel does not take it now.
 
 On Linux the output report is written with its ID byte 0 in front, as the Windows path does. The kernel's hidraw driver sends an unnumbered
 report without that byte. This is not yet checked on a device.
+
+## Reading every report
+
+One `Poll` feeds every report that has arrived, up to 64, while the receiver has room. The OS keeps the input reports the device sends in a
+buffer of its own (32 reports by default on Windows) and drops the oldest when it is full. A device can answer one packet with two reports
+(the delivery layer's acknowledgement and the answer), so a link that fed one report per `Poll` would read slower than the device sends:
+the buffer would fill, the round trip would grow past the delivery layer's timeout, and reports would be dropped. Measured with the board
+check, 2000 payloads with 4 in flight: one report per `Poll` gives 10 payloads per second and 1324 payloads sent again; every report per
+`Poll` gives about 357 per second and none sent again.
 
 ## Errors
 

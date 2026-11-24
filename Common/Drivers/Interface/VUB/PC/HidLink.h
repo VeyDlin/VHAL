@@ -92,6 +92,9 @@ private:
 	};
 
 
+	// The most reports one Poll feeds. The OS buffers 32 input reports by default on Windows, so one Poll can empty that buffer; the
+	// bound keeps a device that sends without pause from holding the caller.
+	static constexpr std::size_t MaxReportsPerPoll = 64;
 	StateSink sink;
 	bool portOpen = false;
 	bool readHeld = false;
@@ -302,19 +305,25 @@ public:
 	}
 
 
-	// Feeds the report that arrived as a packet, when the receiver has room for it. Never waits.
+	// Feeds each report that has arrived as a packet, while the receiver has room. Never waits. One Poll takes every report the OS
+	// holds: a device may answer one packet with two reports, so a link that took one report per Poll would read slower than the
+	// device sends, and the OS buffer would fill and drop reports.
 	void Poll(Receiver receiver) {
 		ReleaseLayer layer(*this);
 		release.Finish(layer, ReleaseWait::None);
-		if (!portOpen) {
-			return;
-		}
+		for (std::size_t count = 0; count < MaxReportsPerPoll; count++) {
+			if (!portOpen) {
+				return;
+			}
 
-		if (!readHeld) {
-			ReceiveStep();
-		}
+			if (!readHeld) {
+				ReceiveStep();
+			}
 
-		if (portOpen && readHeld && receiver.Room() > 0) {
+			if (!portOpen || !readHeld || receiver.Room() == 0) {
+				return;
+			}
+
 			FeedHeld(receiver);
 			readHeld = false;
 		}
@@ -543,11 +552,14 @@ private:
 	}
 
 
-	// Finishes the pending read when it is done, or starts one when none is pending.
+	// Starts a read when none is pending, and finishes the pending read when it is done. A report the OS holds already completes the
+	// read at once, so it is taken in the same step.
 	void ReceiveStep() {
 		if (!readPending) {
 			StartRead();
-			return;
+			if (!readPending) {
+				return;
+			}
 		}
 
 		DWORD got = 0;
