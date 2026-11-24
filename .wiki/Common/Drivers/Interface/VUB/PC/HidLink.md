@@ -24,9 +24,11 @@ Members: `Open(vendorId, productId, usagePage)`, `Close()`, `IsOpen()`, `Send(sp
 ## Windows: hid.dll and SetupAPI
 
 1. `HidD_GetHidGuid` gives the HID interface GUID, and the interfaces are listed with `SetupDiGetClassDevsW` and
-   `SetupDiGetDeviceInterfaceDetailW`.
+   `SetupDiGetDeviceInterfaceDetailW`. The size query must fail with `ERROR_INSUFFICIENT_BUFFER` and give a size that holds the fixed part
+   of the detail structure (`DetailSizeUsable`); otherwise the interface is skipped.
 2. Each candidate is opened with `CreateFileW` and `FILE_FLAG_OVERLAPPED`. It is taken when `HidD_GetAttributes` gives the vendor and product
-   IDs, and `HidP_GetCaps` (from `HidD_GetPreparsedData`) gives the usage page; a usage page of zero matches any.
+   IDs, and `HidP_GetCaps` (from `HidD_GetPreparsedData`) gives the usage page; a usage page of zero matches any. The two events are made
+   with `CreateEventW` after the device is taken; when one fails, `Open` frees the device and the events and returns `ioError`.
 3. The report lengths of the OS are read from the caps. Each must be `ReportBytes`, or `ReportBytes + 1` with the ID byte in front of the
    report. The read and the write use the length the caps give.
 4. One overlapped `ReadFile` of an input report is pending into the link's buffer. A read that the OS can answer from the reports it holds

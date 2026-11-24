@@ -8,6 +8,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <span>
 #include <string>
 
@@ -36,8 +37,10 @@ namespace VUB::PC {
 
 // A TCP connection as a reliable byte stream, over Winsock on Windows and POSIX sockets on Linux. The socket is non-blocking and sets
 // TCP_NODELAY. Connect starts a connection to a host (an IPv4 or IPv6 address, or a name); the connection completes in Poll, and the link
-// is up from then. Listen takes one peer: it binds the address (IPv4 only) and accepts a peer in Poll whenever no peer is connected, so
-// a peer that reconnects is accepted without another Listen. A port of zero lets the system pick, and BoundPort reads it back.
+// is up from then. A name that resolves to several addresses is tried in the order the resolver gives them, up to eight: each address
+// that refuses the connection is replaced by the next one, and the link fails only when the last one has refused. Listen takes one peer:
+// it binds the address (IPv4 only) and accepts a peer in Poll whenever no peer is connected, so a peer that reconnects is accepted
+// without another Listen. A port of zero lets the system pick, and BoundPort reads it back.
 //
 // The link is up while a peer is connected. When the peer goes away, or a read or a write fails, the link reports down and drops the
 // connection. A listening link keeps listening; a connecting link must call Connect again.
@@ -56,11 +59,18 @@ public:
 
 
 private:
+	static constexpr std::size_t maxAddresses = 8;
+
+
 	StateSink sink;
 	Socket listener = noSocket;
 	Socket connection = noSocket;
 	bool connecting = false;
 	bool up = false;
+	std::array<sockaddr_storage, maxAddresses> addresses{};
+	std::array<socklen_t, maxAddresses> addressLengths{};
+	std::size_t addressCount = 0;
+	std::size_t nextAddress = 0;
 
 
 public:
@@ -77,7 +87,9 @@ public:
 
 
 	// Starts a connection to host and port. Returns ok when the connection is started (it may still be completing; the link is up once
-	// Poll sees it complete), or an error when the address cannot be resolved or the socket cannot be made.
+	// Poll sees it complete). Returns notFound when the name does not resolve, and an error when no address of it can be connected at
+	// once: ioError when no socket could be made, noConnection when every address refused. The addresses are kept until the next Connect,
+	// so Poll tries the next one when an attempt fails, without allocating.
 	ResultStatus Connect(const std::string& host, std::uint16_t port) {
 		Close();
 		if (!WinsockReady()) {
@@ -94,28 +106,20 @@ public:
 			return ResultStatus::notFound;
 		}
 
-		Socket created = socket(found->ai_family, found->ai_socktype, found->ai_protocol);
-		if (created == noSocket) {
-			freeaddrinfo(found);
-			return ResultStatus::ioError;
+		addressCount = 0;
+		for (addrinfo* entry = found; entry != nullptr && addressCount < maxAddresses; entry = entry->ai_next) {
+			if (entry->ai_addr == nullptr || entry->ai_addrlen > sizeof(sockaddr_storage)) {
+				continue;
+			}
+
+			std::memcpy(&addresses[addressCount], entry->ai_addr, entry->ai_addrlen);
+			addressLengths[addressCount] = static_cast<socklen_t>(entry->ai_addrlen);
+			addressCount++;
 		}
 
-		SetNonBlocking(created);
-		SetNoDelay(created);
-		int result = connect(created, found->ai_addr, static_cast<socklen_t>(found->ai_addrlen));
 		freeaddrinfo(found);
-		if (result != 0 && !ConnectInProgress()) {
-			CloseSocket(created);
-			return ResultStatus::noConnection;
-		}
-
-		connection = created;
-		connecting = result != 0;
-		if (!connecting) {
-			SetUp(true);
-		}
-
-		return ResultStatus::ok;
+		nextAddress = 0;
+		return StartNextAttempt();
 	}
 
 
@@ -297,9 +301,45 @@ private:
 	}
 
 
-	// Looks at a connection that is completing: when the socket is writable, the connection is up. A failed connect is closed. Winsock
-	// reports a failed connect in the except set and not in the writable set, so the except set is watched there too. Linux reports
-	// a failed connect as writable, and SO_ERROR tells the two apart.
+	// Starts a connection to the next candidate address that can be started. A candidate whose socket cannot be made, or that refuses at
+	// once, is skipped. Returns ok when a connection is started (up at once, or completing), or the error of the last candidate skipped
+	// when none is left. Connecting is false when no connection is started.
+	ResultStatus StartNextAttempt() {
+		ResultStatus status = ResultStatus::noConnection;
+		while (nextAddress < addressCount) {
+			std::size_t index = nextAddress;
+			nextAddress++;
+			Socket created = socket(static_cast<int>(addresses[index].ss_family), SOCK_STREAM, IPPROTO_TCP);
+			if (created == noSocket) {
+				status = ResultStatus::ioError;
+				continue;
+			}
+
+			SetNonBlocking(created);
+			SetNoDelay(created);
+			int result = connect(created, reinterpret_cast<const sockaddr*>(&addresses[index]), addressLengths[index]);
+			if (result != 0 && !ConnectInProgress()) {
+				CloseSocket(created);
+				status = ResultStatus::noConnection;
+				continue;
+			}
+
+			connection = created;
+			connecting = result != 0;
+			if (!connecting) {
+				SetUp(true);
+			}
+
+			return ResultStatus::ok;
+		}
+
+		return status;
+	}
+
+
+	// Looks at a connection that is completing: when the socket is writable, the connection is up. A failed connect is closed, and the
+	// next candidate address is tried; the link fails when none is left. Winsock reports a failed connect in the except set and not in the
+	// writable set, so the except set is watched there too. Linux reports a failed connect as writable, and SO_ERROR tells the two apart.
 	void CheckConnect() {
 		fd_set writable;
 		fd_set failed;
@@ -314,23 +354,34 @@ private:
 #endif
 		timeval wait{};
 		int ready = select(static_cast<int>(connection) + 1, nullptr, &writable, failedSet, &wait);
+#if !defined(_WIN32)
+		// A signal interrupted the select: the connect is still completing, and the next Poll checks it again.
+		if (ready < 0 && errno == EINTR) {
+			return;
+		}
+#endif
 		if (ready == 0) {
 			return;
 		}
 
-		connecting = false;
 		bool refused = ready < 0;
 #if defined(_WIN32)
 		refused = refused || FD_ISSET(connection, &failed) != 0;
 #endif
-		int error = 0;
-		socklen_t length = static_cast<socklen_t>(sizeof(error));
-		if (refused || getsockopt(connection, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&error), &length) != 0 || error != 0) {
-			CloseConnection();
+		if (!refused) {
+			int error = 0;
+			socklen_t length = static_cast<socklen_t>(sizeof(error));
+			refused = getsockopt(connection, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&error), &length) != 0 || error != 0;
+		}
+
+		if (!refused) {
+			connecting = false;
+			SetUp(true);
 			return;
 		}
 
-		SetUp(true);
+		CloseConnection();
+		StartNextAttempt();
 	}
 
 
@@ -396,7 +447,8 @@ private:
 	}
 
 
-	// Starts Winsock once for the process, on first use. On Linux there is nothing to start.
+	// Starts Winsock once for the process, on first use. The start is not undone: WSACleanup is never called, so Winsock stays started
+	// until the process ends. On Linux there is nothing to start.
 	static bool WinsockReady() {
 #if defined(_WIN32)
 		static const bool ready = []() -> bool {

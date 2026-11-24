@@ -156,6 +156,15 @@ inline void CheckLineSettings() {
 	Serial::Settings oddBaud;
 	oddBaud.baud = 1234;
 	SIM_EXPECT(!Serial::ToTermios(refused, oddBaud));
+
+	// Flow control that another program left on the port is cleared, as on Windows: hardware (CRTSCTS) and software (IXON, IXOFF).
+	termios flowed{};
+	flowed.c_cflag |= CRTSCTS;
+	flowed.c_iflag |= IXON | IXOFF;
+	SIM_EXPECT(Serial::ToTermios(flowed, Serial::Settings()));
+	SIM_EXPECT((flowed.c_cflag & CRTSCTS) == 0);
+	SIM_EXPECT((flowed.c_iflag & (IXON | IXOFF)) == 0);
+	SIM_EXPECT((flowed.c_cflag & (CLOCAL | CREAD)) == (CLOCAL | CREAD));
 #endif
 }
 

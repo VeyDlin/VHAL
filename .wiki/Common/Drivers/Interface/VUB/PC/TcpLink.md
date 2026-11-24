@@ -15,14 +15,21 @@ Members: `Connect(host, port)`, `Listen(address, port)`, `BoundPort()`, `Close()
 - `Connect(host, port)` starts a connection. The host is an address or a name. A name is resolved with `getaddrinfo` in the call, which
   can wait for the resolver, so an address literal is the one to use where waiting matters. The connection completes in `Poll`: a
   non-blocking `connect` that returns in progress is finished by a `select` with a zero timeout and a read of `SO_ERROR`. The link is up
-  from then. A connection that is refused is closed by `Poll`: `IsConnecting()` turns false, `IsConnected()` stays false, and `Connect` is
-  called again to try once more. On Windows a refused connect is seen in the except set of the `select`, and on Linux in the writable set
-  with `SO_ERROR` set.
+  from then.
+- A name that resolves to several addresses is tried in the order the resolver gives them, up to eight. The addresses are copied into the
+  link when `Connect` runs. An attempt that is refused, at once or in `Poll`, is closed and the next address is tried; `IsConnecting()`
+  stays true meanwhile. The link reports failure only when the last address has refused: `IsConnecting()` turns false, `IsConnected()`
+  stays false. `Connect` is then called again to try once more. On Windows `localhost` resolves to `::1` first, and the listener of
+  `Listen` is IPv4 only, so the attempt on `::1` is refused and the one on `127.0.0.1` connects.
+- `Connect` returns `notFound` when the name does not resolve, `ioError` when no socket can be made for any address, and `noConnection`
+  when every address refuses at once. On Windows a refused connect is seen in the except set of the `select`, and on Linux in the writable
+  set with `SO_ERROR` set. A `select` that a signal interrupts (`EINTR`) is checked again in the next `Poll`.
 - `Listen(address, port)` binds an IPv4 address (for example `127.0.0.1`) and listens with a backlog of one. A port of zero lets the system
   pick; `BoundPort()` reads it back. The listener accepts one peer in `Poll` whenever no peer is connected. When the peer goes away the
   listener keeps listening, so the next peer is accepted without a new `Listen`.
 
-The connection socket is non-blocking and has `TCP_NODELAY`. On Windows, `WSAStartup` runs once, on first use. On Linux the listener sets
+The connection socket is non-blocking and has `TCP_NODELAY`. On Windows, `WSAStartup` runs once, on first use, and `WSACleanup` is never
+called: the start lasts until the process ends. On Linux the listener sets
 `SO_REUSEADDR`, and a send does not raise `SIGPIPE` (`MSG_NOSIGNAL`).
 
 ## Reads and writes
@@ -91,5 +98,6 @@ void RunClient() {
 `TestVubPcTcp.cpp` runs two stacks on `127.0.0.1`, a listener and a client, with COBS framing on Windows and on Linux. It checks that a packet
 crosses each way with the same bytes, that a client that closes is seen as down by the listener, that the client connects again and the
 listener accepts it without a new `Listen`, and that a connection to a port with nothing listening is refused within 200 `Process` steps
-(the link is no longer connecting and is not up), and that `Connect` then comes up on a listener. `TestVubPcTcpReliable.cpp`
+(the link is not connecting and is not up), and that `Connect` then comes up on a listener. It also connects to the name `localhost` on a
+listener of `127.0.0.1`, and reports a refused `localhost` connection as not up. `TestVubPcTcpReliable.cpp`
 carries three packets each way with `VUB::Reliable` over the same link.

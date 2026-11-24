@@ -87,8 +87,8 @@ itself, without that macro, before a PC header gets the full Windows header, and
 
 The tests are in `Common/Drivers/Interface/VUB/.tool/sim/`. They never open a device, a serial port or a USB interface. The TCP tests bind
 `127.0.0.1` and let the system pick the port. The serial test on Linux uses a pseudo-terminal pair (`openpty`). The bulk and HID tests are
-compiled on both systems and check their pure parts (the serial match, the GUID text, the report layout, the usage page) as plain
-functions. `TestVubPcRelease.cpp` checks the release (`TransferRelease.h`) with a fake handle layer: the waits, the bound of 200 ms, and that
+compiled on both systems and check their pure parts (the serial match, the GUID text, the report layout, the usage page, the size of the
+device detail buffer on Windows) as plain functions. `TestVubPcRelease.cpp` checks the release (`TransferRelease.h`) with a fake handle layer: the waits, the bound of 200 ms, and that
 the handles are never freed while a transfer is in flight. `TestVubPcHidRelease.cpp` (Windows) checks that a `Send` while a report is on its
 way is busy and leaves the report's buffer alone, and that `Close` returns within the bound with the handles kept. The snippets of these pages
 are compiled by `TestVubPcWiki.cpp`.
