@@ -40,12 +40,12 @@ struct RequestsOptions {
 
 // The index of the On entry whose id value is id in a tuple of handler entries, or the size of the tuple when there is none. The entries
 // of a set are checked against its commands by CheckHandlers, so the value of the id is enough here.
-template<typename Tuple, std::size_t... Index>
-constexpr std::size_t FindOnIndexIn(uint8 id, std::index_sequence<Index...>) {
-	constexpr std::array<bool, sizeof...(Index)> isOn = {(std::tuple_element_t<Index, Tuple>::kind == HandlerKind::on)...};
+template<typename Tuple, HandlerKind Kind, std::size_t... Index>
+constexpr std::size_t FindKindIndexIn(uint8 id, std::index_sequence<Index...>) {
+	constexpr std::array<bool, sizeof...(Index)> isKind = {(std::tuple_element_t<Index, Tuple>::kind == Kind)...};
 	constexpr std::array<uint8, sizeof...(Index)> ids = {static_cast<uint8>(std::tuple_element_t<Index, Tuple>::key)...};
 	for (std::size_t index = 0; index < sizeof...(Index); index++) {
-		if (isOn[index] && ids[index] == id) {
+		if (isKind[index] && ids[index] == id) {
 			return index;
 		}
 	}
@@ -54,19 +54,19 @@ constexpr std::size_t FindOnIndexIn(uint8 id, std::index_sequence<Index...>) {
 }
 
 
-template<typename HandlerSet>
-constexpr std::size_t FindHandlerOn(uint8 id) {
+template<typename HandlerSet, HandlerKind Kind>
+constexpr std::size_t FindHandlerOfKind(uint8 id) {
 	using Tuple = typename HandlerSet::List;
-	return FindOnIndexIn<Tuple>(id, std::make_index_sequence<std::tuple_size_v<Tuple>>());
+	return FindKindIndexIn<Tuple, Kind>(id, std::make_index_sequence<std::tuple_size_v<Tuple>>());
 }
 
 
-// For each command of the set, the index of its On entry in the handler list, or the list's size when the command has none.
-template<typename Commands, typename HandlerSet>
-constexpr std::array<std::size_t, Commands::commandCount> BuildOnIndex() {
+// For each command of the set, the index of its entry of Kind (On or OnCancel) in the handler list, or the list's size when it has none.
+template<typename Commands, typename HandlerSet, HandlerKind Kind>
+constexpr std::array<std::size_t, Commands::commandCount> BuildHandlerIndex() {
 	std::array<std::size_t, Commands::commandCount> table{};
 	for (std::size_t index = 0; index < Commands::commandCount; index++) {
-		table[index] = FindHandlerOn<HandlerSet>(Commands::commandTable[index].id);
+		table[index] = FindHandlerOfKind<HandlerSet, Kind>(Commands::commandTable[index].id);
 	}
 
 	return table;
@@ -90,10 +90,14 @@ constexpr bool HasTicketHandler(const std::array<std::size_t, Commands::commandC
 // takes no storage. The layer and its parts read the same plan.
 template<typename Commands, typename HandlerSet, RequestsOptions Value>
 struct RequestsPlan {
-	static constexpr std::array<std::size_t, Commands::commandCount> onIndex = BuildOnIndex<Commands, HandlerSet>();
+	static constexpr std::array<std::size_t, Commands::commandCount> onIndex = BuildHandlerIndex<Commands, HandlerSet, HandlerKind::on>();
+	static constexpr std::array<std::size_t, Commands::commandCount> cancelIndex =
+		BuildHandlerIndex<Commands, HandlerSet, HandlerKind::onCancel>();
 	static constexpr std::size_t handlerCount = std::tuple_size_v<typename HandlerSet::List>;
 	static constexpr bool served = handlerCount > 0;
 	static constexpr bool ticketed = HasTicketHandler<Commands>(onIndex, handlerCount);
+	static constexpr bool cancellable = AnyCommandFlag(Commands::commandTable, &CommandInfo::cancellable);
+	// Interim slots exist only for interim commands. A cancel-refused interim (0xF8) for a command without one has no handler and is dropped.
 	static constexpr bool anyInterim = Commands::hasInterim;
 	static constexpr bool sends = Value.open > 0 || Commands::hasFire;
 	static constexpr bool usesLink = Commands::hasFailWhileDown && sends;
@@ -101,6 +105,9 @@ struct RequestsPlan {
 	static constexpr std::size_t ticketCount = ticketed ? Value.tickets : 0;
 	static constexpr std::size_t refusalCount = served ? Value.refusals : 0;
 	static constexpr bool ownerBelow = Value.ownerBelow;
+	// The requester keeps cancel state for its requests; the responder for its tickets, and answers a cancel of any of them.
+	static constexpr bool requesterCancels = cancellable && openCount > 0;
+	static constexpr bool responderCancels = cancellable && ticketed;
 };
 
 
@@ -182,6 +189,22 @@ public:
 		}
 
 
+		// The cancel of an open request of a command that is Cancellable(). The CANCEL is sent at once when the request can take it, and
+		// otherwise held until its REQUEST is acknowledged. Returns ok (also for a second cancel), or notFound when no open request has the id.
+		template<auto Id>
+		ResultStatus Cancel(RequestId id) const {
+			static_assert(CommandInfoOf<Commands, Id>().cancellable, "Cancel names a command that is not Cancellable(): add .Cancellable() after its Reply");
+			return layer->template CancelRequest<Id>(id.number, outbox);
+		}
+
+
+		// The cancel of every open request of a cancellable command. Each request gets its own CANCEL, sent or held as Cancel does.
+		ResultStatus CancelAll() const {
+			static_assert(Plan::cancellable, "CancelAll needs a command that is Cancellable(): add .Cancellable() after a Reply");
+			return layer->CancelAllRequests(outbox);
+		}
+
+
 		// The session of a layer with no Reliable below: the first request number and tag (see RequesterOf::SetSession). Not a member otherwise.
 		void SetSession(uint16 value) const requires (!Value.ownerBelow) {
 			layer->SetSession(value);
@@ -245,13 +268,20 @@ public:
 
 
 	// Reliable asks whether a packet is still wanted when it is due to be sent again. A REQUEST is wanted while its requester slot is open:
-	// a request that its requester has closed (by its deadline, or by the link's loss) is not sent again. Every other packet is wanted.
+	// a request that its requester has closed (by its deadline, or by the link's loss) is not sent again. A CANCEL is wanted while its request is
+	// open. Every other packet is wanted.
 	static bool DeliveryWanted(void* owner, std::span<const uint8> payload) requires (Value.open > 0) {
+		const RequestsOf* self = static_cast<const RequestsOf*>(owner);
+		if constexpr (Plan::requesterCancels) {
+			if (payload.size() >= RequestWire::CancelSize && payload[0] == RequestWire::KindCancel) {
+				return self->requester.IsOpen(GetLe16(payload.data() + 1), payload[3]);
+			}
+		}
+
 		if (payload.size() < RequestWire::RequestHeader || payload[0] != RequestWire::KindRequest) {
 			return true;
 		}
 
-		const RequestsOf* self = static_cast<const RequestsOf*>(owner);
 		return self->requester.IsOpen(GetLe16(payload.data() + 2), payload[4]);
 	}
 
@@ -281,6 +311,12 @@ public:
 			return TakeFinal(packet);
 		}
 
+		if constexpr (Plan::cancellable) {
+			if (packet[0] == RequestWire::KindCancel) {
+				return TakeCancel(packet);
+			}
+		}
+
 		return ResultStatus::invalidData;
 	}
 
@@ -291,10 +327,12 @@ public:
 		if constexpr (Plan::openCount > 0) {
 			requester.Arm(nowUs);
 			requester.Expire(nowUs);
+			requester.SendHeldCancels(outbox);
 		}
 
 		if constexpr (Plan::served) {
 			responder.RunReceived();
+			responder.RunCancels();
 			responder.RearmTickets(nowUs);
 			responder.ExpireTickets(nowUs);
 		}
@@ -326,6 +364,19 @@ public:
 	template<auto Id>
 	ResultStatus FireRequest(const typename CommandOf<Commands, Id>::BodyType& body, const Outbox& outbox) {
 		return requester.template Fire<Id>(body, outbox);
+	}
+
+
+	// The cancel calls of the handle: the requester does the work.
+	template<auto Id>
+	ResultStatus CancelRequest(uint16 number, const Outbox& outbox) {
+		return requester.template Cancel<Id>(number, outbox);
+	}
+
+
+	ResultStatus CancelAllRequests(const Outbox& outbox) {
+		requester.CancelAll(outbox);
+		return ResultStatus::ok;
 	}
 
 
@@ -389,6 +440,22 @@ private:
 		} else {
 			static_assert(!Plan::ticketed || Value.tickets > 0, "the layer serves a command and has no tickets: give Tickets(n) with n of at least 1");
 			ResultStatus status = responder.Take(packet);
+			if (status != ResultStatus::ok) {
+				return status;
+			}
+
+			return Taken{0, false};
+		}
+	}
+
+
+	// Takes a CANCEL, the responder's side. The packet is consumed unless it is malformed.
+	Result<Taken> TakeCancel(std::span<const uint8> packet) {
+		if constexpr (!Plan::served) {
+			(void)packet;
+			return ResultStatus::notSupported;
+		} else {
+			ResultStatus status = responder.TakeCancel(packet);
 			if (status != ResultStatus::ok) {
 				return status;
 			}

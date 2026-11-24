@@ -79,6 +79,22 @@ struct OnRunner<Commands, On<Id, Fn>> {
 };
 
 
+// The cancel handler of one OnCancel entry: it gets the ticket of the request.
+template<typename Commands, typename Entry>
+struct OnCancelRunner;
+
+
+template<typename Commands, auto Id, auto Fn>
+struct OnCancelRunner<Commands, OnCancel<Id, Fn>> {
+	using TicketType = Ticket<Commands, Id>;
+
+
+	static void Call(void* layer, const TicketOps* operations, uint16 number, uint8 slotIndex, uint8 generation) {
+		Fn(TicketType(layer, operations, number, slotIndex, generation));
+	}
+};
+
+
 // The stage of a responder ticket: free, received (the body is copied, the handler is still to be called), open (the handler has it), or
 // final (the final is encoded and waits to be sent).
 enum class TicketStage : uint8 {
@@ -97,12 +113,21 @@ struct TicketInterim {
 };
 
 
+// The cancel state of a ticket. requested is set when a CANCEL for the request is taken; refusal is set when a cancel-refused interim (0xF8)
+// waits to be sent, after the interim that is pending, if any.
+struct TicketCancel {
+	bool requested = false;
+	bool refusal = false;
+};
+
+
 // One request on the responder side. The bytes hold the request body, or the final packet once the final is made. The interim part is a
-// member only when the set has interim commands.
-template<std::size_t Bytes, bool Interim>
+// member only when the set has interim commands, and the cancel part only when the responder answers cancels.
+template<std::size_t Bytes, bool Interim, bool Cancel>
 struct TicketSlot {
 	std::array<uint8, Bytes> bytes{};
 	[[no_unique_address]] std::conditional_t<Interim, TicketInterim, NoStorage> interim{};
+	[[no_unique_address]] std::conditional_t<Cancel, TicketCancel, NoStorage> cancel{};
 	uint32 deadlineUs = 0;
 	uint16 number = 0;
 	uint16 length = 0;
@@ -146,7 +171,8 @@ private:
 	static constexpr std::size_t largestReply = Commands::largestReply;
 	static constexpr std::size_t ticketBytes = std::max(largestRequest, RequestWire::FinalHeader + largestReply);
 	static constexpr std::array<std::size_t, Commands::commandCount> onIndex = Plan::onIndex;
-	using Slot = TicketSlot<ticketBytes, anyInterim>;
+	static constexpr std::array<std::size_t, Commands::commandCount> cancelIndex = Plan::cancelIndex;
+	using Slot = TicketSlot<ticketBytes, anyInterim, Plan::responderCancels>;
 	std::array<Slot, ticketCount> tickets{};
 	[[no_unique_address]] std::conditional_t<(refusalCount > 0), RefusalRing<refusalCount>, NoStorage> refusals{};
 
@@ -154,7 +180,13 @@ private:
 public:
 	// The table of the ticket calls of this layer: the layer's finish, open and, with interim commands, interim.
 	static const TicketOps* Operations() {
-		if constexpr (anyInterim) {
+		if constexpr (Plan::responderCancels && anyInterim) {
+			static constexpr TicketCancelInterimOps operations = {{{&FinishOp, &OpenOp}, &InterimOp}, &CancelledOp};
+			return &operations;
+		} else if constexpr (Plan::responderCancels) {
+			static constexpr TicketCancelOps operations = {{&FinishOp, &OpenOp}, &CancelledOp};
+			return &operations;
+		} else if constexpr (anyInterim) {
 			static constexpr TicketInterimOps operations = {{&FinishOp, &OpenOp}, &InterimOp};
 			return &operations;
 		} else {
@@ -219,9 +251,67 @@ public:
 					continue;
 				}
 
+				if constexpr (Plan::responderCancels) {
+					if (slot.cancel.requested) {
+						WriteFinalError(slot, RequestWire::CodeCancelled);
+						continue;
+					}
+				}
+
 				slot.stage = TicketStage::open;
 				slot.rearm = true;
 				CallCommand(slot.command, static_cast<uint8>(index), slot, std::make_index_sequence<Commands::commandCount>());
+			}
+		}
+	}
+
+
+	// Takes a CANCEL. A cancel of a ticket that is received or open is recorded: the cancel handler of a cancellable command runs from Process,
+	// and a command that is not cancellable gets the cancel-refused interim. A CANCEL of a number that is not open, of another tag, or of a
+	// ticket that already has its final is dropped with no reply. The packet is consumed.
+	ResultStatus TakeCancel(std::span<const uint8> packet) {
+		if (packet.size() < RequestWire::CancelSize) {
+			return ResultStatus::invalidData;
+		}
+
+		if constexpr (Plan::responderCancels) {
+			uint16 number = GetLe16(packet.data() + 1);
+			uint8 tag = packet[3];
+			Slot* slot = FindTicketByNumber(number);
+			if (slot == nullptr || slot->tag != tag) {
+				return ResultStatus::ok;
+			}
+
+			if (slot->stage != TicketStage::received && slot->stage != TicketStage::open) {
+				return ResultStatus::ok;
+			}
+
+			if (Commands::commandTable[slot->command].cancellable) {
+				slot->cancel.requested = true;
+			} else {
+				QueueRefusal(*slot);
+			}
+
+			return ResultStatus::ok;
+		} else {
+			(void)packet;
+			return ResultStatus::notSupported;
+		}
+	}
+
+
+	// Runs the cancel handler of each open ticket that was cancelled. The handler runs once: a ticket it leaves open gets the final
+	// operationCancelled, and then it is not open.
+	void RunCancels() {
+		if constexpr (ticketCount > 0 && Plan::responderCancels) {
+			for (std::size_t index = 0; index < ticketCount; index++) {
+				Slot& slot = tickets[index];
+				if (slot.stage == TicketStage::open && slot.cancel.requested) {
+					RunCancelHandler(static_cast<uint8>(index), slot);
+					if (slot.stage == TicketStage::open) {
+						WriteFinalError(slot, RequestWire::CodeCancelled);
+					}
+				}
 			}
 		}
 	}
@@ -242,11 +332,19 @@ public:
 	}
 
 
-	// A ticket that its handler never finished ends with the final timeout (code 5).
+	// A ticket that its handler never finished ends with the final timeout (code 5). A cancellable command's cancel handler runs first, as
+	// it does on a restart; a ticket the handler finishes keeps its final.
 	void ExpireTickets(uint32 nowUs) {
 		if constexpr (ticketCount > 0) {
 			for (Slot& slot : tickets) {
 				if (slot.stage == TicketStage::open && RequestWire::Due(nowUs, slot.deadlineUs)) {
+					if constexpr (Plan::responderCancels) {
+						RunCancelHandler(static_cast<uint8>(&slot - tickets.data()), slot);
+						if (slot.stage != TicketStage::open) {
+							continue;
+						}
+					}
+
 					WriteFinalError(slot, RequestWire::CodeTimeout);
 				}
 			}
@@ -291,6 +389,37 @@ public:
 
 					slot.interim.pending = false;
 				}
+
+			}
+
+			if constexpr (Plan::responderCancels) {
+				if (slot.cancel.refusal) {
+					uint8 index = 0;
+					if constexpr (anyInterim) {
+						index = slot.interim.index;
+					}
+
+					if (index == 255) {
+						slot.cancel.refusal = false;
+					} else {
+						uint8 next = static_cast<uint8>(index + 1);
+						std::array<uint8, RequestWire::InterimSize> packet{};
+						packet[0] = RequestWire::KindInterim;
+						PutLe16(packet.data() + 1, slot.number);
+						packet[3] = slot.tag;
+						packet[4] = next;
+						packet[5] = RequestWire::StatusCancelRefused;
+						if (outbox.Send(std::span<const uint8>(packet.data(), packet.size())) == ResultStatus::busy) {
+							continue;
+						}
+
+						if constexpr (anyInterim) {
+							slot.interim.index = next;
+						}
+
+						slot.cancel.refusal = false;
+					}
+				}
 			}
 
 			if (slot.stage == TicketStage::final) {
@@ -306,6 +435,14 @@ public:
 	// The restart: the tickets are freed (a final that is still waiting to be sent is discarded), and the refusal ring is emptied.
 	void OnRestart() {
 		for (Slot& slot : tickets) {
+			if constexpr (Plan::responderCancels) {
+				if (slot.stage == TicketStage::open) {
+					RunCancelHandler(static_cast<uint8>(&slot - tickets.data()), slot);
+				}
+
+				slot.cancel = TicketCancel{};
+			}
+
 			slot.stage = TicketStage::free;
 			if constexpr (anyInterim) {
 				slot.interim.pending = false;
@@ -382,6 +519,10 @@ private:
 					slot->interim = TicketInterim{};
 				}
 
+				if constexpr (Plan::responderCancels) {
+					slot->cancel = TicketCancel{};
+				}
+
 				slot->rearm = false;
 				slot->stage = TicketStage::received;
 				return RequestWire::CodeOk;
@@ -430,6 +571,64 @@ private:
 		}
 
 		return nullptr;
+	}
+
+
+	// Queues the cancel-refused interim of a ticket. It is sent after the pending interim, if there is one; one refusal waits at a time, so a
+	// second CANCEL of the same request queues nothing further.
+	void QueueRefusal(Slot& slot) {
+		if constexpr (Plan::responderCancels) {
+			if (!slot.cancel.refusal) {
+				slot.cancel.refusal = true;
+				slot.rearm = true;
+			}
+		} else {
+			(void)slot;
+		}
+	}
+
+
+	// Calls the cancel handler of a ticket's command, when the set has one for it. The handler gets the ticket.
+	void RunCancelHandler(uint8 slotIndex, Slot& slot) {
+		if constexpr (Plan::responderCancels) {
+			CallCancelCommand(slot.command, slotIndex, slot, std::make_index_sequence<Commands::commandCount>());
+		} else {
+			(void)slotIndex;
+			(void)slot;
+		}
+	}
+
+
+	template<std::size_t... Index>
+	void CallCancelCommand(uint8 command, uint8 slotIndex, Slot& slot, std::index_sequence<Index...>) {
+		(void)command;
+		(void)slotIndex;
+		(void)slot;
+		((command == Index ? (CallCancelOne<Index>(slotIndex, slot), true) : false) || ...);
+	}
+
+
+	template<std::size_t Index>
+	void CallCancelOne(uint8 slotIndex, Slot& slot) {
+		constexpr std::size_t handler = cancelIndex[Index];
+		if constexpr (handler < handlerCount) {
+			using Entry = std::tuple_element_t<handler, typename HandlerSet::List>;
+			OnCancelRunner<Commands, Entry>::Call(this, Operations(), slot.number, slotIndex, slot.generation);
+		} else {
+			(void)slotIndex;
+			(void)slot;
+		}
+	}
+
+
+	// The final operationCancelled of a live open ticket, queued from the ticket's own call.
+	ResultStatus QueueCancelled(uint8 index, uint8 generation, uint16 number) {
+		if (!TicketLive(index, generation, number)) {
+			return ResultStatus::notAvailable;
+		}
+
+		WriteFinalError(tickets[index], RequestWire::CodeCancelled);
+		return ResultStatus::ok;
 	}
 
 
@@ -502,6 +701,12 @@ private:
 			Slot& slot = tickets[index];
 			if (slot.interim.pending) {
 				return ResultStatus::busy;
+			}
+
+			if constexpr (Plan::responderCancels) {
+				if (slot.cancel.refusal) {
+					return ResultStatus::busy;
+				}
 			}
 
 			if (slot.interim.index == 255) {
@@ -590,6 +795,12 @@ private:
 	static bool OpenOp(const void* layer, uint8 index, uint8 generation, uint16 number) {
 		const ResponderOf* self = static_cast<const ResponderOf*>(layer);
 		return self->TicketLive(index, generation, number);
+	}
+
+
+	static ResultStatus CancelledOp(void* layer, uint8 index, uint8 generation, uint16 number) {
+		ResponderOf* self = static_cast<ResponderOf*>(layer);
+		return self->QueueCancelled(index, generation, number);
 	}
 };
 

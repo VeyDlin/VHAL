@@ -4,7 +4,7 @@ The requests layer: a request with a typed body and one final reply, interim rep
 commands a device serves. The layer sits above `VUB::Reliable` for delivery, or directly above a transform, a framing or a link; its packets
 are the payloads of the block below.
 
-The layer does not build cancel, events, ping and health, or `Await` (see Not built).
+The layer does not build events, ping and health, or `Await` (see Not built).
 
 The example below is a device: it serves two commands and sends its packets over a Reliable layer. It is compiled by
 `.tool/sim/TestVubRequestsLayerWiki.cpp`.
@@ -267,7 +267,7 @@ handler when it is taken.
 A peer restart (Reliable reports it through its owner hook) closes every open request with `reset`.
 
 Reliable asks whether a request packet is still wanted before it sends the packet again (`DeliveryWanted`). A request is wanted while its
-slot is open. A request that its requester has closed, by its deadline or by the connection's loss, is not sent again when the link comes back,
+slot is open, and a CANCEL is wanted while its request is open. A request that its requester has closed, by its deadline or by the connection's loss, is not sent again when the link comes back,
 and the device's handler does not run for it. A packet that the stack has already queued for the link is sent when the link is up again, and it
 is not asked about: under `Down::Wait` the stack keeps its queued packets through an outage, so such a request can still reach the device after
 its requester has closed it. Under `Down::Fail` the queued packets are dropped, and the request's resend is then the one that is asked about.
@@ -291,6 +291,8 @@ The ticket's operations:
 - `Interim` and `Finish` with a status of 0xF0 or more return `invalidParameter` and send nothing; the ticket stays open.
 - `Open()` is true while the ticket is live and no final is made for its request.
 - `Number()` is the request's number.
+- `Cancelled()` makes the final `operationCancelled` while the ticket is open. It is declared only in a set with a cancellable command (see
+  Cancel).
 
 A ticket is live only when its slot still holds its generation and its request number, and the request is open. A ticket kept after its
 slot has taken a later request answers `notAvailable` from every call, and `Open()` is false. The generation is one byte, so the slot's
@@ -305,6 +307,57 @@ a final with code 5 (`timeout`). An interim re-arms that deadline.
 
 A request whose number is open on the responder is handled by its tag: the same tag is a duplicate and is ignored; another tag is refused with
 busy. A peer restart closes every ticket, and the final of an open ticket is discarded.
+
+## Cancel
+
+A command takes a cancel when it is declared `Cancellable()` after its reply, for example `.Reply<Motor::MotorStatus, Motor::MotorReport>()`
+followed by `.Cancellable()`. `Cancel` on a command that is not declared so is a compile error, and so is `CancelAll` in a set with no
+cancellable command. A set with no cancellable command has no cancel code, and a requester with no slots has no cancel state.
+
+`handle` is `link.Requests()`, and the commands are those of `.tool/sim/TestVubRequestsCancel.cpp`: `start` is cancellable, `stop` is not.
+
+```cpp
+// The request is cancelled. The cancel is sent at once, or held until the request is acknowledged.
+Result<VUB::RequestId> sent = handle.Send<Command::start, &OnStartFinal, &OnStartInterim>(StartBody());
+if (sent.IsOk()) {
+	ResultStatus cancelled = handle.Cancel<Command::start>(sent.Value());
+}
+
+// Every open request of a cancellable command is cancelled.
+ResultStatus all = handle.CancelAll();
+```
+
+Requester:
+
+- `Cancel` returns `ok` when the request is open. A second cancel of the same request returns `ok` and sends nothing. It returns `notFound`
+  when no open request has the number, and it never returns `busy`.
+- The requester sends a CANCEL packet (kind 0x05, the request's number and tag). The request stays open. Its end is the responder's final: the
+  real result, or `operationCancelled`.
+- With Reliable below, a CANCEL is held until Reliable reports the REQUEST delivered, and then it is sent. A final that arrives first closes
+  the request and drops the held CANCEL. With no Reliable, the CANCEL is sent at once, after its REQUEST, since the path keeps its order.
+- A CANCEL that the stack does not take at once is tried again by each `Process` until it is taken or its request ends. A refusal that is not
+  busy, such as `noConnection`, is retried in the same way.
+- A request whose cancel gets no answer ends with `operationCancelled` at its deadline. A held CANCEL counts as a cancel. A cancel does not move
+  the deadline.
+- `CancelAll` sends one CANCEL per open request of a cancellable command. A request sent after the call is not cancelled. The number 0 is not
+  used on the wire.
+- The outcome of a CANCEL packet is ignored. Reliable resends a CANCEL while its request is open, and does not resend it after the request has
+  closed.
+
+Responder:
+
+- `OnCancel<Command::start, &OnStartCancel>` names the cancel handler, `void(VUB::Ticket<Commands, Id>)`. The handler runs from `Process`, never
+  inside `Take`.
+- When the handler returns with the ticket open, the layer sends `operationCancelled` for it. `ticket.Cancelled()` makes that final from the
+  handler while the ticket is open.
+- A CANCEL that arrives while its request is received, and its handler has not run (a REQUEST and its CANCEL in one burst), stops the handler:
+  the layer sends `operationCancelled`.
+- A CANCEL of a command that is not cancellable gets an interim reply with status 0xF8 (cancel refused). The requester gives it to the interim
+  handler of that command as a `Progress` with `result` `notSupported`, and the request runs to its own end. A command with no interim handler
+  drops it. A set with no interim command has no interim storage for it, and the responder keeps one flag in the ticket for the pending refusal.
+- A CANCEL with a number that is not open, with another tag, or with the number 0 is dropped without a reply.
+- The ticket's deadline and a peer restart run the cancel handler of a cancellable command once, and then close the ticket. At the deadline the
+  final is `timeout` (code 5), unless the handler finished the ticket. At a restart the final is discarded.
 
 ## Refusals
 
@@ -323,15 +376,19 @@ little-endian.
 | 0x01 REQUEST | `01 id(1) number(2) tag(1) body` | from the requester |
 | 0x02 INTERIM | `02 number(2) tag(1) index(1) status(1)` | from the responder |
 | 0x03 FINAL | `03 number(2) tag(1) code(1)`, and for code 0: `status(1) body` | from the responder |
+| 0x05 CANCEL | `05 number(2) tag(1)` | from the requester; only in a set with a cancellable command |
 
-Any other first byte is refused as `invalidData` by the layer's `Take`.
+Any other first byte is refused as `invalidData` by the layer's `Take`. A CANCEL is refused the same way in a set with no cancellable command.
+
+An INTERIM with status 0xF8 is the cancel-refused reply to a CANCEL of a command that is not cancellable. Statuses 0xF0 to 0xFF are otherwise
+reserved, as above.
 
 The FINAL codes are a fixed table of the layer, not the core's `ResultStatus` numbers:
 
 | Code | Result | Sent for |
 |---|---|---|
 | 0 | ok (`status` and the body follow) | the handler's `Finish` |
-| 1 | operationCancelled | not sent in this version |
+| 1 | operationCancelled | a cancel: the cancel handler left the ticket open, or the REQUEST and its CANCEL came in one burst |
 | 2 | notSupported | an unknown command id, or no handler |
 | 3 | invalidData | a body too short, or a bad bool |
 | 4 | busy | no free ticket |
@@ -366,6 +423,12 @@ is `01 13 01 00 01` and its final `started` is `03 01 00 01 00 00`. The bytes of
 | A FINAL of code 0 with no status byte | dropped and counted in the stack's `layerError`; the request stays open | none |
 | A ticket whose slot has taken a later request | the ticket answers `notAvailable`; the later request is untouched | none |
 | A number that wraps while an earlier request with the same number is still open | the old request's final does not close the new one (tag) | none |
+| A cancel while the REQUEST is not yet acknowledged | the CANCEL is held; the request ends with the real result or `operationCancelled` | the CANCEL is taken after the REQUEST is delivered |
+| A cancel that gets no answer, or a cancel lost on the line with no Reliable | `operationCancelled` at the requester's deadline | the cancel handler ran, or never saw the cancel |
+| A cancel racing the final | the first of the two packets wins | a CANCEL that arrives after the final is dropped |
+| A cancel of a command that is not cancellable | a progress with `notSupported`; the request runs to its own end | the interim with status 0xF8 |
+| The ticket's deadline of a cancellable command | `timeout` (code 5) | the cancel handler runs once, then the final is sent |
+| A peer restart with a cancellable ticket open | `reset` | the cancel handler runs once; the ticket's final is discarded |
 
 ## Size
 
@@ -386,12 +449,35 @@ are: CRC-16/MODBUS over COBS over a stream link; the same without the CRC transf
 | `ReliableOf<40, 4>` over CRC and COBS | requester | 1 | 1896 | 44 | 1940 | 44 |
 | `ReliableOf<40, 4>` over CRC and COBS | both | 1 | 2792 | 84 | 2824 | 84 |
 
+With no cancellable command in the set, the three chains keep the values of the table above in each role: text, data and bss are the same
+on both CPUs.
+
+The cancel cost is the same program with the command made cancellable, minus the program with it not cancellable. The cancellable program
+has a cancel handler on the responder and calls `Cancel` and `CancelAll` in the requester (roles 2 and 3). The chain is CRC-16/MODBUS over COBS
+over a stream link.
+
+| Cancel on the layer | M4 text | M4 RAM | M0+ text | M0+ RAM |
+|---|---:|---:|---:|---:|
+| responder: `Tickets(1)`, `Refusals(2)`, a cancel handler | +452 | 0 | +464 | 0 |
+| requester: `Open(2)`, `Cancel` and `CancelAll` called | +372 | +8 | +388 | +8 |
+| both | +716 | +8 | +720 | +8 |
+
+The slots, as `sizeof` on Cortex-M4 and M0+ (the same on both), with a 16-byte body for the ticket:
+
+| Slot | Neither | Cancel | Interim | Both |
+|---|---:|---:|---:|---:|
+| requester slot | 16 | 20 | 24 | 24 |
+| responder ticket | 32 | 36 | 36 | 40 |
+
+A set with a cancellable command and no interim command has no interim field in its slots. The 0xF8 refusal is then dropped by the
+requester, and the responder keeps a flag in the ticket. In the size configuration the ticket's body is 6 bytes, and the cancel flags fit in
+its padding, so the responder row has no RAM cost there.
+
 ## Not built
 
 These are not in this layer:
 
-- Cancel: no CANCEL packet (kind 0x05), no cancel handler call, no `Cancel` or `CancelAll` call, and no cancelRefused interim.
-- Events: no event packet (kind 0x04), no `Emit` and no event handler. A command set may still declare `Cancellable()` or an event; the layer
-  sends no cancel and takes no event for them.
+- Events: no event packet (kind 0x04), no `Emit` and no event handler. A command set may still declare an event; the layer takes no event for
+  it.
 - Ping (0xF0) and health (0xF1), with their counters.
 - `Await`.
