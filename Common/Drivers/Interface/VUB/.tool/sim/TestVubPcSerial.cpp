@@ -345,6 +345,35 @@ inline void CheckStacksOverPairs() {
 	::close(masterB);
 	::close(slaveB);
 }
+
+
+// A link opened before its stack is built: the stack gives its sink later, and learns at once that the link is up, so it sends.
+inline void CheckStackBuiltAfterOpen() {
+	int master = -1;
+	int slave = -1;
+	char name[256] = {};
+	SIM_EXPECT(openpty(&master, &slave, name, nullptr, nullptr) == 0);
+	fcntl(master, F_SETFL, fcntl(master, F_GETFL) | O_NONBLOCK);
+
+	Serial link;
+	Serial::Settings settings;
+	SIM_EXPECT(link.Open(name, settings) == ResultStatus::ok);
+	PairStack stack(link);
+	stack.Process();
+	SIM_EXPECT(stack.LinkUp());
+
+	const std::array<uint8, 3> payload = {4, 5, 6};
+	SIM_EXPECT(stack.Send(payload) == ResultStatus::ok);
+	stack.Process();
+	std::this_thread::sleep_for(std::chrono::milliseconds(5));
+	std::array<uint8, 64> wire{};
+	ssize_t got = ::read(master, wire.data(), wire.size());
+	SIM_EXPECT(got > 0);
+
+	link.Close();
+	::close(master);
+	::close(slave);
+}
 #endif
 
 
@@ -355,6 +384,7 @@ int main() {
 #if defined(__linux__)
 	CheckPseudoTerminal();
 	CheckStacksOverPairs();
+	CheckStackBuiltAfterOpen();
 #endif
 	return SimFinish("TestVubPcSerial");
 }

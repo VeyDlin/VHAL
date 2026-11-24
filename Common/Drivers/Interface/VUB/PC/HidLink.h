@@ -292,8 +292,13 @@ public:
 	}
 
 
+	// The stack gives its sink when it is built, which may be after Open. A stack starts with its link down, so a link that is up
+	// reports it into the sink at once.
 	void SetStateSink(StateSink value) {
 		sink = value;
+		if (IsOpen()) {
+			sink.Report(true);
+		}
 	}
 
 
