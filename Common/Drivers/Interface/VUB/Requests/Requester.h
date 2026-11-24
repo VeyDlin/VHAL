@@ -4,6 +4,7 @@
 #include <Drivers/Interface/VUB/Meta.h>
 #include <Drivers/Interface/VUB/Outbox.h>
 #include <Drivers/Interface/VUB/Requests/Body.h>
+#include <Drivers/Interface/VUB/Requests/BuiltIn.h>
 #include <Drivers/Interface/VUB/Requests/Commands.h>
 #include <Drivers/Interface/VUB/Requests/Handlers.h>
 #include <Drivers/Interface/VUB/Requests/Ticket.h>
@@ -20,12 +21,13 @@
 namespace VUB {
 
 
-// The stage of a requester slot: free, open (the request is waiting for its final), or ready (a final or an outcome is recorded, and the
-// handler is still to be called).
+// The stage of a requester slot: free, open (the request is waiting for its final), ready (a final or an outcome is recorded, and the
+// handler is still to be called), or queued (a ping that the next Process sends).
 enum class RequestStage : uint8 {
 	free,
 	open,
-	ready
+	ready,
+	queued
 };
 
 
@@ -46,8 +48,9 @@ struct RequestInterimSlot {
 
 
 // One request on the requester side. The handlers are the call site's, so the slot holds the function of its Send. The interim part is a
-// member only when the set has interim commands. The slot's own calls take no command type: a Send site adds only its encoding and its
-// final handler.
+// member only when the set has interim commands. A ping is a slot with the command index PingSlotCommand: its final handler is the ping's, and
+// while it is queued its deadline field holds the padding. The slot's own calls take no command type: a Send site adds only its encoding
+// and its final handler.
 template<bool Interim>
 struct RequestSlot {
 	RequestFinalFn finalFn = nullptr;
@@ -201,6 +204,38 @@ public:
 	}
 
 
+	// A ping: a slot takes the request, and the next Process sends it. A full table returns busy with no number used. A padding above the
+	// layer's maximum returns messageTooLong. Without Reliable below, a ping while no session is given returns noInit.
+	template<auto Handler>
+	ResultStatus Ping(uint16 padding) {
+		static_assert(Plan::sendsPing, "Ping needs the layer's Step .Ping(maxPadding)");
+		static_assert(Plan::openCount > 0, "Ping needs requester slots: give the layer Open(n) with n of at least 1");
+		static_assert(std::is_same_v<decltype(Handler), PingFn>, "a ping handler has the signature void (ResultStatus, uint32)");
+		if (padding > Plan::pingPadding) {
+			return ResultStatus::messageTooLong;
+		}
+
+		if constexpr (!Plan::ownerBelow) {
+			if (!session.given) {
+				return ResultStatus::noInit;
+			}
+		}
+
+		Slot* slot = FreeRequest();
+		if (slot == nullptr) {
+			return ResultStatus::busy;
+		}
+
+		slot->stage = RequestStage::queued;
+		slot->command = BuiltInWire::PingSlotCommand;
+		slot->armNeeded = false;
+		slot->result = ResultStatus::ok;
+		slot->finalFn = &RunPing<Handler>;
+		slot->deadlineUs = padding;
+		return ResultStatus::ok;
+	}
+
+
 	// Arms the deadline of each request whose packet was sent since the last Process.
 	void Arm(uint32 nowUs) {
 		if constexpr (Plan::openCount > 0) {
@@ -216,11 +251,27 @@ public:
 	}
 
 
+	// Sends each queued ping: its number and tag are taken in this call, and its stamp is the clock of this Process. A busy send keeps it
+	// queued for the next Process. A ping sent here arms its deadline from this Process's clock.
+	void SendPings(uint32 nowUs, const Outbox& outbox) {
+		if constexpr (Plan::openCount > 0 && Plan::sendsPing) {
+			for (Slot& slot : slots) {
+				if (slot.stage == RequestStage::queued) {
+					SendPing(slot, nowUs, outbox);
+				}
+			}
+		} else {
+			(void)nowUs;
+			(void)outbox;
+		}
+	}
+
+
 	// Settles each open request whose deadline has passed with timeout. A command with no ReplyTimeoutMs has no deadline.
 	void Expire(uint32 nowUs) {
 		if constexpr (Plan::openCount > 0) {
 			for (Slot& slot : slots) {
-				bool timed = Commands::commandTable[slot.command].replyTimeoutMs > 0;
+				bool timed = TimedSlot(slot);
 				if (slot.stage == RequestStage::open && timed && !slot.armNeeded && RequestWire::Due(nowUs, slot.deadlineUs)) {
 					slot.Settle(ResultStatus::timeout);
 				}
@@ -231,18 +282,30 @@ public:
 	}
 
 
-	// The handlers of the ready requests. Each slot is freed, and then its handler runs.
-	void Deliver() {
+	// The handlers of the ready requests. Each slot is freed, and then its handler runs. A ping's round trip is this Process's clock minus the
+	// stamp its reply echoed.
+	void Deliver(uint32 nowUs) {
 		if constexpr (Plan::openCount > 0) {
 			for (Slot& slot : slots) {
 				if (slot.stage == RequestStage::ready) {
 					RequestFinalFn handler = slot.finalFn;
 					ResultStatus result = slot.result;
+					std::array<uint8, BuiltInWire::PingStamp> roundTrip;
+					std::span<const uint8> body;
+					if constexpr (Plan::sendsPing) {
+						if (slot.command == BuiltInWire::PingSlotCommand && result == ResultStatus::ok) {
+							PutLe32(roundTrip.data(), nowUs - slot.deadlineUs);
+							body = roundTrip;
+						}
+					}
+
 					slot.stage = RequestStage::free;
-					handler(result, 0, std::span<const uint8>());
+					handler(result, 0, body);
 				}
 			}
 		}
+
+		(void)nowUs;
 	}
 
 
@@ -283,6 +346,16 @@ public:
 			Slot* slot = FindOpen(GetLe16(payload.data() + 2), payload[4]);
 			if (slot == nullptr) {
 				return;
+			}
+
+			if constexpr (Plan::sendsPing) {
+				if (slot->command == BuiltInWire::PingSlotCommand) {
+					if (outcome.status != ResultStatus::ok) {
+						slot->Settle(outcome.status);
+					}
+
+					return;
+				}
 			}
 
 			if (outcome.status != ResultStatus::ok || Commands::commandTable[slot->command].level == 2) {
@@ -330,6 +403,21 @@ public:
 					body = packet.subspan(RequestWire::FinalHeader);
 				}
 
+				if constexpr (Plan::sendsPing) {
+					if (slot->command == BuiltInWire::PingSlotCommand) {
+						if (result == ResultStatus::ok && (status != 0 || body.size() < BuiltInWire::PingStamp)) {
+							result = ResultStatus::invalidData;
+						}
+
+						if (result == ResultStatus::ok) {
+							slot->deadlineUs = GetLe32(body.data());
+						}
+
+						slot->Settle(result);
+						return;
+					}
+				}
+
 				slot->Close(result, status, body);
 			}
 		} else {
@@ -347,6 +435,12 @@ public:
 			uint8 status = packet[5];
 			if (slot == nullptr) {
 				return ResultStatus::ok;
+			}
+
+			if constexpr (Plan::sendsPing) {
+				if (slot->command == BuiltInWire::PingSlotCommand) {
+					return ResultStatus::ok;
+				}
 			}
 
 			if (status >= RequestWire::StatusReservedFrom) {
@@ -371,6 +465,56 @@ public:
 
 
 private:
+	// True when a request of the slot has the reply deadline of the built-in request: a ping has its own, and a command has its ReplyTimeoutMs.
+	static bool TimedSlot(const Slot& slot) {
+		if constexpr (Plan::sendsPing) {
+			if (slot.command == BuiltInWire::PingSlotCommand) {
+				return true;
+			}
+		}
+
+		return Commands::commandTable[slot.command].replyTimeoutMs > 0;
+	}
+
+
+	// True when the slot's command is FailWhileDown. A built-in request is not: it waits for the connection.
+	static bool FailsWhileDown(const Slot& slot) {
+		if constexpr (Plan::sendsPing) {
+			if (slot.command == BuiltInWire::PingSlotCommand) {
+				return false;
+			}
+		}
+
+		return Commands::commandTable[slot.command].failWhileDown;
+	}
+
+
+	// Sends one queued ping. A busy send keeps it queued for the next Process; any other refusal ends it at once, and its handler gets that
+	// result. An accepted ping takes its number and tag, and its deadline runs from this Process's clock.
+	void SendPing(Slot& slot, uint32 nowUs, const Outbox& outbox) {
+		std::array<uint8, BuiltInWire::PingRequest + Plan::pingPadding> packet;
+		uint16 number = FreeNumber();
+		uint8 tag = numbers.nextTag;
+		std::size_t length = EncodePingRequest(packet, number, tag, nowUs, static_cast<uint16>(slot.deadlineUs));
+		ResultStatus status = outbox.Send(std::span<const uint8>(packet.data(), length));
+		if (status == ResultStatus::busy) {
+			return;
+		}
+
+		if (status != ResultStatus::ok) {
+			slot.result = status;
+			slot.stage = RequestStage::ready;
+			return;
+		}
+
+		slot.number = number;
+		slot.tag = tag;
+		slot.stage = RequestStage::open;
+		slot.deadlineUs = nowUs + Plan::builtInTimeoutMs * 1000u;
+		Advance(number);
+	}
+
+
 	// The command index of the command with the id Id, in the table of the set. The id is unique in the set, so its value finds the command.
 	template<auto Id>
 	static constexpr std::size_t CommandIndexOf() {
@@ -530,7 +674,7 @@ private:
 	void FailDownRequests() {
 		if constexpr (Plan::usesLink) {
 			for (Slot& slot : slots) {
-				if (slot.stage == RequestStage::open && Commands::commandTable[slot.command].failWhileDown) {
+				if (slot.stage == RequestStage::open && FailsWhileDown(slot)) {
 					slot.Settle(ResultStatus::noConnection);
 				}
 			}

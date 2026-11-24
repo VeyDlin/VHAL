@@ -2,6 +2,7 @@
 #include <Drivers/Interface/VUB/Bytes.h>
 #include <Drivers/Interface/VUB/Outbox.h>
 #include <Drivers/Interface/VUB/Requests/Body.h>
+#include <Drivers/Interface/VUB/Requests/BuiltIn.h>
 #include <Drivers/Interface/VUB/Requests/Commands.h>
 #include <Drivers/Interface/VUB/Requests/Handlers.h>
 #include <Drivers/Interface/VUB/Requests/Ticket.h>
@@ -135,7 +136,7 @@ struct RefusalRing {
 // The layer gives its plan, so a set with no ticket or no refusal has no storage for them. The command set and the handler list are the
 // layer's.
 template<typename Commands, typename HandlerSet, typename Plan>
-class ResponderOf {
+class ResponderOf : private BuiltInReplyHolder<BuiltInReplyBytes(Plan::answerPing, Plan::answerPadding)> {
 private:
 	static constexpr std::size_t ticketCount = Plan::ticketCount;
 	static constexpr std::size_t refusalCount = Plan::refusalCount;
@@ -149,6 +150,7 @@ private:
 	using Slot = TicketSlot<ticketBytes, anyInterim>;
 	std::array<Slot, ticketCount> tickets{};
 	[[no_unique_address]] std::conditional_t<(refusalCount > 0), RefusalRing<refusalCount>, NoStorage> refusals{};
+	static constexpr bool pinged = Plan::answerPing;
 
 
 public:
@@ -176,6 +178,12 @@ public:
 		uint8 tag = packet[4];
 		if (number == 0) {
 			return ResultStatus::invalidData;
+		}
+
+		if constexpr (pinged) {
+			if (id == BuiltInWire::IdPing) {
+				return TakePing(number, tag, packet);
+			}
 		}
 
 		std::size_t command = CommandIndexById(id);
@@ -276,6 +284,12 @@ public:
 			}
 		}
 
+		if constexpr (pinged) {
+			if (this->pingReply.held && outbox.Send(std::span<const uint8>(this->pingReply.bytes.data(), this->pingReply.length)) != ResultStatus::busy) {
+				this->pingReply.held = false;
+			}
+		}
+
 		for (Slot& slot : tickets) {
 			if constexpr (anyInterim) {
 				if (slot.interim.pending) {
@@ -305,6 +319,10 @@ public:
 
 	// The restart: the tickets are freed (a final that is still waiting to be sent is discarded), and the refusal ring is emptied.
 	void OnRestart() {
+		if constexpr (pinged) {
+			this->pingReply.held = false;
+		}
+
 		for (Slot& slot : tickets) {
 			slot.stage = TicketStage::free;
 			if constexpr (anyInterim) {
@@ -390,6 +408,35 @@ private:
 				Runner::Call(nullptr, nullptr, number, 0, 0, body);
 				return RequestWire::CodeOk;
 			}
+		}
+	}
+
+
+	// The built-in ping: its reply goes into the one reply buffer, which Process sends. A second ping while the buffer is unsent is refused busy,
+	// and a ping whose padding is above the layer's maximum is refused invalidData (its reply would not fit the buffer).
+	ResultStatus TakePing(uint16 number, uint8 tag, std::span<const uint8> packet) {
+		if constexpr (pinged) {
+			if (packet.size() < BuiltInWire::PingRequest) {
+				return ResultStatus::invalidData;
+			}
+
+			if (packet.size() - BuiltInWire::PingRequest > Plan::answerPadding) {
+				Refuse(number, tag, RequestWire::CodeInvalidData);
+				return ResultStatus::ok;
+			}
+
+			if (this->pingReply.held) {
+				Refuse(number, tag, RequestWire::CodeBusy);
+				return ResultStatus::ok;
+			}
+
+			EncodePingReply(this->pingReply, packet);
+			return ResultStatus::ok;
+		} else {
+			(void)number;
+			(void)tag;
+			(void)packet;
+			return ResultStatus::notSupported;
 		}
 	}
 
