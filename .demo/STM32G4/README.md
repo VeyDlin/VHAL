@@ -153,6 +153,18 @@ cmake --build build/RelSpeed-Vub
 Its outputs are `build/RelSpeed-Vub/VubG431.elf` and `.bin`. Flash it with `sh flash.sh build/RelSpeed-Vub/VubG431.bin`, then run
 the checks of `.wiki/Common/Drivers/Interface/VUB/.tool/board/README.md`.
 
+The mode of the VUB demo is the cache variable `VHAL_VUB_MODE`: `Echo` (the default) is the link check above, and `Requests` is the
+requests demo, a simulated actuator on USART1 and the CDC serial port, checked with `vubcheck --requests`. The mode is a compile
+definition, so each image holds only its own code. A second build folder keeps the two images apart:
+
+```sh
+cmake --preset RelSpeed -B build/RelSpeed-VubRequests -DVHAL_DEMO=Vub -DVHAL_VUB_MODE=Requests
+cmake --build build/RelSpeed-VubRequests
+```
+
+Its output is `build/RelSpeed-VubRequests/VubG431.elf` and `.bin`. The requests mode's status words come after the echo words of
+`vubStatus` (see the board README); the echo words keep their offsets.
+
 Only the chosen demo folder is compiled and linked (`Application/Application.cpp` and `Application/Application.h` are always
 compiled). An unknown `VHAL_DEMO` stops the configure step with the list of demos. The list is the list of
 `Application/Demo<Name>` folders.

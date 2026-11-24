@@ -9,6 +9,8 @@
 #include "EchoCheck.h"
 #include "LossyLink.h"
 #include "Pacing.h"
+#include "RequestCheck.h"
+#include "RequestChains.h"
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -24,8 +26,10 @@
 
 
 namespace VubBoard {
-	// The largest --inflight. The board's echo queue has four slots, so a larger limit lets the queue overflow (see Pacing.h).
+	// The largest --inflight of the echo check. The board's echo queue has four slots, so a larger limit lets the queue overflow (see Pacing.h).
 	constexpr std::uint64_t MaxInflight = 4;
+	// The largest --inflight of the requests check: the requester's open requests, which the board's requests layer serves up to eight.
+	constexpr std::uint64_t MaxRequestInflight = 8;
 	// The largest --timeout: one day in seconds, so the run's deadline does not overflow.
 	constexpr std::uint64_t MaxTimeoutSeconds = 86400;
 	// How long a run with a payload given up on waits for the board's last echoes. The board gives an echo up after four sends of
@@ -42,6 +46,7 @@ namespace VubBoard {
 		std::size_t loss = 0;
 		std::size_t timeoutSeconds = 120;
 		std::size_t inflight = 4;
+		bool requests = false;
 	};
 
 
@@ -66,18 +71,22 @@ namespace VubBoard {
 
 	void PrintUsage() {
 		std::fprintf(stderr,
-			"usage: vubcheck --link uart|cdc|bulk|hid [--port COMn] [--count N] [--seed N] [--loss K] [--inflight N] [--timeout S]\n"
+			"usage: vubcheck --link uart|cdc|bulk|hid [--port COMn] [--count N] [--seed N] [--loss K] [--inflight N] [--timeout S] [--requests]\n"
 			"  Every number is decimal digits only: no sign, no space, no other text.\n"
 			"  --link     the link of the board: uart (USART1 on COM3, COBS and CRC-16/MODBUS), cdc (the USB serial port, COBS),\n"
 			"             bulk (the vendor bulk interface, by its interface GUID, LengthPrefix<2>), hid (the vendor HID interface, by\n"
 			"             VID 1209 and PID 0007 and the usage page 0xFF00, no framing)\n"
 			"  --port     the COM port: COM3 for uart, the COM port of the USB serial port for cdc. Not used for bulk or hid\n"
-			"  --count    payloads to send, 1 to 65536, default 200\n"
+			"  --count    payloads to send (or requests with --requests), 1 to 65536, default 200\n"
 			"  --seed     seed of the payload sizes and content, 0 to 4294967295, default from the random device (it is printed)\n"
 			"  --loss     drop every K-th outgoing frame or packet on this side, to exercise the resends; 0 (none, the default) or more\n"
 			"  --inflight payloads sent and not yet echoed at once, 1 to 4, default 4 (the delivery layer's window). Above 4 the\n"
-			"             board's echo queue, which has four slots, overflows and drops echoes\n"
-			"  --timeout  seconds to wait for all echoes and outcomes, 1 to 86400 (one day), default 120\n");
+			"             board's echo queue, which has four slots, overflows and drops echoes. With --requests, requests open at\n"
+			"             once, 1 to 8\n"
+			"  --timeout  seconds to wait for all echoes and outcomes, 1 to 86400 (one day), default 120\n"
+			"  --requests the requests check instead of the echo check: random requests of the actuator demo, each final counted\n"
+			"             once, the replies compared, the interims checked in order, and the device's counters compared at the end.\n"
+			"             Only uart and cdc have the requests on the board (VHAL_VUB_MODE=Requests)\n");
 	}
 
 
@@ -105,13 +114,15 @@ namespace VubBoard {
 					return false;
 				}
 			} else if (argument == "--inflight" && hasValue) {
-				if (!ParseDecimalInto(argv[++index], MaxInflight, options.inflight)) {
+				if (!ParseDecimalInto(argv[++index], MaxRequestInflight, options.inflight)) {
 					return false;
 				}
 			} else if (argument == "--timeout" && hasValue) {
 				if (!ParseDecimalInto(argv[++index], MaxTimeoutSeconds, options.timeoutSeconds)) {
 					return false;
 				}
+			} else if (argument == "--requests") {
+				options.requests = true;
 			} else {
 				return false;
 			}
@@ -119,6 +130,15 @@ namespace VubBoard {
 
 		bool knownLink = options.link == "uart" || options.link == "cdc" || options.link == "bulk" || options.link == "hid";
 		if (!knownLink || options.count == 0 || options.inflight == 0 || options.timeoutSeconds == 0) {
+			return false;
+		}
+
+		// The echo check's limit is the echo queue's; the requests check has its own (see MaxRequestInflight).
+		if (!options.requests && options.inflight > MaxInflight) {
+			return false;
+		}
+
+		if (options.requests && (options.link == "bulk" || options.link == "hid")) {
 			return false;
 		}
 
@@ -217,6 +237,15 @@ namespace VubBoard {
 
 		return pass ? 0 : 1;
 	}
+
+
+	// The requests check of the options, with the seed the echo check uses: the given one, or one from the random device.
+	template<typename StackType, typename LinkType>
+	int RunRequestsOf(StackType& stack, LinkType& link, const Options& options) {
+		std::random_device device;
+		uint32 seed = options.seedGiven ? options.seed : device();
+		return RunRequests(stack, link, options.link.c_str(), options.count, options.inflight, options.loss, options.timeoutSeconds, seed);
+	}
 }
 
 
@@ -239,11 +268,21 @@ int main(int argc, char** argv) {
 
 		if (options.link == "uart") {
 			UartLinkType link(serial);
+			if (options.requests) {
+				UartRequestsChain stack(link);
+				return RunRequestsOf(stack, link, options);
+			}
+
 			UartChain stack(link);
 			return RunStack(stack, link, options);
 		}
 
 		CdcLinkType link(serial);
+		if (options.requests) {
+			CdcRequestsChain stack(link);
+			return RunRequestsOf(stack, link, options);
+		}
+
 		CdcChain stack(link);
 		return RunStack(stack, link, options);
 	}

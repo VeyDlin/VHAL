@@ -65,11 +65,12 @@ The `hid` run opens the board's HID device on the PC. Run it only after the owne
 |---|---|---|
 | `--link uart\|cdc\|bulk\|hid` | required | the link to check |
 | `--port COMn` | required for `uart` and `cdc` | the serial port |
-| `--count N` | 200 | payloads to send, 1 to 65536 |
+| `--count N` | 200 | payloads to send (requests with `--requests`), 1 to 65536 |
 | `--seed N` | from the random device | seed of the payload sizes and contents, 0 to 4294967295; printed in the summary, so a run can be repeated |
 | `--loss K` | 0 | on the PC side, drop every K-th outgoing frame (serial and bulk) or packet (HID); a dropped frame is not sent, so the board's delivery layer must resend it. K is 0 or more |
-| `--inflight N` | 4 | payloads sent and not yet echoed at once, 1 to 4; a larger limit is refused, see Pacing |
-| `--timeout S` | 120 | seconds to wait for every echo and every outcome, 1 to 86400 (one day) |
+| `--inflight N` | 4 | payloads sent and not yet echoed at once, 1 to 4; with `--requests`, requests open at once, 1 to 8; a larger limit is refused, see Pacing |
+| `--timeout S` | 120 | seconds to wait for every echo and every outcome (every final with `--requests`), 1 to 86400 (one day) |
+| `--requests` | off | the requests check of the next section instead of the echo check; only `uart` and `cdc` have it |
 
 Every number is decimal digits only. A sign, a space, other text or a value outside the range is a usage error: the program prints the
 usage and exits with 2, before it opens any port or device.
@@ -203,7 +204,60 @@ To read a failed run from the board: a non-zero `echoDropped` with the default `
 `outcomesFailed` means the board gave up on echoes it sent. Each run's counters are the counters since the board's last reset, so a second
 run needs the counters of the first subtracted, or a reset before it.
 
+## The requests check
+
+`vubcheck --link uart --port COMn --requests` and `vubcheck --link cdc --port COMn --requests` run the requests demo. The board must be
+built with `VHAL_VUB_MODE=Requests` (the demo's README); on the echo image the requests get no reply, and the run fails. The demo is a
+simulated actuator, and its command set is in `Common/Drivers/Interface/VUB/.tool/common/ActuatorCommands.h`, which the device and the
+PC both compile:
+
+| Command | Kind | What the device does | What the check compares |
+|---|---|---|---|
+| `actuator.set` | request, final | counts a set and answers at once with the token and the level | the final's token and level; a set's final is ok or busy |
+| `actuator.sweep` | request, interims, final | gives eight steps at most, one per step time, then the final | the interims in order (step1 to stepN), the final's steps; one sweep is open at a time |
+| `actuator.kick` | no reply | counts a kick | the kick's delivery outcome (ok) and the device's kick counter |
+| `actuator.nudge` | fire | counts a nudge; no packet is resent | the device's nudge counter against the nudges sent |
+| `actuator.hang` | request, final | counts the request and never finishes it; the ticket times out after 300 ms | the final is a timeout or busy; the device's hang counter |
+| `actuator.absent` | request, final | not served by the device | the final is notSupported |
+| `actuator.counters` | request, final | answers the device's counters | read before and after the run; the difference is compared |
+
+Each run draws its requests from `--seed`: sets 30 %, sweeps 15 %, kicks 15 %, nudges 15 %, hangs 10 % and absent requests 15 %. A sweep
+is sent only when no other sweep is open, so its interims are its own. The device counters count from the board's last reset, so the run
+reads them before and after, and compares the difference.
+
+The summary has one line:
+
+```
+vubcheck link=<link> requests sent=<n> finals=<n> ok=<n> timeout=<n> busy=<n> notSupported=<n> invalid=<n> other=<n> duplicate=<n> unknown=<n> mismatched=<n> interims=<n> interimErrors=<n> sets=<ok>/<device> sweeps=<ok>/<device> kicks=<ok>/<device> nudges=<sent>/<device> hangs=<admitted>/<device> dropped=<n> inflight=<n> loss=<K> seed=<seed> seconds=<s> result=<PASS|FAIL>
+```
+
+`ok`, `timeout`, `busy`, `notSupported`, `invalid` and `other` count the finals by category: `other` is any other result, such as a
+delivery that gave up (`retryExhausted`). `sets`, `sweeps` and `kicks` show the finals that were ok and the device's count of the same
+command in the run; they are equal on a pass. `nudges` and `hangs` show what was sent or admitted and what the device ran; they are equal
+without `--loss`, and with `--loss` the device's count may be lower for a Fire, since its packet has no resend.
+
+A pass needs every final in its expected category, no duplicate, unknown or mismatched reply, every interim in order, and the device's
+counters as above. Exit codes: 0 for `PASS`, 1 for `FAIL`, 2 for a usage error or a port that does not open. `--loss K` drops every K-th
+outgoing frame on the PC side, as the echo check does. The requests check does not have the echo check's pacing limit of 4 payloads; it
+has `--inflight` up to 8, the requests the device's layer serves at once.
+
+The device's requests counters are in the status block after the echo words, and only in the requests image (`VHAL_VUB_MODE=Requests`). The
+echo image's block is unchanged, 344 bytes; the requests image's block is 384 bytes, 96 words:
+
+| Offset | Field |
+|---|---|
+| 344, 348, 352, 356, 360 | `requests.sets`, `sweeps`, `kicks`, `nudges`, `hangs`: the device's counters |
+| 364 | `requests.interims`: interims given |
+| 368 | `requests.interimBusy`: steps that waited for a busy interim slot |
+| 372 | `requests.sweepsExpired`: sweeps the ticket ended before their final |
+| 376 | `requests.sweepsActive`: sweeps in progress |
+| 380 | `requests.unclaimed`: payloads the requests layer did not take |
+
 ## Results
+
+The two images of the demo, from `arm-none-eabi-size` of the RelSpeed build: the echo image has 113532 bytes of text, 124 bytes of data and
+14000 bytes of bss; the requests image has 97008 bytes of text, 124 bytes of data and 11656 bytes of bss. The requests image has no
+hardware run in this section yet.
 
 Measured on 2026-11-24 on an STM32G431 with the RelSpeed image of this demo (113584 bytes of text, 14124 bytes of data and bss), and
 vubcheck built with MinGW g++ 15.2 on Windows 11, with the default `--inflight 4`. USART1 goes through a CH343 adapter (COM3); the CDC port

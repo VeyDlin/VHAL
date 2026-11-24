@@ -1,7 +1,6 @@
 #include <DemoVub/DemoVub.h>
 #include <Shared/WrappingClock.h>
 #include <DemoVub/Descriptors/VubDescriptors.h>
-#include <DemoVub/Echo/EchoQueue.h>
 #include <DemoVub/Function/VubFunctions.h>
 #include <DemoVub/Status/VubStatus.h>
 #include <Drivers/Interface/USB/Descriptor/USBSerialNumber.h>
@@ -19,6 +18,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#if defined(VHAL_VUB_REQUESTS)
+#include <DemoVub/Requests/ActuatorDevice.h>
+#else
+#include <DemoVub/Echo/EchoQueue.h>
+#endif
 
 
 namespace DemoVub {
@@ -34,14 +38,15 @@ namespace DemoVub {
 	// Endpoint 0 and the seven endpoint numbers the builder assigns. The G4 port opens numbers below EndpointCount only.
 	constexpr uint8 EndpointCount = 8;
 	constexpr uint64 StatusIntervalMs = 100;
-	// Every chain carries payloads of up to PayloadBytes, and each stack's echo queue holds EchoSlots of them.
-	constexpr std::size_t PayloadBytes = 32;
-	constexpr std::size_t EchoSlots = 4;
 	constexpr std::size_t UartIndex = 0;
 	constexpr std::size_t CdcIndex = 1;
 	constexpr std::size_t BulkIndex = 2;
 	constexpr std::size_t HidIndex = 3;
 	constexpr std::size_t StackCount = 4;
+#if !defined(VHAL_VUB_REQUESTS)
+	// Every chain carries payloads of up to PayloadBytes, and each stack's echo queue holds EchoSlots of them.
+	constexpr std::size_t PayloadBytes = 32;
+	constexpr std::size_t EchoSlots = 4;
 
 
 	// What the main loop keeps for one stack. The handlers and the echo run in the main loop (the stack's Process runs them), so the record
@@ -62,6 +67,7 @@ namespace DemoVub {
 
 
 	static std::array<StackRecord, StackCount> records{};
+#endif
 	static SerialPort serialFunction(VubUsb::Function(0));
 	static VendorChannel vendorFunction(VubUsb::Function(1));
 	static VendorHid hidFunction(VubUsb::Function(2), VubHidReport::Info);
@@ -73,6 +79,7 @@ namespace DemoVub {
 	static WrappingClock cycleClock;
 
 
+#if !defined(VHAL_VUB_REQUESTS)
 	// The receive handler of a stack: the payload is copied to the stack's echo queue, and the main loop sends it back. A full queue
 	// counts the payload as dropped; the delivery layer has acknowledged it already, so the drop is visible in the status block.
 	template<std::size_t Index>
@@ -104,6 +111,7 @@ namespace DemoVub {
 	void RestartOf() {
 		records[Index].restarts++;
 	}
+#endif
 
 
 	// Microseconds from the cycle counter. The receive interrupt of the UART does not read the clock, but the critical section is kept
@@ -116,64 +124,12 @@ namespace DemoVub {
 	}
 
 
-	// The four chains. Each one is a delivery layer over the link, with the framing and the transform its link needs, and each one has the
-	// same payload size and the same handlers, with the stack's index in the template argument.
-	using UartLinkType = VUB::UartLink<AUART>;
-	using CdcLinkType = VUB::CdcLink<SerialPort>;
-	using BulkLinkType = VUB::BulkLink<VendorChannel>;
-	using HidLinkType = VUB::HidLink<VendorHid, 64>;
-
-
-	using UartStack = VUB::Stack<+[] {
-		return VUB::Builder()
-			.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
-			.OnOutcome<&OutcomeOf<UartIndex>>()
-			.OnRestart<&RestartOf<UartIndex>>()
-			.Transform<VUB::Crc16Modbus>()
-			.Framing<VUB::Cobs>()
-			.Link<UartLinkType>()
-			.MaxPayload(32)
-			.OnReceive<&ReceiveFrom<UartIndex>>()
-			.Clock<&MicrosecondClock>();
-	}>;
-
-
-	using CdcStack = VUB::Stack<+[] {
-		return VUB::Builder()
-			.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
-			.OnOutcome<&OutcomeOf<CdcIndex>>()
-			.OnRestart<&RestartOf<CdcIndex>>()
-			.Framing<VUB::Cobs>()
-			.Link<CdcLinkType>()
-			.MaxPayload(32)
-			.OnReceive<&ReceiveFrom<CdcIndex>>()
-			.Clock<&MicrosecondClock>();
-	}>;
-
-
-	using BulkStack = VUB::Stack<+[] {
-		return VUB::Builder()
-			.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
-			.OnOutcome<&OutcomeOf<BulkIndex>>()
-			.OnRestart<&RestartOf<BulkIndex>>()
-			.Framing<VUB::LengthPrefix<2>>()
-			.Link<BulkLinkType>()
-			.MaxPayload(32)
-			.OnReceive<&ReceiveFrom<BulkIndex>>()
-			.Clock<&MicrosecondClock>();
-	}>;
-
-
-	using HidStack = VUB::Stack<+[] {
-		return VUB::Builder()
-			.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
-			.OnOutcome<&OutcomeOf<HidIndex>>()
-			.OnRestart<&RestartOf<HidIndex>>()
-			.Link<HidLinkType>()
-			.MaxPayload(32)
-			.OnReceive<&ReceiveFrom<HidIndex>>()
-			.Clock<&MicrosecondClock>();
-	}>;
+#if defined(VHAL_VUB_REQUESTS)
+	// The clock the requests demo's stacks read. It is the same clock as the echo demo's.
+	uint32 ActuatorClockUs() {
+		return MicrosecondClock();
+	}
+#endif
 
 
 	// The critical error handler of System. It writes no text to the line: the message goes to the status block for SWD.
@@ -248,6 +204,82 @@ namespace DemoVub {
 	}
 
 
+	// Copies one stack's drop counters into the status block.
+	template<typename StackType>
+	static void CopyDrops(const StackType& stack, volatile VubStackStatus& status) {
+		VUB::DropCounters drops = stack.Drops();
+		status.drops.ringFull = drops.ringFull;
+		status.drops.queueFull = drops.queueFull;
+		status.drops.tooLong = drops.tooLong;
+		status.drops.framingError = drops.framingError;
+		status.drops.transformError = drops.transformError;
+		status.drops.layerError = drops.layerError;
+		status.drops.sendError = drops.sendError;
+		status.drops.linkDown = drops.linkDown;
+	}
+
+
+#if !defined(VHAL_VUB_REQUESTS)
+	// The four chains. Each one is a delivery layer over the link, with the framing and the transform its link needs, and each one has the
+	// same payload size and the same handlers, with the stack's index in the template argument.
+	using UartLinkType = VUB::UartLink<AUART>;
+	using CdcLinkType = VUB::CdcLink<SerialPort>;
+	using BulkLinkType = VUB::BulkLink<VendorChannel>;
+	using HidLinkType = VUB::HidLink<VendorHid, 64>;
+
+
+	using UartStack = VUB::Stack<+[] {
+		return VUB::Builder()
+			.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
+			.OnOutcome<&OutcomeOf<UartIndex>>()
+			.OnRestart<&RestartOf<UartIndex>>()
+			.Transform<VUB::Crc16Modbus>()
+			.Framing<VUB::Cobs>()
+			.Link<UartLinkType>()
+			.MaxPayload(32)
+			.OnReceive<&ReceiveFrom<UartIndex>>()
+			.Clock<&MicrosecondClock>();
+	}>;
+
+
+	using CdcStack = VUB::Stack<+[] {
+		return VUB::Builder()
+			.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
+			.OnOutcome<&OutcomeOf<CdcIndex>>()
+			.OnRestart<&RestartOf<CdcIndex>>()
+			.Framing<VUB::Cobs>()
+			.Link<CdcLinkType>()
+			.MaxPayload(32)
+			.OnReceive<&ReceiveFrom<CdcIndex>>()
+			.Clock<&MicrosecondClock>();
+	}>;
+
+
+	using BulkStack = VUB::Stack<+[] {
+		return VUB::Builder()
+			.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
+			.OnOutcome<&OutcomeOf<BulkIndex>>()
+			.OnRestart<&RestartOf<BulkIndex>>()
+			.Framing<VUB::LengthPrefix<2>>()
+			.Link<BulkLinkType>()
+			.MaxPayload(32)
+			.OnReceive<&ReceiveFrom<BulkIndex>>()
+			.Clock<&MicrosecondClock>();
+	}>;
+
+
+	using HidStack = VUB::Stack<+[] {
+		return VUB::Builder()
+			.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
+			.OnOutcome<&OutcomeOf<HidIndex>>()
+			.OnRestart<&RestartOf<HidIndex>>()
+			.Link<HidLinkType>()
+			.MaxPayload(32)
+			.OnReceive<&ReceiveFrom<HidIndex>>()
+			.Clock<&MicrosecondClock>();
+	}>;
+
+
 	// Sends the echoes the stack takes now. A busy stack keeps them for the next pass. Any other refusal is counted and the echo is dropped.
 	template<typename StackType>
 	static void FlushEcho(StackType& stack, StackRecord& record) {
@@ -272,7 +304,6 @@ namespace DemoVub {
 	// Copies one stack's counters and drop counters into the status block.
 	template<typename StackType>
 	static void CopyStack(const StackType& stack, const StackRecord& record, volatile VubStackStatus& status) {
-		VUB::DropCounters drops = stack.Drops();
 		status.session = record.session;
 		status.received = record.received;
 		status.echoed = record.echoed;
@@ -283,14 +314,40 @@ namespace DemoVub {
 		status.restarts = record.restarts;
 		status.lastSendStatus = record.lastSendStatus;
 		status.lastOutcomeStatus = record.lastOutcomeStatus;
-		status.drops.ringFull = drops.ringFull;
-		status.drops.queueFull = drops.queueFull;
-		status.drops.tooLong = drops.tooLong;
-		status.drops.framingError = drops.framingError;
-		status.drops.transformError = drops.transformError;
-		status.drops.layerError = drops.layerError;
-		status.drops.sendError = drops.sendError;
-		status.drops.linkDown = drops.linkDown;
+		CopyDrops(stack, status);
+	}
+#else
+	// The requests mode: the UART and the CDC serial port carry the requests of the actuator. The bulk and HID functions stay in the
+	// device, so its identity and descriptors are the same as in the echo mode, and their stacks are not built.
+	using UartLinkType = VUB::UartLink<AUART>;
+	using CdcLinkType = VUB::CdcLink<SerialPort>;
+	using UartStack = UartActuatorStack<UartLinkType>::Type;
+	using CdcStack = CdcActuatorStack<CdcLinkType>::Type;
+
+
+	// Copies the device's counters and the sweep state into the status block.
+	static void CopyRequests(volatile VubRequestsStatus& status) {
+		status.sets = state.counters.sets;
+		status.sweeps = state.counters.sweeps;
+		status.kicks = state.counters.kicks;
+		status.nudges = state.counters.nudges;
+		status.hangs = state.counters.hangs;
+		status.interims = state.interims;
+		status.interimBusy = state.interimBusy;
+		status.sweepsExpired = state.sweepsExpired;
+		status.sweepsActive = state.sweepsActive;
+		status.unclaimed = state.unclaimed;
+	}
+#endif
+
+
+	// The receive errors of the UART link, as the status block holds them.
+	static void CopyUartErrors(const UartLinkType& link) {
+		VUB::UartErrorCounts uartErrors = link.Errors();
+		vubStatus.uartErrors.parity = uartErrors.parity;
+		vubStatus.uartErrors.noise = uartErrors.noise;
+		vubStatus.uartErrors.frame = uartErrors.frame;
+		vubStatus.uartErrors.overrun = uartErrors.overrun;
 	}
 
 
@@ -326,6 +383,14 @@ namespace DemoVub {
 		// The links and stacks are static, so their RAM is in .bss and the map shows it, not the main stack.
 		static UartLinkType uartLink(BSP::consoleSerial);
 		static CdcLinkType cdcLink(serialFunction);
+#if defined(VHAL_VUB_REQUESTS)
+		static UartStack uartStack(uartLink);
+		static CdcStack cdcStack(cdcLink);
+		uartStack.Find<VUB::Reliable>().SetSession(sessions[UartIndex]);
+		cdcStack.Find<VUB::Reliable>().SetSession(sessions[CdcIndex]);
+		vubStatus.uart.session = sessions[UartIndex];
+		vubStatus.cdc.session = sessions[CdcIndex];
+#else
 		static BulkLinkType bulkLink(vendorFunction);
 		static HidLinkType hidLink(hidFunction);
 		static UartStack uartStack(uartLink);
@@ -339,6 +404,7 @@ namespace DemoVub {
 		for (std::size_t index = 0; index < StackCount; index++) {
 			records[index].session = sessions[index];
 		}
+#endif
 
 		vubStatus.stage = StageUsb;
 		// A serial number that fails leaves the device without one; the device still enumerates, so the result is not checked here.
@@ -350,6 +416,23 @@ namespace DemoVub {
 
 		vubStatus.stage = StageServing;
 		uint64 nextStatusMs = System::GetMs();
+#if defined(VHAL_VUB_REQUESTS)
+		while (true) {
+			usbDevice.Process();
+			// The sweep steps and finals are given before the stacks run, so they go out in this pass.
+			Tick(static_cast<uint32>(System::GetMs()));
+			uartStack.Process();
+			cdcStack.Process();
+
+			if (System::GetMs() >= nextStatusMs) {
+				nextStatusMs += StatusIntervalMs;
+				CopyUartErrors(uartLink);
+				CopyDrops(uartStack, vubStatus.uart);
+				CopyDrops(cdcStack, vubStatus.cdc);
+				CopyRequests(vubStatus.requests);
+			}
+		}
+#else
 		while (true) {
 			usbDevice.Process();
 			uartStack.Process();
@@ -363,16 +446,13 @@ namespace DemoVub {
 
 			if (System::GetMs() >= nextStatusMs) {
 				nextStatusMs += StatusIntervalMs;
-				VUB::UartErrorCounts uartErrors = uartLink.Errors();
-				vubStatus.uartErrors.parity = uartErrors.parity;
-				vubStatus.uartErrors.noise = uartErrors.noise;
-				vubStatus.uartErrors.frame = uartErrors.frame;
-				vubStatus.uartErrors.overrun = uartErrors.overrun;
+				CopyUartErrors(uartLink);
 				CopyStack(uartStack, records[UartIndex], vubStatus.uart);
 				CopyStack(cdcStack, records[CdcIndex], vubStatus.cdc);
 				CopyStack(bulkStack, records[BulkIndex], vubStatus.bulk);
 				CopyStack(hidStack, records[HidIndex], vubStatus.hid);
 			}
 		}
+#endif
 	}
 }

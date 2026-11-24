@@ -42,9 +42,28 @@ struct VubStackStatus {
 };
 
 
+#if defined(VHAL_VUB_REQUESTS)
+// The requests mode's counters: the device's counters of each command and the sweep state. They follow the echo words of the block, so
+// the offsets of the echo words are the same in both modes.
+struct VubRequestsStatus {
+	uint32 sets;
+	uint32 sweeps;
+	uint32 kicks;
+	uint32 nudges;
+	uint32 hangs;
+	uint32 interims;
+	uint32 interimBusy;
+	uint32 sweepsExpired;
+	uint32 sweepsActive;
+	uint32 unclaimed;
+};
+#endif
+
+
 // The volatile status block for SWD. The magic word tells the reader that the block is set. The stage is the last start-up step that was
 // reached, so a hang inside a step is visible. The critical fields are written by the critical error handler just before the MCU halts,
-// for explicit CriticalError calls only: SystemAssert and System::Abort() do not call the handler.
+// for explicit CriticalError calls only: SystemAssert and System::Abort() do not call the handler. The requests words come last, and only
+// in the requests mode (VHAL_VUB_REQUESTS).
 struct VubStatusBlock {
 	uint32 magic;
 	uint32 stage;
@@ -61,6 +80,9 @@ struct VubStatusBlock {
 	const char* criticalMessage;
 	const char* criticalFile;
 	uint32 criticalLine;
+#if defined(VHAL_VUB_REQUESTS)
+	VubRequestsStatus requests;
+#endif
 };
 
 
