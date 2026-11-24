@@ -65,11 +65,14 @@ The `hid` run opens the board's HID device on the PC. Run it only after the owne
 |---|---|---|
 | `--link uart\|cdc\|bulk\|hid` | required | the link to check |
 | `--port COMn` | required for `uart` and `cdc` | the serial port |
-| `--count N` | 200 | payloads to send |
-| `--seed N` | from the random device | seed of the payload sizes and contents; printed in the summary, so a run can be repeated |
-| `--loss K` | 0 | on the PC side, drop every K-th outgoing frame (serial and bulk) or packet (HID); a dropped frame is not sent, so the board's delivery layer must resend it |
-| `--inflight N` | 4 | payloads sent and not yet echoed at once, 1 or more; see Pacing |
-| `--timeout S` | 120 | seconds to wait for every echo and every outcome |
+| `--count N` | 200 | payloads to send, 1 to 65536 |
+| `--seed N` | from the random device | seed of the payload sizes and contents, 0 to 4294967295; printed in the summary, so a run can be repeated |
+| `--loss K` | 0 | on the PC side, drop every K-th outgoing frame (serial and bulk) or packet (HID); a dropped frame is not sent, so the board's delivery layer must resend it. K is 0 or more |
+| `--inflight N` | 4 | payloads sent and not yet echoed at once, 1 to 4; a larger limit is refused, see Pacing |
+| `--timeout S` | 120 | seconds to wait for every echo and every outcome, 1 to 86400 (one day) |
+
+Every number is decimal digits only. A sign, a space, other text or a value outside the range is a usage error: the program prints the
+usage and exits with 2, before it opens any port or device.
 
 A payload is 3 to 32 bytes: two bytes of number, then random bytes. The sizes and the contents come from the seed.
 
@@ -88,7 +91,7 @@ packets it has not yet acknowledged, not the payloads that have not yet been ech
 takes payloads, so the board receives payloads faster than it echoes them. With `--loss`, some of the board's echoes are not acknowledged
 and the board resends them, so its echo sends wait, its queue fills, and it drops payloads (`echoDropped`). The run then fails on the
 echo queue, and the delivery layer's resends are not what it checks. With the limit at 4, at most four payloads wait in the board's queue,
-so a run with `--loss` checks the delivery layer's resends. A larger value tests the queue on purpose.
+so a run with `--loss` checks the delivery layer's resends. The program refuses a larger value, so it never overfills the queue.
 
 ## Timing
 
