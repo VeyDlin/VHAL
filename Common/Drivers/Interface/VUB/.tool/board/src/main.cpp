@@ -5,6 +5,7 @@
 // The check is run by hand against the board. It opens a serial port, a USB interface or a HID device, so no test runs it.
 #include <DemoProducts.h>
 #include "Chains.h"
+#include "DecimalArgument.h"
 #include "EchoCheck.h"
 #include "LossyLink.h"
 #include "Pacing.h"
@@ -12,7 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
-#include <cstdlib>
+#include <limits>
 #include <random>
 #include <string>
 #include <thread>
@@ -23,6 +24,12 @@
 
 
 namespace VubBoard {
+	// The largest --inflight. The board's echo queue has four slots, so a larger limit lets the queue overflow (see Pacing.h).
+	constexpr std::uint64_t MaxInflight = 4;
+	// The largest --timeout: one day in seconds, so the run's deadline does not overflow.
+	constexpr std::uint64_t MaxTimeoutSeconds = 86400;
+
+
 	struct Options {
 		std::string link;
 		std::string port;
@@ -57,15 +64,17 @@ namespace VubBoard {
 	void PrintUsage() {
 		std::fprintf(stderr,
 			"usage: vubcheck --link uart|cdc|bulk|hid [--port COMn] [--count N] [--seed N] [--loss K] [--inflight N] [--timeout S]\n"
+			"  Every number is decimal digits only: no sign, no space, no other text.\n"
 			"  --link     the link of the board: uart (USART1 on COM3, COBS and CRC-16/MODBUS), cdc (the USB serial port, COBS),\n"
 			"             bulk (the vendor bulk interface, by its interface GUID, LengthPrefix<2>), hid (the vendor HID interface, by\n"
 			"             VID 1209 and PID 0007 and the usage page 0xFF00, no framing)\n"
 			"  --port     the COM port: COM3 for uart, the COM port of the USB serial port for cdc. Not used for bulk or hid\n"
-			"  --count    payloads to send, default 200\n"
-			"  --seed     seed of the payload sizes and content, default from the random device (it is printed)\n"
-			"  --loss     drop every K-th outgoing frame or packet on this side, to exercise the resends; default 0 (none)\n"
-			"  --inflight payloads sent and not yet echoed at once, 1 or more, default 4 (the delivery layer's window)\n"
-			"  --timeout  seconds to wait for all echoes and outcomes, default 120\n");
+			"  --count    payloads to send, 1 to 65536, default 200\n"
+			"  --seed     seed of the payload sizes and content, 0 to 4294967295, default from the random device (it is printed)\n"
+			"  --loss     drop every K-th outgoing frame or packet on this side, to exercise the resends; 0 (none, the default) or more\n"
+			"  --inflight payloads sent and not yet echoed at once, 1 to 4, default 4 (the delivery layer's window). Above 4 the\n"
+			"             board's echo queue, which has four slots, overflows and drops echoes\n"
+			"  --timeout  seconds to wait for all echoes and outcomes, 1 to 86400 (one day), default 120\n");
 	}
 
 
@@ -79,23 +88,34 @@ namespace VubBoard {
 			} else if (argument == "--port" && hasValue) {
 				options.port = argv[++index];
 			} else if (argument == "--count" && hasValue) {
-				options.count = std::strtoull(argv[++index], nullptr, 10);
+				if (!ParseDecimalInto(argv[++index], EchoCheck::MaxIndex + 1, options.count)) {
+					return false;
+				}
 			} else if (argument == "--seed" && hasValue) {
-				options.seed = static_cast<uint32>(std::strtoul(argv[++index], nullptr, 10));
+				if (!ParseDecimalInto(argv[++index], std::numeric_limits<uint32>::max(), options.seed)) {
+					return false;
+				}
+
 				options.seedGiven = true;
 			} else if (argument == "--loss" && hasValue) {
-				options.loss = std::strtoull(argv[++index], nullptr, 10);
+				if (!ParseDecimalInto(argv[++index], std::numeric_limits<std::size_t>::max(), options.loss)) {
+					return false;
+				}
 			} else if (argument == "--inflight" && hasValue) {
-				options.inflight = std::strtoull(argv[++index], nullptr, 10);
+				if (!ParseDecimalInto(argv[++index], MaxInflight, options.inflight)) {
+					return false;
+				}
 			} else if (argument == "--timeout" && hasValue) {
-				options.timeoutSeconds = std::strtoull(argv[++index], nullptr, 10);
+				if (!ParseDecimalInto(argv[++index], MaxTimeoutSeconds, options.timeoutSeconds)) {
+					return false;
+				}
 			} else {
 				return false;
 			}
 		}
 
 		bool knownLink = options.link == "uart" || options.link == "cdc" || options.link == "bulk" || options.link == "hid";
-		if (!knownLink || options.count == 0 || options.count > EchoCheck::MaxIndex + 1 || options.inflight == 0) {
+		if (!knownLink || options.count == 0 || options.inflight == 0 || options.timeoutSeconds == 0) {
 			return false;
 		}
 
