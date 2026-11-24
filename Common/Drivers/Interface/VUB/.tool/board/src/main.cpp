@@ -146,6 +146,16 @@ namespace VubBoard {
 
 		double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 		double rate = seconds > 0.0 ? static_cast<double>(check.Echoed()) / seconds : 0.0;
+
+		// The board's last echoes wait for this side's acknowledgements. A short drain sends them before the program ends, so the board
+		// does not count those echoes as given up. It is not part of the measured time.
+		std::chrono::steady_clock::time_point finish = std::chrono::steady_clock::now();
+		while (std::chrono::steady_clock::now() - finish < std::chrono::milliseconds(300)) {
+			stack.Process();
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+
+		received.clear();
 		bool pass = sendError == ResultStatus::ok && check.Echoed() == check.Count() && check.Mismatched() == 0 && check.Duplicate() == 0 &&
 			check.Unknown() == 0 && outcomesFailed == 0 && outcomesOk == check.Count();
 
