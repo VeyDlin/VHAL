@@ -17,12 +17,15 @@ struct DemoProducts {
 	static constexpr std::uint16_t StorageProductId = 0x0003;
 	// The DFU demo (DemoUSBDfu), in DFU mode.
 	static constexpr std::uint16_t DfuProductId = 0x0004;
+	// The VUB demo (DemoVub): a CDC-ACM serial port, a vendor bulk interface and a vendor HID interface on one device.
+	static constexpr std::uint16_t VubProductId = 0x0007;
 	static constexpr std::uint16_t DeviceRelease = 0x0100;
 
 
 	// Device interface GUIDs for WinUSB. The Microsoft OS 2.0 descriptor names one, and the PC tool opens the device with it.
 	static constexpr const char* CompositeInterfaceGuid = "{53B72DEF-1477-422A-B645-D5267E3E44A6}";
 	static constexpr const char* DfuInterfaceGuid = "{21056BA5-792A-4C41-B661-56F405F35175}";
+	static constexpr const char* VubInterfaceGuid = "{7F6B2418-2D17-433F-8EF1-152A6303C162}";
 
 	// The DFU demo's memory: the top 32 KB of flash, the part its image does not use. DfuRegionTarget.h asserts that the demo's CMake
 	// values (VHAL_DFU_REGION_START and VHAL_DFU_REGION_SIZE) match these, and the PC tool writes a file of this size.
@@ -46,6 +49,8 @@ struct DemoProducts {
 	// Vendor code of the DFU demo's Microsoft OS 2.0 descriptor request. It differs from the bench (0x20) and the composite (0x21) for
 	// the same reason: a request meant for one demo is never answered by another demo's descriptors.
 	static constexpr std::uint8_t DfuMsOs20VendorCode = 0x22;
+	// Vendor code of the VUB demo's Microsoft OS 2.0 descriptor request. It differs from the other demos for the same reason.
+	static constexpr std::uint8_t VubMsOs20VendorCode = 0x23;
 
 
 	// Where the composite's vendor raw channel sits. The builder numbers the endpoints in the order of the functions: keyboard (interface 0,
@@ -56,6 +61,15 @@ struct DemoProducts {
 	static constexpr std::uint8_t CompositeVendorBulkOutAddress = 0x07;
 	// The serial port's CDC-ACM control interface (interface 2). The COM port that Windows creates for the serial port is found on it.
 	static constexpr std::uint8_t CompositeSerialControlInterface = 2;
+
+
+	// The VUB demo's endpoints, numbered by the builder in the order of its functions: the CDC-ACM notification IN 0x81, bulk IN 0x82 and
+	// bulk OUT 0x03, the vendor bulk IN 0x84 and OUT 0x05, the HID IN 0x86 and OUT 0x07. VubDescriptors.h asserts these values.
+	// The vendor bulk interface is interface 2, after the two CDC interfaces; the HID interface is interface 3.
+	static constexpr std::uint8_t VubVendorBulkInterface = 2;
+	static constexpr std::uint8_t VubVendorBulkInAddress = 0x84;
+	static constexpr std::uint8_t VubVendorBulkOutAddress = 0x05;
+	static constexpr std::uint16_t VubHidUsagePage = 0xFF00;
 
 
 	// The network demo (DemoUSBNetwork): a CDC-NCM Ethernet link with a minimal IPv4 responder (ARP, ICMP echo and DHCP). The board

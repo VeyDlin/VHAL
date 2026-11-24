@@ -16,6 +16,8 @@
 #include <DemoRegex/DemoRegex.h>
 #elif defined(VHAL_DEMO_Modbus)
 #include <DemoModbus/DemoModbus.h>
+#elif defined(VHAL_DEMO_Vub)
+#include <DemoVub/DemoVub.h>
 #else
 #error "No demo is selected: set VHAL_DEMO to a demo folder under Application/, and add its branch to Application/Application.cpp"
 #endif
@@ -38,5 +40,7 @@ void Application::Run(ResultStatus consoleStatus) {
 	DemoRegex::Run(consoleStatus);
 #elif defined(VHAL_DEMO_Modbus)
 	DemoModbus::Run(consoleStatus);
+#elif defined(VHAL_DEMO_Vub)
+	DemoVub::Run(consoleStatus);
 #endif
 }
