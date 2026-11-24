@@ -97,7 +97,9 @@ static_assert(VUB::CommandInfoOf<Motor::MotorCommands, "motor.start">().level ==
 static_assert(Motor::MotorCommands::largestRequest == 5);
 
 // The dispatch of a received request: its id finds the command, and the body is read with its view.
-const VUB::CommandInfo* info = Motor::MotorCommands::CommandById(0x12);
+const VUB::CommandInfo* LookUpStart() {
+	return Motor::MotorCommands::CommandById(0x12);
+}
 ```
 
 ## Limits

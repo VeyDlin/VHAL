@@ -155,44 +155,6 @@ struct BlockEntry {
 			return false;
 		}
 	}
-
-
-	// Whether the block is a layer that declares the largest packet it sends to the block below (largestPacket).
-	static constexpr bool LargestPacketDeclared() {
-		if constexpr (Kind == BlockKind::layer) {
-			return requires { Block::largestPacket; };
-		} else {
-			return false;
-		}
-	}
-
-
-	static constexpr std::size_t LargestPacket() {
-		if constexpr (LargestPacketDeclared()) {
-			return Block::largestPacket;
-		} else {
-			return 0;
-		}
-	}
-
-
-	// Whether the block declares the payload it can hold (payloadCapacity), as Reliable does.
-	static constexpr bool PayloadCapacityDeclared() {
-		if constexpr (Kind == BlockKind::layer) {
-			return requires { Block::payloadCapacity; };
-		} else {
-			return false;
-		}
-	}
-
-
-	static constexpr std::size_t PayloadCapacity() {
-		if constexpr (PayloadCapacityDeclared()) {
-			return Block::payloadCapacity;
-		} else {
-			return 0;
-		}
-	}
 };
 
 
@@ -253,14 +215,16 @@ struct Settings {
 	std::size_t receiveRing = 256;
 	std::size_t receiveQueue = 4;
 	std::size_t sendQueue = 4;
+	// StageQueue(): the packets another task may stage while Process runs. Only a concurrent stack has the staging ring.
+	std::size_t stageQueue = 4;
 	std::size_t perProcess = 8;
 	uint32 (*clockFn)() = nullptr;
 	bool hasClock = false;
 	void (*receiveFn)(const Meta&, std::span<const uint8>) = nullptr;
 	bool hasReceive = false;
 	Down whileDown = Down::Wait;
-	// Concurrent(): the stack's sends and its processing run in a critical section, and the layers that take options with a concurrent
-	// member are given the flag.
+	// Concurrent(): Send from another task stages the payload in a ring under a short critical section, Process sends it, and the layers that
+	// take options with a concurrent member are given the flag.
 	bool concurrent = false;
 	// HighWater(): the stack keeps the highest fill of its receive ring and of its control queue.
 	bool highWater = false;
@@ -578,12 +542,23 @@ public:
 	}
 
 
-	// The stack may be used from another task while its Process runs: the control queue, the sends from the application and the Process
-	// run in a critical section (System::CriticalSection). A layer that takes options with a concurrent member is given the flag, so its
-	// own shared state can be guarded the same way. Without this call no critical section is built.
+	// The stack may be used from another task while its Process runs. Send from that task copies the payload into a staging ring, under a
+	// short critical section (System::CriticalSection), and returns; Process moves the staged packets on, in its own context. A layer that
+	// takes options with a concurrent member is given the flag, so its own shared state can be guarded the same way. Without this call no
+	// critical section and no staging ring is built.
 	constexpr Builder Concurrent() const {
 		Builder next = *this;
 		next.settings.concurrent = true;
+		return next;
+	}
+
+
+	// The packets a concurrent stack holds for Process while another task sends: Send returns busy when they are full. The staging ring
+	// takes the largest payload per packet, so its RAM is (packets + 1) * (MaxPayload() + 3) + 4 bytes, rounded up to an even count. A stack
+	// without Concurrent() has no staging ring, and this call costs nothing.
+	constexpr Builder StageQueue(std::size_t packets) const {
+		Builder next = *this;
+		next.settings.stageQueue = packets;
 		return next;
 	}
 
@@ -804,8 +779,6 @@ public:
 		Require<"a layer that declares reportsPeer must be the lowest layer of the chain: it is a hop-level block, below every other layer">(
 			peerLayers == 0 || reports[lowestLayer]);
 
-		CheckPayloadFits(std::make_index_sequence<(count > 0 ? count - 1 : 0)>{});
-
 		constexpr LinkTraits traits = ChainLinkTraits();
 		if constexpr (PacketLink<LinkType>) {
 			Require<"a packet link takes no framing: remove the Framing<Type>() block">(framings == 0);
@@ -838,6 +811,8 @@ public:
 		Require<"the receive queue holds at most 65535 packets: its indexes are 16-bit">(values.receiveQueue <= 65535);
 		Require<"SendQueue() is zero">(values.sendQueue > 0);
 		Require<"the send queue holds at most 65535 packets: its indexes are 16-bit">(values.sendQueue <= 65535);
+		Require<"StageQueue() is zero: a concurrent stack needs a staging ring">(!values.concurrent || values.stageQueue > 0);
+		Require<"the staging queue holds at most 65535 packets: its indexes are 16-bit">(values.stageQueue <= 65535);
 		Require<"MaxPayload() is not given or is zero: set the largest application payload">(values.maxPayload > 0);
 		Require<"OnReceive<&Fn>() is missing: the receive handler takes each packet">(values.hasReceive);
 		Require<"PerProcess() is zero">(values.perProcess > 0);
@@ -847,27 +822,6 @@ public:
 
 
 private:
-	// The largest packet a layer declares must fit the payload capacity of the block directly below it, when that block declares one (the
-	// Reliable layer does). The message shows the largest packet, the value to set as the capacity.
-	template<std::size_t Index>
-	static constexpr void CheckPayloadFit() {
-		using Above = std::tuple_element_t<Index, Tuple>;
-		using Below = std::tuple_element_t<Index + 1, Tuple>;
-		if constexpr (Above::LargestPacketDeclared() && Below::PayloadCapacityDeclared()) {
-			constexpr std::size_t need = Above::LargestPacket();
-			constexpr std::size_t capacity = Below::PayloadCapacity();
-			RequireValue<"the largest requests packet does not fit Reliable's payload: raise PayloadCapacity to the value shown", need>(
-				need <= capacity);
-		}
-	}
-
-
-	template<std::size_t... Index>
-	static constexpr void CheckPayloadFits(std::index_sequence<Index...>) {
-		(CheckPayloadFit<Index>(), ...);
-	}
-
-
 	// A block given options must be built from them, unless it declares Configured: then its options are template arguments and it needs no
 	// constructor. The message names the block's kind; a link and a block with no options pass.
 	template<typename Entry>

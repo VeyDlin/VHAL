@@ -53,21 +53,27 @@ inline void RaiseHighWater(volatile uint8& high, std::size_t fill) {
 }
 
 
-// The options of entry Index of a chain, with what the chain gives them. The block below a layer that declares wantsOwner takes the owner
-// handlers of that layer, when the block declares OwnedBy. A layer whose options have a concurrent member gets the chain's Concurrent() flag.
+// The options of entry Index of a chain, with what the chain gives them: a layer whose options have a concurrent member gets the chain's
+// Concurrent() flag.
 template<std::size_t Index, typename Chain>
 constexpr typename std::tuple_element_t<Index, typename Chain::Tuple>::OptionsType WiredOptionsOf(const Chain& chain) {
 	using Entry = std::tuple_element_t<Index, typename Chain::Tuple>;
 	typename Entry::OptionsType value = ListAt<Index>(chain.entries).options;
-	if constexpr (Index > 0) {
-		using Above = std::tuple_element_t<(Index > 0 ? Index - 1 : 0), typename Chain::Tuple>;
-		if constexpr (Above::WantsOwner() && TakesOwnerOf<typename Entry::BlockType, typename Above::BlockType>) {
-			value = Entry::BlockType::template OwnedBy<typename Above::BlockType>(value);
-		}
-	}
-
 	if constexpr (Entry::kind == BlockKind::layer && HasConcurrentMember<decltype(value)>) {
 		value.concurrent = chain.settings.concurrent;
+	}
+
+	return value;
+}
+
+
+// The options of a block below a layer that wants the owner of its outcomes: the block that declares OwnedBy takes the handlers of that
+// layer. AboveStored is the type the stack stores for the layer above, since the owner is that object: a layer stored as its Configured
+// alias is another type than the one in the chain.
+template<typename Entry, typename AboveStored, bool AboveWantsOwner>
+constexpr typename Entry::OptionsType OwnedOptionsOf(typename Entry::OptionsType value) {
+	if constexpr (AboveWantsOwner && TakesOwnerOf<typename Entry::BlockType, AboveStored>) {
+		value = Entry::BlockType::template OwnedBy<AboveStored>(value);
 	}
 
 	return value;
@@ -95,8 +101,9 @@ constexpr typename std::tuple_element_t<Index, typename Chain::Tuple>::OptionsTy
 // refuses is kept for the next call; nothing is dropped for a busy link. A layer may pass a packet up from its Process, through its outbox
 // (Deliver): the packet goes through the blocks above the layer, and on to the receive handler.
 //
-// Feed (a byte-stream link) and FeedPacket (a packet link) are called from the receive interrupt. Everything else runs in one context:
-// Send, Process and Drops. Another task calling Send needs a lock of its own.
+// Feed (a byte-stream link) and FeedPacket (a packet link) are called from the receive interrupt. Send, Process and Drops run in one
+// context. A concurrent stack (Concurrent()) also takes Send from another task: that Send copies the payload into a staging ring under a
+// short critical section, and Process moves the staged packets on, in its own context. Nothing else of Process runs in a critical section.
 //
 // How a link hands its data over. A link with SetReceiver gets a Receiver in its constructor, and feeds it from its interrupt; the stack
 // takes it back in its destructor, so such a stack is not copyable. A link with Poll is polled by Process ahead of the drain, and feeds the
@@ -139,9 +146,29 @@ public:
 	static_assert(checked, "the chain was not checked");
 
 
-	// The options of entry Index of the chain, as a constant value, with the chain's wiring (WiredOptionsOf).
+	// The stored type of the layer above entry Index, and whether it wants the owner of the outcomes below it. Entry 0 has no layer above.
+	template<std::size_t Index, bool HasAbove = (Index > 0)>
+	struct AboveStoredOf {
+		using type = None;
+		static constexpr bool wantsOwner = false;
+	};
+
+
 	template<std::size_t Index>
-	static constexpr typename std::tuple_element_t<Index, Tuple>::OptionsType OptionsAt = WiredOptionsOf<Index>(built);
+	struct AboveStoredOf<Index, true> {
+		using type = typename StoredOf<std::tuple_element_t<Index - 1, Tuple>, WiredOptionsOf<Index - 1>(built)>::type;
+		static constexpr bool wantsOwner = std::tuple_element_t<Index - 1, Tuple>::WantsOwner();
+	};
+
+
+	// The options of entry Index of the chain, as a constant value, with the chain's wiring (WiredOptionsOf) and the owner of the layer above
+	// (OwnedOptionsOf).
+	template<std::size_t Index>
+	static constexpr typename std::tuple_element_t<Index, Tuple>::OptionsType OptionsAt = OwnedOptionsOf<
+		std::tuple_element_t<Index, Tuple>,
+		typename AboveStoredOf<Index>::type,
+		AboveStoredOf<Index>::wantsOwner
+	>(WiredOptionsOf<Index>(built));
 
 
 	// The type stored for entry Index. A block that declares Configured is stored as that alias, with its options as constants; any other
@@ -155,6 +182,33 @@ public:
 
 
 	using Storage = decltype(StorageOf(std::make_index_sequence<count>{}));
+
+
+	// The largest packet a layer declares must fit the payload capacity of the block directly below it, when that block declares one (the
+	// Reliable layer does). Both are read from the types the stack stores, since an option can change either one. The message shows the
+	// largest packet, the value to set as the capacity.
+	template<std::size_t Index>
+	static consteval void CheckPayloadFit() {
+		using AboveType = StoredAt<Index>;
+		using BelowType = StoredAt<Index + 1>;
+		if constexpr (requires { AboveType::largestPacket; } && requires { BelowType::payloadCapacity; }) {
+			constexpr std::size_t need = AboveType::largestPacket;
+			constexpr std::size_t capacity = BelowType::payloadCapacity;
+			RequireValue<"the largest requests packet does not fit Reliable's payload: raise PayloadCapacity to the value shown", need>(
+				need <= capacity);
+		}
+	}
+
+
+	template<std::size_t... Index>
+	static consteval bool CheckPayloadFits(std::index_sequence<Index...>) {
+		(CheckPayloadFit<Index>(), ...);
+		return true;
+	}
+
+
+	static constexpr bool payloadsFit = CheckPayloadFits(std::make_index_sequence<(count > 0 ? count - 1 : 0)>{});
+	static_assert(payloadsFit, "the payloads of the chain were not checked");
 
 
 	static constexpr LinkTraits linkTraits = Builder::ChainLinkTraits();
@@ -184,6 +238,8 @@ public:
 	static constexpr uint32 (*clockFn)() = built.settings.clockFn;
 	static constexpr bool hasClock = built.settings.hasClock;
 	static constexpr bool concurrent = built.settings.concurrent;
+	static constexpr std::size_t stageSlots = built.settings.stageQueue + 1;
+	static constexpr std::size_t stageBytes = built.settings.maxPayload;
 	static constexpr bool highWater = built.settings.highWater;
 	static constexpr bool wantsOwners = Builder::WantsOwners();
 	static constexpr std::size_t requestsIndex = Builder::RequestsIndex();
@@ -214,31 +270,30 @@ public:
 	// Encodes one payload and queues it. Returns ok when it is queued, busy when the control queue is full (the payload is not queued and
 	// nothing is counted: the caller sends it again), messageTooLong when it is larger than MaxPayload, noConnection while the
 	// connection is down under the Fail option, or the status of a block that refused it.
+	//
+	// On a concurrent stack the call may come from another task. There ok means the payload is staged: the encode and the queueing happen
+	// in Process, and a refusal there is counted in Drops() and not returned. Busy means the staging ring is full, and the payload is not
+	// taken. The size and the connection are checked here as well.
 	ResultStatus Send(std::span<const uint8> payload, const Meta& meta = Meta()) {
 		if constexpr (concurrent) {
-			System::CriticalSection(true);
+			return StageSend(payload, meta);
+		} else {
+			return SendLocked(payload, meta);
 		}
-
-		ResultStatus status = SendLocked(payload, meta);
-		if constexpr (concurrent) {
-			System::CriticalSection(false);
-		}
-
-		return status;
 	}
 
 
-	// The main loop call. Reads the clock, polls the link if it has Poll, applies the link's state, takes the received bytes and packets up
-	// the chain, runs the layers' Process, and sends. On a concurrent stack it runs in a critical section, so a send from another task waits
-	// for it.
+	// The main loop call. Reads the clock, moves the staged packets (a concurrent stack), polls the link if it has Poll, applies the link's
+	// state, takes the received bytes and packets up the chain, runs the layers' Process, and sends. The receive handlers and the layers run
+	// outside any critical section.
 	void Process() {
-		if constexpr (concurrent) {
-			System::CriticalSection(true);
-		}
-
 		uint32 now = 0;
 		if constexpr (hasClock) {
 			now = clockFn();
+		}
+
+		if constexpr (concurrent) {
+			DrainStaged();
 		}
 
 		if constexpr (linkPolled) {
@@ -261,9 +316,6 @@ public:
 		}
 
 		Egress(now);
-		if constexpr (concurrent) {
-			System::CriticalSection(false);
-		}
 	}
 
 
@@ -347,24 +399,35 @@ public:
 	// The outbox of the layer at Index for the application, from its own context (not from Process). Its send enters the blocks below the
 	// layer, at Index + 1, and runs them down to the control queue. A refusal goes back to the caller and is not counted as a drop, so the
 	// caller keeps the packet and sends it again. The layer's Process gets its own outbox, which also has LinkUp.
+	// On a concurrent stack a layer sends from its own Process, with the outbox that Process is given. The application-side outbox is for a
+	// stack that is not concurrent: its send runs in the caller's context and takes the control queue, which Process uses without a lock,
+	// so it is refused here. An application on a concurrent stack sends through Stack::Send.
 	template<std::size_t Index>
 	Outbox LayerOutbox() {
 		static_assert(Index < count, "the chain has no block at this index");
 		static_assert(std::tuple_element_t<(Index < count ? Index : 0), Tuple>::kind == BlockKind::layer,
 			"LayerOutbox is for a layer: the block at this index is not a layer");
+		static_assert(!concurrent, "LayerOutbox is for a stack that is not concurrent: on a concurrent stack a layer sends from its own Process, and the application sends through Stack::Send");
 		return Outbox(this, &Stack::template AppSendThunk<Index + 1>, PeerFor<Index>(), DeliverFor<Index>(), LinkFor<Index>());
 	}
 
 
-	// The handle of the layer at Index: the layer's nested type Handle, built from the layer and its application-side outbox (LayerOutbox).
-	// A layer declares Handle when the application sends through it.
+	// The handle of the layer at Index: the layer's nested type Handle, built from the layer and an application-side outbox. On a stack
+	// that is not concurrent the outbox is LayerOutbox. On a concurrent stack it refuses every send with notSupported: a layer on a
+	// concurrent stack keeps what the application gives it and sends from its own Process. A layer declares Handle when the application
+	// sends through it.
 	template<std::size_t Index>
 	auto HandleAt() {
 		static_assert(Index < count, "the chain has no block at this index");
 		static_assert(requires { typename StoredAt<(Index < count ? Index : 0)>::Handle; },
 			"the layer has no Handle: declare a nested type Handle, constructible from the layer and its Outbox");
 		using HandleType = typename StoredAt<(Index < count ? Index : 0)>::Handle;
-		return HandleType(std::get<(Index < count ? Index : 0)>(blocks), LayerOutbox<(Index < count ? Index : 0)>());
+		if constexpr (concurrent) {
+			return HandleType(std::get<(Index < count ? Index : 0)>(blocks),
+				Outbox(this, &Stack::RefusedSendThunk, PeerFor<Index>(), DeliverFor<Index>(), LinkFor<Index>()));
+		} else {
+			return HandleType(std::get<(Index < count ? Index : 0)>(blocks), LayerOutbox<(Index < count ? Index : 0)>());
+		}
 	}
 
 
@@ -410,6 +473,7 @@ private:
 	[[no_unique_address]] Buffer<streamLink && hasFraming, framedBytes, 6> framed;
 	[[no_unique_address]] State<streamLink && hasFraming, FramedState, 7> framedState;
 	[[no_unique_address]] QueueStorage<true, sendSlots, packetBytes, 8> control;
+	[[no_unique_address]] QueueStorage<concurrent, stageSlots, stageBytes, 16> staged;
 	[[no_unique_address]] QueueStorage<peersReport, sendSlots, packetBytes, 14> ownQueue;
 	[[no_unique_address]] Buffer<true, receiveBytes, 9> rx;
 	[[no_unique_address]] RingStorage<streamLink, ringSlots, 10> ring;
@@ -511,19 +575,18 @@ private:
 	}
 
 
+	// The send of a handle's outbox on a concurrent stack: the layer keeps what it is given and sends from its own Process.
+	static ResultStatus RefusedSendThunk(void*, std::span<const uint8>, const Meta&) {
+		return ResultStatus::notSupported;
+	}
+
+
 	// The application-side send into the blocks from From on: the packet enters at From, from the caller's context. A refusal goes back to
-	// the caller and none is counted. A concurrent stack runs the send in a critical section.
+	// the caller and none is counted. Only a stack that is not concurrent has one (LayerOutbox).
 	template<std::size_t From>
 	static ResultStatus AppSendThunk(void* owner, std::span<const uint8> packet, const Meta& meta) {
 		Stack* self = static_cast<Stack*>(owner);
-		if constexpr (concurrent) {
-			System::CriticalSection(true);
-			ResultStatus status = self->template AppSend<From>(packet, meta);
-			System::CriticalSection(false);
-			return status;
-		} else {
-			return self->template AppSend<From>(packet, meta);
-		}
+		return self->template AppSend<From>(packet, meta);
 	}
 
 
@@ -544,6 +607,80 @@ private:
 		}
 
 		return SendFrom<From>(packet, meta, Lane::control, true);
+	}
+
+
+	// The send of a concurrent stack. The payload is checked for its size, then copied into the staging ring under a short critical section:
+	// the ring's head is written from any task, so the push cannot run beside another push. Busy when the ring is full.
+	ResultStatus StageSend(std::span<const uint8> payload, const Meta& meta) {
+		if (payload.size() > built.settings.maxPayload) {
+			return ResultStatus::messageTooLong;
+		}
+
+		System::CriticalSection(true);
+		ResultStatus status = StagePush(payload, meta);
+		System::CriticalSection(false);
+		return status;
+	}
+
+
+	// The staging push, in the critical section of StageSend. Under Fail a down connection refuses the payload, as SendLocked does.
+	ResultStatus StagePush(std::span<const uint8> payload, const Meta& meta) {
+		if constexpr (hasLinkState) {
+			if (whileDown == Down::Fail && !LinkUp()) {
+				return ResultStatus::noConnection;
+			}
+		}
+
+		return QueuePush(staged.indexes, staged.View(), payload, meta.flags);
+	}
+
+
+	// Moves the staged packets to the control queue, oldest first, from Process in its own context. A packet that the control queue or a
+	// layer refuses as busy stays staged for the next call. Any other refusal is counted where it happens (SendFrom counts it, since the
+	// packet has no caller), and the packet is taken out. Under Fail, a packet drained while the connection is down is dropped and counted.
+	void DrainStaged() {
+		std::span<const uint8> packet;
+		uint8 flags = 0;
+		while (StagedFront(packet, flags)) {
+			if (QueueFull(control.indexes, sendSlots)) {
+				return;
+			}
+
+			if constexpr (hasLinkState) {
+				if (whileDown == Down::Fail && !LinkUp()) {
+					StagedPop();
+					AddDrops(linkRecord.Get().dropped, 1);
+					continue;
+				}
+			}
+
+			Meta meta{};
+			meta.flags = flags;
+			if (SendFrom<0>(packet, meta, Lane::control, false) == ResultStatus::busy) {
+				return;
+			}
+
+			StagedPop();
+		}
+	}
+
+
+	// The oldest staged packet, without taking it out. Its bytes stay valid until StagedPop: a slot that is held is not written by Send.
+	// The read of the indexes is in a short critical section, since another task's push writes the head.
+	bool StagedFront(std::span<const uint8>& packet, uint8& flags) {
+		System::CriticalSection(true);
+		bool found = QueueFront(staged.indexes, staged.View(), packet, flags);
+		System::CriticalSection(false);
+		return found;
+	}
+
+
+	// Drops the oldest staged packet, in a short critical section: the tail is one of the indexes a push reads.
+	void StagedPop() {
+		System::CriticalSection(true);
+		QueuePop(staged.indexes, stageSlots);
+		System::CriticalSection(false);
 	}
 
 

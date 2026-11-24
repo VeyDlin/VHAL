@@ -589,8 +589,10 @@ public:
 
 	static_assert(commandCount <= 240, "more than 240 commands: the command ids are one byte and 0xF0 to 0xFF are reserved");
 	static_assert(eventCount <= 240, "more than 240 events: the event ids are one byte and 0xF0 to 0xFF are reserved");
-	static_assert(NoDuplicateIds(commandTable), "two commands have the same id");
-	static_assert(NoDuplicateIds(eventTable), "two events have the same id");
+	// Past 240 entries the ids cannot all differ, so the duplicate check is made only when the count is within the limit: a set over
+	// the limit fails for its count alone.
+	static_assert(commandCount > 240 || NoDuplicateIds(commandTable), "two commands have the same id");
+	static_assert(eventCount > 240 || NoDuplicateIds(eventTable), "two events have the same id");
 	static_assert(NoDuplicateNames(commandTable, eventTable), "two commands or events have the same name");
 
 

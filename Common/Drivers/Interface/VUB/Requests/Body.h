@@ -244,19 +244,33 @@ template<typename T>
 constexpr const BodyView* NestedViewOf();
 
 
-// Fills in how one element of type ElementT is written. Each allowed type is named here, and the rest are compile errors.
+// True for the fixed-width integer types of Utilities/DataTypes.h. Where long or size_t is the same type as one of them on a target, it is
+// accepted there too: the check is on the type, not on its name.
+template<typename ElementT>
+inline constexpr bool IsFixedWidthInteger = std::is_same_v<ElementT, int8> || std::is_same_v<ElementT, int16> || std::is_same_v<ElementT, int32> ||
+	std::is_same_v<ElementT, int64> || std::is_same_v<ElementT, uint8> || std::is_same_v<ElementT, uint16> || std::is_same_v<ElementT, uint32> ||
+	std::is_same_v<ElementT, uint64>;
+
+
+// Fills in how one element of type ElementT is written. Each allowed type is named here, and the rest are compile errors. An integer field
+// is one of the fixed-width types, so its wire width is the same on every target; an enum field has such an underlying type.
 template<typename ElementT>
 consteval void DescribeElement(FieldDescriptor& field) {
 	if constexpr (std::is_same_v<ElementT, bool>) {
 		field.kind = FieldKind::boolean;
 		field.width = 1;
-	} else if constexpr (std::is_integral_v<ElementT>) {
+	} else if constexpr (IsFixedWidthInteger<ElementT>) {
 		field.kind = FieldKind::integer;
 		field.width = static_cast<uint8>(sizeof(ElementT));
 	} else if constexpr (std::is_enum_v<ElementT>) {
+		static_assert(IsFixedWidthInteger<std::underlying_type_t<ElementT>>,
+			"an enum field has an underlying type that is not fixed width: give the enum an int8, int16, int32, int64, uint8, uint16, uint32 or uint64 underlying type");
 		static_assert(sizeof(ElementT) <= 4, "an enum field is at most 4 bytes: this enum's underlying type is wider");
 		field.kind = FieldKind::integer;
 		field.width = static_cast<uint8>(sizeof(ElementT));
+	} else if constexpr (std::is_integral_v<ElementT>) {
+		static_assert(AlwaysFalse<ElementT>,
+			"a body field has an integer type that is not fixed width: use int8, int16, int32, int64, uint8, uint16, uint32 or uint64 from Utilities/DataTypes.h (char, wchar_t, long, size_t and the others differ in width between targets)");
 	} else if constexpr (std::is_same_v<ElementT, float>) {
 		static_assert(std::numeric_limits<float>::is_iec559, "a float field needs IEEE 754 binary32 floats");
 		field.kind = FieldKind::integer;

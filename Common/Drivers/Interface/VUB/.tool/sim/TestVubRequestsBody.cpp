@@ -464,6 +464,25 @@ void TestNoBodyTakesNoBytes() {
 }
 
 
+// The character types are not fixed-width integers, so a body refuses them (the BuilderErrors snippet requests_body_wchar.cpp shows the
+// message). Each fixed-width type is one, on every target.
+void TestOnlyFixedWidthIntegersAreAccepted() {
+	static_assert(VUB::IsFixedWidthInteger<int8>);
+	static_assert(VUB::IsFixedWidthInteger<int16>);
+	static_assert(VUB::IsFixedWidthInteger<int32>);
+	static_assert(VUB::IsFixedWidthInteger<int64>);
+	static_assert(VUB::IsFixedWidthInteger<uint8>);
+	static_assert(VUB::IsFixedWidthInteger<uint16>);
+	static_assert(VUB::IsFixedWidthInteger<uint32>);
+	static_assert(VUB::IsFixedWidthInteger<uint64>);
+	static_assert(!VUB::IsFixedWidthInteger<char>);
+	static_assert(!VUB::IsFixedWidthInteger<wchar_t>);
+	static_assert(!VUB::IsFixedWidthInteger<char8_t>);
+	static_assert(!VUB::IsFixedWidthInteger<char16_t>);
+	static_assert(!VUB::IsFixedWidthInteger<char32_t>);
+}
+
+
 int main() {
 	TestMotorStartEncodesToTheDesignBytes();
 	TestMotorReportEncodesToTheDesignBytes();
@@ -482,5 +501,6 @@ int main() {
 	TestTrailingOptionalFieldsKeepTheirDefaults();
 	TestShortBufferIsMessageTooLong();
 	TestNoBodyTakesNoBytes();
+	TestOnlyFixedWidthIntegersAreAccepted();
 	return SimFinish("TestVubRequestsBody");
 }

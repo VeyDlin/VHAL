@@ -666,7 +666,6 @@ private:
 	}
 
 
-
 	// The sequence width in bytes.
 	std::size_t SeqBytes() const {
 		if constexpr (options.sequenceBits == 8) {

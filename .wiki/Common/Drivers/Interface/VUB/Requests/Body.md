@@ -50,11 +50,17 @@ the body of a command with no body, and it has an empty layout.
 | Type | Wire | Notes |
 |---|---|---|
 | `bool` | 1 byte | 0 or 1; any other value is `invalidData` on decode |
-| `int8` to `int64`, `uint8` to `uint64` | 1 to 8 bytes | two's complement, little-endian |
-| `enum class` with an underlying type of up to 4 bytes | the size of the enum | the value is the underlying integer |
+| `int8`, `int16`, `int32`, `int64`, `uint8`, `uint16`, `uint32`, `uint64` | 1 to 8 bytes | two's complement, little-endian; the types of `Utilities/DataTypes.h` |
+| `enum class` over one of those types, with an underlying type of up to 4 bytes | the size of the enum | the value is the underlying integer |
 | `float` | 4 bytes | the IEEE 754 binary32 bit pattern (a `static_assert` checks `std::numeric_limits<float>::is_iec559`) |
 | a nested struct with its own `BodyOf` | the nested layout, inline | every field of the nested body is required |
 | `std::array<T, N>` of the types above | `N` times the element | `N` is a compile-time constant; the elements are in order |
+
+A body names the fixed-width types only. Every other integer type is a compile error: `char`, `wchar_t`, `char8_t`, `char16_t` and
+`char32_t` are refused, and so are `long`, `long long`, `size_t` and the rest, because their width differs between targets (a 32-bit
+`long` on MinGW and ARM, a 64-bit `long` on LP64 Linux), so a device and a PC would disagree on the wire. The test is on the type, not on
+its name: where `long` or `size_t` is the same type as one of the fixed-width types on a target, it is accepted on that target, and its
+wire is the same there. A body should still name the fixed-width type. The message of the error names the fixed-width types.
 
 A `double` field is a compile error: it is not in version 1, and a scaled integer is the replacement. Pointers, `std::string` and
 variable-length data are not field types. A nested body with an `Optional` field is a compile error, because the bytes after it would

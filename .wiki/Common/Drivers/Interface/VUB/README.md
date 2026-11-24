@@ -89,6 +89,7 @@ Settings are set anywhere in the chain:
 | `ReceiveRing(bytes)` | bytes the receive ring holds (byte-stream links) | 256 |
 | `ReceiveQueue(packets)` | packets the receive queue holds (packet links) | 4 |
 | `SendQueue(packets)` | packets held for the link while it is busy | 4 |
+| `StageQueue(packets)` | packets another task may stage while `Process` runs; a concurrent stack only (see [Concurrent](#concurrent-the-concurrent-option-and-the-concurrent-flag)) | 4 |
 | `PerProcess(packets)` | most packets one `Process` call sends | 8 |
 | `Clock<&Fn>()` | the clock, a function returning microseconds as `uint32` | required when a block uses time |
 | `OnReceive<&Fn>()` | the receive handler, `void(const VUB::Meta&, std::span<const uint8>)` | required |
@@ -118,12 +119,13 @@ in the control queue. `Process()` does the rest, in this order:
 5. sends.
 
 `Feed(byte)` (byte-stream link) and `FeedPacket(packet)` (packet link) are called from the receive interrupt. They store the data;
-everything else runs in `Process`, and `Send` from the application's task takes the same queue.
+everything else runs in `Process`. `Send` runs the chain at once and takes the control queue, so it is called from the task that calls
+`Process`. On a chain built with `Concurrent()` `Send` from another task stages the payload, and `Process` runs the chain.
 
 A layer that the application sends through is reached with `HandleAt<I>()`, or with `Requests()` for the layer that declares
 `requestsLayer` (see "Optional members" under "Writing a block"). The handle's send enters the blocks below its layer, and it returns a
-refusal to the caller without counting it. A chain built with `Concurrent()` runs `Send` and `Process` in a critical section, so a send
-from another task is safe while `Process` runs. A chain whose framing uses time stores the time of each byte in `Feed`, so the clock is read there too.
+refusal to the caller without counting it. On a chain built with `Concurrent()` the handle's send refuses with `notSupported`: a layer keeps
+what the application gives it and sends from its own `Process`. A chain whose framing uses time stores the time of each byte in `Feed`, so the clock is read there too.
 
 `Find<Block>()` returns the block of that type in the chain, for the settings that change at run time, such as the gap framing's baud
 rate: `stack.Find<VUB::Gap>().SetBaud(19200)`. A chain without that block does not compile the call. A chain with two blocks of that type
@@ -1048,8 +1050,11 @@ uint32 OptionalNow() {
 A layer that the application sends through declares a nested type `Handle`, constructible from the layer and an `Outbox`. The stack
 builds the outbox with `LayerOutbox<I>()`: its send enters the blocks below the layer at index `I`, from the caller's context, and it
 does not run the layer's own `Add`, so a layer with a header writes the header in its handle. A refusal (`busy`, `messageTooLong`,
-`noConnection`) goes back to the caller and is not counted as a drop. `HandleAt<I>()` gives the handle of the layer at `I`, and
-`Requests()` gives the handle of the first layer that declares `static constexpr bool requestsLayer = true`. A chain without such a layer
+`noConnection`) goes back to the caller and is not counted as a drop. The outbox is for a stack that is not concurrent: `LayerOutbox<I>()`
+is a compile error on a chain built with `Concurrent()` (the message begins "LayerOutbox is for a stack that is not concurrent"), because
+its send takes the control queue from the caller's context while `Process` uses that queue without a lock. `HandleAt<I>()` gives the handle
+of the layer at `I`, and `Requests()` gives the handle of the first layer that declares `static constexpr bool requestsLayer = true`. On a
+chain built with `Concurrent()` the handle still exists, and its send refuses with `notSupported`: the layer sends from its own `Process`. A chain without such a layer
 does not compile where `Requests()` is called.
 
 ```cpp
@@ -1291,11 +1296,23 @@ using WatchedBoard = VUB::Stack<+[] {
 
 #### Concurrent: the Concurrent option and the concurrent flag
 
-`Concurrent()` on the builder makes the stack run its sends from another task, and its `Process`, in `System::CriticalSection`: a send
-waits for a call of `Process` that is under way, and the two never change the queues at once. A layer that guards its own shared state
-the same way declares an options member `bool concurrent = false`, with a `Step` and `Configured` (see Two ways to take options). The stack
-sets the member from `Concurrent()`, and the layer reads it as a constant: `static constexpr bool concurrent = Value.concurrent`. A
-chain without `Concurrent()` builds no section, and a layer with no `concurrent` member is given nothing.
+`Concurrent()` on the builder lets the application send from another task while `Process` runs. The send from that task copies the payload
+into a staging ring, under a short critical section (`System::CriticalSection`), and returns. `Process` moves the staged packets to the
+control queue at its start, in its own context, oldest first, and then runs as it does on any stack. Only the short pushes and pops of
+the staging ring are in a critical section; the receive handlers, the links and the layers' `Process` run outside any section.
+
+`Send` on a concurrent stack returns `ok` when the payload is staged, so the encode and the queueing happen in `Process`, and a refusal
+there is counted in `Drops()` and is not returned to the sender. It returns `busy` when the staging ring is full, and the payload is not
+taken: the sender sends it again. `messageTooLong` and `noConnection` (under `Fail`) are returned at once, as on any stack.
+
+`StageQueue(packets)` sets the size of the staging ring, 4 by default. The ring takes the largest payload (`MaxPayload`) per packet, so
+its RAM is `(packets + 1) * (MaxPayload() + 3) + 4` bytes, rounded up to an even count. A stack without `Concurrent()` has no staging ring,
+and no code for it.
+
+A layer that guards its own shared state the same way declares an options member `bool concurrent = false`, with a `Step` and
+`Configured` (see Two ways to take options). The stack sets the member from `Concurrent()`, and the layer reads it as a constant:
+`static constexpr bool concurrent = Value.concurrent`. A chain without `Concurrent()` builds no section, and a layer with no `concurrent`
+member is given nothing.
 
 ```cpp
 // A layer whose shared count changes in a critical section when the stack is concurrent. Its options carry the flag.

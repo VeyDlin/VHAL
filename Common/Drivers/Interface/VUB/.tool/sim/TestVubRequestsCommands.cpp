@@ -2,6 +2,7 @@
 #include "RequestsMotor.h"
 #include <Drivers/Interface/VUB/Requests/Commands.h>
 #include <Utilities/DataTypes.h>
+#include <array>
 #include <string_view>
 #include <type_traits>
 
@@ -107,7 +108,7 @@ void TestLookupById() {
 
 // The tables are in declaration order, so the layer can walk them.
 void TestTablesAreInDeclarationOrder() {
-	const auto& table = Motor::MotorCommands::commandTable;
+	const std::array<VUB::CommandInfo, 3>& table = Motor::MotorCommands::commandTable;
 	SIM_EXPECT(table.size() == 3);
 	SIM_EXPECT(table[0].name == "motor.start");
 	SIM_EXPECT(table[1].name == "motor.stop");
