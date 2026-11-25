@@ -321,6 +321,7 @@ struct UartActuatorStack {
 			.Framing<VUB::Cobs>()
 			.template Link<LinkType>()
 			.MaxPayload(32)
+			.CountDrops()
 			.template OnReceive<&OnPayload>()
 			.template Clock<&ActuatorClockUs>();
 	}>;
@@ -337,6 +338,7 @@ struct CdcActuatorStack {
 			.Framing<VUB::Cobs>()
 			.template Link<LinkType>()
 			.MaxPayload(32)
+			.CountDrops()
 			.template OnReceive<&OnPayload>()
 			.template Clock<&ActuatorClockUs>();
 	}>;
