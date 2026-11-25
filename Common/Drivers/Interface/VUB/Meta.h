@@ -10,6 +10,10 @@ struct Meta {
 	// The packet needs no delivery acknowledgement (the large-data layer marks its parts with it).
 	static constexpr uint8 NoAcknowledgeFlag = 0x01;
 
+	// The packet is a copy that a layer below sends again when the connection returns, from the copy the layer keeps. The stack drops the
+	// copies with this flag that wait in its queues when the connection returns.
+	static constexpr uint8 ResentBelowFlag = 0x02;
+
 
 	uint8 flags = 0;
 };

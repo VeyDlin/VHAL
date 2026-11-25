@@ -275,10 +275,12 @@ handler when it is taken.
 A peer restart (Reliable reports it through its owner hook) closes every open request with `reset`.
 
 Reliable asks whether a request packet is still wanted before it sends the packet again (`DeliveryWanted`). A request is wanted while its
-slot is open, and a CANCEL is wanted while its request is open. A request that its requester has closed, by its deadline or by the connection's loss, is not sent again when the link comes back,
-and the device's handler does not run for it. A packet that the stack has already queued for the link is sent when the link is up again, and it
-is not asked about: under `Down::Wait` the stack keeps its queued packets through an outage, so such a request can still reach the device after
-its requester has closed it. Under `Down::Fail` the queued packets are dropped, and the request's resend is then the one that is asked about.
+slot is open, and a CANCEL is wanted while its request is open. A request that its requester has closed, by its deadline or by the
+connection's loss, is not sent when the link comes back, and the device's handler does not run for it. This holds for a request sent while
+the link is down, and for a request whose copy the stack had queued when the link went down. When the link comes back the stack drops the
+copies that Reliable sends again, with the part of a frame that was written, and Reliable sends each packet that is still wanted, in the order
+of the packets' numbers. The send at the return is not counted as a try of the packet. Under
+`Down::Fail` the queued packets are dropped when the link goes down, and the packet that is sent again is the one that is asked about.
 
 ## Responder
 
@@ -507,6 +509,8 @@ is `01 13 01 00 01` and its final `started` is `03 01 00 01 00 00`. The bytes of
 | The device holds the request too long | `timeout` at the requester's deadline | its ticket deadline closes the ticket with code 5 (sent as a final); a later `Finish` is `notAvailable` |
 | The request is lost and Reliable gives up | `retryExhausted` | the ticket may run; its final is dropped at the requester |
 | The request is lost, the link goes down, and the deadline passes while it is down | `timeout`; the resend is not sent (`DeliveryWanted`) | the handler does not run |
+| The request is sent while the link is down, and the deadline passes while it is down | `timeout`; its copy is dropped when the link returns, and the resend is not sent (`DeliveryWanted`) | the handler does not run |
+| The request is queued when the link goes down, and the deadline passes while it is down | `timeout`; its copy is dropped when the link returns, and the resend is not sent (`DeliveryWanted`) | the handler does not run |
 | The peer restarts with a request open | `reset` for every open request of the peer | every ticket is closed; a final not yet sent is discarded |
 | The link goes down | `noConnection` for `FailWhileDown` commands; the others wait for their deadline | nothing is sent by the layer while the link is down |
 | The link has not come up yet | `noConnection` for `FailWhileDown` commands | none |

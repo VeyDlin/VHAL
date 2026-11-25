@@ -210,7 +210,7 @@ The first transmission is made with `Send`. A packet not acknowledged is resent 
 
 A packet is sent at most `Retries + 1` times. When the timeout passes after the last one, the outcome is `retryExhausted`. With `Retries(3)` and `TimeoutMs(200)`, a packet sent at time 0 is sent again at 200, 400 and 600 ms, and reported at 800 ms.
 
-While the connection is down (a link that reports its state, see the link state of the core) nothing is sent and no timeout runs. On up, every packet that is waiting is due at once and is resent in the next `Process`.
+While the connection is down (a link that reports its state, see the link state of the core) nothing is sent and no timeout runs. On up, every packet that is waiting is due at once and is resent in the next `Process`. With a layer above that declares `DeliveryWanted`, the packets are resent in the order of their numbers, from the window base on, and their copies in the stack's queues are dropped at the return (see `DeliveryWanted` below).
 
 The timers compare the clock with wrap: the clock is a 32-bit count of microseconds, and a timeout that falls after the count wraps to zero is due at its time. Sim test `TestVubReliableClock` runs a session across the wrap.
 
@@ -240,7 +240,7 @@ The outcome handler (`OnOutcome`) is called once for each data packet sent with 
 | `reset` | the peer lost the session while the packet was not acknowledged; it may or may not have arrived, and it is not sent again |
 | `operationCancelled` | the layer above no longer wants the packet (its `DeliveryWanted` answered no) when the packet is due to be sent again. It is not sent. |
 
-A layer above with `wantsOwner` may declare `static bool DeliveryWanted(void* owner, std::span<const uint8> payload)`. The first send of a data packet is made by `Send` and is not offered. A resend is offered with its payload when the packet is due: its timeout has passed, or the link came up while it was waiting. A packet the layer does not want is not sent; its outcome is `operationCancelled`, and its slot is freed as for `retryExhausted`. A sync is never offered. The next packet's header carries the sender's window base, so the receiver moves past the packet that was not sent, with or without the in-order option. With no `DeliveryWanted` above the layer, Reliable has no check and no code for it.
+A layer above with `wantsOwner` may declare `static bool DeliveryWanted(void* owner, std::span<const uint8> payload)`. The first send of a data packet is made by `Send` and is not offered. A resend is offered with its payload when the packet is due: its timeout has passed, or the link came up while it was waiting. When the link comes back, the stack drops the copies of the layer's packets that wait in its queues, and the layer sends again each packet it still holds. That send is offered. It is not counted as a try: when the link returns, each pending packet's attempts go back by one (not below zero), since the try that was under way when the link was lost did not reach the link. So with `Retries(0)` a packet sent while the link was down is sent once, at the return; with `Retries(3)` it has its four tries after the return. The `attempts` of the outcome counts the tries this way. With `Counted()`, the send at the return is not counted as a resend, and the sends after it are. A packet the layer does not want is not sent; its outcome is `operationCancelled`, and its slot is freed as for `retryExhausted`. A sync is never offered. The next packet's header carries the sender's window base, so the receiver moves past the packet that was not sent, with or without the in-order option. The resends go in the order of the packets' numbers. With no `DeliveryWanted` above the layer, Reliable has no check and no code for it, and the stack drops nothing on the return of the link.
 
 A `retryExhausted` packet is not a promise that it was not passed up. When every acknowledgement is lost, the receiver passes the packet up and the sender still reports `retryExhausted`. The same holds for `reset`. Only `ok` is a promise, and it is a promise that the packet was passed up once.
 
@@ -309,7 +309,7 @@ The options are set by the methods right after the block. Each has a default.
 | `OnOutcome<&Fn>()` | the outcome handler | none |
 | `OnRestart<&Fn>()` | the restart handler | none |
 | `OnRestartOwner<&Fn>()` | the restart handler with the owner pointer (see Outcomes) | none |
-| `Counted()` | counts the resends and the peer restarts, read with `Resends()` and `PeerRestarts()`, and through `CountingOutbox::Counters()` (see [Optional members](../README#optional-members)) | off |
+| `Counted()` | counts the resends and the peer restarts, read with `Resends()` and `PeerRestarts()`, and through `CountingOutbox::Counters()` (see [Optional members](../README#optional-members)). With a layer above that declares `DeliveryWanted`, the send at the return of the link is not counted (see `DeliveryWanted`). | off |
 
 `payloadCapacity` is the `PayloadCapacity` argument as a constant. A layer above that declares `largestPacket` must not be larger than it: the builder names the capacity to set when it is.
 

@@ -175,4 +175,34 @@ inline void QueuePop(Indexes& indexes, std::size_t slotCount) {
 	indexes.tail = static_cast<uint16>((indexes.tail + 1) % slotCount);
 }
 
+
+// Drops every packet of the queue whose flags have the flag bit, and keeps the others in their order, each moved down to the first free
+// slot. Returns how many were dropped. Called from the main context, as the queue's pops are.
+inline std::size_t QueueDropFlagged(Indexes& indexes, const QueueView& view, std::size_t slotCount, uint8 flag) {
+	std::size_t dropped = 0;
+	std::size_t writeSlot = indexes.tail;
+	std::size_t readSlot = indexes.tail;
+	while (readSlot != indexes.head) {
+		if ((view.flags[readSlot] & flag) != 0) {
+			dropped++;
+		} else {
+			if (writeSlot != readSlot) {
+				for (std::size_t index = 0; index < view.lengths[readSlot]; index++) {
+					view.bytes[writeSlot * view.slotBytes + index] = view.bytes[readSlot * view.slotBytes + index];
+				}
+
+				view.lengths[writeSlot] = view.lengths[readSlot];
+				view.flags[writeSlot] = view.flags[readSlot];
+			}
+
+			writeSlot = (writeSlot + 1) % slotCount;
+		}
+
+		readSlot = (readSlot + 1) % slotCount;
+	}
+
+	indexes.head = static_cast<uint16>(writeSlot);
+	return dropped;
+}
+
 }

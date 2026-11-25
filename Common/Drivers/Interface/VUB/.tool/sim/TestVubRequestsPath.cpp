@@ -510,6 +510,41 @@ void TestOpenRequestResentOnUp() {
 }
 
 
+// A request sent while the link is down, and its deadline passed while it is down: its packet was never on the wire. When the link returns it is
+// not sent, and the responder's handler does not run.
+void TestRequestSentWhileDownNotRunAfterTimeout() {
+	ResetRequestsState();
+	ReportingPacketLine line(VUB::Faults{});
+	Requester near(line.a);
+	Responder far(line.b);
+	WireLog log;
+	Establish(line, near, far, log);
+	auto handle = near.Requests();
+	line.SetLinkUp(false);
+	testNowUs = 1000;
+	line.SetNow(1000);
+	SIM_EXPECT(SendStartR(handle));
+	uint32 now = 2000;
+	for (int step = 0; step < 60 && startFinals == 0; step++) {
+		testNowUs = now;
+		line.SetNow(now);
+		near.Process();
+		now += 100000;
+	}
+
+	SIM_EXPECT(startFinals == 1);
+	SIM_EXPECT(startResult == ResultStatus::timeout);
+	line.SetLinkUp(true);
+	for (int round = 0; round < 4; round++) {
+		Run(line, near, far, log, now);
+		now += 1000;
+	}
+
+	SIM_EXPECT(startsSeen == 0);
+	SIM_EXPECT(startFinals == 1);
+}
+
+
 int main() {
 	TestPeerRestartClosesOpenRequests();
 	TestLinkDown();
@@ -524,5 +559,6 @@ int main() {
 	TestTimedOutRequestNotResent();
 	TestFailWhileDownRequestNotResent();
 	TestOpenRequestResentOnUp();
+	TestRequestSentWhileDownNotRunAfterTimeout();
 	return SimFinish("TestVubRequestsPath");
 }
