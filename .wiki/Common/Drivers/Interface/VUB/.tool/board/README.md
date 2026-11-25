@@ -214,7 +214,10 @@ PC both compile:
 | Command | Kind | What the device does | What the check compares |
 |---|---|---|---|
 | `ActuatorCommand::set` (0x12) | request, final | counts a set and answers at once with the token and the level | the final's token and level; a set's final is ok or busy |
-| `ActuatorCommand::sweep` (0x13) | request, interims, final | gives eight steps at most, one per step time, then the final | the interims in order (step1 to stepN), the final's steps; one sweep is open at a time |
+| `ActuatorCommand::sweep` (0x13) | request, interims, final, cancel | gives eight steps at most, one per step time, then the final; a cancel stops it and the final has the cancelled status; a finished sweep sends the Delivered event `sweepDone` | the interims in order (step1 to stepN); one end per sweep, done or cancelled or operationCancelled; a Delivered event for each done sweep; the cancel handler runs at most once per cancel sent; one sweep is open at a time |
+| `ActuatorEvent::note` (0x42) | plain event, PC to device | counted in the counters reply | the device's note count against the notes sent |
+| `ActuatorEvent::tick` (0x41) | plain event, device to PC | a running number every 500 ms while the requester is connected | the numbers rise by one; a gap only under `--loss` |
+| built-in ping (0xF0) | ping of the layer | answers each ping; the reply echoes the padding | each ping ok; the round trips are summarised as the lowest, average and highest |
 | `ActuatorCommand::kick` (0x14) | no reply | counts a kick | the kick's delivery outcome (ok) and the device's kick counter |
 | `ActuatorCommand::nudge` (0x15) | fire | counts a nudge; no packet is resent | the device's nudge counter against the nudges sent |
 | `ActuatorCommand::hang` (0x16) | request, final | counts the request and never finishes it; the ticket times out after 300 ms | the final is a timeout or busy; the device's hang counter |
@@ -222,27 +225,37 @@ PC both compile:
 | `ActuatorCommand::counters` (0x17) | request, final | answers the device's counters | read before and after the run; the difference is compared |
 
 Each run draws its requests from `--seed`: sets 30 %, sweeps 15 %, kicks 15 %, nudges 15 %, hangs 10 % and absent requests 15 %. A sweep
-is sent only when no other sweep is open, so its interims are its own. The device counters count from the board's last reset, so the run
+is sent only when no other sweep is open, so its interims are its own. A third of the sweeps are cancelled, one twelfth each at three
+points: right after the send (before the REQUEST is acknowledged), after the first interim, and after the final, where the cancel must
+find no request (`notFound`). A ping is sent with every fifth request, one at a time, with no padding and then 16 bytes of padding
+alternately; a note is sent with every fourth request. The pings have a deadline of 3000 ms: under `--loss` a packet may need three resends
+of 200 ms in each direction, which the layer's 1000 ms default does not cover. The device counters count from the board's last reset, so the run
 reads them before and after, and compares the difference.
 
 The summary has one line:
 
 ```
-vubcheck link=<link> requests sent=<n> finals=<n> ok=<n> timeout=<n> busy=<n> notSupported=<n> invalid=<n> other=<n> duplicate=<n> unknown=<n> mismatched=<n> interims=<n> interimErrors=<n> sets=<ok>/<device> sweeps=<ok>/<device> kicks=<ok>/<device> nudges=<sent>/<device> hangs=<admitted>/<device> dropped=<n> inflight=<n> loss=<K> seed=<seed> seconds=<s> result=<PASS|FAIL>
+vubcheck link=<link> requests sent=<n> finals=<n> ok=<n> timeout=<n> busy=<n> notSupported=<n> cancelled=<n> invalid=<n> other=<n> duplicate=<n> unknown=<n> mismatched=<n> interims=<n> interimErrors=<n> sweeps=<done>/<device> delivered=<n> cancelSent=<n> cancelRuns=<device> cancelledEnds=<n> cancelMissed=<n> sets=<ok>/<device> kicks=<ok>/<device> nudges=<sent>/<device> hangs=<admitted>/<device> notes=<sent>/<device> ticks=<n> tickGaps=<n> pings=<ok>/<sent> pingFailed=<n> rttMinUs=<n> rttAvgUs=<n> rttMaxUs=<n> refused=<n> lateReplies=<n> eventsLost=<n> dropped=<n> inflight=<n> loss=<K> seed=<seed> seconds=<s> result=<PASS|FAIL>
 ```
 
-`ok`, `timeout`, `busy`, `notSupported`, `invalid` and `other` count the finals by category: `other` is any other result, such as a
-delivery that gave up (`retryExhausted`). `sets`, `sweeps` and `kicks` show the finals that were ok and the device's count of the same
-command in the run; they are equal on a pass. `nudges` and `hangs` show what was sent or admitted and what the device ran; they are equal
-without `--loss`, and with `--loss` the device's count may be lower for a Fire, since its packet has no resend.
+`ok`, `timeout`, `busy`, `notSupported`, `cancelled` (the layer's operationCancelled) and `invalid` count the finals by category; `other`
+is any other result, such as a delivery that gave up (`retryExhausted`). `sweeps` shows the done sweeps the PC got and the device's count;
+`delivered` is the Delivered events the PC got; `cancelSent` is the cancels the layer accepted, `cancelRuns` the cancel handler runs the
+device counted, and `cancelledEnds` the sweeps that ended cancelled. `sets`, `kicks` show the finals that were ok and the device's count;
+`nudges` and `hangs` show what was sent or admitted and what the device ran; `notes` the notes sent and counted. `ticks` and `tickGaps`
+count the device's ticks and the gaps in their numbers. `refused`, `lateReplies` and `eventsLost` are the PC layer's counters (Counted).
+The `rtt` values are microseconds over the pings that came back.
 
-A pass needs every final in its expected category, no duplicate, unknown or mismatched reply, every interim in order, and the device's
-counters as above. Exit codes: 0 for `PASS`, 1 for `FAIL`, 2 for a usage error or a port that does not open. `--loss K` drops every K-th
+A pass needs every final in its expected category, no duplicate, unknown or mismatched reply, every interim in order, one end per sweep,
+and the device's counters as above. Without `--loss` the done sweeps, the Delivered events and the device's sweep count are equal; each
+cancel handler runs at most once per accepted cancel; the notes are counted exactly; the ticks rise by one, and there are at least two ticks a
+second of the run, less two; and every ping comes back ok with no late reply. With `--loss` the counts are bounded, not equal, and gaps in the ticks
+are allowed. A cancel that the device ended first is not an error: its end is then done. Exit codes: 0 for `PASS`, 1 for `FAIL`, 2 for a usage error or a port that does not open. `--loss K` drops every K-th
 outgoing frame on the PC side, with the guard of The loss pattern, as the echo check does. The requests check does not have the echo check's pacing limit of 4 payloads; it
 has `--inflight` up to 8, the requests the device's layer serves at once.
 
 The device's requests counters are in the status block after the echo words, and only in the requests image (`VHAL_VUB_MODE=Requests`). The
-echo image's block is unchanged, 344 bytes; the requests image's block is 384 bytes, 96 words:
+echo image's block is unchanged, 344 bytes; the requests image's block is 396 bytes, 99 words:
 
 | Offset | Field |
 |---|---|
@@ -252,12 +265,21 @@ echo image's block is unchanged, 344 bytes; the requests image's block is 384 by
 | 372 | `requests.sweepsExpired`: sweeps the ticket ended before their final |
 | 376 | `requests.sweepsActive`: sweeps in progress |
 | 380 | `requests.unclaimed`: payloads the requests layer did not take |
+| 384, 388, 392 | `requests.cancels`, `notes`, `eventBusy`: cancel handler runs, notes counted, events the device could not send yet |
 
 ## Results
 
-The two images of the demo, from `arm-none-eabi-size` of the RelSpeed build: the echo image has 113532 bytes of text, 124 bytes of data and
-14000 bytes of bss; the requests image has 97008 bytes of text, 124 bytes of data and 11656 bytes of bss. The requests image has no
-hardware run in this section yet.
+The two images of the demo, from `arm-none-eabi-size` of the RelSpeed preset build. Flash is text plus data, RAM is data plus bss:
+
+| Image | Flash | Share of 128 KB | RAM |
+|---|---:|---:|---:|
+| echo | 113656 bytes | 86.7 % | 14124 bytes |
+| requests | 115044 bytes | 87.8 % | 12020 bytes |
+
+The echo image does not contain the requests code, so its size is the one of the link check alone. The requests image
+holds the device's cancel handlers, its Delivered and plain events and the answer to the pings, in each of its two stacks. The responder
+is instantiated once per stack, because each stack has its own handler list (the sweep handlers carry the stack's index). Its growth over
+the image without these features is 18304 bytes of flash and 232 bytes of RAM. The requests image has no hardware run in this section yet.
 
 Measured on 2026-11-24 on an STM32G431 with the RelSpeed image of this demo (113584 bytes of text, 14124 bytes of data and bss), and
 vubcheck built with MinGW g++ 15.2 on Windows 11, with the default `--inflight 4`. USART1 goes through a CH343 adapter (COM3); the CDC port
@@ -320,8 +342,11 @@ or requests each:
 |---|---|---|
 | echo | 0 | 6 of 6 PASS, `retried=0` |
 | echo | 3 | 6 of 6 PASS, `retried` 57 to 79 |
-| requests | 0 | 6 of 6 PASS |
-| requests | 3 | 6 of 6 PASS in one run; seed 5 failed in two of twelve runs (see The loss pattern) |
+| requests | 0 | 12 of 12 PASS (seeds 1 to 12) |
+| requests | 3 | 12 of 12 PASS (seeds 1 to 12), `pingFailed=0` and no mismatch |
+
+`--loss` drops only the PC's outgoing frames, so the device's ticks are not dropped and `tickGaps` stays at zero in these runs. The round trips
+under loss reach about one second, which the 3000 ms ping deadline covers.
 
 ## Notes
 

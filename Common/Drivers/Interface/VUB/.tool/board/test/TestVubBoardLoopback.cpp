@@ -179,32 +179,12 @@ namespace Loopback {
 	};
 
 
-	// Decodes the COBS frame without its zero byte.
-	std::vector<uint8> CobsDecode(const std::vector<uint8>& frame) {
-		std::vector<uint8> out;
-		std::size_t count = frame.size() - 1;
-		std::size_t index = 0;
-		while (index < count) {
-			uint8 code = frame[index++];
-			for (uint8 step = 1; step < code && index < count; step++) {
-				out.push_back(frame[index++]);
-			}
-
-			if (code != 0xFF && index < count) {
-				out.push_back(0);
-			}
-		}
-
-		return out;
-	}
-
-
 	// Lists the PC's data packets that no acknowledgement of the device side names: each with the attempts the PC side made for it and the
 	// attempts the loss dropped. Only the acknowledgements of the two-byte sequence layout are read (flags 0x02, 0x03 and the bare 0x12).
 	void PrintUnacked(std::size_t loss) {
 		std::map<unsigned, bool> acked;
 		for (const std::vector<uint8>& frame : HostEnd::deviceFrames) {
-			std::vector<uint8> body = CobsDecode(frame);
+			std::vector<uint8> body = VubBoard::CobsFrames::Body(frame);
 			if (body.size() < 4) {
 				continue;
 			}
@@ -220,7 +200,7 @@ namespace Loopback {
 		std::map<unsigned, std::size_t> attempts;
 		std::map<unsigned, std::size_t> dropped;
 		for (std::size_t index = 0; index < framesWritten.size(); index++) {
-			std::vector<uint8> body = CobsDecode(framesWritten[index]);
+			std::vector<uint8> body = VubBoard::CobsFrames::Body(framesWritten[index]);
 			if (body.size() < 4 || (body[0] != 0x01 && body[0] != 0x03)) {
 				continue;
 			}
@@ -249,7 +229,7 @@ namespace Loopback {
 		for (std::size_t index = 0; index < framesWritten.size(); index++) {
 			std::size_t number = index + 1;
 			bool dropped = loss > 0 && number % loss == 0;
-			std::vector<uint8> body = CobsDecode(framesWritten[index]);
+			std::vector<uint8> body = VubBoard::CobsFrames::Body(framesWritten[index]);
 			if (body.size() < 3 + 2) {
 				std::printf("frame %zu dropped=%d bytes=%zu\n", number, dropped ? 1 : 0, body.size());
 				continue;
@@ -310,6 +290,7 @@ namespace Loopback {
 	}
 
 
+	// The device's main loop of the requests mode, as DemoVub.cpp runs it for the UART stack: the sweeps, the stack, then the events.
 	template<typename StackType>
 	void RequestsLoop(StackType& stack, const std::atomic<bool>& stop) {
 		std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
@@ -317,6 +298,7 @@ namespace Loopback {
 			uint32 nowMs = static_cast<uint32>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count());
 			DemoVub::Tick(nowMs);
 			stack.Process();
+			DemoVub::ServeEvents<DemoVub::UartStackIndex>(stack, nowMs);
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
 	}
@@ -335,8 +317,10 @@ namespace Loopback {
 		VubBoard::requestUnclaimed = 0;
 		echoQueue = DemoVub::EchoQueue<32, 4>();
 		DemoVub::state = DemoVub::ActuatorState();
+		DemoVub::ticks = {};
 		for (DemoVub::SweepJob& job : DemoVub::sweeps) {
 			job.active = false;
+			job.reportPending = false;
 		}
 	}
 

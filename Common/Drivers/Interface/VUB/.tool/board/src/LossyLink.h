@@ -1,4 +1,5 @@
 #pragma once
+#include <Drivers/Interface/VUB/Framing/Cobs.h>
 #include <Drivers/Interface/VUB/LinkState.h>
 #include <Drivers/Interface/VUB/LinkTraits.h>
 #include <Drivers/Interface/VUB/Receiver.h>
@@ -29,23 +30,19 @@ namespace VubBoard {
 		}
 
 
-		// Decodes the frame: its zero byte is left out, and each code byte gives the zero that the frame's data replaces.
+		// Decodes the frame with the library's COBS decoder: the packet it carries, or nothing when the frame is broken.
 		static std::vector<uint8> Body(std::span<const uint8> frame) {
-			std::vector<uint8> out;
-			std::size_t count = frame.size() - 1;
-			std::size_t index = 0;
-			while (index < count) {
-				uint8 code = frame[index++];
-				for (uint8 step = 1; step < code && index < count; step++) {
-					out.push_back(frame[index++]);
-				}
-
-				if (code != 0xFF && index < count) {
-					out.push_back(0);
+			VUB::Cobs decoder;
+			std::vector<uint8> out(frame.size());
+			std::size_t length = 0;
+			for (uint8 byte : frame) {
+				if (decoder.Push(byte, out, length) == VUB::FrameStatus::packet) {
+					out.resize(length);
+					return out;
 				}
 			}
 
-			return out;
+			return {};
 		}
 	};
 

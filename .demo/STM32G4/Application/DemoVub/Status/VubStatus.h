@@ -56,6 +56,9 @@ struct VubRequestsStatus {
 	uint32 sweepsExpired;
 	uint32 sweepsActive;
 	uint32 unclaimed;
+	uint32 cancels;
+	uint32 notes;
+	uint32 eventBusy;
 };
 #endif
 

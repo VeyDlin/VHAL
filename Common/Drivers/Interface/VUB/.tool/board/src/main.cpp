@@ -68,7 +68,8 @@ namespace VubBoard {
 			"             once, 1 to 8\n"
 			"  --timeout  seconds to wait for all echoes and outcomes, 1 to 86400 (one day), default 120\n"
 			"  --requests the requests check instead of the echo check: random requests of the actuator demo, each final counted\n"
-			"             once, the replies compared, the interims checked in order, and the device's counters compared at the end.\n"
+			"             once, the replies compared, the interims checked in order, sweeps cancelled at three points, the device's\n"
+			"             events and pings checked, and the device's counters compared at the end.\n"
 			"             Only uart and cdc have the requests on the board (VHAL_VUB_MODE=Requests)\n");
 	}
 
