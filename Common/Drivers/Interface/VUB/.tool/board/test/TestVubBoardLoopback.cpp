@@ -14,6 +14,7 @@
 #include <DemoVub/Requests/ActuatorDevice.h>
 #include <Drivers/Interface/VUB/Stack.h>
 #include <Drivers/Interface/VUB/Transform/Crc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -261,7 +262,7 @@ namespace Loopback {
 		using Type = VUB::Stack<+[] {
 			return VUB::Builder()
 				.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
-				.Transform<VUB::Crc16Modbus>()
+				.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 				.Framing<VUB::Cobs>()
 				.Link<LinkType>()
 				.MaxPayload(32)

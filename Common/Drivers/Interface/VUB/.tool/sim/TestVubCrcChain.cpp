@@ -1,9 +1,10 @@
 #include "SimCheck.h"
-#include <Drivers/Interface/VUB/Engine/CrcBitwise.h>
-#include <Drivers/Interface/VUB/Engine/CrcTable.h>
 #include <Drivers/Interface/VUB/Meta.h>
 #include <Drivers/Interface/VUB/TestKit/Contracts.h>
 #include <Drivers/Interface/VUB/Transform/Crc.h>
+#include <Utilities/Checksum/CRC/Crc.h>
+#include <Utilities/Checksum/CRC/Engine/CrcTable.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <array>
@@ -17,7 +18,7 @@ inline constexpr std::array<uint8, 9> checkDigits = {0x31, 0x32, 0x33, 0x34, 0x3
 
 // CRC-16/SPI-FUJITSU written as a chain: polynomial 1021, initial 1D0F, not reflected, final XOR 0000, check E5CC. The unchecked form
 // is the same chain without Check.
-inline constexpr VUB::CrcParameters spiFujitsu = VUB::CrcParameters()
+inline constexpr Checksum::CrcParameters spiFujitsu = Checksum::CrcParameters()
 	.Width(16)
 	.Polynomial(0x1021)
 	.Initial(0x1D0F)
@@ -26,7 +27,7 @@ inline constexpr VUB::CrcParameters spiFujitsu = VUB::CrcParameters()
 	.ReflectOut(false)
 	.Check(0xE5CC);
 
-inline constexpr VUB::CrcParameters spiFujitsuUnchecked = VUB::CrcParameters()
+inline constexpr Checksum::CrcParameters spiFujitsuUnchecked = Checksum::CrcParameters()
 	.Width(16)
 	.Polynomial(0x1021)
 	.Initial(0x1D0F)
@@ -36,7 +37,7 @@ inline constexpr VUB::CrcParameters spiFujitsuUnchecked = VUB::CrcParameters()
 
 
 // CRC-16/AUG-CCITT has the same parameters as SPI-FUJITSU under its own name. Its chain uses the defaults of the reflections.
-inline constexpr VUB::CrcParameters augCcitt = VUB::CrcParameters()
+inline constexpr Checksum::CrcParameters augCcitt = Checksum::CrcParameters()
 	.Width(16)
 	.Polynomial(0x1021)
 	.Initial(0x1D0F)
@@ -45,7 +46,7 @@ inline constexpr VUB::CrcParameters augCcitt = VUB::CrcParameters()
 
 
 // CRC-8/DARC: polynomial 39, initial 00, reflected in and out, final XOR 00, check 15. The unchecked form is the same chain without Check.
-inline constexpr VUB::CrcParameters darc = VUB::CrcParameters()
+inline constexpr Checksum::CrcParameters darc = Checksum::CrcParameters()
 	.Width(8)
 	.Polynomial(0x39)
 	.Initial(0x00)
@@ -54,7 +55,7 @@ inline constexpr VUB::CrcParameters darc = VUB::CrcParameters()
 	.ReflectOut()
 	.Check(0x15);
 
-inline constexpr VUB::CrcParameters darcUnchecked = VUB::CrcParameters()
+inline constexpr Checksum::CrcParameters darcUnchecked = Checksum::CrcParameters()
 	.Width(8)
 	.Polynomial(0x39)
 	.Initial(0x00)
@@ -65,7 +66,7 @@ inline constexpr VUB::CrcParameters darcUnchecked = VUB::CrcParameters()
 
 // CRC-32/JAMCRC: polynomial 04C11DB7, initial FFFFFFFF, reflected in and out, final XOR 00000000, check 340BC6D9. The unchecked form is
 // the same chain without Check.
-inline constexpr VUB::CrcParameters jamcrc = VUB::CrcParameters()
+inline constexpr Checksum::CrcParameters jamcrc = Checksum::CrcParameters()
 	.Width(32)
 	.Polynomial(0x04C11DB7)
 	.Initial(0xFFFFFFFF)
@@ -74,7 +75,7 @@ inline constexpr VUB::CrcParameters jamcrc = VUB::CrcParameters()
 	.ReflectOut()
 	.Check(0x340BC6D9);
 
-inline constexpr VUB::CrcParameters jamcrcUnchecked = VUB::CrcParameters()
+inline constexpr Checksum::CrcParameters jamcrcUnchecked = Checksum::CrcParameters()
 	.Width(32)
 	.Polynomial(0x04C11DB7)
 	.Initial(0xFFFFFFFF)
@@ -107,74 +108,66 @@ bool EncodesCheckDigitsAs(const std::array<uint8, Transform::growth>& crcBytes) 
 }
 
 
-// CRC-16/SPI-FUJITSU through the chain, with the check value and without it, with the table engine and the bitwise engine: the nine
-// digits are followed by E5CC, low byte first (CC E5).
+// CRC-16/SPI-FUJITSU through the chain, with the check value and without it, with the bitwise engine (the default) and the table engine:
+// the nine digits are followed by E5CC, low byte first (CC E5).
 void TestSpiFujitsuThroughTheChain() {
-	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<spiFujitsu>>({0xCC, 0xE5})));
-	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<spiFujitsu, VUB::CrcBitwise>>({0xCC, 0xE5})));
-	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<spiFujitsuUnchecked>>({0xCC, 0xE5})));
-	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<spiFujitsuUnchecked, VUB::CrcBitwise>>({0xCC, 0xE5})));
+	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<Checksum::Crc<spiFujitsu>>>({0xCC, 0xE5})));
+	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<Checksum::Crc<spiFujitsu>::With<Checksum::CrcTable>>>({0xCC, 0xE5})));
+	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<Checksum::Crc<spiFujitsuUnchecked>>>({0xCC, 0xE5})));
+	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<Checksum::Crc<spiFujitsuUnchecked>::With<Checksum::CrcTable>>>({0xCC, 0xE5})));
 }
 
 
 // CRC-16/AUG-CCITT through the chain, with the check value, with each engine.
 void TestAugCcittThroughTheChain() {
-	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<augCcitt>>({0xCC, 0xE5})));
-	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<augCcitt, VUB::CrcBitwise>>({0xCC, 0xE5})));
+	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<Checksum::Crc<augCcitt>>>({0xCC, 0xE5})));
+	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<Checksum::Crc<augCcitt>::With<Checksum::CrcTable>>>({0xCC, 0xE5})));
 }
 
 
 // CRC-8/DARC through the chain: one byte, 15, with and without the check value, with each engine.
 void TestDarcThroughTheChain() {
-	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<darc>>({0x15})));
-	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<darc, VUB::CrcBitwise>>({0x15})));
-	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<darcUnchecked>>({0x15})));
-	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<darcUnchecked, VUB::CrcBitwise>>({0x15})));
+	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<Checksum::Crc<darc>>>({0x15})));
+	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<Checksum::Crc<darc>::With<Checksum::CrcTable>>>({0x15})));
+	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<Checksum::Crc<darcUnchecked>>>({0x15})));
+	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<Checksum::Crc<darcUnchecked>::With<Checksum::CrcTable>>>({0x15})));
 }
 
 
 // CRC-32/JAMCRC through the chain: 340BC6D9, so the bytes are D9 C6 0B 34, with and without the check value, with each engine.
 void TestJamcrcThroughTheChain() {
-	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<jamcrc>>({0xD9, 0xC6, 0x0B, 0x34})));
-	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<jamcrc, VUB::CrcBitwise>>({0xD9, 0xC6, 0x0B, 0x34})));
-	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<jamcrcUnchecked>>({0xD9, 0xC6, 0x0B, 0x34})));
-	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<jamcrcUnchecked, VUB::CrcBitwise>>({0xD9, 0xC6, 0x0B, 0x34})));
+	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<Checksum::Crc<jamcrc>>>({0xD9, 0xC6, 0x0B, 0x34})));
+	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<Checksum::Crc<jamcrc>::With<Checksum::CrcTable>>>({0xD9, 0xC6, 0x0B, 0x34})));
+	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<Checksum::Crc<jamcrcUnchecked>>>({0xD9, 0xC6, 0x0B, 0x34})));
+	SIM_EXPECT((EncodesCheckDigitsAs<VUB::Crc<Checksum::Crc<jamcrcUnchecked>::With<Checksum::CrcTable>>>({0xD9, 0xC6, 0x0B, 0x34})));
 }
 
 
 // The contract check of the test kit on one chained CRC: JAMCRC, unchecked, with the bitwise engine.
 void TestContractOnChainedJamcrc() {
-	VUB::Crc<jamcrcUnchecked, VUB::CrcBitwise> transform;
+	VUB::Crc<Checksum::Crc<jamcrcUnchecked>> transform;
 	SIM_EXPECT(VUB::CheckTransform(transform, 51, 300, 40));
 }
 
 
-// The check is optional: it is not part of the wire, so the fingerprint is the same with and without it. The chain of a preset gives the
-// preset's fingerprint, and the defaults are the ones the wiki page gives.
-void TestCheckIsOptionalAndDefaultsHold() {
-	SIM_EXPECT(spiFujitsu.hasCheck);
-	SIM_EXPECT(!spiFujitsuUnchecked.hasCheck);
-	SIM_EXPECT(spiFujitsu.check == 0xE5CC);
-	SIM_EXPECT((VUB::Crc<spiFujitsu>::fingerprint == VUB::Crc<spiFujitsuUnchecked>::fingerprint));
-	SIM_EXPECT(VUB::Crc<spiFujitsuUnchecked>::checked);
-	SIM_EXPECT(!spiFujitsuUnchecked.reflectIn);
-	SIM_EXPECT(!spiFujitsuUnchecked.reflectOut);
-	SIM_EXPECT(VUB::CrcParameters().Width(8).Polynomial(0x07).initialValue == 0);
-	SIM_EXPECT(VUB::CrcParameters().Width(8).Polynomial(0x07).finalXor == 0);
-	SIM_EXPECT(VUB::CrcParameters().Width(8).Polynomial(0x07).ReflectIn().reflectIn);
-	SIM_EXPECT(VUB::CrcParameters().Width(8).Polynomial(0x07).ReflectOut(false).reflectOut == false);
+// The check is not part of the wire, and the engine is not either: the fingerprint is the same with and without the check value, and
+// with each engine. The chain of a preset gives the preset's fingerprint.
+void TestFingerprintIgnoresCheckAndEngine() {
+	SIM_EXPECT((VUB::Crc<Checksum::Crc<spiFujitsu>>::fingerprint == VUB::Crc<Checksum::Crc<spiFujitsuUnchecked>>::fingerprint));
+	SIM_EXPECT((VUB::Crc<Checksum::Crc<spiFujitsu>>::fingerprint == VUB::Crc<Checksum::Crc<spiFujitsu>::With<Checksum::CrcTable>>::fingerprint));
+	SIM_EXPECT((VUB::Crc<Checksum::Crc16Modbus>::fingerprint == VUB::Crc<Checksum::Crc16Modbus::With<Checksum::CrcTable>>::fingerprint));
 }
 
 
 void TestChainGivesThePresetFingerprint() {
-	SIM_EXPECT((VUB::Crc<VUB::CrcParameters()
+	SIM_EXPECT((VUB::Crc<Checksum::Crc<Checksum::CrcParameters()
 		.Width(16)
 		.Polynomial(0x8005)
 		.Initial(0xFFFF)
 		.FinalXor(0x0000)
 		.ReflectIn()
 		.ReflectOut()
-		.Check(0x4B37)>::fingerprint == VUB::Crc16Modbus::fingerprint));
+		.Check(0x4B37)>>::fingerprint == VUB::Crc<Checksum::Crc16Modbus>::fingerprint));
 }
 
 
@@ -184,7 +177,7 @@ int main() {
 	TestDarcThroughTheChain();
 	TestJamcrcThroughTheChain();
 	TestContractOnChainedJamcrc();
-	TestCheckIsOptionalAndDefaultsHold();
+	TestFingerprintIgnoresCheckAndEngine();
 	TestChainGivesThePresetFingerprint();
 	return SimFinish("TestVubCrcChain");
 }

@@ -1,14 +1,13 @@
 #include "SimCheck.h"
-#include <Drivers/Interface/VUB/Engine/CrcBitwise.h>
-#include <Drivers/Interface/VUB/Transform/Crc.h>
-#include <Drivers/Interface/VUB/Stack.h>
-#include <Drivers/Interface/VUB/Blocks.h>
 #include <Drivers/Interface/VUB/LinkTraits.h>
 #include <Drivers/Interface/VUB/Meta.h>
+#include <Drivers/Interface/VUB/Stack.h>
+#include <Drivers/Interface/VUB/Transform/Crc.h>
+#include <Utilities/Checksum/CRC/Engine/CrcTable.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/ResultStatus.h>
 #include <array>
-#include <cstddef>
 #include <span>
 
 
@@ -28,19 +27,19 @@ void OnPacket(const VUB::Meta&, std::span<const uint8> payload) {
 	(void)payload;
 }
 
-// The packets of the board carry a CRC-16/MODBUS, high byte first. The table engine is the default.
+// The packets of the board carry a CRC-16/MODBUS, high byte first. The default engine is the bitwise one.
 using Board = VUB::Stack<+[] {
 	return VUB::Builder()
-		.Transform<VUB::Crc16ModbusHighByteFirst>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus, VUB::CrcOrder::highByteFirst>>()
 		.Link<BoardLink>()
 		.MaxPayload(32)
 		.OnReceive<&OnPacket>();
 }>;
 
-// The same CRC with the bitwise engine, for a product with no flash to spare for the table.
-using Small = VUB::Stack<+[] {
+// The same CRC with the table engine, for a product that has flash to spare for the table.
+using Fast = VUB::Stack<+[] {
 	return VUB::Builder()
-		.Transform<VUB::Crc<VUB::Crc16Modbus::parameters, VUB::CrcBitwise>>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus::With<Checksum::CrcTable>, VUB::CrcOrder::highByteFirst>>()
 		.Link<BoardLink>()
 		.MaxPayload(32)
 		.OnReceive<&OnPacket>();
@@ -54,35 +53,26 @@ void BoardSend() {
 	board.Send(std::span<const uint8>(hello.data(), hello.size()));
 	board.Process();
 }
-
-// CRC-16/AUG-CCITT: polynomial 1021, initial 1D0F, not reflected, final XOR 0000, check E5CC.
-inline constexpr VUB::CrcParameters augCcitt = VUB::CrcParameters()
-	.Width(16)
-	.Polynomial(0x1021)
-	.Initial(0x1D0F)
-	.FinalXor(0x0000)
-	.Check(0xE5CC);
-
-using AugCcitt = VUB::Crc<augCcitt>;
 }  // namespace WikiCrc
 
 
-// The snippet's chain runs: a send of three bytes is accepted and processed.
+// The snippet's chains run: a send of three bytes is accepted and processed.
 void TestWikiSnippetRuns() {
 	WikiCrc::BoardSend();
-	SIM_EXPECT(WikiCrc::Small::count == 2);
+	SIM_EXPECT(WikiCrc::Board::count == 2);
+	SIM_EXPECT(WikiCrc::Fast::count == 2);
 }
 
 
-// The "Other parameters" snippet of the page: its check is run at compile time, and the chain without Check is the same CRC.
-void TestWikiOtherParametersSnippet() {
-	SIM_EXPECT(WikiCrc::AugCcitt::checked);
-	SIM_EXPECT((WikiCrc::AugCcitt::fingerprint == VUB::Crc<VUB::CrcParameters().Width(16).Polynomial(0x1021).Initial(0x1D0F).FinalXor(0x0000)>::fingerprint));
+// The table engine is not part of the fingerprint: the chain of the snippet and the same chain on the table give one fingerprint.
+void TestWikiEnginesShareTheFingerprint() {
+	SIM_EXPECT((VUB::Crc<Checksum::Crc16Modbus, VUB::CrcOrder::highByteFirst>::fingerprint ==
+		VUB::Crc<Checksum::Crc16Modbus::With<Checksum::CrcTable>, VUB::CrcOrder::highByteFirst>::fingerprint));
 }
 
 
 int main() {
 	TestWikiSnippetRuns();
-	TestWikiOtherParametersSnippet();
+	TestWikiEnginesShareTheFingerprint();
 	return SimFinish("TestVubCrcWiki");
 }

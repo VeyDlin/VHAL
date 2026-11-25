@@ -4,7 +4,7 @@
 
 
 // CRC-16/SPI-FUJITSU with the check value E5CD instead of E5CC: the error shows the value the parameters give, E5CC, in hexadecimal.
-inline constexpr VUB::CrcParameters wrongCheck = VUB::CrcParameters()
+inline constexpr Checksum::CrcParameters wrongCheck = Checksum::CrcParameters()
 	.Width(16)
 	.Polynomial(0x1021)
 	.Initial(0x1D0F)
@@ -16,7 +16,7 @@ inline constexpr VUB::CrcParameters wrongCheck = VUB::CrcParameters()
 
 using Stack = VUB::Stack<+[] {
 	return VUB::Builder()
-		.Transform<VUB::Crc<wrongCheck>>()
+		.Transform<VUB::Crc<Checksum::Crc<wrongCheck>>>()
 		.Link<VUB::PacketEnd<64, 16>>()
 		.MaxPayload(40)
 		.OnReceive<&SnippetReceive>()
