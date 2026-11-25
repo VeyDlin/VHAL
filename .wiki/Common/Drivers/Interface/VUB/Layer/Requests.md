@@ -636,9 +636,24 @@ command and no handler. Like ping it has two Steps, and a side takes one or both
   carries the layer's refused, lateReplies and eventsLost counts, and the stack needs `HighWater()` and, under Reliable, `Counted()` on
   Reliable (see the README section on counters).
 
-The reply is 28 bytes of counters, then `U`: the eight drop counters, resends, peerRestarts, refused, lateReplies, eventsLost, and the two
-high-water marks (section 9.2 of the design, the wire of this layer). A report that ends locally (a deadline, a link loss, a restart) has the
-result set and nothing else. A reply whose body is shorter than `U` has `invalidData`; a longer one is read for the fields `U` has.
+The reply is 28 bytes of counters, then `U`. The counters are the bytes of `VUB::HealthCounters` as they lie in memory, which is the wire order:
+
+| Bytes (after the 6-byte FINAL header) | Field |
+|---|---|
+| 0 to 15 | the eight drop counters: ringFull, queueFull, tooLong, framingError, transformError, layerError, sendError, linkDown (2 each) |
+| 16 to 17 | resends |
+| 18 to 19 | peerRestarts |
+| 20 | highWaterRing (1 byte, saturating) |
+| 21 | highWaterControl (1 byte, saturating) |
+| 22 to 23 | refused |
+| 24 to 25 | lateReplies |
+| 26 to 27 | eventsLost |
+| 28 on | the user body `U` |
+
+A reply with zero counters and a body of uptime 60 s, reset 1, state 2 is `03 01 00 01 00 00`, then 28 zero bytes, then `3C 00 00 00 01 02`. The
+counters are copied as they lie, so the layer needs a little-endian host (a `static_assert` checks it). A report that ends locally (a deadline,
+a link loss, a restart) has the result set and nothing else. A reply whose body is shorter than `U` has `invalidData`; a longer one is read for
+the fields `U` has.
 
 The health request uses the deadline of `.BuiltInTimeoutMs(ms)`, as ping does, and it takes the same slot, session and `busy` rules. The layer
 has one reply buffer for its built-in requests, which holds the larger of the ping reply and the health reply; a second built-in request
@@ -765,17 +780,20 @@ program with no send includes the application-side send entry of the layer above
 | `Counted()` alone | 16 | 8 | 28 | 8 |
 | `Delivered()` against plain, emit and receive, `Counted()` | 36 | 0 | 44 | 0 |
 
-Built-in requests, measured as differences of `.tool/size/ConfigHealth.cpp` over `ReliableOf<40, 4>` on CRC-16/MODBUS over COBS over a stream
-link. Each row's base is the same chain with the layer's other Steps and without the health Steps. An answering side needs `Counted()` on
-the layer, on Reliable and `HighWater()` on the stack, so the answer rows keep those in both programs, and the last row measures them alone.
+The health rows are the marginal cost of the Step next to the ping: `.tool/size/ConfigHealth.cpp` over `ReliableOf<40, 4>` on CRC-16/MODBUS over
+COBS over a stream link, with a served command, the ping on both sides, and the counters of the stack (`Counted()` on the layer and on Reliable,
+`HighWater()`) in both programs of each row. The base is that program; the row adds the Step named.
 
-| Health on the layer | Base | M4 text | M4 RAM | M0+ text | M0+ RAM |
-|---|---|---:|---:|---:|---:|
-| asks: `.Health<HealthBody>()` | requester, `Open(2)` | +1504 | +4 | +1672 | +4 |
-| answers: `.AnswerHealth<HealthBody, &Fill>()` | served command, `Tickets(1)`, `Refusals(2)`, counters | +752 | +48 | +724 | +48 |
-| both | served command and requester, counters | +1296 | +52 | +1360 | +52 |
-| health next to ping, both sides | ping, both sides, counters | +1080 | +12 | +1168 | +12 |
-| counters alone | served command | +176 | +12 | +164 | +12 |
+| Health, next to ping and the served command | M4 text | M4 RAM | M0+ text | M0+ RAM |
+|---|---:|---:|---:|---:|
+| asks: `.Health<HealthBody>()` | +280 | +0 | +272 | +0 |
+| answers: `.AnswerHealth<HealthBody, &Fill>()` | +588 | +12 | +544 | +12 |
+| both | +776 | +12 | +724 | +12 |
+
+A program with no requester has no send path for a built-in request. Its first built-in request pays for that path: the slots of `Open(2)`,
+the queue and send of a built-in request, and the encoding of the request. Measured on a served command with the counters, asking for health
+is +1100 bytes of text and +40 bytes of RAM on M4 (+1156 and +40 on M0+). The rows above already include that path in a program that sends
+pings.
 
 ## Not built
 

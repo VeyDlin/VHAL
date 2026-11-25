@@ -12,7 +12,7 @@
 // The health request of the requests layer over a Reliable link, two stacks on a reporting packet line. The device serves Command::hold and
 // health, and sends Command::echo and an alarm event (Event::alarm). The requester sends Command::hold, Command::unknown, a raw id 0x78 that neither side knows, and
 // health. The expected bytes are design section 5.6 and 9.2 (payloads before Reliable's header); the counter values come from the events each
-// test makes. The HealthReport fields refused, lateReplies and eventsLost are design section 0, decisions 10 and 14.
+// test makes. The layer counters refused, lateReplies and eventsLost are in HealthReport's counters (design section 0, decisions 10 and 14).
 
 
 namespace HealthCheck {
@@ -600,8 +600,8 @@ void TestZeroCountersReplyBytes() {
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		0x3C, 0x00, 0x00, 0x00, 0x01, 0x02
 	};
-	SIM_EXPECT(CountTailIs(log.toNear, reply, 32, 33) >= 1);
-	SIM_EXPECT(TailIs(log.toNear, 0, reply, 32, 33));
+	SIM_EXPECT(CountTailIs(log.toNear, reply, 26, 27) >= 1);
+	SIM_EXPECT(TailIs(log.toNear, 0, reply, 26, 27));
 	SIM_EXPECT(healthReports == 1);
 	SIM_EXPECT(lastHealth.result == ResultStatus::ok);
 	SIM_EXPECT(lastHealth.user.uptimeS == 60);
@@ -611,9 +611,9 @@ void TestZeroCountersReplyBytes() {
 	SIM_EXPECT(lastHealth.counters.drops.transformError == 0);
 	SIM_EXPECT(lastHealth.counters.drops.layerError == 0);
 	SIM_EXPECT(lastHealth.counters.resends == 0);
-	SIM_EXPECT(lastHealth.refused == 0);
-	SIM_EXPECT(lastHealth.lateReplies == 0);
-	SIM_EXPECT(lastHealth.eventsLost == 0);
+	SIM_EXPECT(lastHealth.counters.refused == 0);
+	SIM_EXPECT(lastHealth.counters.lateReplies == 0);
+	SIM_EXPECT(lastHealth.counters.eventsLost == 0);
 	SIM_EXPECT(healthFills == 1);
 }
 
@@ -640,7 +640,7 @@ void TestReplyWithoutUserBody() {
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 	};
-	SIM_EXPECT(CountTailIs(log.toNear, reply, 32, 33) >= 1);
+	SIM_EXPECT(CountTailIs(log.toNear, reply, 26, 27) >= 1);
 	SIM_EXPECT(nothingReports == 1);
 	SIM_EXPECT(lastNothingResult == ResultStatus::ok);
 	SIM_EXPECT(healthFills == 1);
@@ -814,8 +814,9 @@ void TestFillRunsOnceFromProcess() {
 }
 
 
-// Every counter at a value set by a real event, in one reply. The layout is design 9.2: 8 drop counters, resends, peerRestarts, refused,
-// lateReplies, eventsLost (2 bytes each), highWaterRing and highWaterControl (1 byte each), then the user body. The three layer counters are
+// Every counter at a value set by a real event, in one reply. The layout is the memory order of HealthCounters: 8 drop counters, resends,
+// peerRestarts (2 bytes each), highWaterRing and highWaterControl (1 byte each), then refused, lateReplies, eventsLost (2 bytes each), and
+// the user body. The three layer counters are
 // read through the device's handle as well as on its layer.
 void TestCountersInReplyAfterRealEvents() {
 	ResetHealthState();
@@ -906,18 +907,17 @@ void TestCountersInReplyAfterRealEvents() {
 	SIM_EXPECT(restartedHandle.Health<&OnHealth>() == ResultStatus::ok);
 	RoundOf(line, restarted, device, log, 60000000);
 
-	// Design 9.2 bytes: the final of number 4 (the three unknown commands took 1 to 3), tag 4. Counters: queueFull 3, transformError 4,
-	// layerError 1, resends 3, peerRestarts 1, refused 1, lateReplies 1, eventsLost 1, highWaterRing 4. The highWaterControl byte (index 33)
-	// is not checked: the design gives no value for the control queue under this stack.
+	// Bytes of the final of number 4 (the three unknown commands took 1 to 3), tag 4, in the order of memory: the drop counters (queueFull 3,
+	// transformError 4, layerError 1), resends 3, peerRestarts 1, highWaterRing 4, highWaterControl (packet index 27, not checked: the design
+	// gives no value for the control queue under this stack), then refused 1, lateReplies 1, eventsLost 1.
 	std::array<uint8, 40> reply = {
 		0x03, 0x04, 0x00, 0x04, 0x00, 0x00,
 		0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x03, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00,
-		0x04, 0x00,
+		0x03, 0x00, 0x01, 0x00, 0x04, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00,
 		0x3C, 0x00, 0x00, 0x00, 0x01, 0x02
 	};
-	SIM_EXPECT(CountTailIs(log.toNear, reply, 33) >= 1);
-	SIM_EXPECT(TailIs(log.toNear, 0, reply, 33));
+	SIM_EXPECT(CountTailIs(log.toNear, reply, 27) >= 1);
+	SIM_EXPECT(TailIs(log.toNear, 0, reply, 27));
 	SIM_EXPECT(healthReports == 1);
 	SIM_EXPECT(lastHealth.result == ResultStatus::ok);
 	SIM_EXPECT(lastHealth.counters.drops.queueFull == 3);
@@ -926,9 +926,9 @@ void TestCountersInReplyAfterRealEvents() {
 	SIM_EXPECT(lastHealth.counters.resends == 3);
 	SIM_EXPECT(lastHealth.counters.peerRestarts == 1);
 	SIM_EXPECT(lastHealth.counters.highWaterRing == 4);
-	SIM_EXPECT(lastHealth.refused == 1);
-	SIM_EXPECT(lastHealth.lateReplies == 1);
-	SIM_EXPECT(lastHealth.eventsLost == 1);
+	SIM_EXPECT(lastHealth.counters.refused == 1);
+	SIM_EXPECT(lastHealth.counters.lateReplies == 1);
+	SIM_EXPECT(lastHealth.counters.eventsLost == 1);
 	SIM_EXPECT(lastHealth.user.uptimeS == 60);
 	SIM_EXPECT(lastHealth.user.resetReason == 1);
 	SIM_EXPECT(lastHealth.user.state == 2);

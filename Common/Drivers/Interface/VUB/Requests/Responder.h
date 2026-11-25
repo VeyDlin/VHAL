@@ -497,7 +497,11 @@ public:
 	void FillHealth(const StackCounters& counters, uint16 refused, uint16 lateReplies, uint16 eventsLost) {
 		if constexpr (Plan::answerHealth) {
 			if (this->builtInReply.held && this->builtInReply.length == 0) {
-				EncodeHealthCounters(this->builtInReply.bytes.data() + RequestWire::FinalHeader, counters, refused, lateReplies, eventsLost);
+				uint8* at = this->builtInReply.bytes.data() + RequestWire::FinalHeader;
+				ReliableWire::CopyBytes(reinterpret_cast<const uint8*>(&counters), BuiltInWire::StackCountersBytes, at);
+				PutLe16(at + BuiltInWire::StackCountersBytes, refused);
+				PutLe16(at + BuiltInWire::StackCountersBytes + 2, lateReplies);
+				PutLe16(at + BuiltInWire::StackCountersBytes + 4, eventsLost);
 				(*Plan::healthFill)(std::span<uint8>(this->builtInReply.bytes.data() + BuiltInWire::HealthReplyHeader, Plan::answerHealthBytes));
 				this->builtInReply.length = BuiltInWire::HealthReplyHeader + Plan::answerHealthBytes;
 			}
