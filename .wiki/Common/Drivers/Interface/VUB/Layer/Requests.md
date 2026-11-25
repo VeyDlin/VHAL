@@ -15,6 +15,7 @@ The example below is a device: it serves two commands and sends its packets over
 #include <Drivers/Interface/VUB/Requests.h>
 #include <Drivers/Interface/VUB/Stack.h>
 #include <Drivers/Interface/VUB/Transform/Crc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <span>
@@ -139,7 +140,7 @@ using DeviceLink = VUB::Stack<+[]() {
 			.Retries(3)
 			.TimeoutMs(200)
 			.Window(4)
-		.Transform<VUB::Crc16Modbus>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Framing<VUB::Cobs>()
 		.Link<UartLink>()
 		.MaxPayload(40)

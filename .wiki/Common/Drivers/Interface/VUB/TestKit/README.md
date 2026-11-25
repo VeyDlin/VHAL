@@ -85,7 +85,7 @@ repeats.
 
 ```cpp
 bool RunChecks() {
-	VUB::Crc8Smbus transform;
+	VUB::Crc<Checksum::Crc8Smbus> transform;
 	bool transformOk = VUB::CheckTransform(transform, 7, 500, 40);
 
 	VUB::Cobs framing;

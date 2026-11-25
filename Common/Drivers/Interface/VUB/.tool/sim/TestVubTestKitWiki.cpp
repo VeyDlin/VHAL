@@ -4,6 +4,7 @@
 #include <Drivers/Interface/VUB/TestKit/Contracts.h>
 #include <Drivers/Interface/VUB/TestKit/Loopback.h>
 #include <Drivers/Interface/VUB/Transform/Crc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc8Smbus.h>
 #include <Utilities/DataTypes.h>
 #include <array>
 #include <bit>
@@ -71,7 +72,7 @@ VUB::WireCounts Run() {
 
 namespace ChecksSnippet {
 bool RunChecks() {
-	VUB::Crc8Smbus transform;
+	VUB::Crc<Checksum::Crc8Smbus> transform;
 	bool transformOk = VUB::CheckTransform(transform, 7, 500, 40);
 
 	VUB::Cobs framing;

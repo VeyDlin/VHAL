@@ -3,6 +3,7 @@
 #include "RequestCheck.h"
 #include <Drivers/Interface/VUB/.tool/common/ActuatorCommands.h>
 #include <Drivers/Interface/VUB/Requests.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 #include <Utilities/DataTypes.h>
 #include <cstddef>
 #include <span>
@@ -33,7 +34,7 @@ namespace VubBoard {
 					.BuiltInTimeoutMs(RequestsCheck::PingTimeoutMs)
 					.Counted()
 				.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
-				.Transform<VUB::Crc16Modbus>()
+				.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 				.Framing<VUB::Cobs>()
 				.Link<LinkType>()
 				.MaxPayload(32)

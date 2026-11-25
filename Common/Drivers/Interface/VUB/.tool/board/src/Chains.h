@@ -8,6 +8,7 @@
 #include <Drivers/Interface/VUB/PC/SerialLink.h>
 #include <Drivers/Interface/VUB/Stack.h>
 #include <Drivers/Interface/VUB/Transform/Crc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/ResultStatus.h>
 #include <chrono>
@@ -80,7 +81,7 @@ namespace VubBoard {
 				.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
 				.OnOutcome<&OnOutcome>()
 				.OnRestart<&OnRestart>()
-				.Transform<VUB::Crc16Modbus>()
+				.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 				.Framing<VUB::Cobs>()
 				.Link<LinkType>()
 				.MaxPayload(32)

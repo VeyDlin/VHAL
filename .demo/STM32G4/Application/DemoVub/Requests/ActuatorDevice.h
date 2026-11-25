@@ -4,6 +4,7 @@
 #include <Drivers/Interface/VUB/Layer/Reliable.h>
 #include <Drivers/Interface/VUB/Stack.h>
 #include <Drivers/Interface/VUB/Transform/Crc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 #include <Utilities/DataTypes.h>
 #include <array>
 #include <cstddef>
@@ -316,7 +317,7 @@ struct UartActuatorStack {
 		return VUB::Builder()
 			.Layer<VUB::Requests<Actuator::ActuatorCommands, DeviceHandlersOf<UartStackIndex>>>().Tickets(4).AnswerPing(16)
 			.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
-			.Transform<VUB::Crc16Modbus>()
+			.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 			.Framing<VUB::Cobs>()
 			.template Link<LinkType>()
 			.MaxPayload(32)

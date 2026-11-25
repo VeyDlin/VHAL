@@ -10,6 +10,7 @@
 #include <Drivers/Interface/VUB/Layer/Reliable.h>
 #include <Drivers/Interface/VUB/Link/BulkLink.h>
 #include <Drivers/Interface/VUB/Link/CdcLink.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 #include <Drivers/Interface/VUB/Link/HidLink.h>
 #include <Drivers/Interface/VUB/Link/UartLink.h>
 #include <Drivers/Interface/VUB/Stack.h>
@@ -233,7 +234,7 @@ namespace DemoVub {
 			.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
 			.OnOutcome<&OutcomeOf<UartIndex>>()
 			.OnRestart<&RestartOf<UartIndex>>()
-			.Transform<VUB::Crc16Modbus>()
+			.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 			.Framing<VUB::Cobs>()
 			.Link<UartLinkType>()
 			.MaxPayload(32)

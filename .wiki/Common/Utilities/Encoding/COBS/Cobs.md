@@ -70,6 +70,12 @@ static Result<std::size_t> Encode(std::span<const uint8> in, std::span<uint8> ou
 
 Encodes `in` into `out` and returns the frame length, delimiter included. The check against `EncodedSize(in.size())` runs first, so a failed call leaves `out` unchanged. An empty `in` is a valid packet and gives the frame `01 00`.
 
+```cpp
+static constexpr std::size_t EncodeUnchecked(std::span<const uint8> in, std::span<uint8> out);
+```
+
+The same without the check, for a caller that has checked that `out` holds `EncodedSize(in.size())` bytes. It returns the frame length.
+
 ### Decode
 
 ```cpp
@@ -129,7 +135,7 @@ COBS has no check of its own. A damaged frame can decode to a different packet o
 
 ## Constant Expressions
 
-`EncodedSize`, `Decoder::Push` and `Decoder::Reset` are `constexpr`. `Encode` and `Decode` are not: they return `Result`, which is not a literal type.
+`EncodedSize`, `EncodeUnchecked`, `Decoder::Push` and `Decoder::Reset` are `constexpr`. `Encode` and `Decode` are not: they return `Result`, which is not a literal type.
 
 ```cpp
 static_assert(Cobs::EncodedSize(254) == 257);

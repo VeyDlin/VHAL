@@ -3,11 +3,13 @@
 #include <Drivers/Interface/VUB/Framing/Gap.h>
 #include <Drivers/Interface/VUB/Transform/Crc.h>
 #include <Drivers/Interface/VUB/Stack.h>
+#include <Utilities/Checksum/CRC/Engine/CrcTable.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 
 
 using SizeStack = VUB::Stack<+[] {
 	return VUB::Builder()
-		.Transform<VUB::Crc16Modbus>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus::With<Checksum::CrcTable>>>()
 		.Framing<VUB::Gap>()
 		.Link<SizeStreamLink>()
 		.MaxPayload(32)
