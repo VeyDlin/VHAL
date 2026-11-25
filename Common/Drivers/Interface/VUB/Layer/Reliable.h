@@ -39,6 +39,13 @@ namespace ReliableWire {
 	}
 
 
+	// The first number of the sessions of a boot value: the boot value times an odd factor, so different boot values have different first
+	// numbers in 16 bits. The layer masks it to its sequence width.
+	inline uint16 FirstOf(uint16 boot) {
+		return static_cast<uint16>(static_cast<uint32>(boot) * 0x9E37u);
+	}
+
+
 	// True when the clock has reached due. The difference is taken with wrap, so a clock that wraps still compares right.
 	inline bool Due(uint32 nowUs, uint32 dueUs) {
 		return static_cast<int32>(nowUs - dueUs) >= 0;
@@ -289,13 +296,13 @@ private:
 
 
 	// The packets held for in-order delivery: one payload for each window slot. The slot of the packet at the base is head; the packet
-	// after it is in the next slot, and so on. settled is the sender's window base as far as it has moved: the numbers below it are
-	// settled at the sender, and the held packets below it go up when Process runs.
+	// after it is in the next slot, and so on. syncAcked is set when the acknowledgement of a sync arrives: the session is established in
+	// Process, once the held packets ahead of it have gone up, so no packet of the session goes out before them.
 	struct HeldStore {
 		std::array<std::array<uint8, PayloadCapacity>, WindowCapacity> payloads{};
 		std::array<uint16, WindowCapacity> lengths{};
-		uint16 settled = 0;
 		uint8 head = 0;
+		bool syncAcked = false;
 	};
 
 
@@ -341,7 +348,8 @@ private:
 	// The state kept for one peer: the sending side (its session and window) and the receiving side (the session it holds and the
 	// acknowledgements owed). The layer has no table of peers.
 	struct Peer {
-		// Sending side. A session starts with a sync: established is set when the sync is acknowledged, and until then Send is busy.
+		// Sending side. A session starts with a sync: established is set when the sync is acknowledged (with InOrder, in Process, once the
+		// held packets have gone up: see HeldStore), and until then Send is busy.
 		// newSession is set when the next sync starts a session with a counter of its own. The boot value is given with SetSession, and
 		// bootGiven says it was; until then Send returns noInit. The tag is derived from the boot value and the counter.
 		bool needSync = false;
@@ -427,7 +435,7 @@ public:
 		}
 
 		if (!peer.established) {
-			if (!SyncInFlight()) {
+			if (!SyncInFlight() && !SyncAwaitingRelease()) {
 				peer.needSync = true;
 			}
 
@@ -563,7 +571,7 @@ public:
 			at += 1 + seqBytes;
 		}
 
-		if (sync && (packet.size() != at || sequence != 0 || delta != 0 || tag != ReliableWire::TagOf(boot, counter))) {
+		if (sync && (packet.size() != at || delta != 0 || tag != ReliableWire::TagOf(boot, counter))) {
 			return ResultStatus::invalidData;
 		}
 
@@ -598,7 +606,10 @@ public:
 		}
 
 		if constexpr (InOrder) {
-			ReleaseInOrder(outbox);
+			if (ReleaseInOrder(outbox) && held.syncAcked) {
+				held.syncAcked = false;
+				peer.established = true;
+			}
 		}
 
 		if (!linkUp) {
@@ -843,6 +854,16 @@ private:
 	}
 
 
+	// True when the sync is acknowledged and the session waits for the held packets ahead of it to go up (the in-order option only).
+	bool SyncAwaitingRelease() const {
+		if constexpr (InOrder) {
+			return held.syncAcked;
+		} else {
+			return false;
+		}
+	}
+
+
 	// The acknowledgements owed to the peer, a ring of 2 * WindowCapacity numbers, each with the tag of its session. PushOwed drops the
 	// number when the ring is full: the peer resends the packet, and it is acknowledged then.
 	bool PeekOwed(uint16& value, uint8& tag) const {
@@ -875,7 +896,7 @@ private:
 
 
 	// An acknowledgement is taken when its tag is the tag of the sender's current session. The acknowledgement of the sync establishes
-	// the session.
+	// the session. With InOrder the session is established by Process, after the held packets have gone up (see HeldStore).
 	void ReceiveAcknowledgement(uint8 tag, uint16 sequence) {
 		if (tag != peer.tag) {
 			return;
@@ -885,7 +906,11 @@ private:
 		if (slot != nullptr) {
 			slot->state = SlotState::acked;
 			if (slot->sync) {
-				peer.established = true;
+				if constexpr (InOrder) {
+					held.syncAcked = true;
+				} else {
+					peer.established = true;
+				}
 			}
 		}
 	}
@@ -909,6 +934,10 @@ private:
 	void ResetSending() {
 		peer.established = false;
 		peer.newSession = true;
+		if constexpr (InOrder) {
+			held.syncAcked = false;
+		}
+
 		for (Slot& slot : peer.slots) {
 			if (slot.state != SlotState::pending) {
 				continue;
@@ -939,6 +968,10 @@ private:
 			return;
 		}
 
+		if constexpr (InOrder) {
+			held.syncAcked = false;
+		}
+
 		for (Slot& slot : peer.slots) {
 			if (slot.state == SlotState::pending && slot.sync) {
 				slot.state = SlotState::free;
@@ -952,19 +985,19 @@ private:
 	}
 
 
-	// Opens the receiving side's session: the boot value and counter of the sender's session. Nothing of the old session is kept.
-	void OpenSession(uint16 boot, uint8 counter) {
+	// Opens the receiving side's session: the boot value and counter of the sender's session. The base starts at the sync's number, whatever
+	// it is, so the first data packet is the one after it. Nothing of the old session is kept.
+	void OpenSession(uint16 boot, uint8 counter, uint16 sequence) {
 		peer.open = true;
 		peer.heldBoot = boot;
 		peer.heldCounter = counter;
 		peer.receiveTag = ReliableWire::TagOf(boot, counter);
-		peer.base = 0;
+		peer.base = sequence;
 		peer.seen = 0;
 		peer.owesResync = false;
 		peer.owedHead = 0;
 		peer.owedCount = 0;
 		if constexpr (InOrder) {
-			held.settled = 0;
 			held.head = 0;
 		}
 	}
@@ -975,11 +1008,11 @@ private:
 	// and the restart runs. With no session held, nothing is reset here: the reset comes with the resync of the first refused packet. A
 	// sync of the held counter is a copy of the held session's sync: it is acknowledged again. A sync of an older counter is stale: it is
 	// ignored and not acknowledged. Returns true when the session was opened.
-	bool ReceiveSync(uint16 boot, uint8 counter) {
+	bool ReceiveSync(uint16 boot, uint8 counter, uint16 sequence) {
 		if (peer.open && boot == peer.heldBoot) {
 			uint8 distance = static_cast<uint8>(counter - peer.heldCounter);
 			if (distance == 0) {
-				PushOwed(0, peer.receiveTag);
+				PushOwed(sequence, peer.receiveTag);
 				return false;
 			}
 
@@ -998,7 +1031,7 @@ private:
 			}
 		}
 
-		OpenSession(boot, counter);
+		OpenSession(boot, counter, sequence);
 		return true;
 	}
 
@@ -1009,7 +1042,7 @@ private:
 	bool ReceiveSequenced(uint8 tag, uint16 sequence, uint8 delta, bool sync, uint16 boot, uint8 counter,
 		[[maybe_unused]] std::span<const uint8> payload) {
 		uint16 mask = Mask();
-		if (sync && !ReceiveSync(boot, counter)) {
+		if (sync && !ReceiveSync(boot, counter, sequence)) {
 			return false;
 		}
 
@@ -1062,13 +1095,13 @@ private:
 
 
 	// The base moves forward to target. The numbers below it are settled at the sender, so they are dropped from the window. With InOrder
-	// the move is only recorded in held.settled: the held packets below it go up first, in ReleaseInOrder.
+	// the held packets below the target are dropped as well: the sender has given them up, so they are not acknowledged and do not go up.
 	void MoveBase(uint16 target) {
 		if constexpr (InOrder) {
-			uint16 advance = static_cast<uint16>((target - held.settled) & Mask());
-			if (advance != 0 && advance < ((Mask() >> 1) + 1)) {
-				held.settled = target;
-			}
+			uint16 shift = static_cast<uint16>((target - peer.base) & Mask());
+			peer.seen = shift >= 32 ? 0 : (peer.seen >> shift);
+			peer.base = target;
+			held.head = static_cast<uint8>((static_cast<std::size_t>(held.head) + shift) % WindowCapacity);
 		} else if constexpr (TracksAhead) {
 			uint16 shift = static_cast<uint16>((target - peer.base) & Mask());
 			peer.seen = shift >= 32 ? 0 : (peer.seen >> shift);
@@ -1117,7 +1150,7 @@ private:
 	}
 
 
-	// In order: the base moves past the packet at the base, which is held or given up. The held packet and its slot are then free.
+	// In order: the base moves past the held packet at the base, which has gone up. The packet and its slot are then free.
 	void ShiftBase() {
 		peer.base = static_cast<uint16>((peer.base + 1) & Mask());
 		peer.seen >>= 1;
@@ -1125,42 +1158,21 @@ private:
 	}
 
 
-	// In order: passes up the held packets in sequence, from the base on, and skips the numbers the sender settled without a packet (given
-	// up). Each one that goes up is acknowledged. A packet the outbox refuses stays held, and the next Process tries it again. The base
-	// stops at the first number that is neither held nor settled at the sender.
-	void ReleaseInOrder(const Outbox& outbox) {
-		uint16 mask = Mask();
-		// The base passes settled numbers when packets are delivered, so settled can fall behind it. Behind is the same as far ahead in
-		// serial arithmetic, so settled follows the base at that point, ahead of its use.
-		if (((held.settled - peer.base) & mask) >= ((mask >> 1) + 1)) {
-			held.settled = peer.base;
-		}
-
-		while (true) {
-			if ((peer.seen & 1u) != 0) {
-				std::span<const uint8> payload(held.payloads[held.head].data(), held.lengths[held.head]);
-				if (outbox.Deliver(payload) != ResultStatus::ok) {
-					return;
-				}
-
-				PushOwed(peer.base, peer.receiveTag);
-				ShiftBase();
-				continue;
+	// In order: passes up the held packets from the base on, in sequence, while the base is held. Each one that goes up is acknowledged. A
+	// packet the outbox refuses stays held, and the next Process tries it again. The base stops at the first number that is not held: the
+	// sender's next packet moves the base past a gap it has given up. Returns false when the outbox refused a packet.
+	bool ReleaseInOrder(const Outbox& outbox) {
+		while ((peer.seen & 1u) != 0) {
+			std::span<const uint8> payload(held.payloads[held.head].data(), held.lengths[held.head]);
+			if (outbox.Deliver(payload) != ResultStatus::ok) {
+				return false;
 			}
 
-			uint16 skip = static_cast<uint16>((held.settled - peer.base) & mask);
-			if (skip == 0 || skip >= ((mask >> 1) + 1)) {
-				return;
-			}
-
-			if (peer.seen == 0) {
-				peer.base = held.settled;
-				held.head = static_cast<uint8>((static_cast<std::size_t>(held.head) + skip) % WindowCapacity);
-				return;
-			}
-
+			PushOwed(peer.base, peer.receiveTag);
 			ShiftBase();
 		}
+
+		return true;
 	}
 
 
@@ -1207,8 +1219,9 @@ private:
 
 
 	// Starts the sync of a session that is starting, when there is a free slot. The first sync of a session takes its counter here. A sync
-	// that is sent again keeps its counter. The sync is sent in this Process, through RunTimers, at once. The first packet of a session has
-	// number 0 and the data starts at 1.
+	// that is sent again keeps its counter. The sync is sent in this Process, through RunTimers, at once. The sync has the first number of
+	// the boot, masked to the sequence width, and the data of the session starts after it. So a late acknowledgement of another boot's sync
+	// does not name it.
 	void StartSync() {
 		if (!peer.needSync || SyncInFlight()) {
 			return;
@@ -1227,8 +1240,9 @@ private:
 		}
 
 		peer.needSync = false;
-		peer.nextSequence = 1;
-		slot->sequence = 0;
+		uint16 number = static_cast<uint16>(ReliableWire::FirstOf(peer.bootValue) & Mask());
+		peer.nextSequence = static_cast<uint16>((number + 1) & Mask());
+		slot->sequence = number;
 		slot->length = 0;
 		slot->sync = true;
 		slot->attempts = 0;

@@ -1586,9 +1586,9 @@ void EstablishInOrder(ReportingPacketLine& line, InOrderCancelRequester& near, I
 }
 
 
-// The acknowledgement of the first data packet of a session ends with its number, 1, in little endian: the last two bytes of the packet. A
-// loss rule can name it.
-inline std::array<uint8, 2> AckOfFirstPacket = {0x01, 0x00};
+// The acknowledgement of the first data packet of a session ends with its number, 0x012D, in little endian: the last two bytes of the
+// packet (the session's first number is 0x012C, the first number of boot 0x1234). A loss rule can name it.
+inline std::array<uint8, 2> AckOfFirstPacket = {0x2D, 0x01};
 
 
 // A request sent while the link is down, and its deadline passed while it is down: when the link returns the request is not sent, the device's

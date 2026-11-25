@@ -235,7 +235,7 @@ void TestHeldSyncOfAnEarlierSessionIsIgnored() {
 	near.SetSession(0x1111);
 	uint8 tagA = Establish(near, nearWire, far, farWire);
 	SIM_EXPECT(tagA == 0x11);
-	std::array<uint8, 8> syncA = {0x05, 0x11, 0x00, 0x00, 0x00, 0x11, 0x11, 0x00};
+	std::array<uint8, 8> syncA = {0x05, 0x11, 0xA7, 0x28, 0x00, 0x11, 0x11, 0x00};
 	SIM_EXPECT(SendId(near, 1, nearWire));
 	Round(near, nearWire, far, farWire);
 	SIM_EXPECT(replayDelivered[1] == 1);
@@ -351,7 +351,8 @@ void TestOlderSyncOfTheSameBootIsIgnoredWhileLive() {
 	SenderLayerOf<4, 16> near;
 	near.SetSession(0x4444);
 	uint8 tag1 = Establish(near, nearWire, far, farWire);
-	std::array<uint8, 8> syncOne = {0x05, tag1, 0x00, 0x00, 0x00, 0x44, 0x44, 0x00};
+	// The sync of counter 0 has the first number of boot 0x4444, 0xA29C (little-endian 9C A2).
+	std::array<uint8, 8> syncOne = {0x05, tag1, 0x9C, 0xA2, 0x00, 0x44, 0x44, 0x00};
 	std::array<uint8, 2> resync = {0x08, tag1};
 	SIM_EXPECT(near.Take(VUB::Meta{}, std::span<const uint8>(resync.data(), resync.size())).IsOk());
 	uint8 tag2 = Establish(near, nearWire, far, farWire);
@@ -383,29 +384,29 @@ void TestOlderSyncOfTheSameBootIsIgnoredWhileLive() {
 void TestSessionCounterWrapsWithSerialArithmetic() {
 	ResetReplayState();
 	ReceiverLayerOf<4, 16> far;
-	// Counter 250 (0xFA): tag 0xFA + 0x34 = 0x2E.
-	std::array<uint8, 8> sync250 = {0x05, 0x2E, 0x00, 0x00, 0x00, 0x34, 0x12, 0xFA};
+	// Counter 250 (0xFA): tag 0xFA + 0x34 = 0x2E. The first number of boot 0x1234 is 0x012C (LE 2C 01).
+	std::array<uint8, 8> sync250 = {0x05, 0x2E, 0x2C, 0x01, 0x00, 0x34, 0x12, 0xFA};
 	SIM_EXPECT(Replay(far, sync250).IsOk());
 	ReplayWire farWire{};
 	far.Process(replayNowUs, ReplayOutbox(farWire));
-	std::array<uint8, 4> ackOf250 = {0x12, 0x2E, 0x00, 0x00};
+	std::array<uint8, 4> ackOf250 = {0x12, 0x2E, 0x2C, 0x01};
 	SIM_EXPECT(farWire.count == 1);
 	SIM_EXPECT(farWire.lengths[0] == 4);
 	SIM_EXPECT(Copied<4>(farWire, 0) == ackOf250);
 	farWire.count = 0;
 
 	// Counter 4 is 10 ahead of 250 (serial): a session that the receiver reports as a restart. Tag 0x38.
-	std::array<uint8, 8> sync4 = {0x05, 0x38, 0x00, 0x00, 0x00, 0x34, 0x12, 0x04};
+	std::array<uint8, 8> sync4 = {0x05, 0x38, 0x2C, 0x01, 0x00, 0x34, 0x12, 0x04};
 	SIM_EXPECT(Replay(far, sync4).IsOk());
 	far.Process(replayNowUs, ReplayOutbox(farWire));
 	SIM_EXPECT(replayRestarts == 1);
-	std::array<uint8, 4> ackOf4 = {0x12, 0x38, 0x00, 0x00};
+	std::array<uint8, 4> ackOf4 = {0x12, 0x38, 0x2C, 0x01};
 	SIM_EXPECT(farWire.count == 1);
 	SIM_EXPECT(Copied<4>(farWire, 0) == ackOf4);
 	farWire.count = 0;
 
 	// Counter 200 is 196 behind 4 (serial): stale. It is ignored: no restart and no acknowledgement. Tag 0xFC.
-	std::array<uint8, 8> sync200 = {0x05, 0xFC, 0x00, 0x00, 0x00, 0x34, 0x12, 0xC8};
+	std::array<uint8, 8> sync200 = {0x05, 0xFC, 0x2C, 0x01, 0x00, 0x34, 0x12, 0xC8};
 	SIM_EXPECT(Replay(far, sync200).IsOk());
 	SIM_EXPECT(!Replay(far, sync200).Value().deliver);
 	far.Process(replayNowUs, ReplayOutbox(farWire));
