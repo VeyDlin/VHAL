@@ -677,7 +677,7 @@ public:
 	}
 
 
-	// The number of layers: each one sends from its Process, so a chain with a layer keeps the flag of a busy layer send (see the stack).
+	// The number of layers: each one sends from its Process, so a chain with a layer keeps a bit per layer for a busy send (see the stack).
 	static constexpr std::size_t LayerCount() {
 		std::size_t total = 0;
 		((total += Entries::kind == BlockKind::layer ? 1 : 0), ...);
