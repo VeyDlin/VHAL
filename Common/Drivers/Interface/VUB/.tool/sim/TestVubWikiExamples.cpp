@@ -99,6 +99,19 @@ bool CheckContract() {
 }  // namespace WikiWriting
 
 
+// The smallest chain of the wiki's The chain section: a link, a payload size and a receive handler.
+namespace WikiSmallest {
+using WikiWriting::BoardLink;
+using WikiWriting::OnPacket;
+
+using Board = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Link<BoardLink>()
+		.MaxPayload(32)
+		.OnReceive<&OnPacket>();
+}>;
+}  // namespace WikiSmallest
+
 // The chain shape of the wiki. It uses the types of the Writing a block snippets.
 namespace WikiChain {
 using WikiWriting::BoardLink;

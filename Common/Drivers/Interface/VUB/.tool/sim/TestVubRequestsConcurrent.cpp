@@ -372,6 +372,7 @@ using RequesterHandlers = VUB::Handlers<
 
 // The requester: four slots, the Reliable layer under it, and the sections. The requester's events are handled by RequesterHandlers. Await
 // needs Awaitable(); Counted() gives the layer's refused and late-reply counters.
+// --- snippet: Layer/Requests.md, the concurrent requester ---
 using Requester = VUB::Stack<+[]() {
 	return VUB::Builder()
 		.CountDrops()
@@ -384,6 +385,7 @@ using Requester = VUB::Stack<+[]() {
 		.Clock<&ConcurrentClock>()
 		.Concurrent();
 }>;
+// --- end snippet ---
 
 
 // The responder: four tickets, the same Reliable layer. The requester has four slots, so the requests in flight never need more than four
@@ -566,12 +568,14 @@ bool SendRunUntilAccepted(RequesterHandle handle, uint16 amount) {
 }
 
 
+// --- snippet: Layer/Requests.md, the await ---
 // Await of Command::run, called from the calling thread. The final is returned to the caller; no final handler runs for it.
 VUB::Final<Job::JobStatus, Job::JobReport> AwaitRun(RequesterHandle handle, uint16 amount) {
 	Job::JobRequest body{};
 	body.amount = amount;
 	return handle.Await<Job::Command::run, &OnRunInterim>(body);
 }
+// --- end snippet ---
 
 
 // Await of Command::hold, called from the calling thread.

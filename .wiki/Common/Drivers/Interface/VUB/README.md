@@ -16,19 +16,20 @@ an STM32G431 and a PC.
 
 ## The chain
 
-A chain is written from the application down to the link:
+A chain is written from the application down to the link. The smallest chain is a link, a payload size and a receive handler. The
+link `BoardLink` and the handler `OnPacket` are defined under [Writing a block](#writing-a-block):
 
 ```cpp
 using Board = VUB::Stack<+[] {
 	return VUB::Builder()
-		.Transform<SumCheck>()
 		.Link<BoardLink>()
 		.MaxPayload(32)
 		.OnReceive<&OnPacket>();
 }>;
 ```
 
-The application sends into the top, and the link is the last block. A block that is not in the chain has no code and no RAM.
+The application sends into the top, and the link is the last block. Each further call adds one feature; the table under
+[The builder](#the-builder) gives what each call adds, its default and its RAM. A feature that is not in the chain has no code and no RAM.
 
 ## Names
 
@@ -81,21 +82,27 @@ The options value of a block is passed to the block's constructor when the stack
 constructor. A block given options that does not declare `Configured` must have a constructor that takes them; otherwise the chain does
 not compile. A block given no options is default-constructed.
 
-Settings are set anywhere in the chain:
+Each call adds one feature. The table gives what it adds, its default, and the RAM it costs. The settings may be given anywhere in the chain.
 
-| Method | Meaning | Default |
-|---|---|---|
-| `MaxPayload(bytes)` | the largest application payload | required |
-| `ReceiveRing(bytes)` | bytes the receive ring holds (byte-stream links) | 256 |
-| `ReceiveQueue(packets)` | packets the receive queue holds (packet links) | 4 |
-| `MaxReceive(bytes)` | the largest payload the stack receives; the receive buffer of a byte-stream link holds its packet | `MaxPayload` |
-| `SendQueue(packets)` | packets held for the link while it is busy; zero holds none (see [Send and receive](#send-and-receive)); a chain with a bulk layer needs one or more | 0 where a stream link or a packet link with `Ready()` allows it, otherwise 1 |
-| `StageQueue(packets)` | packets another task may stage while `Process` runs; a concurrent stack only (see [Concurrent](#concurrent-the-concurrent-option-and-the-concurrent-flag)) | 0 |
-| `CountDrops()` | keeps the drop counters and gives `Drops()` (see [Drop counters](#drop-counters)) | off |
-| `PerProcess(packets)` | most packets one `Process` call sends | 8 |
-| `Clock<&Fn>()` | the clock, a function returning microseconds as `uint32` | required when a block uses time |
-| `OnReceive<&Fn>()` | the receive handler, `void(const VUB::Meta&, std::span<const uint8>)` | required |
-| `WhileDown(policy)` | what the packets do while the connection is down: `VUB::Down::Wait` or `VUB::Down::Fail` (see [Link state](#link-state)) | `Wait` |
+| Call | What it adds | Default | RAM |
+|---|---|---|---|
+| `.Link<T>()` | the wire at the bottom; required, and the last block | required | the link's own members |
+| `.Framing<T>()` | packet boundaries in a byte stream; one, right above a stream link | none; required on a stream link | the framing's buffers, sized by its growth |
+| `.Transform<T>()` | a change of each packet, with its growth | none | the transform's buffers, sized by its growth |
+| `.Layer<T>()` | a layer with a header, state or time | none | the layer's own state and its packet buffers |
+| `MaxPayload(bytes)` | the largest application payload | required | every packet buffer is sized from it, with the headers and growths of the blocks |
+| `ReceiveRing(bytes)` | the receive ring of a byte-stream link | 256 bytes | the ring's bytes; a packet link has none |
+| `ReceiveQueue(packets)` | the receive queue of a packet link | 4 packets | packets times the link's `MaxPacket`; a byte-stream link has none |
+| `MaxReceive(bytes)` | the largest payload the stack receives; a byte-stream link's receive buffer holds one packet of this size | `MaxPayload` | the receive buffer of a byte-stream link |
+| `SendQueue(packets)` | packets held for the link while it is busy (see [Send and receive](#send-and-receive)) | 0 where a stream link, or a packet link with `Ready()` and no bulk layer, allows it; otherwise 1 | the packets, each as large as the largest packet; none when 0 |
+| `Concurrent()` | `Send` from another task, and the critical sections that guard the shared state (see [Concurrent](#concurrent-the-concurrent-option-and-the-concurrent-flag)) | off | no storage; the code of the sections, only in a concurrent chain |
+| `StageQueue(packets)` | the staging ring that another task's `Send` fills; needs `Concurrent()` | 0, which gives no ring | `(packets + 1) * (MaxPayload + 3) + 4` bytes, rounded up to an even count |
+| `CountDrops()` | the drop counters and `Drops()` (see [Drop counters](#drop-counters)) | off | 16 bytes: eight 16-bit counters |
+| `HighWater()` | the highest fill of the receive ring and of the control queue, for a layer that reads them (see [Counters](#counters-usescounters-counted-and-highwater)) | off | 2 bytes |
+| `PerProcess(packets)` | the most packets one `Process` call sends | 8 | none |
+| `Clock<&Fn>()` | the clock, a function returning microseconds as `uint32` | required when a block uses time | none |
+| `OnReceive<&Fn>()` | the receive handler, `void(const VUB::Meta&, std::span<const uint8>)` | required | none |
+| `WhileDown(policy)` | what the packets do while the connection is down: `VUB::Down::Wait` or `VUB::Down::Fail` (see [Link state](#link-state)) | `Wait` | none; `Fail` needs a link that reports its state or a layer that reports its peer |
 
 The builder checks: one link, the link last; a byte-stream link has one framing right above it, a packet link has none; a link has
 traits with `Framed()` only when it is a packet link, `HalfDuplex()` or `FullDuplex()`, and a non-zero `MaxPacket(n)`; the packet built
@@ -119,11 +126,15 @@ does not count a packet that the link then refuses. A packet link without `Ready
 `Process()` does the rest, in this order:
 
 1. reads the clock (`Process` reads it, and so does `Feed` in a chain whose framing uses time, see below);
-2. polls the link, when the link has `Poll` (see [receiving from a link](#receiving-from-a-link));
-3. takes the received bytes or packets, and decodes them from the bottom up: framing, transforms and layers (each layer removes its
-   header), then the handler;
-4. calls every layer's `Process(now, outbox)`, which may queue packets of its own, or pass a packet up (see [passing a packet up](#passing-a-packet-up-from-process));
-5. sends.
+2. with a staging ring and a send queue (a concurrent chain), moves the staged packets into the send queue;
+3. polls the link, when the link has `Poll` (see [receiving from a link](#receiving-from-a-link));
+4. samples the link's state, when the link reports one or a layer reports its peer (see [Link state](#link-state));
+5. takes the received bytes or packets from the receive ring or queue, and decodes them from the bottom up: framing, transforms and
+   layers (each layer removes its header), then the handler;
+6. calls every layer's `Process(now, outbox)`, which may queue packets of its own, or pass a packet up (see [passing a packet up](#passing-a-packet-up-from-process));
+7. applies the change of the connection, when the link has a state;
+8. with a staging ring and no send queue, moves the staged packets to the link in this call;
+9. sends.
 
 `Feed(byte)` (byte-stream link) and `FeedPacket(packet)` (packet link) are called from the receive interrupt. They store the data;
 everything else runs in `Process`. `Send` runs the chain at once, so it is called from the task that calls `Process`. On a chain built
@@ -284,7 +295,7 @@ stack treats it as a change of the connection. The keep-alive for a link that ca
 
 A layer that declares `reportsPeer` must be the lowest layer of the chain: no other layer is below it, though transforms and the framing
 may be. A chain holds one such layer. The builder refuses a reporting layer with another layer below it, with the message "a layer that
-declares reportsPeer must be the lowest layer of the chain", and a second reporting layer, with "two layers declare reportsPeer". The
+declares reportsPeer must be the lowest layer of the chain: it is a hop-level block, below every other layer", and a second reporting layer, with the message "two layers declare reportsPeer: the stack keeps one peer state, and a second layer would overwrite the first". The
 reason for the first: the layer's pings go through the layers below it. Above a delivery layer such as [VUB::Reliable](Layer/Reliable),
 the pings go through a layer that holds back sending while the connection is down, so after a lost first session neither end can send its
 ping, and both wait. Below it, the pings go out, and the delivery layer sees only the application's packets. The reason for the second: the
@@ -315,7 +326,7 @@ its state the answer is always true. A chain whose layers do not ask is unchange
     after the connection is up. A layer's own packet waits the same way while the link is down. With no send queue, `Send` returns
     `busy` while the connection is down, and takes nothing. Under a requests layer on Reliable, the
     copies of its packets that wait when the connection returns are dropped, with the part of a frame that was written, since Reliable sends each packet that is still wanted (see
-    [Requests](Layer/Requests#failure-paths)); the other packets keep their order.
+    [Requests](Layer/Requests#loss-restart-and-link-down)); the other packets keep their order.
   - `Fail`: the queued packets are dropped (counted under `linkDown` with `CountDrops()`), and `Send` returns `noConnection` while the
     connection is down. With no send queue the packets are not queued, so only `Send` changes: it returns `noConnection`. When the peer goes down, the application's queued packets are dropped and the layers' own packets are kept; when the link goes
     down, the layers' own packets are dropped too. A layer's own packet gets `noConnection` only while the link is down. A refused
@@ -380,8 +391,8 @@ empty type. The code that works on the buffers is plain inline functions on span
 
 The defaults take most of the RAM of a small chain: the receive queue holds `ReceiveQueue` packets of the link's `MaxPacket` bytes, and
 the ring holds `ReceiveRing` bytes. A byte-stream link's receive buffer is the packet of `MaxReceive` (`MaxPayload` by default), not the
-link's `MaxPacket`. A send queue of `SendQueue(n)` packets, and the drop counters of `CountDrops()`, are built only when a chain asks for
-them. A bootloader sets `ReceiveQueue(1)` or a smaller ring. The costs of the configurations on the target are in the table below.
+link's `MaxPacket`. A send queue is built when the chain needs one or asks for one with `SendQueue(n)`, and the drop counters of `CountDrops()` are
+built only when a chain asks for them. A bootloader sets `ReceiveQueue(1)` or a smaller ring. The costs of the configurations on the target are in the table below.
 
 ### Measured configurations
 
@@ -464,8 +475,8 @@ the wire that has not been fed. Every fragment and every acknowledgement goes th
   is not measured here.
 
 Against the protocol, configuration (i) is 936 bytes larger in text on the M4 (3228 against 2292) and 824 bytes larger on the M0+
-(3704 against 2880). Its RAM is 204 bytes smaller on the M4 (912 against 1116) and on the M0+ (912 against 1116). The design asks for
-a stack with the protocol's properties to be no larger than the protocol on the same target, so configuration (i) does not meet it in text.
+(3704 against 2880). Its RAM is 204 bytes smaller on the M4 (912 against 1116) and on the M0+ (912 against 1116). A stack with the
+protocol's properties is meant to be no larger than the protocol on the same target, so configuration (i) does not meet that goal in text.
 The breakdown row shows where the text goes: without `VUB::ReliableOf`, configuration (i) is 1104 bytes of text on the M4, and the layer
 adds 2124 bytes. The layer carries what the protocol does not: sequence numbers with sessions and a sync, a window, a ring of owed
 acknowledgements, retries with timeouts, and outcome reporting (see [VUB::Reliable](Layer/Reliable)). The measurement gives the size of
@@ -751,8 +762,8 @@ using Watched = VUB::Stack<+[] {
 ### Passing a packet up from Process
 
 A layer that holds packets, for in-order delivery, releases them from `Process` with `outbox.Deliver(packet)`. The packet is the one the
-layer would pass up: its header removed, as its `Take` left it. It goes through the blocks above the layer, as a packet the layer had
-just taken, and reaches the receive handler once. A block above that refuses it counts the drop as it counts a received packet.
+layer would pass up: its header removed, as its `Take` left it. It goes through the blocks above the layer, as a packet the layer has
+taken, and reaches the receive handler once. A block above that refuses it counts the drop as it counts a received packet.
 `Deliver` is for `Process`; `Take` passes a packet up by returning it. A layer that calls `Deliver` declares `passesUp = true`. A chain
 whose layers do not declare it has no code for it.
 
@@ -1429,9 +1440,9 @@ not tested.
 ## Status
 
 Built: the core, the link state, the test kit, the host tests, the built-in blocks (CRC, COBS, length prefix, gap framing, delivery,
-keep-alive), the requests layer (requests with a typed body and one final reply, interim replies, `Fire`, and the handlers of the commands a
-device serves; see Layer/Requests), the size table, the links on a microcontroller and on a PC, and the board check on the STM32G431 over
-UART, USB CDC and USB bulk.
+keep-alive), the requests layer (requests with a typed body and one final reply, interim replies, cancel, `Fire`, `NoReply` commands,
+the handlers of the commands a device serves, events, counters, ping, health, and `Await` on a concurrent stack; see Layer/Requests),
+the size table, the links on a microcontroller and on a PC, and the board check on the STM32G431 over UART, USB CDC and USB bulk.
 
-Not built: cancel, events, ping and health, `Await`, addressing, large data, encryption, values and subscriptions, and the SPI links. The
-CRC engines are the shared library's (see the [CRC](../../../Utilities/Checksum/CRC/Crc) page).
+Not built: addressing, large data, encryption, values and subscriptions, and the SPI links. The CRC engines are the shared library's
+(see the [CRC](../../../Utilities/Checksum/CRC/Crc) page).
