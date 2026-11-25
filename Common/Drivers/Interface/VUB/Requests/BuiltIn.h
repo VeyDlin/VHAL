@@ -1,7 +1,6 @@
 #pragma once
 #include <Drivers/Interface/VUB/Bytes.h>
 #include <Drivers/Interface/VUB/Drops.h>
-#include <Drivers/Interface/VUB/Layer/Reliable.h>
 #include <Drivers/Interface/VUB/Requests/Body.h>
 #include <Drivers/Interface/VUB/Requests/Wire.h>
 #include <Utilities/DataTypes.h>
@@ -106,7 +105,7 @@ void RunHealth(ResultStatus result, uint8 status, std::span<const uint8> body) {
 		if (status != 0 || body.size() < BuiltInWire::CountersBytes) {
 			report.result = ResultStatus::invalidData;
 		} else {
-			ReliableWire::CopyBytes(body.data(), BuiltInWire::CountersBytes, reinterpret_cast<uint8*>(&report.counters));
+			CopyBytes(body.data(), BuiltInWire::CountersBytes, reinterpret_cast<uint8*>(&report.counters));
 			ResultStatus decoded = Decode(body.subspan(BuiltInWire::CountersBytes), report.user);
 			if (decoded != ResultStatus::ok) {
 				report.result = decoded;

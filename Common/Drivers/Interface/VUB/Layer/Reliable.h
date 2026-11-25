@@ -50,13 +50,6 @@ namespace ReliableWire {
 	inline bool Due(uint32 nowUs, uint32 dueUs) {
 		return static_cast<int32>(nowUs - dueUs) >= 0;
 	}
-
-
-	inline void CopyBytes(const uint8* from, std::size_t count, uint8* to) {
-		for (std::size_t index = 0; index < count; index++) {
-			to[index] = from[index];
-		}
-	}
 }
 
 
@@ -425,8 +418,8 @@ public:
 				return ResultStatus::invalidParameter;
 			}
 
-			ReliableWire::CopyBytes(head.data(), headLength, out.data());
-			ReliableWire::CopyBytes(in.data(), in.size(), out.data() + headLength);
+			CopyBytes(head.data(), headLength, out.data());
+			CopyBytes(in.data(), in.size(), out.data() + headLength);
 			if (piggyback) {
 				PopOwed();
 			}
@@ -474,9 +467,9 @@ public:
 		slot->dueUs = lastNowUs + TimeoutUs(1);
 		slot->state = SlotState::pending;
 		peer.inFlight++;
-		ReliableWire::CopyBytes(in.data(), in.size(), slot->bytes.data() + header);
-		ReliableWire::CopyBytes(head.data(), headLength, out.data());
-		ReliableWire::CopyBytes(in.data(), in.size(), out.data() + headLength);
+		CopyBytes(in.data(), in.size(), slot->bytes.data() + header);
+		CopyBytes(head.data(), headLength, out.data());
+		CopyBytes(in.data(), in.size(), out.data() + headLength);
 		if (piggyback) {
 			PopOwed();
 		}
@@ -1143,7 +1136,7 @@ private:
 		}
 
 		std::size_t slot = (static_cast<std::size_t>(held.head) + ahead) % WindowCapacity;
-		ReliableWire::CopyBytes(payload.data(), payload.size(), held.payloads[slot].data());
+		CopyBytes(payload.data(), payload.size(), held.payloads[slot].data());
 		held.lengths[slot] = static_cast<uint16>(payload.size());
 		peer.seen |= bit;
 		return false;
@@ -1357,7 +1350,7 @@ private:
 		std::array<uint8, header> head{};
 		std::size_t headLength = PutHeader(head, fields);
 		std::size_t at = header - headLength;
-		ReliableWire::CopyBytes(head.data(), headLength, slot.bytes.data() + at);
+		CopyBytes(head.data(), headLength, slot.bytes.data() + at);
 		Meta meta{};
 		if constexpr (resendsWanted) {
 			meta.flags = Meta::ResentBelowFlag;

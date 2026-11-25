@@ -498,7 +498,7 @@ public:
 		if constexpr (Plan::answerHealth) {
 			if (this->builtInReply.held && this->builtInReply.length == 0) {
 				uint8* at = this->builtInReply.bytes.data() + RequestWire::FinalHeader;
-				ReliableWire::CopyBytes(reinterpret_cast<const uint8*>(&counters), BuiltInWire::StackCountersBytes, at);
+				CopyBytes(reinterpret_cast<const uint8*>(&counters), BuiltInWire::StackCountersBytes, at);
 				PutLe16(at + BuiltInWire::StackCountersBytes, refused);
 				PutLe16(at + BuiltInWire::StackCountersBytes + 2, lateReplies);
 				PutLe16(at + BuiltInWire::StackCountersBytes + 4, eventsLost);

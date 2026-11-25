@@ -1,7 +1,16 @@
 #pragma once
 #include <Utilities/DataTypes.h>
+#include <cstddef>
 
 namespace VUB {
+
+
+// Copies count bytes. The bytes are copied in rising order, so the two ranges may not overlap unless to is below from.
+inline void CopyBytes(const uint8* from, std::size_t count, uint8* to) {
+	for (std::size_t index = 0; index < count; index++) {
+		to[index] = from[index];
+	}
+}
 
 
 // Little-endian field helpers for header and length fields. They read and write at a byte pointer, so the caller checks the bounds.
