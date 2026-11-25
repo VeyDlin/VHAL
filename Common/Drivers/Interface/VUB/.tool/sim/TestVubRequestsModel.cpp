@@ -411,6 +411,59 @@ inline uint16 modelSessions[2] = {0x1234, 0x2345};
 inline std::vector<bool> modelSessionUsed[2];
 inline VUB::Random modelRandom(1);
 inline ReportingPacketLine* modelLine = nullptr;
+
+
+// The link of the direct chains: a packet end of the line with Ready(). The slot is free when the model's clock has reached freeAtUs, and
+// a packet that the end takes makes the slot busy for a random time of up to 12 ms. So a Send is busy often, and a chain without a send
+// queue meets busy at every Process, as it does on a link that is busy for a while. The end forwards its state to the line.
+inline uint64 modelReadyBusy = 0;
+
+
+class ModelReadyEnd {
+public:
+	static constexpr VUB::LinkTraits traits = ReportingPacketEnd::traits;
+
+
+	explicit ModelReadyEnd(ReportingPacketEnd& inner) : end(&inner) {
+	}
+
+
+	bool Ready() const {
+		if (modelNowUs < freeAtUs) {
+			modelReadyBusy++;
+			return false;
+		}
+
+		return true;
+	}
+
+
+	ResultStatus Send(std::span<const uint8> packet) {
+		if (!Ready()) {
+			return ResultStatus::busy;
+		}
+
+		ResultStatus status = end->Send(packet);
+		if (status == ResultStatus::ok) {
+			freeAtUs = modelNowUs + modelRandom.Below(4) * 4000;
+		}
+
+		return status;
+	}
+
+
+	void SetStateSink(VUB::StateSink value) {
+		end->SetStateSink(value);
+	}
+
+
+private:
+	ReportingPacketEnd* end;
+	uint32 freeAtUs = 0;
+};
+
+
+inline std::optional<ModelReadyEnd> modelReadyEnds[2];
 inline std::array<std::array<ModelLane, ModelMaxLanes + 1>, 2> modelLaneTable{};
 inline std::array<std::array<ModelPing, ModelPingSlots>, 2> modelPingTable{};
 
@@ -943,6 +996,30 @@ template<typename Chain>
 using HandlersOf = std::conditional_t<Chain::reliable, FullHandlersOf<Chain>, PathHandlersOf<Chain>>;
 
 
+// The direct chains: no send queue, and a link with Ready(). Their packets go to the link in the call, and a layer's packet can meet busy
+// at every Process, as the model's ready link makes it.
+struct ChainCrcDirect {
+	static constexpr bool reliable = false;
+	static constexpr bool inOrder = false;
+	static constexpr std::size_t open = 6;
+	static constexpr std::size_t tickets = 4;
+	static constexpr std::size_t refusals = 4;
+	static constexpr std::size_t window = 0;
+	static constexpr const char* name = "crc-direct";
+};
+
+
+struct ChainRelDirect {
+	static constexpr bool reliable = true;
+	static constexpr bool inOrder = false;
+	static constexpr std::size_t open = 6;
+	static constexpr std::size_t tickets = 4;
+	static constexpr std::size_t refusals = 4;
+	static constexpr std::size_t window = 6;
+	static constexpr const char* name = "reliable-direct";
+};
+
+
 // --- Layer part: the stacks of the chains ----------------------------------------------------------------------------------------------
 
 
@@ -1024,6 +1101,44 @@ using StackRelLargeT = VUB::Stack<+[]() {
 }>;
 
 
+// The direct stacks: the same layers as ChainCrc and ChainRel, with no send queue and the link with Ready().
+using StackCrcDirectT = VUB::Stack<+[]() {
+	return VUB::Builder()
+		.Layer<VUB::Requests<PathCommands, PathHandlersOf<ChainCrcDirect>>>().Open(6).Tickets(4).Refusals(4).Counted().Ping(16).AnswerPing(16)
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
+		.Link<ModelReadyEnd>()
+		.MaxPayload(40)
+		.ReceiveQueue(4)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
+using StackRelDirectT = VUB::Stack<+[]() {
+	return VUB::Builder()
+		.Layer<VUB::Requests<FullCommands, FullHandlersOf<ChainRelDirect>>>().Open(6).Tickets(4).Refusals(4).Counted().Ping(16).AnswerPing(16)
+		.Layer<VUB::ReliableOf<40, 6>>().Retries(ModelRetries).TimeoutMs(ModelTimeoutMs).Window(6)
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
+		.Link<ModelReadyEnd>()
+		.MaxPayload(40)
+		.ReceiveQueue(4)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
+template<>
+struct StackOf<ChainCrcDirect> {
+	using Type = StackCrcDirectT;
+};
+
+
+template<>
+struct StackOf<ChainRelDirect> {
+	using Type = StackRelDirectT;
+};
+
+
 template<>
 struct StackOf<ChainCrc> {
 	using Type = StackCrcT;
@@ -1066,6 +1181,24 @@ using HandleOf = decltype(std::declval<typename StackOf<Chain>::Type&>().Request
 
 template<typename Chain>
 inline std::optional<typename StackOf<Chain>::Type> modelStacks[2];
+
+
+// The link object of one end of a chain's stack: the line's end, or for a direct chain the ready wrapper of it. The wrapper lives as long as
+// the run, since a stack keeps a reference to it until it is destroyed.
+template<typename Chain>
+typename StackOf<Chain>::Type::LinkType& ModelLinkFor(std::size_t side) {
+	using LinkType = typename StackOf<Chain>::Type::LinkType;
+	ReportingPacketEnd& end = side == 0 ? modelLine->a : modelLine->b;
+	if constexpr (std::is_same_v<LinkType, ModelReadyEnd>) {
+		if (!modelReadyEnds[side].has_value()) {
+			modelReadyEnds[side].emplace(end);
+		}
+
+		return *modelReadyEnds[side];
+	} else {
+		return end;
+	}
+}
 
 
 // The Reliable layer of a chain: the layer's type, which the stack finds to give its session.
@@ -1401,7 +1534,7 @@ void ModelRebuild(std::size_t side) {
 
 	modelStacks<Chain>[side].reset();
 	modelSessions[side] = ModelNextSession(side);
-	modelStacks<Chain>[side].emplace(side == 0 ? modelLine->a : modelLine->b);
+	modelStacks<Chain>[side].emplace(ModelLinkFor<Chain>(side));
 	ModelGiveSession<Chain>(*modelStacks<Chain>[side], modelSessions[side]);
 	modelInstance[side]++;
 	// A new boot waits one delay before its first send, on a reordering line.
@@ -1755,8 +1888,8 @@ void ModelRunSeed(uint32 seed, ModelLineKind kind) {
 	ReportingPacketLine line(faults);
 	modelLine = &line;
 
-	modelStacks<Chain>[0].emplace(line.a);
-	modelStacks<Chain>[1].emplace(line.b);
+	modelStacks<Chain>[0].emplace(ModelLinkFor<Chain>(0));
+	modelStacks<Chain>[1].emplace(ModelLinkFor<Chain>(1));
 	ModelGiveSession<Chain>(*modelStacks<Chain>[0], modelSessions[0]);
 	ModelGiveSession<Chain>(*modelStacks<Chain>[1], modelSessions[1]);
 
@@ -1788,6 +1921,8 @@ void ModelRunSeed(uint32 seed, ModelLineKind kind) {
 
 	modelStacks<Chain>[0].reset();
 	modelStacks<Chain>[1].reset();
+	modelReadyEnds[0].reset();
+	modelReadyEnds[1].reset();
 	modelLine = nullptr;
 }
 
@@ -1888,6 +2023,8 @@ int main(int argc, char** argv) {
 			ModelRunSeedLines<ChainRelInOrder>(seed);
 			ModelRunSeedLines<ChainRelSmall>(seed);
 			ModelRunSeedLines<ChainRelLarge>(seed);
+			ModelRunSeedLines<ChainCrcDirect>(seed);
+			ModelRunSeedLines<ChainRelDirect>(seed);
 		}
 
 		std::printf("the equal session pair 0x1234 and 0x1234: %s\n", ModelSessionsAllowed(0x1234, 0x1234) ? "allowed" : "not allowed");
@@ -1921,5 +2058,14 @@ int main(int argc, char** argv) {
 		ModelRunChainLines<ChainRelLarge>(firstSeed, seedCount, lines);
 	}
 
+	if (filter == "all" || filter == ChainCrcDirect::name) {
+		ModelRunChainLines<ChainCrcDirect>(firstSeed, seedCount, lines);
+	}
+
+	if (filter == "all" || filter == ChainRelDirect::name) {
+		ModelRunChainLines<ChainRelDirect>(firstSeed, seedCount, lines);
+	}
+
+	std::printf("ready links of the direct chains refused %llu sends as busy\n", static_cast<unsigned long long>(modelReadyBusy));
 	return SimFinish("TestVubRequestsModel");
 }

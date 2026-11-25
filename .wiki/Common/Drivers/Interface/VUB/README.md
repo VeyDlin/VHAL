@@ -89,7 +89,7 @@ Settings are set anywhere in the chain:
 | `ReceiveRing(bytes)` | bytes the receive ring holds (byte-stream links) | 256 |
 | `ReceiveQueue(packets)` | packets the receive queue holds (packet links) | 4 |
 | `MaxReceive(bytes)` | the largest payload the stack receives; the receive buffer of a byte-stream link holds its packet | `MaxPayload` |
-| `SendQueue(packets)` | packets held for the link while it is busy; zero holds none (see [Send and receive](#send-and-receive)) | 0 where a stream link or a packet link with `Ready()` allows it, otherwise 1 |
+| `SendQueue(packets)` | packets held for the link while it is busy; zero holds none (see [Send and receive](#send-and-receive)); a chain with a bulk layer needs one or more | 0 where a stream link or a packet link with `Ready()` allows it, otherwise 1 |
 | `StageQueue(packets)` | packets another task may stage while `Process` runs; a concurrent stack only (see [Concurrent](#concurrent-the-concurrent-option-and-the-concurrent-flag)) | 0 |
 | `CountDrops()` | keeps the drop counters and gives `Drops()` (see [Drop counters](#drop-counters)) | off |
 | `PerProcess(packets)` | most packets one `Process` call sends | 8 |
@@ -255,6 +255,9 @@ packet for that reason.
   `Process`.
 - A packet link's `Send` returns `ok` when it took the packet, and `busy` when it has no room for it. The stack keeps the packet and
   tries again on the next `Process`. Any other status is an error: the packet is dropped and counted as `sendError`.
+- A layer's packet that the link refuses as busy (a keep-alive ping, a resend, an acknowledgement, a response sent from `Process`) goes
+  before the next packet of the application. While the layer's send is held, the application's `Send` returns `busy`; `Process` clears
+  the hold at its start, before the layers run, so the hold lasts one `Process` at most. A chain with no layer has no hold.
 - `Process` keeps sending while the link accepts, up to `PerProcess` packets, so one call can move many packets. A packet that the
   framing or the link refuses with an error counts toward `PerProcess` as well, so a bulk layer that always has data cannot hold a call.
 - `Send` and the layers' `Process` queue packets on the control lane, up to `SendQueue` packets. When the queue is full, `Send` returns

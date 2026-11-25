@@ -1,4 +1,5 @@
 // expect: Send from another task needs StageQueue(n)
+// one error
 #include "SnippetSupport.h"
 
 
@@ -14,7 +15,14 @@ using Stack = VUB::Stack<+[] {
 }>;
 
 
-inline void SnippetSend(Stack& stack) {
+// The send is made from a function template, as a test harness does, so the message is met on the instantiation.
+template<typename StackType>
+void SnippetSendFrom(StackType& stack) {
 	std::array<uint8, 2> payload = {0, 1};
 	(void)stack.Send(std::span<const uint8>(payload.data(), payload.size()));
+}
+
+
+inline void SnippetSend(Stack& stack) {
+	SnippetSendFrom(stack);
 }

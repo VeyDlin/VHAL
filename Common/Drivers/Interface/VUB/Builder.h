@@ -525,7 +525,8 @@ public:
 
 	// The packets the send side holds while the link is busy. Send returns busy when they are full. Zero holds none: a packet is given to the
 	// link in the call, and a stream link keeps the framed packet in the framing's buffer. Zero is allowed on a stream link and on a packet
-	// link that has Ready(); a packet link without it needs one or more. Without this call the stack takes the smallest value that works.
+	// link that has Ready(); a packet link without it needs one or more, and so does a chain with a bulk layer. Without this call the stack
+	// takes the smallest value that works.
 	constexpr Builder SendQueue(std::size_t packets) const {
 		Builder next = *this;
 		next.settings.sendQueue = packets;
@@ -676,6 +677,14 @@ public:
 	}
 
 
+	// The number of layers: each one sends from its Process, so a chain with a layer keeps the flag of a busy layer send (see the stack).
+	static constexpr std::size_t LayerCount() {
+		std::size_t total = 0;
+		((total += Entries::kind == BlockKind::layer ? 1 : 0), ...);
+		return total;
+	}
+
+
 	// The number of layers that make bulk packets.
 	static constexpr std::size_t BulkCount() {
 		std::size_t total = 0;
@@ -773,9 +782,10 @@ public:
 
 
 	// Whether the chain can send with no send queue: a stream link, whose framing holds the packet being written, or a packet link that has
-	// Ready(), which the stack asks before a layer takes the packet.
+	// Ready(), which the stack asks before a layer takes the packet. A chain with a bulk layer always needs a queue: its bulk packets follow
+	// each other, so the application would never find the link free.
 	static constexpr bool NoQueueFits() {
-		return StreamLink<LinkType> || (PacketLink<LinkType> && ReadyLink<LinkType>);
+		return BulkCount() == 0 && (StreamLink<LinkType> || (PacketLink<LinkType> && ReadyLink<LinkType>));
 	}
 
 
@@ -872,6 +882,8 @@ public:
 		Require<"the receive ring holds at most 65535 bytes: its indexes are 16-bit">(values.receiveRing <= 65535);
 		Require<"ReceiveQueue() is zero">(values.receiveQueue > 0);
 		Require<"the receive queue holds at most 65535 packets: its indexes are 16-bit">(values.receiveQueue <= 65535);
+		Require<"a chain with a bulk layer needs a send queue: bulk packets follow each other, so the application never finds the link free: add SendQueue(1) or more">(
+			!values.sendQueueGiven || values.sendQueue > 0 || BulkCount() == 0);
 		Require<"a packet link with no Ready() needs a send queue: add SendQueue(1) or more">(
 			!values.sendQueueGiven || values.sendQueue > 0 || NoQueueFits());
 		Require<"the send queue holds at most 65535 packets: its indexes are 16-bit">(SendQueueOf(values) <= 65535);

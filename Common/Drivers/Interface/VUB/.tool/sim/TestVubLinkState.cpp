@@ -166,7 +166,7 @@ static_assert(HasLinkUp<WatchStack>);
 
 // A chain that cannot report keeps its size: the stack's storage for the link state is empty. The sizes are of the host's 64-bit build.
 static_assert(sizeof(StreamStack) == 1176);
-static_assert(sizeof(PacketStack) == 888);
+static_assert(sizeof(PacketStack) == 896);
 
 // The option is a value of the builder: Wait by default, Fail when given.
 static_assert(VUB::Builder().settings.whileDown == VUB::Down::Wait);

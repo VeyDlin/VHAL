@@ -330,6 +330,9 @@ public:
 	static constexpr std::size_t stageQueue = built.settings.stageQueue;
 	static constexpr bool stageQueued = concurrent && stageQueue > 0;
 	static constexpr std::size_t stageSlots = stageQueue + 1;
+	// A chain with a layer keeps one flag: a layer's send from its Process that the link refused as busy. While it is set, the application's
+	// packets wait, so the layer's packet goes first; ProcessLayers clears it, so it holds for one Process at most.
+	static constexpr bool layerHolds = Builder::LayerCount() > 0;
 	static constexpr std::size_t stageBytes = built.settings.maxPayload;
 	static constexpr bool highWater = built.settings.highWater;
 	static constexpr bool countDrops = built.settings.countDrops;
@@ -367,11 +370,14 @@ public:
 	// in Process, and a refusal there is counted in Drops() and not returned. Busy means the staging ring is full, and the payload is not
 	// taken. The size and the connection are checked here as well.
 	ResultStatus Send(std::span<const uint8> payload, const Meta& meta = Meta()) {
-		if constexpr (concurrent) {
-			static_assert(stageQueued, "Send from another task needs StageQueue(n): add it to the builder");
+		if constexpr (!concurrent) {
+			return SendLocked(payload, meta);
+		} else if constexpr (stageQueued) {
 			return StageSend(payload, meta);
 		} else {
-			return SendLocked(payload, meta);
+			// The message stands alone: no staging helper is instantiated without a staging ring.
+			static_assert(stageQueued, "Send from another task needs StageQueue(n): add it to the builder");
+			return ResultStatus::notSupported;
 		}
 	}
 
@@ -568,6 +574,12 @@ private:
 	};
 
 
+	// Whether a layer's send from its Process was refused as busy during the current Process (see layerHolds).
+	struct HoldState {
+		bool waiting = false;
+	};
+
+
 	// The drop counts of the stack, with the counts the receive interrupt writes. Only a stack with CountDrops() has them.
 	struct DropState : DropCounts {
 		uint16 linkDown = 0;
@@ -598,6 +610,7 @@ private:
 	[[no_unique_address]] QueueStorage<!streamLink, receiveSlots, receiveBytes, 11> rxQueue;
 	[[no_unique_address]] State<hasLinkState, LinkRecord, 12> linkRecord;
 	[[no_unique_address]] State<countDrops, DropState, 17> drops;
+	[[no_unique_address]] State<layerHolds, HoldState, 18> holdState;
 	[[no_unique_address]] State<highWater, HighWaterState, 15> highWaterState;
 
 
@@ -677,13 +690,32 @@ private:
 				}
 			}
 
+			if (LayerHolding()) {
+				return ResultStatus::busy;
+			}
+
 			if (QueueFull(control.indexes, sendSlots)) {
 				return ResultStatus::busy;
 			}
 
 			return ResultStatus::ok;
 		} else {
-			return DirectAdmit(false, ReadNow());
+			ResultStatus admit = DirectAdmit(false, ReadNow());
+			if (admit != ResultStatus::ok) {
+				return admit;
+			}
+
+			return LayerHolding() ? ResultStatus::busy : ResultStatus::ok;
+		}
+	}
+
+
+	// Whether a layer's send from its Process was refused as busy, and the application's packets wait for it (see layerHolds).
+	bool LayerHolding() const {
+		if constexpr (layerHolds) {
+			return holdState.Get().waiting;
+		} else {
+			return false;
 		}
 	}
 
@@ -867,21 +899,34 @@ private:
 		std::span<const uint8> packet;
 		uint8 flags = 0;
 		while (StagedFront(packet, flags)) {
+			if (LayerHolding()) {
+				return;
+			}
+
 			if constexpr (sendQueued) {
 				if (QueueFull(control.indexes, sendSlots)) {
 					return;
 				}
+
+				if constexpr (hasLinkState) {
+					if (whileDown == Down::Fail && !LinkUp()) {
+						StagedPop();
+						DropLinkDown(1);
+						continue;
+					}
+				}
 			} else {
+				// Without a send queue the connection is checked first: a packet staged before a down under Fail is dropped and counted.
+				if constexpr (hasLinkState) {
+					if (whileDown == Down::Fail && !linkRecord.Get().connected) {
+						StagedPop();
+						DropLinkDown(1);
+						continue;
+					}
+				}
+
 				if (DirectAdmit(false, now) != ResultStatus::ok) {
 					return;
-				}
-			}
-
-			if constexpr (hasLinkState) {
-				if (whileDown == Down::Fail && !LinkUp()) {
-					StagedPop();
-					DropLinkDown(1);
-					continue;
 				}
 			}
 
@@ -1189,6 +1234,11 @@ private:
 
 	template<std::size_t Index>
 	void ProcessLayers(uint32 now) {
+		// The layers' busy sends of the last Process no longer hold the application: a layer that does not send again does not block it.
+		if constexpr (layerHolds && Index == 0) {
+			holdState.Get().waiting = false;
+		}
+
 		if constexpr (Index < count) {
 			using Entry = std::tuple_element_t<Index, Tuple>;
 			if constexpr (Entry::kind == BlockKind::layer) {
@@ -1273,39 +1323,55 @@ private:
 	template<std::size_t From>
 	static ResultStatus SendThunk(void* owner, std::span<const uint8> packet, const Meta& meta) {
 		Stack* self = static_cast<Stack*>(owner);
+		ResultStatus result = self->template LayerSend<From>(packet, meta);
+		if constexpr (layerHolds) {
+			// A busy layer send holds the application's packets until the next Process (see layerHolds).
+			if (result == ResultStatus::busy) {
+				self->holdState.Get().waiting = true;
+			}
+		}
+
+		return result;
+	}
+
+
+	// The send of a layer's packet, from its outbox. The check comes before the layers below run on it: a busy queue, a frame in progress,
+	// the gap or Ready refuse the packet with nothing taken. In a chain with a layer that declares its peer (peersReport), every layer's
+	// packets go on the own lane, which is the chain's property; in any other chain they go on the control lane.
+	template<std::size_t From>
+	ResultStatus LayerSend(std::span<const uint8> packet, const Meta& meta) {
 		if (packet.size() > packetBytes) {
-			self->Drop(&DropCounts::layerError);
+			Drop(&DropCounts::layerError);
 			return ResultStatus::messageTooLong;
 		}
 
 		if constexpr (hasLinkState) {
-			if (whileDown == Down::Fail && !self->linkRecord.Get().linkUp) {
+			if (whileDown == Down::Fail && !linkRecord.Get().linkUp) {
 				return ResultStatus::noConnection;
 			}
 		}
 
-		// A layer that declares its peer sends on the own lane; any other layer on the control lane.
 		if constexpr (sendQueued) {
 			if constexpr (peersReport) {
-				if (QueueFull(self->ownQueue.indexes, sendSlots)) {
+				if (QueueFull(ownQueue.indexes, sendSlots)) {
 					return ResultStatus::busy;
 				}
 			} else {
-				if (QueueFull(self->control.indexes, sendSlots)) {
+				if (QueueFull(control.indexes, sendSlots)) {
 					return ResultStatus::busy;
 				}
 			}
 		} else {
-			ResultStatus admit = self->DirectAdmit(peersReport, self->ReadNow());
+			ResultStatus admit = DirectAdmit(peersReport, ReadNow());
 			if (admit != ResultStatus::ok) {
 				return admit;
 			}
 		}
 
 		if constexpr (peersReport) {
-			return self->template SendFrom<From>(packet, meta, Lane::own, false);
+			return SendFrom<From>(packet, meta, Lane::own, false);
 		} else {
-			return self->template SendFrom<From>(packet, meta, Lane::control, false);
+			return SendFrom<From>(packet, meta, Lane::control, false);
 		}
 	}
 

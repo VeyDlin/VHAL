@@ -357,8 +357,8 @@ using MinSendLayerStack = VUB::Stack<+[] {
 }>;
 
 
-// A bulk layer on a stream chain with no send queue: the held bulk packet is offered by Process.
-using MinBulkStack = VUB::Stack<+[] {
+// A bulk layer on a stream chain. The chain has no SendQueue call: a chain with a bulk layer always has a send queue, of one packet by default.
+using MinBulkDefaultStack = VUB::Stack<+[] {
 	return VUB::Builder()
 		.Layer<TestLayer>(TestLayerOptions{0, true, 2})
 		.Framing<VUB::Cobs>()
@@ -595,18 +595,53 @@ void TestLayerOutboxWritesAtOnce() {
 }
 
 
-// A bulk layer: Process offers the held bulk packets while the link takes them. The two bulk packets are 02 00 00 BB and 02 01 00 BB,
-// with the sequence numbers of the layer; their COBS frames are 02 02 01 02 BB 00 and 03 02 01 02 BB 00.
-void TestBulkWithNoSendQueue() {
+// A bulk chain with no SendQueue call has a send queue of one packet, so the application and the control lane find the link free between
+// bulk frames. The chain's bulk packets go out in Process, in order: 02 00 00 BB and 02 01 00 BB, with the sequence numbers of the layer,
+// and their COBS frames are 02 02 01 02 BB 00 and 03 02 01 02 BB 00.
+void TestBulkChainDefaultsToOneQueuedPacket() {
 	ResetTestState();
+	SIM_EXPECT(MinBulkDefaultStack::sendQueue == 1);
 	MinStream link;
-	MinBulkStack stack(link);
+	MinBulkDefaultStack stack(link);
 	stack.Process();
 	const std::array<uint8, 12> expected = {0x02, 0x02, 0x01, 0x02, 0xBB, 0x00, 0x03, 0x02, 0x01, 0x02, 0xBB, 0x00};
 	SIM_EXPECT(link.count == expected.size());
 	for (std::size_t index = 0; index < expected.size(); index++) {
 		SIM_EXPECT(link.wire[index] == expected[index]);
 	}
+}
+
+
+// A concurrent chain with no send queue and a staging ring, over a link that reports its state, under Down::Fail. A packet staged before
+// the connection goes down is dropped when Process moves it on, and counted as linkDown; it is not sent after the connection returns.
+using MinStagedFailStack = VUB::Stack<+[] {
+	return VUB::Builder()
+		.CountDrops()
+		.Framing<VUB::Cobs>()
+		.Link<MinReportingStream>()
+		.MaxPayload(16)
+		.Concurrent()
+		.StageQueue(4)
+		.WhileDown(VUB::Down::Fail)
+		.OnReceive<&TestReceive>();
+}>;
+
+
+void TestStagedPacketDroppedWhenDownUnderFail() {
+	ResetTestState();
+	MinReportingStream link;
+	MinStagedFailStack stack(link);
+	stack.Process();
+	const std::array<uint8, 3> payload = {1, 2, 3};
+	SIM_EXPECT(stack.Send(payload) == ResultStatus::ok);
+	link.SetUp(false);
+	stack.Process();
+	SIM_EXPECT(stack.Drops().linkDown == 1);
+	SIM_EXPECT(link.count == 0);
+	link.SetUp(true);
+	stack.Process();
+	SIM_EXPECT(link.count == 0);
+	SIM_EXPECT(stack.Drops().linkDown == 1);
 }
 
 
@@ -722,7 +757,8 @@ int main() {
 	TestGapSendWaitsForGap();
 	TestPeerDownLayerPacketGoes();
 	TestLayerOutboxWritesAtOnce();
-	TestBulkWithNoSendQueue();
+	TestBulkChainDefaultsToOneQueuedPacket();
+	TestStagedPacketDroppedWhenDownUnderFail();
 	TestDownWaitIsBusy();
 	TestDownFailIsNoConnection();
 	TestSizeWithoutParts();

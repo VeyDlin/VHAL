@@ -41,6 +41,18 @@ for snippet in "$dir"/*.cpp; do
         continue
     fi
 
+    # A snippet whose second line is "// one error" must give its message alone: exactly one error line.
+    secondLine="$(sed -n 2p "$snippet")"
+    secondLine="${secondLine%$'\r'}"
+    if [ "$secondLine" = "// one error" ]; then
+        errorLines="$(grep -c ': error:' <<< "$output" || true)"
+        if [ "$errorLines" -ne 1 ]; then
+            echo "SEVERAL ERRORS: $name ($errorLines error lines, the message must stand alone)"
+            failures=$((failures + 1))
+            continue
+        fi
+    fi
+
     echo "rejected as expected: $name"
 done
 
