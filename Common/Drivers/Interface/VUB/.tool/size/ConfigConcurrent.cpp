@@ -1,4 +1,4 @@
-// Configuration of the concurrent requests layer for the size table. The chain is COBS over the stream link of SizeWire.h. The flags:
+// Configuration of the concurrent requests layer for the size table. The chain is CRC-16/MODBUS over COBS over the stream link of SizeWire.h. The flags:
 //   SIZE_ROLE   0: no layer; 1: responder (one command, Tickets(1), Refusals(2)); 2: requester (Open(2)).
 //   SIZE_CONC   1: the layer is Pending(4) and Awaitable(), and the stack is Concurrent(); the stack's section is the port's section.
 //   SIZE_AWAIT  1: the requester calls Await once (needs SIZE_CONC 1). The Await's wait is the difference of the two rows.
@@ -8,7 +8,9 @@
 #include <Drivers/Interface/VUB/Framing/Cobs.h>
 #include <Drivers/Interface/VUB/Requests.h>
 #include <Drivers/Interface/VUB/Stack.h>
+#include <Drivers/Interface/VUB/Transform/Crc.h>
 #include <System/NestedCriticalSection.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 #include <functional>
 
 
@@ -135,6 +137,7 @@ using SizeHandlers = VUB::Handlers<>;
 using SizeStack = VUB::Stack<+[]() {
 	return VUB::Builder()
 		SIZE_UPPER
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Framing<VUB::Cobs>()
 		.Link<SizeStreamLink>()
 		.MaxPayload(40)

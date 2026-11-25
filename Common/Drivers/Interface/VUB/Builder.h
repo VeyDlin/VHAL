@@ -144,20 +144,6 @@ struct BlockEntry {
 	}
 
 
-	// Whether the block is a layer that reads the stack's counters (usesCounters = true): it may call outbox.Counters().
-	static constexpr bool UsesCounters() {
-		if constexpr (Kind == BlockKind::layer) {
-			if constexpr (requires { Block::usesCounters; }) {
-				return Block::usesCounters;
-			} else {
-				return false;
-			}
-		} else {
-			return false;
-		}
-	}
-
-
 	// Whether the block is the requests layer of the chain (requestsLayer = true): Stack::Requests() gives its handle.
 	static constexpr bool RequestsLayer() {
 		if constexpr (Kind == BlockKind::layer) {
@@ -693,12 +679,6 @@ public:
 	// Whether a layer of the chain declares that it takes the owner of the block below it (wantsOwner).
 	static constexpr bool WantsOwners() {
 		return (false || ... || Entries::WantsOwner());
-	}
-
-
-	// Whether a layer of the chain reads the stack's counters (usesCounters).
-	static constexpr bool UsesAnyCounters() {
-		return (false || ... || Entries::UsesCounters());
 	}
 
 

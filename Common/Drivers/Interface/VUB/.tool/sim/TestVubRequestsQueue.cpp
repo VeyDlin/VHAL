@@ -181,7 +181,7 @@ using QueueCommands = VUB::CommandSet<+[]() {
 // The requester: sixteen slots, a queue of eight packets, one control packet in the stack, a 400-byte payload, and the ping.
 using QueueStack = VUB::Stack<+[]() {
 	return VUB::Builder()
-		.Layer<VUB::Requests<QueueCommands, VUB::Handlers<>>>().Open(16).Pending(8).Ping(0).BuiltInTimeoutMs(500).Counted().Awaitable()
+		.Layer<VUB::Requests<QueueCommands, VUB::Handlers<>>>().Open(16).Pending(8).Ping(0).Health().BuiltInTimeoutMs(500).Counted().Awaitable()
 		.Link<QueueLink>()
 		.MaxPayload(400)
 		.SendQueue(1)
@@ -217,12 +217,26 @@ void OnPing(ResultStatus result, uint32) {
 }
 
 
+inline uint32 healthSeen = 0;
+inline uint32 healthTimeouts = 0;
+
+
+void OnHealth(const VUB::HealthReport<VUB::NoBody>& report) {
+	healthSeen++;
+	if (report.result == ResultStatus::timeout) {
+		healthTimeouts++;
+	}
+}
+
+
 void ResetCounters() {
 	nowUs.store(1000000);
 	finalsSeen = 0;
 	timeoutsSeen = 0;
 	pingsSeen = 0;
 	pingTimeouts = 0;
+	healthSeen = 0;
+	healthTimeouts = 0;
 }
 
 
@@ -763,7 +777,107 @@ void TestWireOrderOfOneTask() {
 }
 
 
+// Two tasks send health requests while the main thread runs the stack. Every accepted health request is on the wire once, and its handler gets
+// its timeout (no peer answers here).
+void TestConcurrentHealthFromTwoTasks() {
+	ResetCounters();
+	QueueLink link;
+	QueueStack stack(link);
+	QueueHandle handle = stack.Requests();
+	handle.SetSession(1);
+
+	std::atomic<uint32> accepted{0};
+	std::atomic<uint32> refused{0};
+	std::atomic<uint32> tasksDone{0};
+	std::thread first([handle, &accepted, &refused, &tasksDone]() mutable {
+		for (uint32 index = 0; index < 15; index++) {
+			uint32 attempts = 0;
+			ResultStatus status = handle.Health<&OnHealth>();
+			while (status == ResultStatus::busy && attempts < 2000000) {
+				attempts++;
+				std::this_thread::yield();
+				status = handle.Health<&OnHealth>();
+			}
+
+			if (status == ResultStatus::ok) {
+				accepted++;
+			} else {
+				refused++;
+			}
+		}
+
+		tasksDone++;
+	});
+	std::thread second([handle, &accepted, &refused, &tasksDone]() mutable {
+		for (uint32 index = 0; index < 15; index++) {
+			uint32 attempts = 0;
+			ResultStatus status = handle.Health<&OnHealth>();
+			while (status == ResultStatus::busy && attempts < 2000000) {
+				attempts++;
+				std::this_thread::yield();
+				status = handle.Health<&OnHealth>();
+			}
+
+			if (status == ResultStatus::ok) {
+				accepted++;
+			} else {
+				refused++;
+			}
+		}
+
+		tasksDone++;
+	});
+
+	uint32 steps = 0;
+	while (tasksDone.load() < 2 && steps < 2000000) {
+		steps++;
+		Tick(stack, 10000);
+		std::this_thread::yield();
+	}
+
+	first.join();
+	second.join();
+	for (uint32 step = 0; step < 100; step++) {
+		Tick(stack, 10000);
+	}
+
+	SIM_EXPECT(refused.load() == 0);
+	SIM_EXPECT(accepted.load() == 30);
+	SIM_EXPECT(CountRequestsWithId(link.wire, VUB::BuiltInWire::IdHealth) == 30);
+	SIM_EXPECT(healthSeen == 30 && healthTimeouts == 30);
+}
+
+
+// A health request whose deadline passes while the queue holds it: it does not go out later, and its handler got the timeout.
+void TestClosedHealthLeavesTheQueue() {
+	ResetCounters();
+	QueueLink link;
+	QueueStack stack(link);
+	QueueHandle handle = stack.Requests();
+	handle.SetSession(1);
+	FillControlQueue(stack, handle, link);
+
+	SIM_EXPECT(handle.Health<&OnHealth>() == ResultStatus::ok);
+	Tick(stack, 1000);
+	for (uint32 step = 0; step < 8; step++) {
+		Tick(stack, 100000);
+	}
+
+	SIM_EXPECT(healthSeen == 1 && healthTimeouts == 1);
+	Job::JobRequest body{};
+	body.amount = 8;
+	Result<VUB::RequestId> next = handle.Send<Job::Command::run, &OnFinal>(body);
+	SIM_EXPECT(next.IsErr() == false);
+	Release(stack, link);
+	SIM_EXPECT(CountRequestsWithId(link.wire, VUB::BuiltInWire::IdHealth) == 0);
+	SIM_EXPECT(CountPackets(link.wire, RequestWire::KindRequest) == 2);
+	SIM_EXPECT(next.IsErr() == false && CountRequestsOf(link.wire, static_cast<uint8>(Job::Command::run), next.Value().number) == 1);
+}
+
+
 int main() {
+	TestConcurrentHealthFromTwoTasks();
+	TestClosedHealthLeavesTheQueue();
 	TestConcurrentPingAndFireFromTwoTasks();
 	TestWireOrderOfOneTask();
 	TestClosedRequestLeavesTheQueue();

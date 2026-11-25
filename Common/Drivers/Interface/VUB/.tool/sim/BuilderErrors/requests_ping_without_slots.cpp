@@ -24,8 +24,8 @@ inline void OnPingDone(ResultStatus, uint32) {
 }
 
 
-// Ping on, and no Open(n): the layer answers pings but has no slot to send one from.
-using Layer = VUB::RequestsOf<Set, VUB::Handlers<>, VUB::RequestsOptions{0, 0, 4, false, true, 16, 1000}>;
+// Ping on, and no Open(n): the layer has no slot to send a ping from.
+using Layer = VUB::RequestsOf<Set, VUB::Handlers<>, VUB::RequestsOptions{.ping = true, .pingPadding = 16}>;
 
 
 inline void SendPing(Layer::Handle& handle) {

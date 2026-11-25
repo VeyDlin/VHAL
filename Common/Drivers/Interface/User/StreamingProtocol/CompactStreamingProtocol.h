@@ -1,6 +1,7 @@
 #pragma once
 #include <VHAL.h>
 #include <Utilities/Buffer/RingBuffer.h>
+#include <Utilities/Checksum/CRC/Crc.h>
 #include <span>
 #include <array>
 #include <cstring>
@@ -112,19 +113,14 @@ private:
     static constexpr uint8 MAX_RETRIES = 3;
     static constexpr uint32 FRAGMENT_TIMEOUT_MS = 5000; // 5 seconds
 
+    // CRC-8 with polynomial 0x07 (CRC-8/CCITT), initial value 0xFF, no reflection and no final XOR, on the bitwise engine
+    using PacketCrc = Checksum::Crc<Checksum::CrcParameters()
+        .Width(8)
+        .Polynomial(0x07)
+        .Initial(0xFF)>;
+
     static uint8 CalculateCRC8(std::span<const uint8> data) {
-        uint8 crc = 0xFF;
-        for (uint8 byte : data) {
-            crc ^= byte;
-            for (int i = 0; i < 8; i++) {
-                if (crc & 0x80) {
-                    crc = (crc << 1) ^ 0x07;  // CRC8-CCITT polynomial
-                } else {
-                    crc = crc << 1;
-                }
-            }
-        }
-        return crc;
+        return PacketCrc::Calculate(data);
     }
 
 public:

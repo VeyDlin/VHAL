@@ -21,7 +21,7 @@ using Set = VUB::CommandSet<+[]() {
 
 
 // A deadline for the built-in requests, with no ping on the layer: the deadline would have nothing to bound.
-using Layer = VUB::RequestsOf<Set, VUB::Handlers<>, VUB::RequestsOptions{1, 0, 4, false, false, 0, 300}>;
+using Layer = VUB::RequestsOf<Set, VUB::Handlers<>, VUB::RequestsOptions{.open = 1, .builtInTimeoutMs = 300}>;
 
 
 inline Layer::Options* unusedOptions = nullptr;

@@ -1,5 +1,5 @@
 // Table-driven CRC-32 (reflected polynomial 0xEDB88320, the reflected form of 0x04C11DB7).
-// The incremental form takes the previous final value, matching the device's Crc::Calculate(..., crc).
+// The incremental form takes the previous final value, matching the device's Checksum::Crc32IsoHdlc fed chunk by chunk.
 
 
 function buildCrcTable(): Uint32Array {

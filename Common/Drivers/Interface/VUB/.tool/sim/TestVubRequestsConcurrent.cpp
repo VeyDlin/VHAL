@@ -35,7 +35,27 @@ std::atomic<uint32> sectionEnters{0};
 thread_local int sectionDepth = 0;
 
 
+// The window hook (see TestAwaitFinalBetweenTheCheckAndTheAbandon): the waiting task's second section entry after the arm is the abandon's. Before
+// its lock, the hook opens the gate and waits until the other task has taken the final.
+inline std::atomic<bool> windowPauseArm{false};
+inline std::atomic<bool> windowArm{false};
+inline std::atomic<bool> windowGate{false};
+inline std::atomic<bool> windowDone{false};
+inline std::atomic<uint32> windowSections{0};
+inline thread_local bool isWaiterThread = false;
+
+
 void System::CriticalSection(bool isEnable) {
+	if (isEnable && isWaiterThread && windowArm.load() && windowSections.fetch_add(1) + 1 == 2) {
+		windowArm.store(false);
+		windowGate.store(true);
+		uint32 spins = 0;
+		while (windowDone.load() == false && spins < 2000000u) {
+			spins++;
+			std::this_thread::yield();
+		}
+	}
+
 	if (isEnable) {
 		sectionMutex.lock();
 		sectionDepth++;
@@ -1023,6 +1043,12 @@ void TestAwaitTimesOut() {
 		returned.store(true);
 	});
 
+	// The request must be sent and parked before the deadline rounds start: the waiting thread may start after the rounds would have run out.
+	bool parked = RunUntil(line, near, far, 100, MaxRounds, []() { return ParkedHoldCount() == 1; });
+	if (parked == false) {
+		StopOnHang("the responder did not park the request of the Await");
+	}
+
 	bool done = RunUntil(line, near, far, 100000, 1000, [&returned]() { return returned.load(); });
 	if (done == false) {
 		StopOnHang("Await did not return at the request's deadline");
@@ -1384,34 +1410,29 @@ void TestAwaitAbandonedFinalBeforeDeadline() {
 }
 
 
-// The window between the wait's last check and its abandon. The policy's GaveUp holds the waiter there (the limit has passed, and no final is in
-// yet). The main thread then has the responder finish the parked request, and the requester takes the final while the waiter holds. Only then is
-// the waiter released: its abandon finds the final written, so the Await returns that final, not timeout.
-inline std::atomic<bool> windowOpen{false};
-inline std::atomic<bool> windowRelease{false};
-
-
-struct WindowPolicy {
-	static void Pause() {
-		WaitCondition::RtosYield::Pause();
+// The window between the wait's last check and its abandon, forced through the test's own critical section and the RTOS handle. The RTOS
+// handle runs in the waiting task's Pause, after its last check and before the next one: it arms the window and moves the tick past the
+// limit. The waiting task then makes two section entries: the predicate's check (the first) and the abandon's (the second). The section hook
+// lets the other task take the final before the abandon's lock is taken, so the abandon finds the final written and the Await returns it.
+bool WindowPause(uint32) {
+	if (isWaiterThread && windowPauseArm.load()) {
+		windowPauseArm.store(false);
+		System::tickLow = System::tickLow + 3250u;
+		windowSections.store(0);
+		windowArm.store(true);
 	}
 
-
-	static void GaveUp() {
-		windowOpen.store(true);
-		uint32 spins = 0;
-		while (windowRelease.load() == false && spins < MaxSpins) {
-			spins++;
-			std::this_thread::yield();
-		}
-	}
-};
+	return true;
+}
 
 
 void TestAwaitFinalBetweenTheCheckAndTheAbandon() {
 	ResetCounters();
-	windowOpen.store(false);
-	windowRelease.store(false);
+	windowPauseArm.store(false);
+	windowArm.store(false);
+	windowGate.store(false);
+	windowDone.store(false);
+	windowSections.store(0);
 	ReportingPacketLine line(VUB::Faults{});
 	Requester near(line.a);
 	Responder far(line.b);
@@ -1420,10 +1441,12 @@ void TestAwaitFinalBetweenTheCheckAndTheAbandon() {
 
 	parkHolds = true;
 	VUB::Final<Job::JobStatus, VUB::NoBody> awaited{};
+	System::rtosDelayMsHandle = WindowPause;
 	std::thread waiter([handle, &awaited]() {
+		isWaiterThread = true;
 		Job::JobRequest body{};
 		body.amount = 33;
-		awaited = handle.Await<Job::Command::hold, nullptr, WindowPolicy>(body);
+		awaited = handle.Await<Job::Command::hold>(body);
 	});
 
 	bool parked = RunUntil(line, near, far, 100, MaxRounds, []() { return ParkedHoldCount() == 1; });
@@ -1431,15 +1454,15 @@ void TestAwaitFinalBetweenTheCheckAndTheAbandon() {
 		StopOnHang("the responder did not park the request of the Await");
 	}
 
+	windowPauseArm.store(true);
 	uint32 spins = 0;
-	while (windowOpen.load() == false && spins < MaxSpins) {
+	while (windowGate.load() == false && spins < MaxSpins) {
 		spins++;
-		System::tickLow = System::tickLow + 100u;
 		std::this_thread::yield();
 	}
 
-	if (windowOpen.load() == false) {
-		StopOnHang("the Await did not reach its limit");
+	if (windowGate.load() == false) {
+		StopOnHang("the Await did not reach the abandon");
 	}
 
 	std::optional<ParkedHold> held = TakeParkedHold();
@@ -1449,8 +1472,9 @@ void TestAwaitFinalBetweenTheCheckAndTheAbandon() {
 
 	SIM_EXPECT(held->ticket.Finish(Job::JobStatus::started) == ResultStatus::ok);
 	RunRounds(line, near, far, 100, 10);
-	windowRelease.store(true);
+	windowDone.store(true);
 	waiter.join();
+	System::rtosDelayMsHandle = nullptr;
 	SIM_EXPECT(awaited.result == ResultStatus::ok);
 	SIM_EXPECT(awaited.status == Job::JobStatus::started);
 	SIM_EXPECT(holdFinals == 0);

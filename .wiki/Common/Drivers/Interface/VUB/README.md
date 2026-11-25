@@ -33,7 +33,7 @@ The application sends into the top, and the link is the last block. A block that
 ## Names
 
 Every type of VUB is in the namespace `VUB`, and the pages name each type with it: `VUB::Stack`, `VUB::Reliable`,
-`VUB::Crc16Modbus`. Inside the builder's lambda, `using namespace VUB;` shortens the chain. Write it there or in a `.cpp` file, not in
+`VUB::Crc`. Inside the builder's lambda, `using namespace VUB;` shortens the chain. Write it there or in a `.cpp` file, not in
 a header, so the short names do not reach the files that include the header:
 
 ```cpp
@@ -41,7 +41,7 @@ using Board = VUB::Stack<+[] {
 	using namespace VUB;
 	return Builder()
 		.Layer<Reliable>().Retries(3).TimeoutMs(200)
-		.Transform<Crc16Modbus>()
+		.Transform<Crc<Checksum::Crc16Modbus>>()
 		.Link<BoardLink>()
 		.MaxPayload(32)
 		.OnReceive<&OnPacket>()
@@ -49,8 +49,9 @@ using Board = VUB::Stack<+[] {
 }>;
 ```
 
-`Crc` is also the class of the shared CRC library (`Utilities/Checksum/CRC/Crc.h`). In a file that includes both, the short name
-`Crc` is ambiguous, so the transform is written `VUB::Crc`. The presets, such as `Crc16Modbus`, have no such clash.
+The CRC transform takes a CRC type of the shared CRC library (`Utilities/Checksum/CRC/Crc.h`), a `Checksum::Crc`. The library's presets, such
+as `Checksum::Crc16Modbus`, are in `Utilities/Checksum/CRC/Preset/`. The library's class and the transform are both named `Crc`, so a file
+that includes both writes the transform as `VUB::Crc` and the library's class as `Checksum::Crc`.
 
 ## The five kinds
 
@@ -59,7 +60,7 @@ using Board = VUB::Stack<+[] {
 | Link | `VUB::StreamLink`, `VUB::PacketLink` | the wire at the bottom | `traits`; `Write(span)` returning `Result<size_t>` (a byte stream), or `Send(span)` returning `ResultStatus` (whole packets). Optional, not both: `SetReceiver(Receiver)` for a link that receives in an interrupt (`VUB::ReceivingLink`), or `Poll(Receiver)` for a link that is polled from `Process` (`VUB::PollingLink`); see [receiving from a link](#receiving-from-a-link) |
 | Framing | `VUB::FramingBlock` | finds packet boundaries in a byte stream | `usesTime`, `Growth(length)`, `Frame(meta, packet, out)`, `Push(byte, out, length)`; with `usesTime`: `Push(byte, nowUs, out, length)`, `Poll(nowUs, out, length)`, `Ready(nowUs)` and `Sent(nowUs, count)` (see [gap framing](Framing/Gap)) |
 | Transform | `VUB::TransformBlock` | one packet into another, and back | `growth`, `fingerprint`, `Encode(meta, in, out)`, `Decode(meta, packet)` |
-| Engine | `VUB::EngineBlock`, `VUB::EngineFor` | computes what a transform describes (a CRC, AES) | `synchronous`; `Supports<Algorithm>()` and `Run<Algorithm>(data)` for `VUB::EngineFor` (see [engines](Engine/README)) |
+| Engine | `VUB::EngineBlock`, `VUB::EngineFor` | computes what a transform describes (a CRC, AES) | `synchronous`; `Supports<Algorithm>()` and `Run<Algorithm>(data)` for `VUB::EngineFor`. The CRC engines are the library's, see [CRC](../../../Utilities/Checksum/CRC/Crc) |
 | Layer | `VUB::LayerBlock` | a header, state, time; may send packets of its own and make bulk packets | `header`, `fingerprint`, `usesTime`, `makesBulk`, `Add`, `Take`, `Process`, and `Next` when `makesBulk` is true |
 
 A block that misses a member is a compile error. The message names the concept it does not satisfy, for example `the transform does not satisfy VUB::TransformBlock`, and the concept's notes follow it.
@@ -235,8 +236,8 @@ Polled polled(pollLink);
 ```
 
 A chain whose link has neither member is the same size as a chain without the receiver. Measured with `sizeof` on g++ (x86-64), the
-packet stack of the link with neither member is 656 bytes and the stream stack 952 bytes (`TestVubReceiver.cpp` checks both). With
-`size.sh`, every row of the [size table](#size) is unchanged.
+packet stack of the link with neither member is 656 bytes and the stream stack 952 bytes (`TestVubReceiver.cpp` checks both). The rows of
+the [size table](#size) are measured by `size.sh`.
 
 ## Backpressure and order
 
@@ -300,7 +301,9 @@ its state the answer is always true. A chain whose layers do not ask is unchange
   application's frame is not sent: it waits, and goes from its first byte when the peer is up.
 - `WhileDown` sets what happens to the packets waiting to be sent:
   - `Wait` (the default): they stay queued. `Send` queues until the queue is full, then returns `busy`, and the packets go in order
-    after the connection is up. A layer's own packet waits the same way while the link is down.
+    after the connection is up. A layer's own packet waits the same way while the link is down. Under a requests layer on Reliable, the
+    copies of its packets that wait when the connection returns are dropped, with the part of a frame that was written, since Reliable sends each packet that is still wanted (see
+    [Requests](Layer/Requests#failure-paths)); the other packets keep their order.
   - `Fail`: the queued packets are dropped and counted under `linkDown`, and `Send` returns `noConnection` while the connection is
     down. When the peer goes down, the application's queued packets are dropped and the layers' own packets are kept; when the link goes
     down, the layers' own packets are dropped too. A layer's own packet gets `noConnection` only while the link is down. A refused
@@ -374,18 +377,18 @@ ring, and a link with `MaxPacket(64)`.
 | Configuration | M4 text | M4 RAM | M0+ text | M0+ RAM |
 |---|---:|---:|---:|---:|
 | (a) packet link only | 676 | 616 | 956 | 616 |
-| (b) stream link, COBS | 932 | 620 | 1212 | 620 |
-| (c) (b) + CRC-16/MODBUS table | 1624 | 700 | 1912 | 700 |
-| (d) (b) + CRC-16/MODBUS bitwise | 1144 | 700 | 1432 | 700 |
-| (e) stream link, length prefix 1, CRC-8 bitwise | 1056 | 672 | 1348 | 672 |
-| (f) stream link, gap framing, CRC-16 table | 2716 | 1720 | 2868 | 1720 |
-| (g) (c) + VUB::Reliable (Retries 3, Window 4) | 4136 | 1116 | 4616 | 1116 |
-| (h) (g) with the in-order option | 4436 | 1252 | 4952 | 1252 |
-| (i) COBS, CRC-8, VUB::ReliableOf window 1, Retries 3 | 3236 | 912 | 3712 | 912 |
-| breakdown of (i): the same without VUB::ReliableOf | 1096 | 692 | 1388 | 692 |
+| (b) stream link, COBS | 944 | 620 | 1224 | 620 |
+| (c) (b) + CRC-16/MODBUS, default engine (bitwise) | 1140 | 700 | 1424 | 700 |
+| (d) (b) + CRC-16/MODBUS, table engine named | 1644 | 700 | 1928 | 700 |
+| (e) stream link, length prefix 1, CRC-8 bitwise | 1052 | 672 | 1344 | 672 |
+| (f) stream link, gap framing, CRC-16 table | 2716 | 1720 | 2876 | 1720 |
+| (g) (c) + VUB::Reliable (Retries 3, Window 4) | 3644 | 1116 | 4124 | 1116 |
+| (h) (g) with the in-order option | 3944 | 1252 | 4460 | 1252 |
+| (i) COBS, CRC-8, VUB::ReliableOf window 1, Retries 3 | 3228 | 912 | 3704 | 912 |
+| breakdown of (i): the same without VUB::ReliableOf | 1104 | 692 | 1392 | 692 |
 | CompactStreamingProtocol<20, 4> (bootloader use) | 2292 | 1116 | 2880 | 1116 |
-| (j) stream link, COBS, CRC-16/MODBUS table, VUB::KeepAlive (default times) | 2604 | 932 | 2956 | 932 |
-| (k) (g) + VUB::KeepAlive (default times) | 5184 | 1400 | 5676 | 1400 |
+| (j) stream link, COBS, CRC-16/MODBUS (default engine), VUB::KeepAlive (default times) | 2116 | 932 | 2472 | 932 |
+| (k) (g) + VUB::KeepAlive (default times) | 4668 | 1400 | 5184 | 1400 |
 
 On Cortex-M0+, the text of rows (g), (i) and (k) can move by 4 bytes with the link order of two functions. The functions themselves keep
 their sizes: the padding between two of them depends on the order the linker places them in.
@@ -442,11 +445,11 @@ the wire that has not been fed. Every fragment and every acknowledgement goes th
 - Configuration (i) uses the default ring of 256 bytes. The protocol's ring is 80 bytes. A bootloader that sets `ReceiveRing` smaller
   is not measured here.
 
-Against the protocol, configuration (i) is 944 bytes larger in text on the M4 (3236 against 2292) and 828 bytes larger on the M0+
-(3708 against 2880). Its RAM is 204 bytes smaller on the M4 (912 against 1116) and on the M0+ (912 against 1116). The design asks for
+Against the protocol, configuration (i) is 936 bytes larger in text on the M4 (3228 against 2292) and 824 bytes larger on the M0+
+(3704 against 2880). Its RAM is 204 bytes smaller on the M4 (912 against 1116) and on the M0+ (912 against 1116). The design asks for
 a stack with the protocol's properties to be no larger than the protocol on the same target, so configuration (i) does not meet it in text.
-The breakdown row shows where the text goes: without `VUB::ReliableOf`, configuration (i) is 1096 bytes of text on the M4, and the layer
-adds 2140 bytes. The layer carries what the protocol does not: sequence numbers with sessions and a sync, a window, a ring of owed
+The breakdown row shows where the text goes: without `VUB::ReliableOf`, configuration (i) is 1104 bytes of text on the M4, and the layer
+adds 2124 bytes. The layer carries what the protocol does not: sequence numbers with sessions and a sync, a window, a ring of owed
 acknowledgements, retries with timeouts, and outcome reporting (see [VUB::Reliable](Layer/Reliable)). The measurement gives the size of
 the layer as a whole; it does not split the layer's code further.
 
@@ -1304,6 +1307,8 @@ using WatchedBoard = VUB::Stack<+[] {
 }>;
 ```
 
+A layer that sends these counters on, such as a requests layer with `AnswerHealth`, declares `static constexpr bool needsCounters = true`. The stack then refuses the chain unless it is `HighWater()`, and, when the block below takes the owner (Reliable), unless that block is `Counted()`. The layer's own `Counted()` is a rule of the layer itself: its refusals, late replies and lost events are the counts the reply carries.
+
 #### Concurrent: the Concurrent option and the concurrent flag
 
 `Concurrent()` on the builder lets the application send from another task while `Process` runs. The send from that task copies the payload
@@ -1408,5 +1413,5 @@ keep-alive), the requests layer (requests with a typed body and one final reply,
 device serves; see Layer/Requests), the size table, the links on a microcontroller and on a PC, and the board check on the STM32G431 over
 UART, USB CDC and USB bulk.
 
-Not built: cancel, events, ping and health, `Await`, addressing, large data, encryption and the CRC engine, values and subscriptions, and the
-SPI links.
+Not built: cancel, events, ping and health, `Await`, addressing, large data, encryption, values and subscriptions, and the SPI links. The
+CRC engines are the shared library's (see the [CRC](../../../Utilities/Checksum/CRC/Crc) page).

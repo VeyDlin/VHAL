@@ -10,6 +10,9 @@
 #include <Drivers/Interface/VUB/Link/CdcLink.h>
 #include <Drivers/Interface/VUB/Link/HidLink.h>
 #include <Drivers/Interface/VUB/Link/UartLink.h>
+#include <Drivers/Interface/VUB/Transform/Crc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Arc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 #include <Drivers/Interface/VUB/Stack.h>
 #include <Drivers/Interface/VUB/Transform/Crc.h>
 #include <Utilities/DataTypes.h>
@@ -86,7 +89,7 @@ using LossHidLink = VUB::HidLink<FakeHid<64, 2>, 64>;
 using LossUartStackA = VUB::Stack<+[] {
 	return VUB::Builder()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(16).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&LossOutcome>()
-		.Transform<VUB::Crc16Modbus>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Framing<VUB::Cobs>()
 		.Link<LossUartLink>()
 		.MaxPayload(40)
@@ -98,7 +101,7 @@ using LossUartStackA = VUB::Stack<+[] {
 using LossUartStackB = VUB::Stack<+[] {
 	return VUB::Builder()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(16).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&LossOutcome>()
-		.Transform<VUB::Crc16Modbus>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Framing<VUB::Cobs>()
 		.Link<LossUartLink>()
 		.MaxPayload(40)
@@ -110,7 +113,7 @@ using LossUartStackB = VUB::Stack<+[] {
 using LossCdcStackA = VUB::Stack<+[] {
 	return VUB::Builder()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(16).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&LossOutcome>()
-		.Transform<VUB::Crc16Modbus>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Framing<VUB::Cobs>()
 		.Link<LossCdcLink>()
 		.MaxPayload(40)
@@ -122,7 +125,7 @@ using LossCdcStackA = VUB::Stack<+[] {
 using LossCdcStackB = VUB::Stack<+[] {
 	return VUB::Builder()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(16).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&LossOutcome>()
-		.Transform<VUB::Crc16Modbus>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Framing<VUB::Cobs>()
 		.Link<LossCdcLink>()
 		.MaxPayload(40)
@@ -134,7 +137,7 @@ using LossCdcStackB = VUB::Stack<+[] {
 using LossBulkStackA = VUB::Stack<+[] {
 	return VUB::Builder()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(16).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&LossOutcome>()
-		.Transform<VUB::Crc16Modbus>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Framing<VUB::Cobs>()
 		.Link<LossBulkLink>()
 		.MaxPayload(40)
@@ -146,7 +149,7 @@ using LossBulkStackA = VUB::Stack<+[] {
 using LossBulkStackB = VUB::Stack<+[] {
 	return VUB::Builder()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(16).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&LossOutcome>()
-		.Transform<VUB::Crc16Modbus>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Framing<VUB::Cobs>()
 		.Link<LossBulkLink>()
 		.MaxPayload(40)
@@ -158,7 +161,7 @@ using LossBulkStackB = VUB::Stack<+[] {
 using LossHidStackA = VUB::Stack<+[] {
 	return VUB::Builder()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(16).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&LossOutcome>()
-		.Transform<VUB::Crc16Modbus>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Link<LossHidLink>()
 		.MaxPayload(40)
 		.ReceiveQueue(4)
@@ -170,7 +173,7 @@ using LossHidStackA = VUB::Stack<+[] {
 using LossHidStackB = VUB::Stack<+[] {
 	return VUB::Builder()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(16).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&LossOutcome>()
-		.Transform<VUB::Crc16Modbus>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Link<LossHidLink>()
 		.MaxPayload(40)
 		.ReceiveQueue(4)
@@ -514,7 +517,7 @@ void TestDroppedBytesAreTakenButNotQueued() {
 
 // A CRC with initial value 0 and no final XOR has a zero residue: the CRC of a packet with its own CRC at the end is 0, so the
 // check of two packets joined as one passes when the second packet's check bytes are the joined CRC. A stream that loses a COBS
-// delimiter joins two frames this way. Crc16Modbus, with an initial value of 0xFFFF, rejects the same join. The loss chains use it.
+// delimiter joins two frames this way. Checksum::Crc16Modbus, with an initial value of 0xFFFF, rejects the same join. The loss chains use it.
 template<typename Transform>
 bool JoinedFramesPass() {
 	std::array<uint8, 6> first = {1, 2, 3, 200, 0, 9};
@@ -538,8 +541,8 @@ bool JoinedFramesPass() {
 
 
 void TestZeroInitialPresetPassesJoinedFrames() {
-	SIM_EXPECT(JoinedFramesPass<VUB::Crc16Arc>());
-	SIM_EXPECT(!JoinedFramesPass<VUB::Crc16Modbus>());
+	SIM_EXPECT(JoinedFramesPass<VUB::Crc<Checksum::Crc16Arc>>());
+	SIM_EXPECT(!JoinedFramesPass<VUB::Crc<Checksum::Crc16Modbus>>());
 }
 
 

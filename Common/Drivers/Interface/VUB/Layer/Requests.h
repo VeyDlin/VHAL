@@ -49,6 +49,11 @@ struct RequestsOptions {
 	bool concurrent = false;
 	uint8 pending = 4;
 	bool awaitable = false;
+	bool health = false;
+	uint16 healthBytes = 0;
+	bool answerHealth = false;
+	uint16 answerHealthBytes = 0;
+	void (* const* healthFn)(std::span<uint8>) = nullptr;
 };
 
 
@@ -131,8 +136,11 @@ struct RequestsPlan {
 	static constexpr std::size_t handlerCount = std::tuple_size_v<typename HandlerSet::List>;
 	static constexpr bool served = AnyCommandEntry(typename HandlerSet::List{});
 	static constexpr bool sendsPing = Value.ping;
+	static constexpr bool asksHealth = Value.health;
+	static constexpr bool sendsBuiltIn = sendsPing || asksHealth;
 	static constexpr bool answerPing = Value.answerPing;
-	static constexpr bool answers = served || answerPing;
+	static constexpr bool answerHealth = Value.answerHealth;
+	static constexpr bool answers = served || answerPing || answerHealth;
 	static constexpr bool ticketed = HasTicketHandler<Commands>(onIndex, handlerCount);
 	static constexpr bool cancellable = AnyCommandFlag(Commands::commandTable, &CommandInfo::cancellable);
 	// Interim slots exist only for interim commands. A cancel-refused interim (0xF8) for a command without one has no handler and is dropped.
@@ -158,6 +166,15 @@ struct RequestsPlan {
 	// The packets of a concurrent layer that another task may hand to Process: its requests, cancels, fires, pings and events.
 	static constexpr bool queued = Value.concurrent && (sends || eventsDeclared);
 	static constexpr std::size_t pendingCount = Value.pending;
+	// The user body sizes of the two roles: the asking side's size checks the handler's body (the report is decoded with the handler's type), and
+	// the answering side's size is the body its fill writes.
+	static constexpr uint16 healthBytes = Value.healthBytes;
+	static constexpr uint16 answerHealthBytes = Value.answerHealthBytes;
+	static constexpr void (* const* healthFill)(std::span<uint8>) = Value.healthFn;
+	// The largest packet a requester slot sends for a built-in request, and the bytes of the one reply buffer of a responder.
+	static constexpr std::size_t builtInRequestBytes = std::max(PingRequestBytes(sendsPing, pingPadding), HealthRequestBytes(asksHealth));
+	static constexpr std::size_t replyBytes = BuiltInReplyBytes(answerPing, answerPadding, answerHealth, answerHealthBytes);
+	// The largest packet of the layer: a queued packet of a concurrent layer is at most this long.
 	static constexpr std::size_t largestPacket = std::max({
 		RequestWire::RequestHeader + Commands::largestRequest,
 		RequestWire::FinalHeader + Commands::largestReply,
@@ -165,30 +182,23 @@ struct RequestsPlan {
 		RequestWire::FinalErrorSize,
 		RequestWire::EventHeader + Commands::largestEvent,
 		RequestWire::CancelSize,
-		BuiltInReplyBytes(Value.answerPing, Value.answerPadding),
-		PingRequestBytes(Value.ping, Value.pingPadding)});
-	static_assert(!sendsPing || (builtInTimeoutMs > 0 && builtInTimeoutMs <= BuiltInWire::MaxTimeoutMs),
+		BuiltInReplyBytes(Value.answerPing, Value.answerPadding, Value.answerHealth, Value.answerHealthBytes),
+		PingRequestBytes(Value.ping, Value.pingPadding),
+		HealthRequestBytes(Value.health || Value.answerHealth),
+		HealthReplyBytes(Value.health, Value.healthBytes),
+		HealthReplyBytes(Value.answerHealth, Value.answerHealthBytes)});
+	static_assert(!sendsBuiltIn || (builtInTimeoutMs > 0 && builtInTimeoutMs <= BuiltInWire::MaxTimeoutMs),
 		"BuiltInTimeoutMs must be from 1 to 2147483 milliseconds");
-	static_assert(sendsPing || builtInTimeoutMs == BuiltInWire::DefaultTimeoutMs, "BuiltInTimeoutMs needs the Step .Ping(maxPadding) of the layer");
+	static_assert(sendsBuiltIn || builtInTimeoutMs == BuiltInWire::DefaultTimeoutMs,
+		"BuiltInTimeoutMs needs the Step .Ping(maxPadding) or .Health<U>() of the layer");
+	static_assert(!asksHealth || openCount > 0, "Health needs requester slots: give the layer Open(n) with n of at least 1");
+	static_assert(!answerHealth || counted, "AnswerHealth needs this layer's Counted(): add .Counted() to the requests layer");
 	static_assert(!queued || Value.pending > 0, "Pending needs at least 1 packet: give the layer Pending(n) with n of at least 1");
 };
 
 
 // The grace an Await adds to the reply deadline of its request: the wait gives up after the request's own deadline has passed.
 inline constexpr uint32 AwaitGraceMs = 250;
-
-
-// The wait of an Await. Pause runs between two checks of the final; GaveUp runs once the wait has found no final and its limit has passed,
-// before the wait abandons its request. GaveUp does nothing here; a test gives its own policy to run code in that window.
-struct AwaitPolicy {
-	static void Pause() {
-		WaitCondition::RtosYield::Pause();
-	}
-
-
-	static void GaveUp() {
-	}
-};
 
 
 // The type of Await for a command: its final, or for a command with no reply the result of its delivery.
@@ -289,7 +299,32 @@ public:
 		}
 
 
-		// The deadline of a built-in request, in milliseconds: the time a ping waits for its reply. The default is 1000.
+		// The built-in health request, sending side: the layer sends health requests from its requester slots, so Open(n) of at least 1 is
+		// needed. U is the user body of the reply, VUB::NoBody when the responder has none. The handler of Health<&Handler>() takes a
+		// HealthReport<U>.
+		template<typename U = NoBody>
+		constexpr Step Health() const {
+			Options next = this->LastOptions();
+			next.health = true;
+			next.healthBytes = static_cast<uint16>(BodyViewOf<U>.maxSize);
+			return Step(this->WithLastOptions(next));
+		}
+
+
+		// The built-in health request, answering side: the layer answers each health request it takes. Fill is void (*)(U&) and writes the user
+		// body; it is called once per request, from Process. Needs Counted() on the layer. The layer needs no Open, no handler and no ticket for
+		// it.
+		template<typename U, void (*Fill)(U&)>
+		constexpr Step AnswerHealth() const {
+			Options next = this->LastOptions();
+			next.answerHealth = true;
+			next.answerHealthBytes = static_cast<uint16>(BodyViewOf<U>.maxSize);
+			next.healthFn = &HealthFillHandler<&EncodeHealthBody<U, Fill>>;
+			return Step(this->WithLastOptions(next));
+		}
+
+
+		// The deadline of a built-in request, in milliseconds: the time a ping or a health request waits for its reply. The default is 1000.
 		constexpr Step BuiltInTimeoutMs(uint32 ms) const {
 			Options next = this->LastOptions();
 			next.builtInTimeoutMs = ms;
@@ -375,18 +410,18 @@ public:
 		// A request of a command with a reply, awaited: the call sends it and waits until its final is in. The result is the final, with its
 		// status and body; a refused send is returned in result, and a wait that reaches its limit gives timeout. The request's final handler
 		// does not run. A command with no reply returns its result. Needs the Step .Awaitable() and a concurrent stack.
-		template<auto Id, auto Interim = nullptr, typename Policy = AwaitPolicy>
+		template<auto Id, auto Interim = nullptr>
 		typename AwaitResultOf<Commands, Id>::Type Await(const typename CommandOf<Commands, Id>::BodyType& body) const {
 			static_assert(Value.awaitable, "Await needs the requests layer's Step .Awaitable(): add .Awaitable() to the requests layer");
 			static_assert(Value.concurrent, "Await needs a concurrent stack: add .Concurrent() to the builder");
-			return layer->template AwaitRequest<Id, Interim, Policy>(body, outbox);
+			return layer->template AwaitRequest<Id, Interim>(body, outbox);
 		}
 
 
 		// The same for a command with no body.
-		template<auto Id, auto Interim = nullptr, typename Policy = AwaitPolicy>
+		template<auto Id, auto Interim = nullptr>
 		typename AwaitResultOf<Commands, Id>::Type Await() const requires (std::is_same_v<typename CommandOf<Commands, Id>::BodyType, NoBody>) {
-			return Await<Id, Interim, Policy>(NoBody{});
+			return Await<Id, Interim>(NoBody{});
 		}
 
 
@@ -420,6 +455,14 @@ public:
 		}
 
 
+		// A health request to the peer: the handler gets the peer's HealthReport<U>. The request is sent by the next Process, with the same
+		// session, slot and deadline rules as Ping. Only a layer with the Step .Health<U>() has it.
+		template<auto Handler>
+		ResultStatus Health() const {
+			return layer->template HealthRequest<Handler>();
+		}
+
+
 		RequestsOf& Owner() const {
 			return *layer;
 		}
@@ -439,6 +482,10 @@ public:
 	static constexpr bool wantsOwner = true;
 	static constexpr bool ownerOptional = true;
 	static constexpr bool usesLinkState = Commands::hasFailWhileDown;
+	// A layer that answers health requests reads the stack's counters through the CountingOutbox its Process takes.
+	static constexpr bool usesCounters = Plan::answerHealth;
+	// A layer that sends the counters on needs the stack's high-water marks, and Reliable's counters below it (checked by the stack).
+	static constexpr bool needsCounters = Plan::answerHealth;
 	static constexpr std::size_t largestPacket = Plan::largestPacket;
 
 
@@ -557,11 +604,15 @@ public:
 
 	// Runs once per Process: the requester's deadlines and the finals of the requests that closed without a packet, then the responder's
 	// handlers, deadlines and packets. The handlers run here, so a request or a final made in a handler goes out in this Process.
-	void Process(uint32 nowUs, const Outbox& outbox) {
+	// The outbox is a CountingOutbox when the layer answers health requests (usesCounters), since the reply carries the stack's counters.
+	template<typename OutboxType>
+	void Process(uint32 nowUs, const OutboxType& outbox) {
+		static_assert(!Plan::answerHealth || std::is_same_v<OutboxType, CountingOutbox>,
+			"a layer that answers health requests is given the CountingOutbox of the stack");
 		if constexpr (Plan::openCount > 0) {
 			requester.Arm(nowUs);
-			if constexpr (Plan::sendsPing) {
-				requester.SendPings(nowUs, outbox);
+			if constexpr (Plan::sendsBuiltIn) {
+				requester.SendBuiltIns(nowUs, outbox);
 			}
 
 			requester.Expire(nowUs);
@@ -577,6 +628,10 @@ public:
 
 		if constexpr (Plan::openCount > 0) {
 			requester.Deliver(nowUs);
+		}
+
+		if constexpr (Plan::answerHealth) {
+			responder.FillHealth(outbox.Counters(), counts.refused, requester.LateReplies(), counts.eventsLost);
 		}
 
 		if constexpr (Plan::answers) {
@@ -622,7 +677,7 @@ public:
 	// The await of a request: the request is sent with a waiter on this task's stack, and the task waits until the waiter is done or its limit
 	// passes. The limit is the command's reply deadline plus a grace of 250 ms, so the request's own deadline ends the wait first. A command with
 	// no reply has no deadline of its own: its wait ends with the outcome of the delivery.
-	template<auto Id, auto Interim, typename Policy>
+	template<auto Id, auto Interim>
 	typename AwaitResultOf<Commands, Id>::Type AwaitRequest(const typename CommandOf<Commands, Id>::BodyType& body, const Outbox& outbox) {
 		using CommandType = CommandOf<Commands, Id>;
 		constexpr uint32 replyMs = CommandInfoOf<Commands, Id>().replyTimeoutMs;
@@ -635,7 +690,7 @@ public:
 				return sent.Error();
 			}
 
-			if (WaitAwaited<Policy>(waiter, limitMs)) {
+			if (WaitAwaited(waiter, limitMs)) {
 				waiter.result = ResultStatus::timeout;
 			}
 
@@ -651,7 +706,7 @@ public:
 				return refused;
 			}
 
-			if (WaitAwaited<Policy>(waiter, limitMs)) {
+			if (WaitAwaited(waiter, limitMs)) {
 				waiter.value.result = ResultStatus::timeout;
 			}
 
@@ -662,19 +717,11 @@ public:
 
 	// Waits until the final is in the waiter or the limit passes. Returns true when the wait was abandoned: the requester then clears the pointer
 	// of the request to the waiter, so a final that arrives after the abandon is not written into this task's stack. A final written first is kept.
-	template<typename Policy>
 	bool WaitAwaited(AwaitWaiter& waiter, uint32 limitMs) {
-		uint32 start = System::GetTick32();
-		while (requester.AwaitDone(waiter) == false) {
-			if (System::GetTick32() - start >= limitMs) {
-				Policy::GaveUp();
-				return requester.Abandon(waiter);
-			}
-
-			Policy::Pause();
-		}
-
-		return false;
+		ResultStatus status = WaitCondition::WaitFor<WaitCondition::RtosYield>([this, &waiter]() {
+			return requester.AwaitDone(waiter);
+		}, limitMs);
+		return status != ResultStatus::ok && requester.Abandon(waiter);
 	}
 
 
@@ -694,6 +741,12 @@ public:
 	template<auto Handler>
 	ResultStatus PingRequest(uint16 padding) {
 		return requester.template Ping<Handler>(padding);
+	}
+
+
+	template<auto Handler>
+	ResultStatus HealthRequest() {
+		return requester.template Health<Handler>();
 	}
 
 

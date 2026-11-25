@@ -9,6 +9,7 @@
 #include <Drivers/Interface/VUB/Requests.h>
 #include <Drivers/Interface/VUB/Stack.h>
 #include <Drivers/Interface/VUB/Transform/Crc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 
 
 #ifndef SIZE_BASE
@@ -111,11 +112,11 @@ using SizeHandlers = VUB::Handlers<>;
 
 
 #if SIZE_BASE == 1
-#define SIZE_LOWER .Transform<VUB::Crc16Modbus>().Framing<VUB::Cobs>().Link<SizeStreamLink>()
+#define SIZE_LOWER .Transform<VUB::Crc<Checksum::Crc16Modbus>>().Framing<VUB::Cobs>().Link<SizeStreamLink>()
 #elif SIZE_BASE == 2
 #define SIZE_LOWER .Framing<VUB::Cobs>().Link<SizeStreamLink>()
 #else
-#define SIZE_LOWER .Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4).Transform<VUB::Crc16Modbus>().Framing<VUB::Cobs>().Link<SizeStreamLink>()
+#define SIZE_LOWER .Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4).Transform<VUB::Crc<Checksum::Crc16Modbus>>().Framing<VUB::Cobs>().Link<SizeStreamLink>()
 #endif
 
 

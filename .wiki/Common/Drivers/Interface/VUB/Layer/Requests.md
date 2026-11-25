@@ -4,7 +4,7 @@ The requests layer: a request with a typed body and one final reply, interim rep
 commands a device serves. The layer sits above `VUB::Reliable` for delivery, or directly above a transform, a framing or a link; its packets
 are the payloads of the block below.
 
-The layer does not build events, ping and health, or `Await` (see Not built).
+The example below does not use events, ping, health, or `Await` (see Not built).
 
 The example below is a device: it serves two commands and sends its packets over a Reliable layer. It is compiled by
 `.tool/sim/TestVubRequestsLayerWiki.cpp`.
@@ -15,6 +15,7 @@ The example below is a device: it serves two commands and sends its packets over
 #include <Drivers/Interface/VUB/Requests.h>
 #include <Drivers/Interface/VUB/Stack.h>
 #include <Drivers/Interface/VUB/Transform/Crc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <span>
@@ -139,7 +140,7 @@ using DeviceLink = VUB::Stack<+[]() {
 			.Retries(3)
 			.TimeoutMs(200)
 			.Window(4)
-		.Transform<VUB::Crc16Modbus>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Framing<VUB::Cobs>()
 		.Link<UartLink>()
 		.MaxPayload(40)
@@ -168,7 +169,8 @@ needs its session value (`SetSession`, see Reliable).
 - `Requests/Responder.h` (`ResponderOf`): the responder part. It holds the tickets and the refusal ring, and the calls of the received requests,
   the finals, the interims, the deadlines and the restart.
 - `Requests/Events.h` (`EventsOf`): the emitter of the events and the receiver of the event packets. It holds no state.
-- `Requests/BuiltIn.h`: the built-in ids, the ping's request and reply encoding, and the responder's reply buffer.
+- `Requests/BuiltIn.h`: the built-in ids, the ping's and the health's request and reply encoding, the health report, and the responder's
+  reply buffer.
 - `Requests/Ticket.h`: `RequestId`, `TicketOps` and `Ticket`. `Requests/Wire.h`: the wire kinds, the codes and their results, and the
   deadline compare.
 - Tests: `TestVubRequestsWire.cpp` (the bytes), `TestVubRequestsRequester.cpp`, `TestVubRequestsResponder.cpp`,
@@ -275,10 +277,12 @@ handler when it is taken.
 A peer restart (Reliable reports it through its owner hook) closes every open request with `reset`.
 
 Reliable asks whether a request packet is still wanted before it sends the packet again (`DeliveryWanted`). A request is wanted while its
-slot is open, and a CANCEL is wanted while its request is open. A request that its requester has closed, by its deadline or by the connection's loss, is not sent again when the link comes back,
-and the device's handler does not run for it. A packet that the stack has already queued for the link is sent when the link is up again, and it
-is not asked about: under `Down::Wait` the stack keeps its queued packets through an outage, so such a request can still reach the device after
-its requester has closed it. Under `Down::Fail` the queued packets are dropped, and the request's resend is then the one that is asked about.
+slot is open, and a CANCEL is wanted while its request is open. A request that its requester has closed, by its deadline or by the
+connection's loss, is not sent when the link comes back, and the device's handler does not run for it. This holds for a request sent while
+the link is down, and for a request whose copy the stack had queued when the link went down. When the link comes back the stack drops the
+copies that Reliable sends again, with the part of a frame that was written, and Reliable sends each packet that is still wanted, in the order
+of the packets' numbers. The send at the return is not counted as a try of the packet. Under
+`Down::Fail` the queued packets are dropped when the link goes down, and the packet that is sent again is the one that is asked about.
 
 ## Responder
 
@@ -507,6 +511,8 @@ is `01 13 01 00 01` and its final `started` is `03 01 00 01 00 00`. The bytes of
 | The device holds the request too long | `timeout` at the requester's deadline | its ticket deadline closes the ticket with code 5 (sent as a final); a later `Finish` is `notAvailable` |
 | The request is lost and Reliable gives up | `retryExhausted` | the ticket may run; its final is dropped at the requester |
 | The request is lost, the link goes down, and the deadline passes while it is down | `timeout`; the resend is not sent (`DeliveryWanted`) | the handler does not run |
+| The request is sent while the link is down, and the deadline passes while it is down | `timeout`; its copy is dropped when the link returns, and the resend is not sent (`DeliveryWanted`) | the handler does not run |
+| The request is queued when the link goes down, and the deadline passes while it is down | `timeout`; its copy is dropped when the link returns, and the resend is not sent (`DeliveryWanted`) | the handler does not run |
 | The peer restarts with a request open | `reset` for every open request of the peer | every ticket is closed; a final not yet sent is discarded |
 | The link goes down | `noConnection` for `FailWhileDown` commands; the others wait for their deadline | nothing is sent by the layer while the link is down |
 | The link has not come up yet | `noConnection` for `FailWhileDown` commands | none |
@@ -616,6 +622,88 @@ A side that answers and serves nothing pays for the send path its reply needs: t
 a side that only receives does not otherwise contain. Next to served commands, that path is already there, and the ping adds the row above.
 
 The rows without a ping Step are unchanged from the table below.
+
+## Health
+
+The built-in health request reads the peer's counters and its user body. It is a request with the id 0xF1, answered by the layer itself, with no
+command and no handler. Like ping it has two Steps, and a side takes one or both:
+
+- `.Health<U>()` asks. It needs `Open(n)` of at least 1. `U` is the user body of the reply, `VUB::NoBody` when there is none. The handler of
+  `Health<&Handler>()` takes a `VUB::HealthReport<U>`, and the report is decoded in Take with the handler's own type, so the asking side
+  needs no size of its own beyond the check that the handler's `U` is the one of the Step.
+- `.AnswerHealth<U, &Fill>()` answers. `Fill` is `void (*)(U&)` and writes the user body; it runs once per request, from Process, and the
+  reply goes out in the same Process. It needs no `Open`, no handler and no ticket. It needs `Counted()` on the layer, because the reply
+  carries the layer's refused, lateReplies and eventsLost counts, and the stack needs `HighWater()` and, under Reliable, `Counted()` on
+  Reliable (see the README section on counters).
+
+The reply is 28 bytes of counters, then `U`: the eight drop counters, resends, peerRestarts, refused, lateReplies, eventsLost, and the two
+high-water marks (section 9.2 of the design, the wire of this layer). A report that ends locally (a deadline, a link loss, a restart) has the
+result set and nothing else. A reply whose body is shorter than `U` has `invalidData`; a longer one is read for the fields `U` has.
+
+The health request uses the deadline of `.BuiltInTimeoutMs(ms)`, as ping does, and it takes the same slot, session and `busy` rules. The layer
+has one reply buffer for its built-in requests, which holds the larger of the ping reply and the health reply; a second built-in request
+while the buffer is unsent is refused `busy` through the refusal ring. A refusal that finds the ring full is counted in `refused` on a
+`Counted()` layer, as a refused served command is, and is dropped otherwise.
+
+```cpp
+// --- snippet: Layer/Requests.md, health ---
+// The asking side: two slots, and a health request whose reply carries a HealthBody. The handler gets the report.
+using HealthAsker = VUB::Stack<+[]() {
+	return VUB::Builder()
+		.Layer<VUB::Requests<HealthCommands, PcHandlers>>().Open(2).Tickets(1)
+			.Health<HealthCheck::HealthBody>()
+		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
+		.Transform<XorTransform>()
+		.Link<ReportingPacketEnd>()
+		.MaxPayload(40)
+		.ReceiveQueue(4)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
+// The handler of the report: the result, the responder's counters, and its user body.
+void OnHealthReport(const VUB::HealthReport<HealthCheck::HealthBody>& report) {
+	(void)report;
+}
+
+
+// A health request. The report goes to OnHealthReport in the Process that takes the reply, or with a local result.
+inline ResultStatus AskHealth(HealthAsker& asker) {
+	return asker.Requests().Health<&OnHealthReport>();
+}
+```
+
+```cpp
+// --- snippet: Layer/Requests.md, health answer ---
+// The answering side: Counted() keeps the counts of the reply, Reliable below is Counted(), and the stack is HighWater().
+using HealthAnswerer = VUB::Stack<+[]() {
+	return VUB::Builder()
+		.Layer<VUB::Requests<HealthCommands, DeviceHandlers>>().Counted()
+			.AnswerHealth<HealthCheck::HealthBody, &FillHealth>()
+		.Layer<VUB::ReliableOf<40, 4>>().Counted().Retries(3).TimeoutMs(200).Window(4)
+		.Transform<XorTransform>()
+		.Link<ReportingPacketEnd>()
+		.HighWater()
+		.MaxPayload(40)
+		.ReceiveQueue(4)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+```
+
+The snippets use the command set `HealthCommands`, the fill `FillHealth` and the body `HealthCheck::HealthBody` of `TestVubRequestsHealth.cpp`.
+
+Build-time rules:
+
+| Rule | Message |
+|---|---|
+| `Health<U>()` on a layer with no `Open(n)` | `Health needs requester slots: give the layer Open(n) with n of at least 1` |
+| `AnswerHealth` on a layer without `Counted()` | `AnswerHealth needs this layer's Counted(): add .Counted() to the requests layer` |
+| `AnswerHealth` on a stack without `HighWater()` | `add HighWater() to the stack` |
+| `AnswerHealth` under Reliable that is not `Counted()` | `add Counted() to the Reliable layer` |
+| a health handler with another signature | `a health handler has the signature void (const VUB::HealthReport<U>&)` |
+| a handler whose `U` has another size than the Step's | `the health handler's user body is not the body of the layer's Step .Health<U>()` |
 
 ## Size
 
@@ -738,12 +826,15 @@ after the outbox has taken it.
 ### Await
 
 `Await<Id, Interim>(body)` sends the request, waits until its final is in or its limit passes, and returns the final. It is a member of the
-handle, built only when a caller uses it, and it needs `Awaitable()` and `Concurrent()` (a `static_assert` names each). It never runs in
-`Process`.
+handle, built only when a caller uses it, and it needs `Awaitable()` and `Concurrent()` (a `static_assert` names each). It is never called from
+the task that runs `Process`, nor from a handler: the wait would wait for the `Process` that has to run it, until its limit.
 
 - The waiter is an object on the caller's stack. The request's slot points at it, and `Process` writes the final into it, inside a section,
   with its typed decode. No final handler runs for an awaited request.
 - A refused send is returned in `result`, and no wait starts.
+- The wait is `WaitCondition::WaitFor<WaitCondition::RtosYield>`: one poll per millisecond through `System::rtosDelayMsHandle`, the RTOS delay
+  of the port, and each poll checks the final inside a section. With no handle set the polls repeat without a pause, so the task spends its
+  time in the polls until the final or the limit.
 - A command with no reply returns its `ResultStatus`, the outcome of its delivery. Its request has no deadline of its own, so the wait ends
   with that outcome: while the link is down under `Down::Wait` the request waits for the link, and the wait waits with it. A command with
   `FailWhileDown()` ends its wait with `noConnection` as soon as the link goes down, since its request does not wait for the link.
@@ -767,9 +858,10 @@ forces each:
 | the wait gives up while the request is open; the final arrives after the give-up | `timeout`; the final closes the request with no handler, and is not late | `TestAwaitAbandonedFinalBeforeDeadline` |
 | the final lands between the wait's last check and its abandon | the wait returns the final (`Abandon` sees `done`) | `TestAwaitFinalBetweenTheCheckAndTheAbandon` |
 
-The window is forced by a policy of the `Await` call (`Await<Id, Interim, Policy>`; the default `AwaitPolicy` has an empty `GaveUp`). The
-waiting loop calls `Policy::GaveUp()` once the limit has passed and no final is in, before it abandons its request. The test's `GaveUp` holds
-the waiter until the responder's final has been taken by the requester, so the abandon finds the final written and the `Await` returns it.
+The test forces the window through its own `System::CriticalSection` and its own `rtosDelayMsHandle`, without any hook in the product. The
+handle runs in the waiting task's poll, after its last check: it moves the tick past the limit. The next check of the final, and then the
+abandon's section, are the waiting task's next two section entries. The test's section hook lets the other task take the final before the
+abandon's lock is taken, so the abandon finds the final written and the `Await` returns it.
 
 ```cpp
 // An awaited request: the reply, or the timeout, or the refusal of the send, comes back as the final.
@@ -778,23 +870,36 @@ VUB::Final<JobStatus, JobReport> reply = handle.Await<Command::run, &OnRunInteri
 
 ### Sizes of the concurrent parts
 
-The rows are in `.tool/size/size.sh`, measured with `arm-none-eabi-g++` 15.2 (`-Os`, nano specs) by `ConfigConcurrent.cpp`: COBS over the
-stream link of `SizeWire.h`, with the port's section (the nesting helper with PRIMASK) and the tick and RTOS handle of the port. The base of
+The rows are in `.tool/size/size.sh`, measured with `arm-none-eabi-g++` 15.2 (`-Os`, nano specs) by `ConfigConcurrent.cpp`: CRC-16/MODBUS over
+COBS over the stream link of `SizeWire.h`, with the port's section (the nesting helper with PRIMASK) and the tick and RTOS handle of the port. The base of
 each row is the same program with no layer and no `Concurrent()`. RAM is data plus bss.
 
 | Program (difference to no layer) | M4 text | M4 RAM | M0+ text | M0+ RAM |
 |---|---:|---:|---:|---:|
-| requester, `Open(2)`, plain | 1368 | 120 | 1416 | 120 |
-| requester, `Open(2)`, `Pending(4)`, `Awaitable()`, `Concurrent()` | 2184 | 404 | 2356 | 404 |
-| responder, `Tickets(1)`, `Refusals(2)`, plain | 1236 | 120 | 1264 | 120 |
-| responder, the same, `Pending(4)`, `Awaitable()`, `Concurrent()` | 1728 | 348 | 1788 | 348 |
-| `Await` of one request: the requester with the call, minus the requester without it | 428 | 4 | 416 | 4 |
+| requester, `Open(2)`, plain | 1368 | 40 | 1436 | 40 |
+| requester, `Open(2)`, `Pending(4)`, `Awaitable()`, `Concurrent()` | 2208 | 324 | 2384 | 324 |
+| responder, `Tickets(1)`, `Refusals(2)`, plain | 1256 | 40 | 1312 | 40 |
+| responder, the same, `Pending(4)`, `Awaitable()`, `Concurrent()` | 1748 | 268 | 1828 | 268 |
+| `Await` of one request: the requester with the call, minus the requester without it | 464 | 4 | 464 | 4 |
 
 The concurrent rows include the stack's `Concurrent()`: its staging ring is most of their RAM. The queue of the requester is 4 packets of the
 layer's largest size, and its concurrency code is the rest of the difference.
+## Health sizes
+
+Built-in requests, measured as differences of `.tool/size/ConfigHealth.cpp` over `ReliableOf<40, 4>` on CRC-16/MODBUS over COBS over a stream
+link. Each row's base is the same chain with the layer's other Steps and without the health Steps. An answering side needs `Counted()` on
+the layer, on Reliable and `HighWater()` on the stack, so the answer rows keep those in both programs, and the last row measures them alone.
+
+| Health on the layer | Base | M4 text | M4 RAM | M0+ text | M0+ RAM |
+|---|---|---:|---:|---:|---:|
+| asks: `.Health<HealthBody>()` | requester, `Open(2)` | +1504 | +4 | +1672 | +4 |
+| answers: `.AnswerHealth<HealthBody, &Fill>()` | served command, `Tickets(1)`, `Refusals(2)`, counters | +752 | +48 | +724 | +48 |
+| both | served command and requester, counters | +1296 | +52 | +1360 | +52 |
+| health next to ping, both sides | ping, both sides, counters | +1080 | +12 | +1168 | +12 |
+| counters alone | served command | +176 | +12 | +164 | +12 |
 
 ## Not built
 
 These are not in this layer:
 
-- Health (0xF1), with its counters.
+Health, `Await`, ping, cancel and events are all built in this layer.

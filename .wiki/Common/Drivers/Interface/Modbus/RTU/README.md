@@ -10,8 +10,8 @@ page, and this page covers the transport and the frame rules.
 | `RTU/RtuTiming.h` | Gaps in microseconds for a baud rate (t1.5 and t3.5) | this page |
 | `RTU/RtuTransport.h` | The transport: UART, direction pins, receive ring, `Send` and `Receive` | [RtuTransport](RtuTransport) |
 
-The framer has its own CRC-16 table, built at compile time. The shared `Checksum/CRC/Crc.h` builds its table at run time and keeps 512 bytes
-of RAM for it, so the framer does not use it.
+The framer computes the CRC-16 with `Checksum::Crc16Modbus` (`Utilities/Checksum/CRC/Preset/Crc16Modbus.h`) and the table engine
+`Checksum::CrcTable`. The 256-entry table is built at compile time and stored in flash, so it takes no RAM.
 
 ## Setup
 

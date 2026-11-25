@@ -25,7 +25,7 @@ inline void OnPingResult(ResultStatus) {
 }
 
 
-using Layer = VUB::RequestsOf<Set, VUB::Handlers<>, VUB::RequestsOptions{1, 0, 4, false, true, 16, 1000}>;
+using Layer = VUB::RequestsOf<Set, VUB::Handlers<>, VUB::RequestsOptions{.open = 1, .ping = true, .pingPadding = 16}>;
 
 
 inline void SendPing(Layer::Handle& handle) {

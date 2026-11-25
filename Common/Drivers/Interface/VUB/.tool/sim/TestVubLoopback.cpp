@@ -435,7 +435,98 @@ void TestPacketEndBudget() {
 }
 
 
+// A sink that keeps the first byte of each packet it is given, in the order of delivery.
+struct FirstByteSink {
+	std::array<uint8, 64> firsts{};
+	std::size_t count = 0;
+
+
+	void Feed(uint8) {
+	}
+
+
+	void FeedPacket(std::span<const uint8> packet) {
+		if (count < firsts.size()) {
+			firsts[count] = packet[0];
+		}
+
+		count++;
+	}
+};
+
+
+// True when the first bytes of the sink are rising, which is the order the packets were pushed in.
+bool FirstBytesRise(const FirstByteSink& sink) {
+	for (std::size_t index = 1; index < sink.count && index < sink.firsts.size(); index++) {
+		if (sink.firsts[index] <= sink.firsts[index - 1]) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+
+// With keepsOrder, 32 packets pushed one microsecond apart with delays up to 50 us come out in push order. The same line without it
+// reorders them, so the flag is what keeps the order.
+void TestPacketKeepsOrder() {
+	VUB::Faults faults;
+	faults.maxDelayUs = 50;
+	faults.seed = 5;
+	faults.keepsOrder = true;
+	VUB::PacketWire<64, 32> wire(faults, 5);
+	for (std::size_t index = 0; index < 32; index++) {
+		wire.SetNow(100 + static_cast<uint32>(index));
+		std::array<uint8, 2> packet = {static_cast<uint8>(index), 0x55};
+		wire.Push(std::span<const uint8>(packet.data(), packet.size()));
+	}
+
+	FirstByteSink ordered;
+	wire.SetNow(1000);
+	wire.Deliver(ordered);
+	SIM_EXPECT(ordered.count == 32);
+	SIM_EXPECT(FirstBytesRise(ordered));
+
+	VUB::Faults free = faults;
+	free.keepsOrder = false;
+	VUB::PacketWire<64, 32> loose(free, 5);
+	for (std::size_t index = 0; index < 32; index++) {
+		loose.SetNow(100 + static_cast<uint32>(index));
+		std::array<uint8, 2> packet = {static_cast<uint8>(index), 0x55};
+		loose.Push(std::span<const uint8>(packet.data(), packet.size()));
+	}
+
+	FirstByteSink reordered;
+	loose.SetNow(1000);
+	loose.Deliver(reordered);
+	SIM_EXPECT(reordered.count == 32);
+	SIM_EXPECT(!FirstBytesRise(reordered));
+}
+
+
+// Packets due just below the 32-bit wrap are due once the clock has wrapped: 32 packets pushed at 0xFFFFFFF0 with delays up to 30 us are all
+// delivered at 0x100. Compared as plain integers, the ones due after the wrap would stay on the wire.
+void TestPacketDueAcrossWrap() {
+	VUB::Faults faults;
+	faults.maxDelayUs = 30;
+	faults.seed = 9;
+	VUB::PacketWire<64, 32> wire(faults, 9);
+	wire.SetNow(0xFFFFFFF0u);
+	for (std::size_t index = 0; index < 32; index++) {
+		std::array<uint8, 2> packet = {static_cast<uint8>(index), 0x55};
+		wire.Push(std::span<const uint8>(packet.data(), packet.size()));
+	}
+
+	FirstByteSink sink;
+	wire.SetNow(0x100u);
+	wire.Deliver(sink);
+	SIM_EXPECT(sink.count == 32);
+}
+
+
 int main() {
+	TestPacketKeepsOrder();
+	TestPacketDueAcrossWrap();
 	TestCleanStream();
 	TestDropAll();
 	TestDuplicateAll();

@@ -162,7 +162,7 @@ struct RefusalRing {
 // The layer gives its plan, so a set with no ticket or no refusal has no storage for them. The command set and the handler list are the
 // layer's.
 template<typename Commands, typename HandlerSet, typename Plan>
-class ResponderOf : private BuiltInReplyHolder<BuiltInReplyBytes(Plan::answerPing, Plan::answerPadding)> {
+class ResponderOf : private BuiltInReplyHolder<Plan::replyBytes> {
 private:
 	static constexpr std::size_t ticketCount = Plan::ticketCount;
 	static constexpr std::size_t refusalCount = Plan::refusalCount;
@@ -177,7 +177,7 @@ private:
 	using Slot = TicketSlot<ticketBytes, anyInterim, Plan::responderCancels>;
 	std::array<Slot, ticketCount> tickets{};
 	[[no_unique_address]] std::conditional_t<(refusalCount > 0), RefusalRing<refusalCount>, NoStorage> refusals{};
-	static constexpr bool pinged = Plan::answerPing;
+	static constexpr bool builtIns = Plan::answerPing || Plan::answerHealth;
 
 
 public:
@@ -214,9 +214,15 @@ public:
 			return ResultStatus::invalidData;
 		}
 
-		if constexpr (pinged) {
+		if constexpr (Plan::answerPing) {
 			if (id == BuiltInWire::IdPing) {
 				return TakePing(number, tag, packet);
+			}
+		}
+
+		if constexpr (Plan::answerHealth) {
+			if (id == BuiltInWire::IdHealth) {
+				return TakeHealth(number, tag);
 			}
 		}
 
@@ -502,9 +508,9 @@ public:
 			}
 		}
 
-		if constexpr (pinged) {
-			if (this->pingReply.held && outbox.Send(std::span<const uint8>(this->pingReply.bytes.data(), this->pingReply.length)) != ResultStatus::busy) {
-				this->pingReply.held = false;
+		if constexpr (builtIns) {
+			if (this->builtInReply.held && outbox.Send(std::span<const uint8>(this->builtInReply.bytes.data(), this->builtInReply.length)) != ResultStatus::busy) {
+				this->builtInReply.held = false;
 			}
 		}
 
@@ -516,8 +522,8 @@ public:
 
 	// The restart: the tickets are freed (a final that is still waiting to be sent is discarded), and the refusal ring is emptied.
 	void OnRestart() {
-		if constexpr (pinged) {
-			this->pingReply.held = false;
+		if constexpr (builtIns) {
+			this->builtInReply.held = false;
 		}
 
 		for (Slot& slot : tickets) {
@@ -546,6 +552,24 @@ public:
 		if constexpr (refusalCount > 0) {
 			refusals.used = 0;
 			refusals.head = 0;
+		}
+	}
+
+
+	// Fills the health reply taken in this walk: the counters, then the user body from its fill. The fill runs once per request, from Process,
+	// before the replies are sent, so the reply goes out in the same Process. The counters are those the stack and the layer hold at this Process.
+	void FillHealth(const StackCounters& counters, uint16 refused, uint16 lateReplies, uint16 eventsLost) {
+		if constexpr (Plan::answerHealth) {
+			if (this->builtInReply.held && this->builtInReply.length == 0) {
+				EncodeHealthCounters(this->builtInReply.bytes.data() + RequestWire::FinalHeader, counters, refused, lateReplies, eventsLost);
+				(*Plan::healthFill)(std::span<uint8>(this->builtInReply.bytes.data() + BuiltInWire::HealthReplyHeader, Plan::answerHealthBytes));
+				this->builtInReply.length = BuiltInWire::HealthReplyHeader + Plan::answerHealthBytes;
+			}
+		} else {
+			(void)counters;
+			(void)refused;
+			(void)lateReplies;
+			(void)eventsLost;
 		}
 	}
 
@@ -633,22 +657,20 @@ private:
 	// The built-in ping: its reply goes into the one reply buffer, which Process sends. A second ping while the buffer is unsent is refused busy,
 	// and a ping whose padding is above the layer's maximum is refused invalidData (its reply would not fit the buffer).
 	ResultStatus TakePing(uint16 number, uint8 tag, std::span<const uint8> packet) {
-		if constexpr (pinged) {
+		if constexpr (Plan::answerPing) {
 			if (packet.size() < BuiltInWire::PingRequest) {
 				return ResultStatus::invalidData;
 			}
 
 			if (packet.size() - BuiltInWire::PingRequest > Plan::answerPadding) {
-				Refuse(number, tag, RequestWire::CodeInvalidData);
-				return ResultStatus::ok;
+				return RefuseOrBusy(number, tag, RequestWire::CodeInvalidData);
 			}
 
-			if (this->pingReply.held) {
-				Refuse(number, tag, RequestWire::CodeBusy);
-				return ResultStatus::ok;
+			if (this->builtInReply.held) {
+				return RefuseOrBusy(number, tag, RequestWire::CodeBusy);
 			}
 
-			EncodePingReply(this->pingReply, packet);
+			EncodePingReply(this->builtInReply, packet);
 			return ResultStatus::ok;
 		} else {
 			(void)number;
@@ -659,6 +681,25 @@ private:
 	}
 
 
+	// The health request: its reply header goes into the one reply buffer, and the body waits for FillHealth in Process. A second built-in
+	// request while the buffer is unsent is refused busy, as a ping is. A request with a body has the body ignored.
+	ResultStatus TakeHealth(uint16 number, uint8 tag) {
+		if constexpr (Plan::answerHealth) {
+			if (this->builtInReply.held) {
+				return RefuseOrBusy(number, tag, RequestWire::CodeBusy);
+			}
+
+			StartHealthReply(this->builtInReply, number, tag);
+			return ResultStatus::ok;
+		} else {
+			(void)number;
+			(void)tag;
+			return ResultStatus::notSupported;
+		}
+	}
+
+
+private:
 	std::size_t CommandIndexById(uint8 id) const {
 		for (std::size_t index = 0; index < Commands::commandCount; index++) {
 			if (Commands::commandTable[index].id == id) {
@@ -753,6 +794,20 @@ private:
 		}
 
 		WriteFinalError(tickets[index], RequestWire::CodeCancelled);
+		return ResultStatus::ok;
+	}
+
+
+	// A refusal of a built-in request, with the same rule as a refusal of a served command: when the ring has no room, a Counted() layer
+	// returns busy, so the layer counts it in refused and consumes the packet; any other layer drops it without a count.
+	ResultStatus RefuseOrBusy(uint16 number, uint8 tag, uint8 code) {
+		if constexpr (Plan::counted) {
+			if (RingFull()) {
+				return ResultStatus::busy;
+			}
+		}
+
+		Refuse(number, tag, code);
 		return ResultStatus::ok;
 	}
 

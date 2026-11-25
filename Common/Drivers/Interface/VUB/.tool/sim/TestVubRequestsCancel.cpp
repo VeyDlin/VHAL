@@ -430,18 +430,65 @@ ResultStatus InjectCancel(CancelRequester& near, uint16 number, uint8 tag) {
 
 // The sessions of both ends, as the requests tests give them. Each end's first send is busy until the sync is acknowledged. The rounds end
 // at 900 ms: Reliable times a packet from the last Process, so the tests send right after this and their first Process follows at once.
-void Establish(ReportingPacketLine& line, CancelRequester& near, CancelResponder& far, WireLog& log) {
+// A stream line carries bytes into a stack through Feed. The sink gives them to the stack of its end.
+template<typename Stack>
+struct StreamFeed {
+	Stack* target;
+
+
+	void Feed(uint8 value) {
+		target->Feed(value);
+	}
+};
+
+
+// One round over a stream line: each end takes at most its byte budget of the round (no budget is unlimited), so a frame can be left part
+// written. The times are in milliseconds, as Step's.
+template<typename NearStack, typename FarStack>
+void StreamRound(ReportingStreamLine& line, NearStack& near, FarStack& far, uint32 nowMs, std::size_t nearBytes, std::size_t farBytes) {
+	testNowUs = nowMs * 1000u;
+	line.a.StartRound(nearBytes);
+	line.b.StartRound(farBytes);
+	near.Process();
+	StreamFeed<FarStack> forward{&far};
+	line.DeliverToB(forward);
+	far.Process();
+	StreamFeed<NearStack> back{&near};
+	line.DeliverToA(back);
+	near.Process();
+}
+
+
+const std::size_t UnlimitedBytes = static_cast<std::size_t>(-1);
+
+
+// A round on either kind of line, as the tests of the layer run them.
+template<typename NearStack, typename FarStack>
+void Round(ReportingPacketLine& line, NearStack& near, FarStack& far, WireLog& log, uint32 nowMs) {
+	Step(line, near, far, log, nowMs);
+}
+
+
+template<typename NearStack, typename FarStack>
+void Round(ReportingStreamLine& line, NearStack& near, FarStack& far, WireLog& log, uint32 nowMs) {
+	(void)log;
+	StreamRound(line, near, far, nowMs, UnlimitedBytes, UnlimitedBytes);
+}
+
+
+template<typename Line, typename NearStack, typename FarStack>
+void Establish(Line& line, NearStack& near, FarStack& far, WireLog& log) {
 	GiveSession(near);
 	GiveSession(far);
-	Step(line, near, far, log, 50);
-	CancelHandle handle = near.Requests();
-	Result<VUB::RequestId> probe = handle.Send<Command::stop, &OnStopFinal, &OnStopInterim>(VUB::NoBody{});
+	Round(line, near, far, log, 50);
+	auto handle = near.Requests();
+	Result<VUB::RequestId> probe = handle.template Send<Command::stop, &OnStopFinal, &OnStopInterim>(VUB::NoBody{});
 	SIM_EXPECT(probe.IsErr());
 	SIM_EXPECT(probe.Error() == ResultStatus::busy);
 	std::array<uint8, 1> trigger = {0xEE};
-	SIM_EXPECT(far.LayerOutbox<0>().Send(std::span<const uint8>(trigger.data(), trigger.size())) == ResultStatus::busy);
+	SIM_EXPECT(far.template LayerOutbox<0>().Send(std::span<const uint8>(trigger.data(), trigger.size())) == ResultStatus::busy);
 	for (uint32 round = 0; round < 3; round++) {
-		Step(line, near, far, log, 900 + round);
+		Round(line, near, far, log, 900 + round);
 	}
 }
 
@@ -1180,9 +1227,9 @@ void TestCancelOfNumberZeroIsDropped() {
 }
 
 
-// The link is down while the CANCEL is held and the request's deadline passes: the request ends with operationCancelled. The REQUEST was queued
-// for the link before the outage, and a packet in the stack's control queue goes out when the link returns (decision 8, and the wiki): the
-// device runs its handler once, and its final is late at the requester. The held CANCEL is not sent, since its request is closed.
+// The link is down while the CANCEL is held and the request's deadline passes: the request ends with operationCancelled. The REQUEST was given
+// to the stack while the link was up, and it is still in the control queue when the link goes down. The stack keeps no copy of a request its
+// requester has closed: when the link returns, neither the REQUEST nor the held CANCEL is sent, so the device's handler does not run.
 void TestHeldCancelDeadlineWhileLinkDownGivesOperationCancelled() {
 	ResetCancelState();
 	ReportingPacketLine line(VUB::Faults{});
@@ -1211,15 +1258,15 @@ void TestHeldCancelDeadlineWhileLinkDownGivesOperationCancelled() {
 	}
 
 	SIM_EXPECT(cancelsOnWire == 0);
-	SIM_EXPECT(startsSeen == 1);
+	SIM_EXPECT(startsSeen == 0);
 	SIM_EXPECT(cancelRuns == 0);
 	SIM_EXPECT(startFinals == 1);
 }
 
 
-// A request sent while the link was down is queued by the stack, and the queued packet goes out when the link returns, after the request has
-// timed out at the requester (decision 8). The device's handler runs once, and the requester keeps its timeout.
-void TestQueuedRequestOfClosedRequestGoesOutWhenLinkReturns() {
+// A request given to the stack while the link was up, and still in its control queue when the link goes down, with its deadline passed
+// while the link is down. When the link returns the request is not sent: the device's handler does not run, and the requester keeps its timeout.
+void TestQueuedRequestOfClosedRequestIsNotSentWhenLinkReturns() {
 	ResetCancelState();
 	ReportingPacketLine line(VUB::Faults{});
 	CancelRequester near(line.a);
@@ -1240,7 +1287,7 @@ void TestQueuedRequestOfClosedRequestGoesOutWhenLinkReturns() {
 		Step(line, near, far, log, now);
 	}
 
-	SIM_EXPECT(startsSeen == 1);
+	SIM_EXPECT(startsSeen == 0);
 	SIM_EXPECT(startFinals == 1);
 	SIM_EXPECT(startResult == ResultStatus::timeout);
 }
@@ -1273,6 +1320,56 @@ void TestWithoutReliableQueuedRequestGoesOutAfterTimeout() {
 	SIM_EXPECT(startsSeen == 1);
 	SIM_EXPECT(startFinals == 1);
 	SIM_EXPECT(startResult == ResultStatus::timeout);
+}
+
+
+// Two requests given while the link is down go out in the order they were given when the link returns, each once.
+void TestRequestsWaitingForLinkGoOutInOrder() {
+	ResetCancelState();
+	ReportingPacketLine line(VUB::Faults{});
+	CancelRequester near(line.a);
+	CancelResponder far(line.b);
+	WireLog log;
+	Establish(line, near, far, log);
+	CancelHandle handle = near.Requests();
+	line.SetLinkUp(false);
+	Step(line, near, far, log, 1000);
+	SIM_EXPECT(SendStart(handle) == 1);
+	SIM_EXPECT(SendStart(handle) == 2);
+	Step(line, near, far, log, 1100);
+	line.SetLinkUp(true);
+	Step(line, near, far, log, 1200);
+	std::array<uint16, 2> numbers{};
+	std::size_t starts = 0;
+	std::size_t limit = log.toFar.count < log.toFar.packets.size() ? log.toFar.count : log.toFar.packets.size();
+	for (std::size_t index = 0; index < limit; index++) {
+		std::size_t length = log.toFar.lengths[index];
+		if (length < StartRequestOne.size() || starts >= numbers.size()) {
+			continue;
+		}
+
+		const std::array<uint8, 64>& packet = log.toFar.packets[index];
+		std::size_t tailStart = length - StartRequestOneTail.size();
+		bool ends = true;
+		for (std::size_t byte = 0; byte < StartRequestOneTail.size() && ends; byte++) {
+			ends = packet[tailStart + byte] == StartRequestOneTail[byte];
+		}
+
+		if (ends) {
+			numbers[starts] = packet[length - 8];
+			starts++;
+		}
+	}
+
+	SIM_EXPECT(starts == 2);
+	SIM_EXPECT(numbers[0] == 1);
+	SIM_EXPECT(numbers[1] == 2);
+	for (uint32 now = 1300; now <= 2000; now += 100) {
+		Step(line, near, far, log, now);
+	}
+
+	SIM_EXPECT(startsSeen == 2);
+	SIM_EXPECT(startFinals == 0);
 }
 
 
@@ -1442,6 +1539,652 @@ void TestFinalCancelsAnotherRequestFromItsHandler() {
 }
 
 
+// The same requester and responder with an in-order Reliable under the layer. Its session is given to that layer.
+using InOrderLayer = VUB::ReliableOf<40, 4, true>;
+
+
+using InOrderCancelRequester = VUB::Stack<+[]() {
+	return VUB::Builder()
+		.Layer<VUB::Requests<CancelCommands, VUB::Handlers<>>>().Open(4)
+		.Layer<InOrderLayer>().Retries(3).TimeoutMs(200).Window(4)
+		.Link<ReportingPacketEnd>()
+		.MaxPayload(40)
+		.ReceiveQueue(4)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
+using InOrderCancelResponder = VUB::Stack<+[]() {
+	return VUB::Builder()
+		.Layer<VUB::Requests<CancelCommands, CancelDeviceHandlers>>().Tickets(2)
+		.Layer<InOrderLayer>().Retries(3).TimeoutMs(200).Window(4)
+		.Link<ReportingPacketEnd>()
+		.MaxPayload(40)
+		.ReceiveQueue(4)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
+using InOrderCancelHandle = decltype(std::declval<InOrderCancelRequester&>().Requests());
+
+
+// The sessions of an in-order pair, as Establish gives the plain pair. The rounds end at 900 ms, as in Establish.
+void EstablishInOrder(ReportingPacketLine& line, InOrderCancelRequester& near, InOrderCancelResponder& far, WireLog& log) {
+	near.template Find<InOrderLayer>().SetSession(ReliableSession);
+	far.template Find<InOrderLayer>().SetSession(ReliableSession);
+	Step(line, near, far, log, 50);
+	InOrderCancelHandle nearHandle = near.Requests();
+	Result<VUB::RequestId> probe = nearHandle.Send<Command::stop, &OnStopFinal, &OnStopInterim>(VUB::NoBody{});
+	SIM_EXPECT(probe.IsErr());
+	std::array<uint8, 1> trigger = {0xEE};
+	SIM_EXPECT(far.LayerOutbox<0>().Send(std::span<const uint8>(trigger.data(), trigger.size())) == ResultStatus::busy);
+	for (uint32 round = 0; round < 3; round++) {
+		Step(line, near, far, log, 900 + round);
+	}
+}
+
+
+// The acknowledgement of the first data packet of a session ends with its number, 1, in little endian: the last two bytes of the packet. A
+// loss rule can name it.
+inline std::array<uint8, 2> AckOfFirstPacket = {0x01, 0x00};
+
+
+// A request sent while the link is down, and its deadline passed while it is down: when the link returns the request is not sent, the device's
+// handler does not run, and the next request goes out and runs once.
+void TestRequestSentWhileDownIsNotRunAfterTimeout() {
+	ResetCancelState();
+	ReportingPacketLine line(VUB::Faults{});
+	CancelRequester near(line.a);
+	CancelResponder far(line.b);
+	WireLog log;
+	Establish(line, near, far, log);
+	CancelHandle handle = near.Requests();
+	line.SetLinkUp(false);
+	Step(line, near, far, log, 1000);
+	SIM_EXPECT(SendStart(handle) == 1);
+	for (uint32 now = 1500; now <= 6500; now += 500) {
+		Step(line, near, far, log, now);
+	}
+
+	SIM_EXPECT(startFinals == 1);
+	SIM_EXPECT(startResult == ResultStatus::timeout);
+	line.SetLinkUp(true);
+	for (uint32 now = 7000; now <= 9000; now += 500) {
+		Step(line, near, far, log, now);
+	}
+
+	SIM_EXPECT(startsSeen == 0);
+	SIM_EXPECT(startFinals == 1);
+	startAtOnce = true;
+	SIM_EXPECT(SendStart(handle) == 2);
+	for (uint32 now = 9500; now <= 10500; now += 500) {
+		Step(line, near, far, log, now);
+	}
+
+	SIM_EXPECT(startsSeen == 1);
+	SIM_EXPECT(startFinals == 2);
+	SIM_EXPECT(startResult == ResultStatus::ok);
+}
+
+
+// The same with an in-order Reliable under the layer on both ends: the closed request's number is settled at the requester, and the next
+// request's packet moves the receiver past it.
+void TestInOrderRequestSentWhileDownIsNotRunAfterTimeout() {
+	ResetCancelState();
+	ReportingPacketLine line(VUB::Faults{});
+	InOrderCancelRequester near(line.a);
+	InOrderCancelResponder far(line.b);
+	WireLog log;
+	EstablishInOrder(line, near, far, log);
+	auto handle = near.Requests();
+	line.SetLinkUp(false);
+	Step(line, near, far, log, 1000);
+	SIM_EXPECT(SendStart(handle) == 1);
+	for (uint32 now = 1500; now <= 6500; now += 500) {
+		Step(line, near, far, log, now);
+	}
+
+	SIM_EXPECT(startFinals == 1);
+	SIM_EXPECT(startResult == ResultStatus::timeout);
+	line.SetLinkUp(true);
+	for (uint32 now = 7000; now <= 9000; now += 500) {
+		Step(line, near, far, log, now);
+	}
+
+	SIM_EXPECT(startsSeen == 0);
+	startAtOnce = true;
+	SIM_EXPECT(SendStart(handle) == 2);
+	for (uint32 now = 9500; now <= 10500; now += 500) {
+		Step(line, near, far, log, now);
+	}
+
+	SIM_EXPECT(startsSeen == 1);
+	SIM_EXPECT(startFinals == 2);
+	SIM_EXPECT(startResult == ResultStatus::ok);
+}
+
+
+// A request sent while the link is down and cancelled while it is down: the cancel is held with the REQUEST, the deadline ends the request with
+// operationCancelled, and when the link returns neither packet goes out.
+void TestRequestCancelledWhileDownIsNotRun() {
+	ResetCancelState();
+	ReportingPacketLine line(VUB::Faults{});
+	CancelRequester near(line.a);
+	CancelResponder far(line.b);
+	WireLog log;
+	Establish(line, near, far, log);
+	CancelHandle handle = near.Requests();
+	line.SetLinkUp(false);
+	Step(line, near, far, log, 1000);
+	uint16 number = SendStart(handle);
+	SIM_EXPECT(number == 1);
+	SIM_EXPECT(CancelStart(handle, number) == ResultStatus::ok);
+	for (uint32 now = 1500; now <= 6500; now += 500) {
+		Step(line, near, far, log, now);
+	}
+
+	SIM_EXPECT(startFinals == 1);
+	SIM_EXPECT(startCancelledFinals == 1);
+	line.SetLinkUp(true);
+	std::size_t cancelsOnWire = 0;
+	for (uint32 now = 7000; now <= 9000; now += 500) {
+		Step(line, near, far, log, now);
+		cancelsOnWire += CountCancels(log.toFar, 1);
+	}
+
+	SIM_EXPECT(cancelsOnWire == 0);
+	SIM_EXPECT(startsSeen == 0);
+	SIM_EXPECT(cancelRuns == 0);
+	SIM_EXPECT(startFinals == 1);
+}
+
+
+// A request sent and cancelled while the link is down, and the link returns while the request is open: the REQUEST is delivered once, the held CANCEL
+// follows its acknowledgement, and the device's cancel handler runs once.
+void TestRequestCancelledWhileDownRunsCancelOnceWhenLinkReturns() {
+	ResetCancelState();
+	ReportingPacketLine line(VUB::Faults{});
+	CancelRequester near(line.a);
+	CancelResponder far(line.b);
+	WireLog log;
+	Establish(line, near, far, log);
+	CancelHandle handle = near.Requests();
+	line.SetLinkUp(false);
+	Step(line, near, far, log, 1000);
+	uint16 number = SendStart(handle);
+	SIM_EXPECT(number == 1);
+	SIM_EXPECT(CancelStart(handle, number) == ResultStatus::ok);
+	for (uint32 now = 1500; now <= 2000; now += 500) {
+		Step(line, near, far, log, now);
+	}
+
+	line.SetLinkUp(true);
+	std::size_t cancelsOnWire = 0;
+	for (uint32 now = 2500; now <= 4000; now += 100) {
+		Step(line, near, far, log, now);
+		cancelsOnWire += CountCancels(log.toFar, 1);
+	}
+
+	SIM_EXPECT(cancelsOnWire == 1);
+	SIM_EXPECT(startsSeen == 1);
+	SIM_EXPECT(cancelRuns == 1);
+	SIM_EXPECT(startFinals == 1);
+	SIM_EXPECT(startResult == ResultStatus::operationCancelled);
+}
+
+
+// A request sent while the link is down, and the link returns while the request is open: the request is delivered once and its final is ok.
+void TestRequestSentWhileDownIsDeliveredOnceWhenLinkReturns() {
+	ResetCancelState();
+	startAtOnce = true;
+	ReportingPacketLine line(VUB::Faults{});
+	CancelRequester near(line.a);
+	CancelResponder far(line.b);
+	WireLog log;
+	Establish(line, near, far, log);
+	CancelHandle handle = near.Requests();
+	line.SetLinkUp(false);
+	Step(line, near, far, log, 1000);
+	SIM_EXPECT(SendStart(handle) == 1);
+	for (uint32 now = 1500; now <= 2000; now += 500) {
+		Step(line, near, far, log, now);
+	}
+
+	line.SetLinkUp(true);
+	for (uint32 now = 2500; now <= 3500; now += 500) {
+		Step(line, near, far, log, now);
+	}
+
+	SIM_EXPECT(startsSeen == 1);
+	SIM_EXPECT(startFinals == 1);
+	SIM_EXPECT(startResult == ResultStatus::ok);
+}
+
+
+// A request given to the stack while the link was up, and the link flaps while the request is open: the device runs its handler once, and the
+// request ends with its final.
+void TestFlappingLinkDeliversOpenRequestOnce() {
+	ResetCancelState();
+	startAtOnce = true;
+	ReportingPacketLine line(VUB::Faults{});
+	CancelRequester near(line.a);
+	CancelResponder far(line.b);
+	WireLog log;
+	Establish(line, near, far, log);
+	CancelHandle handle = near.Requests();
+	SIM_EXPECT(SendStart(handle) == 1);
+	line.SetLinkUp(false);
+	Step(line, near, far, log, 1000);
+	line.SetLinkUp(true);
+	Step(line, near, far, log, 1100);
+	line.SetLinkUp(false);
+	Step(line, near, far, log, 1200);
+	line.SetLinkUp(true);
+	Step(line, near, far, log, 1300);
+	line.SetLinkUp(false);
+	Step(line, near, far, log, 1400);
+	line.SetLinkUp(true);
+	for (uint32 now = 1500; now <= 3000; now += 100) {
+		Step(line, near, far, log, now);
+	}
+
+	SIM_EXPECT(startsSeen == 1);
+	SIM_EXPECT(startFinals == 1);
+	SIM_EXPECT(startResult == ResultStatus::ok);
+}
+
+
+// A request sent while the link is down, whose deadline passes while the link is still down: the link then flaps, and the request is not sent
+// on any of the flaps. The device's handler does not run.
+void TestFlappingLinkDoesNotRunClosedRequest() {
+	ResetCancelState();
+	ReportingPacketLine line(VUB::Faults{});
+	CancelRequester near(line.a);
+	CancelResponder far(line.b);
+	WireLog log;
+	Establish(line, near, far, log);
+	CancelHandle handle = near.Requests();
+	line.SetLinkUp(false);
+	Step(line, near, far, log, 1000);
+	SIM_EXPECT(SendStart(handle) == 1);
+	for (uint32 now = 1500; now <= 6500; now += 500) {
+		Step(line, near, far, log, now);
+	}
+
+	SIM_EXPECT(startFinals == 1);
+	SIM_EXPECT(startResult == ResultStatus::timeout);
+	for (uint32 now = 6600; now <= 7400; now += 200) {
+		line.SetLinkUp(((now / 200) % 2) == 0);
+		Step(line, near, far, log, now);
+	}
+
+	line.SetLinkUp(true);
+	for (uint32 now = 7500; now <= 8500; now += 500) {
+		Step(line, near, far, log, now);
+	}
+
+	SIM_EXPECT(startsSeen == 0);
+	SIM_EXPECT(startFinals == 1);
+	SIM_EXPECT(startResult == ResultStatus::timeout);
+}
+
+
+// Two requests in flight over an outage: a stop, which closes at its deadline while the link is down, and a start, which is still open when the
+// link returns. The start is delivered once and ends ok; the stop's handler does not run and its final is a timeout.
+void TestClosedAndOpenRequestsInFlightOverOutage() {
+	ResetCancelState();
+	startAtOnce = true;
+	ReportingPacketLine line(VUB::Faults{});
+	CancelRequester near(line.a);
+	CancelResponder far(line.b);
+	WireLog log;
+	Establish(line, near, far, log);
+	CancelHandle handle = near.Requests();
+	line.SetLinkUp(false);
+	Step(line, near, far, log, 1000);
+	SIM_EXPECT(SendStop(handle) == 1);
+	SIM_EXPECT(SendStart(handle) == 2);
+	for (uint32 now = 1500; now <= 3500; now += 500) {
+		Step(line, near, far, log, now);
+	}
+
+	SIM_EXPECT(stopFinals == 1);
+	SIM_EXPECT(stopResult == ResultStatus::timeout);
+	line.SetLinkUp(true);
+	for (uint32 now = 4000; now <= 5500; now += 250) {
+		Step(line, near, far, log, now);
+	}
+
+	SIM_EXPECT(stopsSeen == 0);
+	SIM_EXPECT(stopFinals == 1);
+	SIM_EXPECT(startsSeen == 1);
+	SIM_EXPECT(startFinals == 1);
+	SIM_EXPECT(startResult == ResultStatus::ok);
+}
+
+
+// The REQUEST reaches the device and its acknowledgement is lost. The link goes down, and the deadline passes while it is down: the device's
+// handler ran once, from the copy that arrived, and the request is not sent again when the link returns. The requester reports its timeout.
+void TestAckLostThenDeadlineWhileDownRunsOnce() {
+	ResetCancelState();
+	ReportingPacketLine line(VUB::Faults{});
+	CancelRequester near(line.a);
+	CancelResponder far(line.b);
+	WireLog log;
+	Establish(line, near, far, log);
+	CancelHandle handle = near.Requests();
+	LoseNext(lossToNear, AckOfFirstPacket, 1);
+	SIM_EXPECT(SendStart(handle) == 1);
+	Step(line, near, far, log, 1000);
+	SIM_EXPECT(startsSeen == 1);
+	line.SetLinkUp(false);
+	for (uint32 now = 1100; now <= 6500; now += 500) {
+		Step(line, near, far, log, now);
+	}
+
+	SIM_EXPECT(startFinals == 1);
+	SIM_EXPECT(startResult == ResultStatus::timeout);
+	line.SetLinkUp(true);
+	for (uint32 now = 7000; now <= 9000; now += 500) {
+		Step(line, near, far, log, now);
+	}
+
+	SIM_EXPECT(startsSeen == 1);
+	SIM_EXPECT(startFinals == 1);
+	SIM_EXPECT(startResult == ResultStatus::timeout);
+}
+
+
+// The same loss, and the link returns while the request is open: the REQUEST is sent again, the device takes it as a duplicate and does not run its
+// handler again, and the final that the ticket then gives reaches the requester as ok.
+void TestAckLostThenLinkReturnsRunsOnce() {
+	ResetCancelState();
+	ReportingPacketLine line(VUB::Faults{});
+	CancelRequester near(line.a);
+	CancelResponder far(line.b);
+	WireLog log;
+	Establish(line, near, far, log);
+	CancelHandle handle = near.Requests();
+	LoseNext(lossToNear, AckOfFirstPacket, 1);
+	SIM_EXPECT(SendStart(handle) == 1);
+	Step(line, near, far, log, 1000);
+	SIM_EXPECT(startsSeen == 1);
+	line.SetLinkUp(false);
+	for (uint32 now = 1100; now <= 1500; now += 100) {
+		Step(line, near, far, log, now);
+	}
+
+	line.SetLinkUp(true);
+	for (uint32 now = 1600; now <= 2500; now += 100) {
+		Step(line, near, far, log, now);
+	}
+
+	SIM_EXPECT(startsSeen == 1);
+	SIM_EXPECT(startFinals == 0);
+	Motor::MotorReport report{};
+	SIM_EXPECT(startTickets[0].Finish(Motor::MotorStatus::started, report) == ResultStatus::ok);
+	for (uint32 now = 2600; now <= 3000; now += 100) {
+		Step(line, near, far, log, now);
+	}
+
+	SIM_EXPECT(startsSeen == 1);
+	SIM_EXPECT(startFinals == 1);
+	SIM_EXPECT(startResult == ResultStatus::ok);
+}
+
+
+// The requester and the responder with no resend at all: Reliable gives up at the first timeout.
+using ZeroRetriesRequester = VUB::Stack<+[]() {
+	return VUB::Builder()
+		.Layer<VUB::Requests<CancelCommands, VUB::Handlers<>>>().Open(4)
+		.Layer<VUB::ReliableOf<40, 4>>().Retries(0).TimeoutMs(200).Window(4)
+		.Link<ReportingPacketEnd>()
+		.MaxPayload(40)
+		.ReceiveQueue(4)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
+using ZeroRetriesResponder = VUB::Stack<+[]() {
+	return VUB::Builder()
+		.Layer<VUB::Requests<CancelCommands, CancelDeviceHandlers>>().Tickets(2)
+		.Layer<VUB::ReliableOf<40, 4>>().Retries(0).TimeoutMs(200).Window(4)
+		.Link<ReportingPacketEnd>()
+		.MaxPayload(40)
+		.ReceiveQueue(4)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
+// The requester and the responder over a reporting stream line: the requests layer, Reliable, and flag framing (a frame is 6 bytes longer
+// than its packet, and a frame of a request is about 21 bytes).
+using StreamCancelRequester = VUB::Stack<+[]() {
+	return VUB::Builder()
+		.Layer<VUB::Requests<CancelCommands, VUB::Handlers<>>>().Open(4)
+		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
+		.Framing<FlagFraming>()
+		.Link<ReportingStreamEnd>()
+		.MaxPayload(40)
+		.ReceiveRing(256)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
+using StreamCancelResponder = VUB::Stack<+[]() {
+	return VUB::Builder()
+		.Layer<VUB::Requests<CancelCommands, CancelDeviceHandlers>>().Tickets(2)
+		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
+		.Framing<FlagFraming>()
+		.Link<ReportingStreamEnd>()
+		.MaxPayload(40)
+		.ReceiveRing(256)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
+// With Retries(0) a request sent while the link is down is sent once, at the return, and its final arrives.
+void TestRetriesZeroRequestSentWhileDownIsDelivered() {
+	ResetCancelState();
+	startAtOnce = true;
+	ReportingPacketLine line(VUB::Faults{});
+	ZeroRetriesRequester near(line.a);
+	ZeroRetriesResponder far(line.b);
+	WireLog log;
+	Establish(line, near, far, log);
+	auto handle = near.Requests();
+	line.SetLinkUp(false);
+	Step(line, near, far, log, 1000);
+	SIM_EXPECT(SendStart(handle) == 1);
+	for (uint32 now = 1100; now <= 1500; now += 100) {
+		Step(line, near, far, log, now);
+	}
+
+	line.SetLinkUp(true);
+	for (uint32 now = 1600; now <= 2500; now += 100) {
+		Step(line, near, far, log, now);
+	}
+
+	SIM_EXPECT(startsSeen == 1);
+	SIM_EXPECT(startFinals == 1);
+	SIM_EXPECT(startResult == ResultStatus::ok);
+}
+
+
+// With Retries(0) a request whose packet left, with its acknowledgement lost, is sent again once when the link returns, and the device runs
+// its handler once: the copy that arrived first, the second one is a duplicate.
+void TestRetriesZeroAckLostThenLinkReturnsResendsOnce() {
+	ResetCancelState();
+	ReportingPacketLine line(VUB::Faults{});
+	ZeroRetriesRequester near(line.a);
+	ZeroRetriesResponder far(line.b);
+	WireLog log;
+	Establish(line, near, far, log);
+	auto handle = near.Requests();
+	LoseNext(lossToNear, AckOfFirstPacket, 1);
+	SIM_EXPECT(SendStart(handle) == 1);
+	Step(line, near, far, log, 1000);
+	SIM_EXPECT(startsSeen == 1);
+	line.SetLinkUp(false);
+	for (uint32 now = 1100; now <= 1300; now += 100) {
+		Step(line, near, far, log, now);
+	}
+
+	line.SetLinkUp(true);
+	std::size_t copies = 0;
+	for (uint32 now = 1400; now <= 2000; now += 100) {
+		Step(line, near, far, log, now);
+		copies += CountEndingWith(log.toFar, StartRequestOneTail);
+	}
+
+	SIM_EXPECT(copies == 1);
+	SIM_EXPECT(startsSeen == 1);
+	SIM_EXPECT(startFinals == 0);
+	Motor::MotorReport report{};
+	SIM_EXPECT(startTickets[0].Finish(Motor::MotorStatus::started, report) == ResultStatus::ok);
+	for (uint32 now = 2100; now <= 2400; now += 100) {
+		Step(line, near, far, log, now);
+	}
+
+	SIM_EXPECT(startsSeen == 1);
+	SIM_EXPECT(startFinals == 1);
+	SIM_EXPECT(startResult == ResultStatus::ok);
+}
+
+
+// With Retries(3) a request sent while the link is down has all its tries after the return: the line loses every copy, and the copies on the
+// wire are four, then the request ends with retryExhausted.
+void TestRequestSentWhileDownHasAllItsTriesAfterReturn() {
+	ResetCancelState();
+	ReportingPacketLine line(VUB::Faults{});
+	CancelRequester near(line.a);
+	CancelResponder far(line.b);
+	WireLog log;
+	Establish(line, near, far, log);
+	auto handle = near.Requests();
+	LoseNext(lossToFar, StartRequestOneTail, 100);
+	line.SetLinkUp(false);
+	Step(line, near, far, log, 1000);
+	SIM_EXPECT(SendStart(handle) == 1);
+	for (uint32 now = 1100; now <= 1500; now += 100) {
+		Step(line, near, far, log, now);
+	}
+
+	line.SetLinkUp(true);
+	std::size_t copies = 0;
+	for (uint32 now = 1600; now <= 2600; now += 100) {
+		Step(line, near, far, log, now);
+		copies += CountEndingWith(log.toFar, StartRequestOneTail);
+	}
+
+	SIM_EXPECT(copies == 4);
+	SIM_EXPECT(startFinals == 1);
+	SIM_EXPECT(startResult == ResultStatus::retryExhausted);
+}
+
+
+// A request sent while the link is down, its frame half written at the fall, and its deadline passed while the link is down: when the link
+// returns the frame is not written again, the device's handler does not run, and the next request is delivered once.
+void TestStreamHalfWrittenRequestIsNotRunWhenClosed() {
+	ResetCancelState();
+	ReportingStreamLine line(VUB::Faults{});
+	StreamCancelRequester near(line.a);
+	StreamCancelResponder far(line.b);
+	WireLog log;
+	Establish(line, near, far, log);
+	auto handle = near.Requests();
+	SIM_EXPECT(SendStart(handle) == 1);
+	StreamRound(line, near, far, 1000, 6, UnlimitedBytes);
+	line.SetLinkUp(false);
+	for (uint32 now = 1100; now <= 6500; now += 500) {
+		StreamRound(line, near, far, now, UnlimitedBytes, UnlimitedBytes);
+	}
+
+	SIM_EXPECT(startFinals == 1);
+	SIM_EXPECT(startResult == ResultStatus::timeout);
+	line.SetLinkUp(true);
+	for (uint32 now = 7000; now <= 9000; now += 500) {
+		StreamRound(line, near, far, now, UnlimitedBytes, UnlimitedBytes);
+	}
+
+	SIM_EXPECT(startsSeen == 0);
+	startAtOnce = true;
+	SIM_EXPECT(SendStart(handle) == 2);
+	for (uint32 now = 9500; now <= 10500; now += 500) {
+		StreamRound(line, near, far, now, UnlimitedBytes, UnlimitedBytes);
+	}
+
+	SIM_EXPECT(startsSeen == 1);
+	SIM_EXPECT(startFinals == 2);
+	SIM_EXPECT(startResult == ResultStatus::ok);
+}
+
+
+// The same with the request still open when the link returns: the frame is written again once, from its first byte, and the device runs its
+// handler once.
+void TestStreamHalfWrittenRequestIsDeliveredOnceWhenOpen() {
+	ResetCancelState();
+	startAtOnce = true;
+	ReportingStreamLine line(VUB::Faults{});
+	StreamCancelRequester near(line.a);
+	StreamCancelResponder far(line.b);
+	WireLog log;
+	Establish(line, near, far, log);
+	auto handle = near.Requests();
+	SIM_EXPECT(SendStart(handle) == 1);
+	StreamRound(line, near, far, 1000, 6, UnlimitedBytes);
+	line.SetLinkUp(false);
+	for (uint32 now = 1100; now <= 1500; now += 100) {
+		StreamRound(line, near, far, now, UnlimitedBytes, UnlimitedBytes);
+	}
+
+	line.SetLinkUp(true);
+	for (uint32 now = 2000; now <= 3500; now += 500) {
+		StreamRound(line, near, far, now, UnlimitedBytes, UnlimitedBytes);
+	}
+
+	SIM_EXPECT(startsSeen == 1);
+	SIM_EXPECT(startFinals == 1);
+	SIM_EXPECT(startResult == ResultStatus::ok);
+}
+
+
+// A packet that needs no acknowledgement (a CANCEL sent unsequenced, as a Fire is) is not marked: its frame half written at the fall is
+// written again from its first byte when the link returns, and the device's cancel handler runs once.
+void TestStreamUnacknowledgedFrameIsWrittenAgainFromItsStart() {
+	ResetCancelState();
+	ReportingStreamLine line(VUB::Faults{});
+	StreamCancelRequester near(line.a);
+	StreamCancelResponder far(line.b);
+	WireLog log;
+	Establish(line, near, far, log);
+	auto handle = near.Requests();
+	SIM_EXPECT(SendStart(handle) == 1);
+	StreamRound(line, near, far, 1000, UnlimitedBytes, UnlimitedBytes);
+	SIM_EXPECT(startsSeen == 1);
+	VUB::Meta meta{};
+	meta.flags = VUB::Meta::NoAcknowledgeFlag;
+	SIM_EXPECT(near.LayerOutbox<0>().Send(std::span<const uint8>(CancelOne.data(), CancelOne.size()), meta) == ResultStatus::ok);
+	StreamRound(line, near, far, 1100, 3, UnlimitedBytes);
+	line.SetLinkUp(false);
+	for (uint32 now = 1200; now <= 1400; now += 100) {
+		StreamRound(line, near, far, now, UnlimitedBytes, UnlimitedBytes);
+	}
+
+	line.SetLinkUp(true);
+	for (uint32 now = 1500; now <= 2500; now += 500) {
+		StreamRound(line, near, far, now, UnlimitedBytes, UnlimitedBytes);
+	}
+
+	SIM_EXPECT(cancelRuns == 1);
+}
+
+
 // The calls of the Cancel section of Layer/Requests.md, as the section writes them. They are compiled here; the stack has no session, so
 // nothing is sent.
 template<typename HandleType>
@@ -1493,7 +2236,24 @@ int main() {
 	TestCancelAllLeavesNotCancellableRequestsOpen();
 	TestCancelOfNumberZeroIsDropped();
 	TestHeldCancelDeadlineWhileLinkDownGivesOperationCancelled();
-	TestQueuedRequestOfClosedRequestGoesOutWhenLinkReturns();
+	TestQueuedRequestOfClosedRequestIsNotSentWhenLinkReturns();
+	TestRequestSentWhileDownIsNotRunAfterTimeout();
+	TestInOrderRequestSentWhileDownIsNotRunAfterTimeout();
+	TestRequestCancelledWhileDownIsNotRun();
+	TestRequestCancelledWhileDownRunsCancelOnceWhenLinkReturns();
+	TestRequestSentWhileDownIsDeliveredOnceWhenLinkReturns();
+	TestFlappingLinkDeliversOpenRequestOnce();
+	TestFlappingLinkDoesNotRunClosedRequest();
+	TestClosedAndOpenRequestsInFlightOverOutage();
+	TestAckLostThenDeadlineWhileDownRunsOnce();
+	TestAckLostThenLinkReturnsRunsOnce();
+	TestRequestsWaitingForLinkGoOutInOrder();
+	TestRetriesZeroRequestSentWhileDownIsDelivered();
+	TestRetriesZeroAckLostThenLinkReturnsResendsOnce();
+	TestRequestSentWhileDownHasAllItsTriesAfterReturn();
+	TestStreamHalfWrittenRequestIsNotRunWhenClosed();
+	TestStreamHalfWrittenRequestIsDeliveredOnceWhenOpen();
+	TestStreamUnacknowledgedFrameIsWrittenAgainFromItsStart();
 	TestWithoutReliableQueuedRequestGoesOutAfterTimeout();
 	TestCancelHeldWhileRequestIsResent();
 	TestCancelAllWithThreeRequests();

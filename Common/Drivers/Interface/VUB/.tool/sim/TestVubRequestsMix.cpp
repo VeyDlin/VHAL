@@ -51,11 +51,17 @@ using MixHandlers = VUB::Handlers<VUB::OnEvent<Motor::MotorEvent::fault, &OnFaul
 
 // One slot, so that each request and each ping takes the slot of the one before it. Counted, with pings of up to 4 bytes of padding and a
 // deadline of 100 ms.
-using Layer = VUB::RequestsOf<Motor::MotorCommands, MixHandlers, VUB::RequestsOptions{1, 0, 0, false, true, true, 4, 100}>;
+using Layer = VUB::RequestsOf<
+	Motor::MotorCommands,
+	MixHandlers,
+	VUB::RequestsOptions{.open = 1, .refusals = 0, .counted = true, .ping = true, .pingPadding = 4, .builtInTimeoutMs = 100}>;
 
 
 // Two slots, for a ping next to a request.
-using WideLayer = VUB::RequestsOf<Motor::MotorCommands, MixHandlers, VUB::RequestsOptions{2, 0, 0, false, true, true, 4, 100}>;
+using WideLayer = VUB::RequestsOf<
+	Motor::MotorCommands,
+	MixHandlers,
+	VUB::RequestsOptions{.open = 2, .refusals = 0, .counted = true, .ping = true, .pingPadding = 4, .builtInTimeoutMs = 100}>;
 
 
 struct Recorder {

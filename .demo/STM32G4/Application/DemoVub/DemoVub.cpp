@@ -10,6 +10,7 @@
 #include <Drivers/Interface/VUB/Layer/Reliable.h>
 #include <Drivers/Interface/VUB/Link/BulkLink.h>
 #include <Drivers/Interface/VUB/Link/CdcLink.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 #include <Drivers/Interface/VUB/Link/HidLink.h>
 #include <Drivers/Interface/VUB/Link/UartLink.h>
 #include <Drivers/Interface/VUB/Stack.h>
@@ -233,7 +234,7 @@ namespace DemoVub {
 			.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
 			.OnOutcome<&OutcomeOf<UartIndex>>()
 			.OnRestart<&RestartOf<UartIndex>>()
-			.Transform<VUB::Crc16Modbus>()
+			.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 			.Framing<VUB::Cobs>()
 			.Link<UartLinkType>()
 			.MaxPayload(32)
@@ -337,6 +338,9 @@ namespace DemoVub {
 		status.sweepsExpired = state.sweepsExpired;
 		status.sweepsActive = state.sweepsActive;
 		status.unclaimed = state.unclaimed;
+		status.cancels = state.counters.cancels;
+		status.notes = state.counters.notes;
+		status.eventBusy = state.eventBusy;
 	}
 #endif
 
@@ -419,10 +423,13 @@ namespace DemoVub {
 #if defined(VHAL_VUB_REQUESTS)
 		while (true) {
 			usbDevice.Process();
-			// The sweep steps and finals are given before the stacks run, so they go out in this pass.
-			Tick(static_cast<uint32>(System::GetMs()));
+			// The sweep steps and finals are given before the stacks run, so they go out in this pass. The events go out after the stacks ran.
+			uint32 nowMs = static_cast<uint32>(System::GetMs());
+			Tick(nowMs);
 			uartStack.Process();
 			cdcStack.Process();
+			ServeEvents<UartStackIndex>(uartStack, nowMs);
+			ServeEvents<CdcStackIndex>(cdcStack, nowMs);
 
 			if (System::GetMs() >= nextStatusMs) {
 				nextStatusMs += StatusIntervalMs;

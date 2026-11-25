@@ -1,32 +1,10 @@
 #pragma once
+#include <Utilities/Checksum/CRC/Engine/CrcTable.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/ResultStatus.h>
-#include <array>
 #include <cstddef>
 #include <span>
-
-
-// The CRC-16 table of Modbus: reflected polynomial 0xA001, initial value 0xFFFF, no final xor. consteval builds it at compile time,
-// so the table is data in flash and no code runs at start.
-consteval std::array<uint16, 256> RtuMakeCrcTable() {
-	std::array<uint16, 256> table{};
-
-	for (std::size_t index = 0; index < 256; index++) {
-		uint16 crc = static_cast<uint16>(index);
-
-		for (int bit = 0; bit < 8; bit++) {
-			if ((crc & 1) != 0) {
-				crc = static_cast<uint16>((crc >> 1) ^ 0xA001);
-			} else {
-				crc = static_cast<uint16>(crc >> 1);
-			}
-		}
-
-		table[index] = crc;
-	}
-
-	return table;
-}
 
 
 // The RTU frame: the slave address, the PDU, and the CRC-16 sent low byte first. The framer builds a frame and checks a received one.
@@ -42,20 +20,10 @@ public:
 	static constexpr uint8 BroadcastAddress = 0;
 
 
-private:
-	static constexpr std::array<uint16, 256> crcTable = RtuMakeCrcTable();
-
-
-public:
-	// The CRC-16 of data. The value is sent low byte first.
+	// The CRC-16 of data, the Modbus CRC-16 with the table engine: its 256-entry table is flash data built at compile time. The
+	// value is sent low byte first.
 	static constexpr uint16 Crc(std::span<const uint8> data) {
-		uint16 crc = 0xFFFF;
-
-		for (uint8 byte : data) {
-			crc = static_cast<uint16>((crc >> 8) ^ crcTable[static_cast<std::size_t>((crc ^ byte) & 0xFF)]);
-		}
-
-		return crc;
+		return Checksum::Crc16Modbus::With<Checksum::CrcTable>::Calculate(data);
 	}
 
 

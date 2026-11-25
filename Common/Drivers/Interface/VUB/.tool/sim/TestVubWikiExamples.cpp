@@ -6,6 +6,7 @@
 #include <Drivers/Interface/VUB/TestKit/Contracts.h>
 #include <Drivers/Interface/VUB/TestKit/Loopback.h>
 #include <Drivers/Interface/VUB/Transform/Crc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -127,7 +128,7 @@ using Board = VUB::Stack<+[] {
 	using namespace VUB;
 	return Builder()
 		.Layer<Reliable>().Retries(3).TimeoutMs(200)
-		.Transform<Crc16Modbus>()
+		.Transform<Crc<Checksum::Crc16Modbus>>()
 		.Link<BoardLink>()
 		.MaxPayload(32)
 		.OnReceive<&OnPacket>()

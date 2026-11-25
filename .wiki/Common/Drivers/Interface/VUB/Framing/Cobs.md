@@ -1,7 +1,9 @@
 # VUB::Cobs
 
 COBS framing as Cheshire and Baker describe it. A frame is the packet with its zero bytes taken out, and it ends with a zero byte.
-Header: `Common/Drivers/Interface/VUB/Framing/Cobs.h`. It is not the scheme of `Serialization/COBS/COBS.h`, which is a different one.
+Header: `Common/Drivers/Interface/VUB/Framing/Cobs.h`. The frames are made and read by the shared codec, `Encoding::Cobs`
+([Cobs](../../../../Utilities/Encoding/COBS/Cobs.md)); this framing adds the stack's rules on top of it: the growth of a frame, the refusal
+of an empty packet, and the status of a frame.
 
 ## Wire format
 
