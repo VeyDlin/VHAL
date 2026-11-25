@@ -31,6 +31,8 @@ namespace RequestWire {
 	inline constexpr uint8 CodeInvalidParameter = 6;
 	inline constexpr uint8 StatusCancelRefused = 0xF8;
 	inline constexpr uint8 StatusReservedFrom = 0xF0;
+	// The index of an interim is one byte: 255 is the last index, and no interim takes an index after it.
+	inline constexpr uint8 LastInterimIndex = 255;
 
 
 	// The result of a final code. Codes 7 to 255 are not used by version 1, and a requester refuses them as invalidData.
@@ -59,10 +61,6 @@ namespace RequestWire {
 	}
 
 
-	// True when the clock has reached due. The difference is a signed 32-bit count of microseconds, so a clock that wraps still compares right.
-	inline bool Due(uint32 nowUs, uint32 dueUs) {
-		return static_cast<int32>(nowUs - dueUs) >= 0;
-	}
 }
 
 }

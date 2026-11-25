@@ -1,4 +1,5 @@
 #pragma once
+#include <Drivers/Interface/VUB/Bytes.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/ResultStatus.h>
 #include <System/System.h>
@@ -71,9 +72,7 @@ public:
 	void Push(std::span<const uint8> packet, uint8 flags) {
 		std::size_t tail = (static_cast<std::size_t>(head) + used) % Count;
 		OutgoingPacket<Bytes>& entry = entries[tail];
-		for (std::size_t index = 0; index < packet.size(); index++) {
-			entry.bytes[index] = packet[index];
-		}
+		CopyBytes(packet.data(), packet.size(), entry.bytes.data());
 
 		entry.length = static_cast<uint16>(packet.size());
 		entry.flags = flags;

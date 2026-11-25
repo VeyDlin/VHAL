@@ -365,7 +365,7 @@ public:
 			for (Slot& slot : tickets) {
 				if (slot.stage == TicketStage::open && slot.rearm) {
 					slot.rearm = false;
-					slot.deadlineUs = nowUs + Commands::commandTable[slot.command].ticketTimeoutMs * 1000u;
+					slot.deadlineUs = nowUs + Commands::commandTable[slot.command].ticketTimeoutMs * UsPerMs;
 				}
 			}
 		} else {
@@ -382,7 +382,7 @@ public:
 				bool due = false;
 				{
 					RequestSection<Plan::concurrent> section;
-					due = slot.stage == TicketStage::open && RequestWire::Due(nowUs, slot.deadlineUs);
+					due = slot.stage == TicketStage::open && Due(nowUs, slot.deadlineUs);
 				}
 
 				if (due) {
@@ -447,7 +447,7 @@ public:
 			}
 
 			if (refusal) {
-				if (index == 255) {
+				if (index == RequestWire::LastInterimIndex) {
 					RequestSection<Plan::concurrent> section;
 					slot.cancel.refusal = false;
 				} else {
@@ -905,7 +905,7 @@ private:
 				}
 			}
 
-			if (slot.interim.index == 255) {
+			if (slot.interim.index == RequestWire::LastInterimIndex) {
 				return ResultStatus::invalidParameter;
 			}
 

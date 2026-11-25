@@ -209,7 +209,7 @@ public:
 		}
 
 		uint32 start = nowUs;
-		if (haveTx && AtLeast(nowUs, txEndUs, 0)) {
+		if (haveTx && Due(txEndUs, nowUs)) {
 			start = txEndUs;
 		}
 

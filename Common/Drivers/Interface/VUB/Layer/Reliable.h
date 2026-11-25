@@ -42,13 +42,7 @@ namespace ReliableWire {
 	// The first number of the sessions of a boot value: the boot value times an odd factor, so different boot values have different first
 	// numbers in 16 bits. The layer masks it to its sequence width.
 	inline uint16 FirstOf(uint16 boot) {
-		return static_cast<uint16>(static_cast<uint32>(boot) * 0x9E37u);
-	}
-
-
-	// True when the clock has reached due. The difference is taken with wrap, so a clock that wraps still compares right.
-	inline bool Due(uint32 nowUs, uint32 dueUs) {
-		return static_cast<int32>(nowUs - dueUs) >= 0;
+		return static_cast<uint16>(static_cast<uint32>(boot) * SessionStep);
 	}
 }
 
@@ -722,11 +716,11 @@ private:
 	// The timeout ahead of try number attempts. It doubles after each try up to the backoff cap, when there is one. Without a cap the
 	// timeout is fixed, and the code of the backoff is not in the layer.
 	uint32 TimeoutUs(uint16 attempts) const {
-		uint32 timeout = static_cast<uint32>(options.timeoutMs) * 1000u;
+		uint32 timeout = static_cast<uint32>(options.timeoutMs) * UsPerMs;
 		if constexpr (options.backoffMaxMs == 0) {
 			return timeout;
 		} else {
-			uint32 cap = static_cast<uint32>(options.backoffMaxMs) * 1000u;
+			uint32 cap = static_cast<uint32>(options.backoffMaxMs) * UsPerMs;
 			for (uint16 index = 1; index < attempts && timeout < cap; index++) {
 				uint32 doubled = timeout * 2u;
 				timeout = doubled > cap ? cap : doubled;
@@ -1283,7 +1277,7 @@ private:
 				found = &peer.slots[index];
 			}
 
-			if (found == nullptr || found->state != SlotState::pending || !ReliableWire::Due(nowUs, found->dueUs)) {
+			if (found == nullptr || found->state != SlotState::pending || !Due(nowUs, found->dueUs)) {
 				continue;
 			}
 

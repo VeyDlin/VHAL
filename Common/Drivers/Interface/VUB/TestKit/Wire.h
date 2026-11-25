@@ -54,7 +54,7 @@ public:
 			return true;
 		}
 
-		if (static_cast<int32>(nowUs - changeUs) >= 0) {
+		if (Due(nowUs, changeUs)) {
 			up = !up;
 			changeUs = nowUs + (up ? 1 + random.Below(everyUs) : forUs);
 		}

@@ -1351,7 +1351,78 @@ void TestRestartClosesHealth() {
 }
 
 
+// A health request whose peer never answers the sync: it waits for the layer to send it, and ends with timeout at BuiltInTimeoutMs (1000 ms)
+// after the first Process after the call.
+void TestHealthWithoutAnsweringPeerTimesOut() {
+	ResetHealthState();
+	ReportingPacketLine line(VUB::Faults{});
+	HealthPc pc(line.a);
+	GiveSession(pc);
+	HealthPcHandle handle = pc.Requests();
+	SIM_EXPECT(handle.Health<&OnHealth>() == ResultStatus::ok);
+	uint32 now = 1000;
+	for (uint32 step = 0; step < 12; step++) {
+		testNowUs = now;
+		pc.Process();
+		now += 100000;
+	}
+
+	SIM_EXPECT(healthReports == 1);
+	SIM_EXPECT(lastHealth.result == ResultStatus::timeout);
+}
+
+
+// A health request sent while the link is down (Wait) ends with timeout at its deadline.
+void TestHealthWhileLinkIsDownTimesOut() {
+	ResetHealthState();
+	ReportingPacketLine line(VUB::Faults{});
+	HealthPc pc(line.a);
+	HealthDevice device(line.b);
+	WireLog log;
+	GiveSession(pc);
+	GiveSession(device);
+	Establish(line, pc, device, log, 1000);
+
+	line.SetLinkUp(false);
+	HealthPcHandle handle = pc.Requests();
+	SIM_EXPECT(handle.Health<&OnHealth>() == ResultStatus::ok);
+	uint32 now = 2000000;
+	for (uint32 step = 0; step < 12; step++) {
+		RoundOf(line, pc, device, log, now);
+		now += 100000;
+	}
+
+	SIM_EXPECT(healthReports == 1);
+	SIM_EXPECT(lastHealth.result == ResultStatus::timeout);
+}
+
+
+// A health request with no Reliable below, sent while the link is down (Wait): the link refuses it busy, the layer keeps it, and it ends with
+// timeout at its deadline.
+void TestPlainHealthWhileLinkIsDownTimesOut() {
+	ResetHealthState();
+	ReportingPacketLine line(VUB::Faults{});
+	NoReliablePc pc(line.a);
+	decltype(pc.Requests()) handle = pc.Requests();
+	handle.SetSession(5);
+	line.SetLinkUp(false);
+	SIM_EXPECT(handle.template Health<&OnHealth>() == ResultStatus::ok);
+	uint32 now = 1000;
+	for (uint32 step = 0; step < 12; step++) {
+		testNowUs = now;
+		pc.Process();
+		now += 100000;
+	}
+
+	SIM_EXPECT(healthReports == 1);
+	SIM_EXPECT(lastHealth.result == ResultStatus::timeout);
+}
+
+
 int main() {
+	TestHealthWithoutAnsweringPeerTimesOut();
+	TestHealthWhileLinkIsDownTimesOut();
+	TestPlainHealthWhileLinkIsDownTimesOut();
 	TestZeroCountersReplyBytes();
 	TestReplyWithoutUserBody();
 	TestResponderWithoutHealthIsNotSupported();
