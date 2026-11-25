@@ -743,6 +743,127 @@ void TestStagedSendWaitsForProcess() {
 }
 
 
+// A packet link with Ready() that reports its state to its stack. Its Send counts the packets it takes, and the attempts made while down.
+class MinReportingReadyPacket {
+public:
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64).FullDuplex().ReportsState();
+
+
+	bool Ready() const {
+		return true;
+	}
+
+
+	void SetStateSink(VUB::StateSink value) {
+		sink = value;
+		sink.Report(up);
+	}
+
+
+	// Sets the state the link reports to its stack.
+	void SetUp(bool value) {
+		up = value;
+		sink.Report(up);
+	}
+
+
+	ResultStatus Send(std::span<const uint8>) {
+		if (!up) {
+			sendsWhileDown++;
+		}
+
+		packets++;
+		return ResultStatus::ok;
+	}
+
+
+	std::size_t packets = 0;
+	std::size_t sendsWhileDown = 0;
+
+
+private:
+	VUB::StateSink sink;
+	bool up = true;
+};
+
+
+// A packet link with a reporting state and Ready(): the default send queue is zero.
+using MinReadyReportingStack = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Link<MinReportingReadyPacket>()
+		.MaxPayload(16)
+		.ReceiveQueue(4)
+		.OnReceive<&TestReceive>();
+}>;
+
+
+// A stream chain under Down::Wait with no send queue: a Send made after the link reports its fall, and ahead of the next Process, is busy and
+// takes nothing. The same holds after the link reports its return, until the next Process reads the return.
+void TestWaitRefusesAfterReportedFall() {
+	ResetTestState();
+	MinReportingStream link;
+	MinWaitStack stack(link);
+	stack.Process();
+	const std::array<uint8, 2> payload = {1, 2};
+	link.SetUp(false);
+	SIM_EXPECT(stack.Send(payload) == ResultStatus::busy);
+	SIM_EXPECT(link.count == 0);
+
+	link.SetUp(true);
+	SIM_EXPECT(stack.Send(payload) == ResultStatus::busy);
+	SIM_EXPECT(link.count == 0);
+
+	stack.Process();
+	SIM_EXPECT(stack.LinkUp());
+	SIM_EXPECT(stack.Send(payload) == ResultStatus::ok);
+	SIM_EXPECT(link.count == 4);
+}
+
+
+// The same under Down::Fail: a Send made after the reported fall, and ahead of the next Process, is refused with noConnection and takes nothing.
+void TestFailRefusesAfterReportedFall() {
+	ResetTestState();
+	MinReportingStream link;
+	MinFailStack stack(link);
+	stack.Process();
+	const std::array<uint8, 2> payload = {1, 2};
+	link.SetUp(false);
+	SIM_EXPECT(stack.Send(payload) == ResultStatus::noConnection);
+	SIM_EXPECT(link.count == 0);
+
+	link.SetUp(true);
+	SIM_EXPECT(stack.Send(payload) == ResultStatus::noConnection);
+	SIM_EXPECT(link.count == 0);
+
+	stack.Process();
+	SIM_EXPECT(stack.Send(payload) == ResultStatus::ok);
+	SIM_EXPECT(link.count == 4);
+}
+
+
+// A packet link with Ready() that reports its state: the reported fall refuses the packet ahead of any ask of the link, and nothing is sent to
+// a link that is down.
+void TestPacketReadyRefusesAfterReportedFall() {
+	ResetTestState();
+	MinReportingReadyPacket link;
+	MinReadyReportingStack stack(link);
+	stack.Process();
+	const std::array<uint8, 2> payload = {1, 2};
+	link.SetUp(false);
+	SIM_EXPECT(stack.Send(payload) == ResultStatus::busy);
+	SIM_EXPECT(link.packets == 0);
+
+	link.SetUp(true);
+	SIM_EXPECT(stack.Send(payload) == ResultStatus::busy);
+	SIM_EXPECT(link.packets == 0);
+
+	stack.Process();
+	SIM_EXPECT(stack.Send(payload) == ResultStatus::ok);
+	SIM_EXPECT(link.packets == 1);
+	SIM_EXPECT(link.sendsWhileDown == 0);
+}
+
+
 // The critical section of the host build. The tests run in one context, so there is nothing to exclude.
 void System::CriticalSection(bool) {
 }
@@ -766,5 +887,8 @@ int main() {
 	TestReceiveLargerThanMaxPayload();
 	TestConcurrentWithoutStagingRing();
 	TestStagedSendWaitsForProcess();
+	TestWaitRefusesAfterReportedFall();
+	TestFailRefusesAfterReportedFall();
+	TestPacketReadyRefusesAfterReportedFall();
 	return SimFinish("TestVubStackMinimal");
 }
