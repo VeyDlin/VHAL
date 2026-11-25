@@ -337,6 +337,9 @@ namespace DemoVub {
 		status.sweepsExpired = state.sweepsExpired;
 		status.sweepsActive = state.sweepsActive;
 		status.unclaimed = state.unclaimed;
+		status.cancels = state.counters.cancels;
+		status.notes = state.counters.notes;
+		status.eventBusy = state.eventBusy;
 	}
 #endif
 
@@ -419,10 +422,13 @@ namespace DemoVub {
 #if defined(VHAL_VUB_REQUESTS)
 		while (true) {
 			usbDevice.Process();
-			// The sweep steps and finals are given before the stacks run, so they go out in this pass.
-			Tick(static_cast<uint32>(System::GetMs()));
+			// The sweep steps and finals are given before the stacks run, so they go out in this pass. The events go out after the stacks ran.
+			uint32 nowMs = static_cast<uint32>(System::GetMs());
+			Tick(nowMs);
 			uartStack.Process();
 			cdcStack.Process();
+			ServeEvents<UartStackIndex>(uartStack, nowMs);
+			ServeEvents<CdcStackIndex>(cdcStack, nowMs);
 
 			if (System::GetMs() >= nextStatusMs) {
 				nextStatusMs += StatusIntervalMs;

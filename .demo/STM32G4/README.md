@@ -165,6 +165,11 @@ cmake --build build/RelSpeed-VubRequests
 Its output is `build/RelSpeed-VubRequests/VubG431.elf` and `.bin`. The requests mode's status words come after the echo words of
 `vubStatus` (see the board README); the echo words keep their offsets.
 
+The requests mode serves a sweep that can be cancelled: its cancel handler stops the sweep and finishes it with the cancelled status. A
+finished sweep sends the Delivered event `sweepDone`, a tick event with a running number goes out every 500 ms while the requester is
+connected, the PC's note event is counted in the counters, and the layer answers the pings of the PC with up to 16 bytes of padding. The
+image is 87.8 % of the flash of the G431 (115044 bytes); the echo image is 86.7 %.
+
 Only the chosen demo folder is compiled and linked (`Application/Application.cpp` and `Application/Application.h` are always
 compiled). An unknown `VHAL_DEMO` stops the configure step with the list of demos. The list is the list of
 `Application/Demo<Name>` folders.

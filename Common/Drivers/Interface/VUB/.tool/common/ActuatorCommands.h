@@ -7,8 +7,8 @@
 // check (vubcheck --requests) both compile this header, so the ids, the bodies and the reply layouts are described once.
 //
 // Each request body starts with a token the PC chooses, and each reply that carries the body echoes the token, so the PC can compare
-// the bodies. The statuses of the interims and finals are one enum: step1 to step8 are the interims of a sweep, in order, and done is
-// the final of a sweep.
+// the bodies. The statuses of the interims and finals are one enum: step1 to step8 are the interims of a sweep, in order, done is the
+// final of a sweep that ran to its end, and cancelled is the final of a sweep that its cancel stopped.
 
 
 namespace Actuator {
@@ -23,7 +23,8 @@ enum class ActuatorStatus : uint8 {
 	step5,
 	step6,
 	step7,
-	step8
+	step8,
+	cancelled = 10
 };
 
 
@@ -65,13 +66,23 @@ struct TokenBody {
 };
 
 
-// The counters of the device: how many of each command ran. A hang counts the requests its handler took, not the time-outs.
+// The body of the plain events: a running number. The device's tick counts up, and the PC's note carries the number of its own.
+struct NumberBody {
+	uint32 number = 0;
+};
+
+
+// The counters of the device: how many of each command ran, how many cancel handlers ran and how many notes arrived. A hang counts the
+// requests its handler took, not the time-outs. cancels and notes are 16-bit, so the reply fits the layer's payload; a run reads their
+// difference, which holds while a run has fewer than 65536 of them.
 struct Counters {
 	uint32 sets = 0;
 	uint32 sweeps = 0;
 	uint32 kicks = 0;
 	uint32 nudges = 0;
 	uint32 hangs = 0;
+	uint16 cancels = 0;
+	uint16 notes = 0;
 };
 
 }
@@ -133,6 +144,15 @@ struct BodyOf<Actuator::TokenBody> {
 
 
 template<>
+struct BodyOf<Actuator::NumberBody> {
+	static consteval auto Layout() {
+		return Fields<Actuator::NumberBody>()
+			.Field<&Actuator::NumberBody::number>();
+	}
+};
+
+
+template<>
 struct BodyOf<Actuator::Counters> {
 	static consteval auto Layout() {
 		return Fields<Actuator::Counters>()
@@ -140,7 +160,9 @@ struct BodyOf<Actuator::Counters> {
 			.Field<&Actuator::Counters::sweeps>()
 			.Field<&Actuator::Counters::kicks>()
 			.Field<&Actuator::Counters::nudges>()
-			.Field<&Actuator::Counters::hangs>();
+			.Field<&Actuator::Counters::hangs>()
+			.Field<&Actuator::Counters::cancels>()
+			.Field<&Actuator::Counters::notes>();
 	}
 };
 
@@ -161,6 +183,14 @@ enum class ActuatorCommand : uint8 {
 };
 
 
+// The ids of the events. sweepDone and tick come from the device, note from the PC; the device has the note's handler and the PC the other two.
+enum class ActuatorEvent : uint8 {
+	sweepDone = 0x40,
+	tick = 0x41,
+	note = 0x42
+};
+
+
 // The commands. absent has no handler on the device, so the device refuses it as not supported; the PC uses it for that refusal. The
 // description is a named function, not a lambda: a field of a type built on a lambda has internal linkage, and the ticket fields of the
 // device's sweep jobs would warn about it.
@@ -178,6 +208,7 @@ constexpr auto DescribeActuator() {
 			.Request<SweepBody>()
 			.Reply<ActuatorStatus, SweepReport>()
 			.Interim()
+			.Cancellable()
 			.ReplyTimeoutMs(12000)
 			.TicketTimeoutMs(2000)
 		.Command<ActuatorCommand::kick>()
@@ -197,7 +228,14 @@ constexpr auto DescribeActuator() {
 			.TicketTimeoutMs(1000)
 		.Command<ActuatorCommand::absent>()
 			.Reply<ActuatorStatus>()
-			.ReplyTimeoutMs(3000);
+			.ReplyTimeoutMs(3000)
+		.Event<ActuatorEvent::sweepDone>()
+			.Body<SweepReport>()
+			.Delivered()
+		.Event<ActuatorEvent::tick>()
+			.Body<NumberBody>()
+		.Event<ActuatorEvent::note>()
+			.Body<NumberBody>();
 }
 
 using ActuatorCommands = VUB::CommandSet<&DescribeActuator>;
