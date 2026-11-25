@@ -330,9 +330,13 @@ public:
 	static constexpr std::size_t stageQueue = built.settings.stageQueue;
 	static constexpr bool stageQueued = concurrent && stageQueue > 0;
 	static constexpr std::size_t stageSlots = stageQueue + 1;
-	// A chain with a layer keeps one flag: a layer's send from its Process that the link refused as busy. While it is set, the application's
-	// packets wait, so the layer's packet goes first; ProcessLayers clears it, so it holds for one Process at most.
+	// A chain with a layer keeps one bit per layer (HoldMask). A layer's send that the link refused as busy sets the layer's bit. While a bit
+	// is set, the application's packets wait, and so do the sends of the layers above the layer of that bit. ProcessLayers clears a layer's
+	// bit ahead of the layer's Process, so a bit holds for one Process at most.
 	static constexpr bool layerHolds = Builder::LayerCount() > 0;
+	static constexpr std::size_t layerCount = Builder::LayerCount();
+	// The smallest unsigned type with a bit for each layer of the chain. The top layer has bit 0; the layers below a layer have higher bits.
+	using HoldMask = std::conditional_t<(layerCount <= 8), uint8, std::conditional_t<(layerCount <= 16), uint16, uint32>>;
 	static constexpr std::size_t stageBytes = built.settings.maxPayload;
 	static constexpr bool highWater = built.settings.highWater;
 	static constexpr bool countDrops = built.settings.countDrops;
@@ -574,9 +578,9 @@ private:
 	};
 
 
-	// Whether a layer's send from its Process was refused as busy during the current Process (see layerHolds).
+	// The bits of the layers whose send from its Process was refused as busy and not yet cleared (see layerHolds).
 	struct HoldState {
-		bool waiting = false;
+		HoldMask busy = 0;
 	};
 
 
@@ -710,10 +714,40 @@ private:
 	}
 
 
-	// Whether a layer's send from its Process was refused as busy, and the application's packets wait for it (see layerHolds).
+	// The number of layers above entry Index of the chain. It is the layer's bit number.
+	template<std::size_t Index>
+	static constexpr std::size_t LayersAbove() {
+		if constexpr (Index == 0) {
+			return 0;
+		} else {
+			using Above = std::tuple_element_t<Index - 1, Tuple>;
+			return LayersAbove<Index - 1>() + (Above::kind == BlockKind::layer ? 1 : 0);
+		}
+	}
+
+
+	// The bit of the layer at entry Index.
+	template<std::size_t Index>
+	static constexpr HoldMask LayerBit() {
+		return static_cast<HoldMask>(static_cast<uint32>(1) << LayersAbove<Index>());
+	}
+
+
+	// The bits of the layers below the layer at entry Index: the layers that come after it in the chain. A send of that layer waits while one
+	// of these bits is set.
+	template<std::size_t Index>
+	static constexpr HoldMask LayersBelowBits() {
+		uint64 all = (static_cast<uint64>(1) << layerCount) - 1;
+		uint64 upTo = (static_cast<uint64>(1) << (LayersAbove<Index>() + 1)) - 1;
+		return static_cast<HoldMask>(all & ~upTo);
+	}
+
+
+	// Whether a layer's send from its Process was refused as busy and the bit is not cleared yet: the application's packets wait for it (see
+	// layerHolds).
 	bool LayerHolding() const {
 		if constexpr (layerHolds) {
-			return holdState.Get().waiting;
+			return holdState.Get().busy != 0;
 		} else {
 			return false;
 		}
@@ -1234,18 +1268,18 @@ private:
 
 	template<std::size_t Index>
 	void ProcessLayers(uint32 now) {
-		// The layers' busy sends of the last Process no longer hold the application: a layer that does not send again does not block it.
-		if constexpr (layerHolds && Index == 0) {
-			holdState.Get().waiting = false;
-		}
-
 		if constexpr (Index < count) {
 			using Entry = std::tuple_element_t<Index, Tuple>;
 			if constexpr (Entry::kind == BlockKind::layer) {
+				// The layer's bit is cleared ahead of its Process: a layer that does not send again releases the layers above it and the application.
+				if constexpr (layerHolds) {
+					holdState.Get().busy = static_cast<HoldMask>(holdState.Get().busy & ~LayerBit<Index>());
+				}
+
 				if constexpr (LayerUsesCounters<Index>()) {
 					CountingOutbox outbox(
 						this,
-						&Stack::template SendThunk<Index + 1>,
+						&Stack::template SendThunk<Index>,
 						PeerFor<Index>(),
 						DeliverFor<Index>(),
 						LinkFor<Index>(),
@@ -1253,7 +1287,7 @@ private:
 					);
 					std::get<Index>(blocks).Process(now, outbox);
 				} else {
-					Outbox outbox(this, &Stack::template SendThunk<Index + 1>, PeerFor<Index>(), DeliverFor<Index>(), LinkFor<Index>());
+					Outbox outbox(this, &Stack::template SendThunk<Index>, PeerFor<Index>(), DeliverFor<Index>(), LinkFor<Index>());
 					std::get<Index>(blocks).Process(now, outbox);
 				}
 			}
@@ -1320,14 +1354,14 @@ private:
 	// The outbox of a layer. The packet is at the layer's level, so it starts at the step after the layer. A packet with no caller: one
 	// the layer could not send is counted, and busy is not, since the layer keeps the packet and sends it again. Under Fail, a layer's
 	// packet is refused only while the link is down: a down peer does not stop it.
-	template<std::size_t From>
+	template<std::size_t Index>
 	static ResultStatus SendThunk(void* owner, std::span<const uint8> packet, const Meta& meta) {
 		Stack* self = static_cast<Stack*>(owner);
-		ResultStatus result = self->template LayerSend<From>(packet, meta);
+		ResultStatus result = self->template LayerSend<Index>(packet, meta);
 		if constexpr (layerHolds) {
-			// A busy layer send holds the application's packets until the next Process (see layerHolds).
+			// A busy send sets the bit of the sending layer (see layerHolds).
 			if (result == ResultStatus::busy) {
-				self->holdState.Get().waiting = true;
+				self->holdState.Get().busy = static_cast<HoldMask>(self->holdState.Get().busy | LayerBit<Index>());
 			}
 		}
 
@@ -1338,8 +1372,15 @@ private:
 	// The send of a layer's packet, from its outbox. The check comes before the layers below run on it: a busy queue, a frame in progress,
 	// the gap or Ready refuse the packet with nothing taken. In a chain with a layer that declares its peer (peersReport), every layer's
 	// packets go on the own lane, which is the chain's property; in any other chain they go on the control lane.
-	template<std::size_t From>
+	template<std::size_t Index>
 	ResultStatus LayerSend(std::span<const uint8> packet, const Meta& meta) {
+		// A layer below that holds its packet goes first: this layer's packet is refused with nothing taken (see layerHolds).
+		if constexpr (layerHolds) {
+			if ((holdState.Get().busy & LayersBelowBits<Index>()) != 0) {
+				return ResultStatus::busy;
+			}
+		}
+
 		if (packet.size() > packetBytes) {
 			Drop(&DropCounts::layerError);
 			return ResultStatus::messageTooLong;
@@ -1369,9 +1410,9 @@ private:
 		}
 
 		if constexpr (peersReport) {
-			return SendFrom<From>(packet, meta, Lane::own, false);
+			return SendFrom<Index + 1>(packet, meta, Lane::own, false);
 		} else {
-			return SendFrom<From>(packet, meta, Lane::control, false);
+			return SendFrom<Index + 1>(packet, meta, Lane::control, false);
 		}
 	}
 
