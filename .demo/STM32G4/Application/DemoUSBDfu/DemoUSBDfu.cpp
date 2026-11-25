@@ -5,9 +5,10 @@
 #include <Drivers/Interface/USB/Class/DFU/DfuFunction.h>
 #include <Drivers/Interface/USB/Descriptor/USBSerialNumber.h>
 #include <Drivers/Interface/USB/Device/USBDevice.h>
-#include <Utilities/Checksum/CRC/Crc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc32IsoHdlc.h>
 #include <array>
 #include <cstdint>
+#include <span>
 
 
 // The result of BSP::Init() for USART1, readable over SWD like the other demos'. ok means the console is working.
@@ -67,9 +68,9 @@ static void ReportDownload() {
 		return;
 	}
 
-	const void* region = reinterpret_cast<const void*>(static_cast<uintptr_t>(RegionStart));
+	const uint8* region = reinterpret_cast<const uint8*>(static_cast<uintptr_t>(RegionStart));
 	lastBytes = bytes;
-	lastCrc = Crc::Calculate<uint32, 32>(region, bytes, Crc::CRC_32());
+	lastCrc = Checksum::Crc32IsoHdlc::Calculate(std::span<const uint8>(region, bytes));
 
 	Print& out = System::console;
 	out.Write("download complete bytes=");

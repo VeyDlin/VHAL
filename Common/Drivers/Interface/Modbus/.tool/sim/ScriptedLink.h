@@ -1,6 +1,6 @@
 #pragma once
 #include <Drivers/Interface/Modbus/Transport.h>
-#include <Utilities/Checksum/CRC/Crc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -91,7 +91,7 @@ public:
 // Appends the Modbus CRC-16 (low byte first) to a frame body, using the library's own CRC. The framer is checked against this CRC in
 // the RTU tests, so the frames built here are independent of the framer under test.
 inline std::vector<uint8> ScriptedSeal(std::vector<uint8> body) {
-	uint16 crc = Crc::Calculate(body.data(), body.size(), Crc::CRC_16_MODBUS());
+	uint16 crc = Checksum::Crc16Modbus::Calculate(body);
 	body.push_back(static_cast<uint8>(crc & 0xFF));
 	body.push_back(static_cast<uint8>(crc >> 8));
 	return body;
