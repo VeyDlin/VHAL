@@ -62,7 +62,7 @@ struct RequestCancelSlot {
 // One request on the requester side. The handlers are the call site's, so the slot holds the function of its Send. The interim part is a
 // member only when the set has interim commands, and the cancel part only when the requester can cancel. The await part is a member only when
 // the layer is awaitable. A ping and a health request are slots with the command indexes PingSlotCommand and HealthSlotCommand: their final
-// handler is the request's own, and while a ping is queued its deadline field holds the padding. The slot's own calls take no command type: a
+// handler is the request's own, and while a ping is queued its number field holds the padding. The slot's own calls take no command type: a
 // Send site adds only its encoding and its final handler.
 template<bool Interim, bool Cancel, bool Waits>
 struct RequestSlot {
@@ -85,14 +85,6 @@ struct RequestSlot {
 			stage = RequestStage::ready;
 			result = status;
 		}
-	}
-
-
-	// Ends a request with its final, from Take: the slot is freed first, then the handler is called with the body of the packet.
-	void Close(ResultStatus finalResult, uint8 status, std::span<const uint8> body) {
-		RequestFinalFn handler = finalFn;
-		stage = RequestStage::free;
-		handler(finalResult, status, body);
 	}
 };
 
@@ -141,7 +133,6 @@ private:
 	[[no_unique_address]] std::conditional_t<Plan::counted, LateReplyCount, NoLateReply> late{};
 	[[no_unique_address]] std::conditional_t<Plan::queued, OutgoingQueue<Plan::largestPacket, Plan::pendingCount>, NoOutgoing> outgoing{};
 	static constexpr std::size_t requestBytes = RequestWire::RequestHeader + Commands::largestRequest;
-	static constexpr uint32 SessionStep = 0x9E37;
 
 
 public:
@@ -179,54 +170,26 @@ public:
 
 	// The requester's send, from the caller's context. The body is encoded here; the rest of the request is Launch, which takes no command
 	// types. A refusal of the send (busy, or a refusal of the stack) returns at once with no slot taken and no number used. With no Reliable
-	// below, a send while no session is given returns noInit. A concurrent layer queues the request for Process (see StartQueued).
+	// below, a send while no session is given returns noInit. A concurrent layer queues the request for Process (see Launch).
 	template<auto Id, auto OnFinal, auto OnInterim>
 	Result<RequestId> Start(const typename CommandOf<Commands, Id>::BodyType& body, const Outbox& outbox) {
 		using CommandType = CommandOf<Commands, Id>;
-		using BodyType = typename CommandType::BodyType;
 		static_assert(Plan::openCount > 0, "Send needs requester slots: give the layer Open(n) with n of at least 1");
 		static_assert(CommandType::level != 1, "a Fire command has no reply: send it with Fire()");
 		static_assert(CommandType::level != 2 || Plan::ownerBelow,
 			"a command with a delivery outcome needs Reliable below Requests; use .Fire() for no delivery at all");
 		static_assert(CheckFinal<Commands, Id, OnFinal>());
+		static_assert(CheckReplyDeadline<Id>());
 
 		if constexpr (!std::is_same_v<decltype(OnInterim), std::nullptr_t>) {
 			static_assert(CheckProgress<Commands, Id, OnInterim>());
 		}
 
-		if constexpr (Plan::concurrent) {
-			return StartQueued<Id, OnFinal, OnInterim>(body, outbox, nullptr);
-		}
-
-		if constexpr (!Plan::ownerBelow) {
-			if (!session.given) {
-				return ResultStatus::noInit;
-			}
-		}
-
 		constexpr std::size_t commandIndex = CommandIndexOf<Id>();
 		constexpr CommandInfo info = Commands::commandTable[commandIndex];
-		static_assert(CommandType::level == 2 || info.replyTimeoutMs > 0, "a command with a reply needs ReplyTimeoutMs: the requester's deadline");
-		if constexpr (Plan::usesLink) {
-			if constexpr (info.failWhileDown) {
-				if (link.down || !outbox.LinkUp()) {
-					return ResultStatus::noConnection;
-				}
-			}
-		}
-
 		std::array<uint8, requestBytes> packet{};
-		constexpr std::size_t bodyLength = BodyViewOf<BodyType>.maxSize;
-		(void)Encode(body, std::span<uint8>(packet.data() + RequestWire::RequestHeader, bodyLength));
-		RequestFinalFn finalFn = &RunFinal<Id, OnFinal>;
-		RequestInterimFn interimFn = nullptr;
-		if constexpr (Plan::anyInterim) {
-			if constexpr (!std::is_same_v<decltype(OnInterim), std::nullptr_t>) {
-				interimFn = &RunInterim<Id, OnInterim>;
-			}
-		}
-
-		return Launch(commandIndex, CommandType::id, packet, bodyLength, finalFn, interimFn, outbox);
+		std::size_t bodyLength = EncodeBody<Id>(body, packet);
+		return Launch<info.failWhileDown>(commandIndex, packet, bodyLength, &RunFinal<Id, OnFinal>, InterimOf<Id, OnInterim>(), nullptr, outbox);
 	}
 
 
@@ -237,13 +200,16 @@ public:
 		static_assert(Plan::openCount > 0, "Await needs requester slots: give the layer Open(n) with n of at least 1");
 		static_assert(CommandType::level != 1, "a Fire command has no reply: it cannot be awaited");
 		static_assert(CommandType::level != 2 || Plan::ownerBelow, "Await of a command with no reply needs Reliable below Requests");
-		static_assert(CommandType::level == 2 || CommandInfoOf<Commands, Id>().replyTimeoutMs > 0,
-			"a command with a reply needs ReplyTimeoutMs: the requester's deadline");
+		static_assert(CheckReplyDeadline<Id>());
 		if constexpr (!std::is_same_v<decltype(OnInterim), std::nullptr_t>) {
 			static_assert(CheckProgress<Commands, Id, OnInterim>());
 		}
 
-		return StartQueued<Id, nullptr, OnInterim>(body, outbox, waiter);
+		constexpr std::size_t commandIndex = CommandIndexOf<Id>();
+		constexpr CommandInfo info = Commands::commandTable[commandIndex];
+		std::array<uint8, requestBytes> packet{};
+		std::size_t bodyLength = EncodeBody<Id>(body, packet);
+		return Launch<info.failWhileDown>(commandIndex, packet, bodyLength, nullptr, InterimOf<Id, OnInterim>(), waiter, outbox);
 	}
 
 
@@ -251,26 +217,12 @@ public:
 	template<auto Id>
 	ResultStatus Fire(const typename CommandOf<Commands, Id>::BodyType& body, const Outbox& outbox) {
 		using CommandType = CommandOf<Commands, Id>;
-		using BodyType = typename CommandType::BodyType;
 		static_assert(CommandType::level == 1, "Fire takes a command with no reply: a command with a reply is sent with Send");
-		if constexpr (Plan::concurrent) {
-			return FireQueued<Id>(body, outbox);
-		}
-
 		constexpr std::size_t commandIndex = CommandIndexOf<Id>();
 		constexpr CommandInfo info = Commands::commandTable[commandIndex];
-		if constexpr (Plan::usesLink) {
-			if constexpr (info.failWhileDown) {
-				if (link.down || !outbox.LinkUp()) {
-					return ResultStatus::noConnection;
-				}
-			}
-		}
-
 		std::array<uint8, requestBytes> packet{};
-		constexpr std::size_t bodyLength = BodyViewOf<BodyType>.maxSize;
-		(void)Encode(body, std::span<uint8>(packet.data() + RequestWire::RequestHeader, bodyLength));
-		return LaunchFire(CommandType::id, packet, bodyLength, outbox);
+		std::size_t bodyLength = EncodeBody<Id>(body, packet);
+		return LaunchFire<info.failWhileDown>(commandIndex, packet, bodyLength, outbox);
 	}
 
 
@@ -344,7 +296,7 @@ public:
 		if constexpr (Plan::openCount > 0) {
 			for (Slot& slot : slots) {
 				bool timed = TimedSlot(slot);
-				if (slot.stage == RequestStage::open && timed && !slot.armNeeded && RequestWire::Due(nowUs, slot.deadlineUs)) {
+				if (slot.stage == RequestStage::open && timed && !slot.armNeeded && Due(nowUs, slot.deadlineUs)) {
 					slot.Settle(DeadlineResultOf(slot));
 				}
 			}
@@ -418,37 +370,13 @@ public:
 	// The handlers of the ready requests. Each slot is freed, and then its handler runs. A ping's round trip is this Process's clock minus the
 	// stamp its reply echoed.
 	void Deliver(uint32 nowUs) {
-		if constexpr (Plan::concurrent) {
-			if constexpr (Plan::openCount > 0) {
-				for (Slot& slot : slots) {
-					DeliverShared(slot, nowUs);
-				}
-			}
-
-			return;
-		}
-
 		if constexpr (Plan::openCount > 0) {
 			for (Slot& slot : slots) {
-				if (slot.stage == RequestStage::ready) {
-					RequestFinalFn handler = slot.finalFn;
-					ResultStatus result = slot.result;
-					std::array<uint8, BuiltInWire::PingStamp> roundTrip;
-					std::span<const uint8> body;
-					if constexpr (Plan::sendsPing) {
-						if (IsPing(slot) && result == ResultStatus::ok) {
-							PutLe32(roundTrip.data(), nowUs - slot.deadlineUs);
-							body = roundTrip;
-						}
-					}
-
-					slot.stage = RequestStage::free;
-					handler(result, 0, body);
-				}
+				DeliverSlot(slot, nowUs);
 			}
+		} else {
+			(void)nowUs;
 		}
-
-		(void)nowUs;
 	}
 
 
@@ -535,15 +463,20 @@ public:
 	// A bad body or status closes it as invalidData; a late or duplicate final is dropped. The packet has its error size at least, and its status
 	// when its code is ok.
 	void TakeFinal(std::span<const uint8> packet) {
-		if constexpr (Plan::concurrent) {
-			TakeFinalShared(packet);
-		} else if constexpr (Plan::openCount > 0) {
-			Slot* slot = FindOpen(GetLe16(packet.data() + 1), packet[3]);
-			if (slot != nullptr) {
+		if constexpr (Plan::openCount > 0) {
+			RequestFinalFn handler = nullptr;
+			ResultStatus result = ResultStatus::ok;
+			uint8 status = 0;
+			std::span<const uint8> body;
+			{
+				RequestSection<Plan::concurrent> section;
+				Slot* slot = FindOpen(GetLe16(packet.data() + 1), packet[3]);
+				if (slot == nullptr) {
+					CountLate();
+					return;
+				}
+
 				uint8 code = packet[4];
-				ResultStatus result = ResultStatus::ok;
-				uint8 status = 0;
-				std::span<const uint8> body;
 				if (code != RequestWire::CodeOk) {
 					result = RequestWire::ResultOfCode(code);
 				} else if (packet[5] >= RequestWire::StatusReservedFrom) {
@@ -568,9 +501,25 @@ public:
 					}
 				}
 
-				slot->Close(result, status, body);
+				slot->stage = RequestStage::free;
+				if constexpr (Plan::awaitable) {
+					if (slot->await.waiter != nullptr) {
+						AwaitWaiter* waiter = slot->await.waiter;
+						slot->await.waiter = nullptr;
+						waiter->deliver(*waiter, result, status, body);
+						return;
+					}
+				}
+
+				handler = slot->finalFn;
+			}
+
+			if constexpr (Plan::concurrent) {
+				if (handler != nullptr) {
+					handler(result, status, body);
+				}
 			} else {
-				CountLate();
+				handler(result, status, body);
 			}
 		} else {
 			(void)packet;
@@ -581,39 +530,40 @@ public:
 	// Takes an INTERIM of an open request: the index must rise, and the status must be a user status. The handler is called here, at once,
 	// so no reply waits in a queue. The deadline of the request is re-armed in Process. The packet has its size at least.
 	ResultStatus TakeInterim(std::span<const uint8> packet) {
-		if constexpr (Plan::concurrent) {
-			return TakeInterimShared(packet);
-		}
-
 		if constexpr (Plan::openCount > 0 && Plan::anyInterim) {
-			Slot* slot = FindOpen(GetLe16(packet.data() + 1), packet[3]);
-			uint8 index = packet[4];
-			uint8 status = packet[5];
-			if (slot == nullptr) {
-				CountLate();
-				return ResultStatus::ok;
-			}
-
-			if (IsBuiltIn(*slot)) {
-				return ResultStatus::ok;
-			}
-
+			RequestInterimFn handler = nullptr;
 			bool refused = false;
-			if constexpr (Plan::cancellable) {
-				refused = status == RequestWire::StatusCancelRefused;
+			uint8 status = packet[5];
+			{
+				RequestSection<Plan::concurrent> section;
+				Slot* slot = FindOpen(GetLe16(packet.data() + 1), packet[3]);
+				uint8 index = packet[4];
+				if (slot == nullptr) {
+					CountLate();
+					return ResultStatus::ok;
+				}
+
+				if (IsBuiltIn(*slot)) {
+					return ResultStatus::ok;
+				}
+
+				if constexpr (Plan::cancellable) {
+					refused = status == RequestWire::StatusCancelRefused;
+				}
+
+				if (status >= RequestWire::StatusReservedFrom && !refused) {
+					return ResultStatus::invalidData;
+				}
+
+				if (index == 0 || index <= slot->interim.lastIndex) {
+					return ResultStatus::ok;
+				}
+
+				slot->interim.lastIndex = index;
+				slot->armNeeded = true;
+				handler = slot->interim.interimFn;
 			}
 
-			if (status >= RequestWire::StatusReservedFrom && !refused) {
-				return ResultStatus::invalidData;
-			}
-
-			if (index == 0 || index <= slot->interim.lastIndex) {
-				return ResultStatus::ok;
-			}
-
-			slot->interim.lastIndex = index;
-			slot->armNeeded = true;
-			RequestInterimFn handler = slot->interim.interimFn;
 			if (handler != nullptr) {
 				if (refused) {
 					handler(ResultStatus::notSupported, 0);
@@ -735,68 +685,84 @@ public:
 
 
 private:
-	// The start of a request in a concurrent layer: the body is encoded on the caller's stack, and then the slot and the packet are taken in one
-	// section. A refusal of the send is not a refusal of the queue: a full queue or a full table returns busy, and nothing is taken.
-	template<auto Id, auto OnFinal, auto OnInterim>
-	Result<RequestId> StartQueued(const typename CommandOf<Commands, Id>::BodyType& body, const Outbox& outbox, AwaitWaiter* waiter) {
-		using CommandType = CommandOf<Commands, Id>;
-		using BodyType = typename CommandType::BodyType;
-		constexpr std::size_t commandIndex = CommandIndexOf<Id>();
-		constexpr CommandInfo info = Commands::commandTable[commandIndex];
-		std::array<uint8, requestBytes> packet{};
-		constexpr std::size_t bodyLength = BodyViewOf<BodyType>.maxSize;
-		(void)Encode(body, std::span<uint8>(packet.data() + RequestWire::RequestHeader, bodyLength));
-		RequestFinalFn finalFn = nullptr;
-		if constexpr (!std::is_same_v<decltype(OnFinal), std::nullptr_t>) {
-			finalFn = &RunFinal<Id, OnFinal>;
-		}
-
-		RequestInterimFn interimFn = nullptr;
-		if constexpr (Plan::anyInterim) {
-			if constexpr (!std::is_same_v<decltype(OnInterim), std::nullptr_t>) {
-				interimFn = &RunInterim<Id, OnInterim>;
-			}
-		}
-
-		return LaunchQueued(commandIndex, CommandType::id, packet, bodyLength, finalFn, interimFn, waiter, info.failWhileDown, outbox);
+	// The check of the reply's deadline that Start and StartAwaited share: a command with a reply needs ReplyTimeoutMs.
+	template<auto Id>
+	static constexpr bool CheckReplyDeadline() {
+		static_assert(CommandOf<Commands, Id>::level == 2 || CommandInfoOf<Commands, Id>().replyTimeoutMs > 0,
+			"a command with a reply needs ReplyTimeoutMs: the requester's deadline");
+		return true;
 	}
 
 
-	// The request of a command with a reply, in a concurrent layer: the slot, the number and the packet are taken inside one section, and the
-	// packet is queued for Process. The slot is open at once, so its deadline is armed by the next Process.
-	Result<RequestId> LaunchQueued(
+	// The interim handler of a request: the function that runs RunInterim for the command, or null when the set has no interim or the call has none.
+	template<auto Id, auto OnInterim>
+	static constexpr RequestInterimFn InterimOf() {
+		if constexpr (Plan::anyInterim && !std::is_same_v<decltype(OnInterim), std::nullptr_t>) {
+			return &RunInterim<Id, OnInterim>;
+		} else {
+			return nullptr;
+		}
+	}
+
+
+	// Encodes the body of a request of the command with the id Id, after the header of the packet, and returns the length of the body.
+	template<auto Id>
+	static std::size_t EncodeBody(const typename CommandOf<Commands, Id>::BodyType& body, std::array<uint8, requestBytes>& packet) {
+		constexpr std::size_t bodyLength = BodyViewOf<typename CommandOf<Commands, Id>::BodyType>.maxSize;
+		(void)Encode(body, std::span<uint8>(packet.data() + RequestWire::RequestHeader, bodyLength));
+		return bodyLength;
+	}
+
+
+	// True when a FailWhileDown command is refused because the connection is down. The check is made in a section of a concurrent layer.
+	template<bool FailWhileDown>
+	bool LinkRefuses(const Outbox& outbox) const {
+		if constexpr (Plan::usesLink && FailWhileDown) {
+			return link.down || !outbox.LinkUp();
+		} else {
+			(void)outbox;
+			return false;
+		}
+	}
+
+
+	// The request of a command with a reply, from its encoded packet: the slot, the number and the packet are taken in one section. The packet
+	// goes out through Transmit: a plain layer sends it at once, and a concurrent layer queues it for Process, which arms the deadline. A
+	// refusal of the send returns at once with no slot taken and no number used.
+	template<bool FailWhileDown>
+	Result<RequestId> Launch(
 		std::size_t commandIndex,
-		uint8 id,
 		std::array<uint8, requestBytes>& packet,
 		std::size_t bodyLength,
 		RequestFinalFn finalFn,
 		RequestInterimFn interimFn,
 		AwaitWaiter* waiter,
-		bool failWhileDown,
 		const Outbox& outbox)
 	{
-		RequestSection<true> section;
+		RequestSection<Plan::concurrent> section;
 		if constexpr (!Plan::ownerBelow) {
 			if (!session.given) {
 				return ResultStatus::noInit;
 			}
 		}
 
-		if constexpr (Plan::usesLink) {
-			if (failWhileDown && (link.down || !outbox.LinkUp())) {
-				return ResultStatus::noConnection;
-			}
+		if (LinkRefuses<FailWhileDown>(outbox)) {
+			return ResultStatus::noConnection;
 		}
 
 		Slot* slot = FreeRequest();
-		if (slot == nullptr || outgoing.Full()) {
+		if (slot == nullptr) {
 			return ResultStatus::busy;
 		}
 
 		uint16 number = FreeNumber();
 		uint8 tag = numbers.nextTag;
-		WriteHeader(id, number, tag, packet);
-		outgoing.Push(std::span<const uint8>(packet.data(), RequestWire::RequestHeader + bodyLength), 0);
+		WriteHeader(Commands::commandTable[commandIndex].id, number, tag, packet);
+		ResultStatus status = Transmit(std::span<const uint8>(packet.data(), RequestWire::RequestHeader + bodyLength), 0, outbox);
+		if (status != ResultStatus::ok) {
+			return status;
+		}
+
 		slot->number = number;
 		slot->tag = tag;
 		slot->command = static_cast<uint8>(commandIndex);
@@ -821,38 +787,6 @@ private:
 
 		Advance(number);
 		return RequestId{number};
-	}
-
-
-	// The fire in a concurrent layer: the packet is taken and queued in one section, with the no-acknowledgement flag.
-	template<auto Id>
-	ResultStatus FireQueued(const typename CommandOf<Commands, Id>::BodyType& body, const Outbox& outbox) {
-		using CommandType = CommandOf<Commands, Id>;
-		using BodyType = typename CommandType::BodyType;
-		constexpr std::size_t commandIndex = CommandIndexOf<Id>();
-		constexpr CommandInfo info = Commands::commandTable[commandIndex];
-		std::array<uint8, requestBytes> packet{};
-		constexpr std::size_t bodyLength = BodyViewOf<BodyType>.maxSize;
-		(void)Encode(body, std::span<uint8>(packet.data() + RequestWire::RequestHeader, bodyLength));
-		RequestSection<true> section;
-		if constexpr (Plan::usesLink) {
-			if constexpr (info.failWhileDown) {
-				if (link.down || !outbox.LinkUp()) {
-					return ResultStatus::noConnection;
-				}
-			}
-		}
-
-		if (outgoing.Full()) {
-			return ResultStatus::busy;
-		}
-
-		uint16 number = FreeNumber();
-		uint8 tag = numbers.nextTag;
-		WriteHeader(CommandType::id, number, tag, packet);
-		outgoing.Push(std::span<const uint8>(packet.data(), RequestWire::RequestHeader + bodyLength), Meta::NoAcknowledgeFlag);
-		Advance(number);
-		return ResultStatus::ok;
 	}
 
 
@@ -888,7 +822,8 @@ private:
 	}
 
 
-	// Writes the wire packet of a refused request in the queue: the request it names is settled with the refusal. Called in a section.
+	// Handles a queued packet that the outbox refused for good. A REQUEST settles its request with the refusal. A CANCEL of an open request is
+	// held again: its mark is cleared, so the next Process queues it once more. Called in a section.
 	void SettleRefused(const OutgoingPacket<Plan::largestPacket>& packet, ResultStatus status) {
 		if (packet.length >= RequestWire::RequestHeader && packet.bytes[0] == RequestWire::KindRequest) {
 			Slot* slot = FindOpen(GetLe16(packet.bytes.data() + 2), packet.bytes[4]);
@@ -896,18 +831,27 @@ private:
 				slot->Settle(status);
 			}
 		}
+
+		if constexpr (Plan::requesterCancels) {
+			if (packet.length >= RequestWire::CancelSize && packet.bytes[0] == RequestWire::KindCancel) {
+				Slot* slot = FindOpen(GetLe16(packet.bytes.data() + 1), packet.bytes[3]);
+				if (slot != nullptr) {
+					slot->cancel.sent = false;
+				}
+			}
+		}
 	}
 
 
-	// The handler of a ready request in a concurrent layer. The slot is freed inside a section; the handler runs outside it. A request with a
+	// The handler of a ready request. The slot is freed inside a section of a concurrent layer; the handler runs outside it. A request with a
 	// waiter gets its result in the waiter, inside the section, and no handler.
-	void DeliverShared(Slot& slot, uint32 nowUs) {
+	void DeliverSlot(Slot& slot, uint32 nowUs) {
 		RequestFinalFn handler = nullptr;
 		ResultStatus result = ResultStatus::ok;
-		std::array<uint8, BuiltInWire::PingStamp> roundTrip{};
+		std::array<uint8, BuiltInWire::PingStamp> roundTrip;
 		std::span<const uint8> body;
 		{
-			RequestSection<true> section;
+			RequestSection<Plan::concurrent> section;
 			if (slot.stage != RequestStage::ready) {
 				return;
 			}
@@ -933,121 +877,13 @@ private:
 			handler = slot.finalFn;
 		}
 
-		if (handler != nullptr) {
-			handler(result, 0, body);
-		}
-	}
-
-
-	// The final of a concurrent layer: the request is closed inside a section, and its handler, or the waiter's deliver, gets the result. The
-	// handler runs outside the section. A FINAL that matches no open request is counted as late.
-	void TakeFinalShared(std::span<const uint8> packet) {
-		if constexpr (Plan::openCount > 0) {
-			RequestFinalFn handler = nullptr;
-			ResultStatus result = ResultStatus::ok;
-			uint8 status = 0;
-			std::span<const uint8> body;
-			{
-				RequestSection<true> section;
-				Slot* slot = FindOpen(GetLe16(packet.data() + 1), packet[3]);
-				if (slot == nullptr) {
-					CountLate();
-					return;
-				}
-
-				uint8 code = packet[4];
-				if (code != RequestWire::CodeOk) {
-					result = RequestWire::ResultOfCode(code);
-				} else if (packet[5] >= RequestWire::StatusReservedFrom) {
-					result = ResultStatus::invalidData;
-				} else {
-					status = packet[5];
-					body = packet.subspan(RequestWire::FinalHeader);
-				}
-
-				if constexpr (Plan::sendsPing) {
-					if (IsPing(*slot)) {
-						if (result == ResultStatus::ok && (status != 0 || body.size() < BuiltInWire::PingStamp)) {
-							result = ResultStatus::invalidData;
-						}
-
-						if (result == ResultStatus::ok) {
-							slot->deadlineUs = GetLe32(body.data());
-						}
-
-						slot->Settle(result);
-						return;
-					}
-				}
-
-				slot->stage = RequestStage::free;
-				if constexpr (Plan::awaitable) {
-					if (slot->await.waiter != nullptr) {
-						AwaitWaiter* waiter = slot->await.waiter;
-						slot->await.waiter = nullptr;
-						waiter->deliver(*waiter, result, status, body);
-						return;
-					}
-				}
-
-				handler = slot->finalFn;
-			}
-
+		if constexpr (Plan::concurrent) {
 			if (handler != nullptr) {
-				handler(result, status, body);
+				handler(result, 0, body);
 			}
 		} else {
-			(void)packet;
+			handler(result, 0, body);
 		}
-	}
-
-
-	// The interim of a concurrent layer: the index and the arming are set inside a section; the handler runs outside it.
-	ResultStatus TakeInterimShared(std::span<const uint8> packet) {
-		if constexpr (Plan::openCount > 0 && Plan::anyInterim) {
-			RequestInterimFn handler = nullptr;
-			bool refused = false;
-			uint8 status = packet[5];
-			{
-				RequestSection<true> section;
-				Slot* slot = FindOpen(GetLe16(packet.data() + 1), packet[3]);
-				uint8 index = packet[4];
-				if (slot == nullptr) {
-					CountLate();
-					return ResultStatus::ok;
-				}
-
-				if (IsBuiltIn(*slot)) {
-					return ResultStatus::ok;
-				}
-
-				if constexpr (Plan::cancellable) {
-					refused = status == RequestWire::StatusCancelRefused;
-				}
-
-				if (status >= RequestWire::StatusReservedFrom && !refused) {
-					return ResultStatus::invalidData;
-				}
-
-				if (index == 0 || index <= slot->interim.lastIndex) {
-					return ResultStatus::ok;
-				}
-
-				slot->interim.lastIndex = index;
-				slot->armNeeded = true;
-				handler = slot->interim.interimFn;
-			}
-
-			if (handler != nullptr) {
-				if (refused) {
-					handler(ResultStatus::notSupported, 0);
-				} else {
-					handler(ResultStatus::ok, status);
-				}
-			}
-		}
-
-		return ResultStatus::ok;
 	}
 
 
@@ -1087,7 +923,7 @@ private:
 	}
 
 
-	// Takes a slot for a built-in request and queues it: the next Process sends it. The slot's deadline field holds the padding of a ping until
+	// Takes a slot for a built-in request and queues it: the next Process sends it. The slot's number field holds the padding of a ping until
 	// then. A full table returns busy, and a layer with no Reliable below and no session returns noInit; both use no number.
 	ResultStatus QueueBuiltIn(uint8 command, RequestFinalFn finalFn, uint32 padding) {
 		RequestSection<Plan::concurrent> section;
@@ -1104,10 +940,10 @@ private:
 
 		slot->stage = RequestStage::queued;
 		slot->command = command;
-		slot->armNeeded = false;
+		slot->armNeeded = true;
 		slot->result = ResultStatus::ok;
 		slot->finalFn = finalFn;
-		slot->deadlineUs = padding;
+		slot->number = static_cast<uint16>(padding);
 		if constexpr (Plan::requesterCancels) {
 			slot->cancel = RequestCancelSlot{};
 		}
@@ -1116,17 +952,29 @@ private:
 	}
 
 
-	// Sends one queued built-in request: a ping or a health request. A busy send keeps it queued for the next Process; any other refusal ends
-	// it at once, and its handler gets that result. An accepted request takes its number and tag, and its deadline runs from this Process's
-	// clock.
+	// Sends one queued built-in request: a ping or a health request. Its deadline runs from the first Process after the call, sent or not: a
+	// request that is still queued when the deadline has passed ends with the deadline's result and is not sent. A busy send keeps it queued
+	// for the next Process; any other refusal ends it at once, and its handler gets that result. An accepted request takes its number and tag,
+	// and keeps the deadline it has.
 	void SendBuiltIn(Slot& slot, uint32 nowUs, const Outbox& outbox) {
+		if (slot.armNeeded) {
+			slot.armNeeded = false;
+			slot.deadlineUs = nowUs + Plan::builtInTimeoutMs * UsPerMs;
+		}
+
+		if (Due(nowUs, slot.deadlineUs)) {
+			slot.result = DeadlineResultOf(slot);
+			slot.stage = RequestStage::ready;
+			return;
+		}
+
 		std::array<uint8, Plan::builtInRequestBytes> packet;
 		uint16 number = FreeNumber();
 		uint8 tag = numbers.nextTag;
 		std::size_t length = 0;
 		if constexpr (Plan::sendsPing) {
 			if (IsPing(slot)) {
-				length = EncodePingRequest(packet, number, tag, nowUs, static_cast<uint16>(slot.deadlineUs));
+				length = EncodePingRequest(packet, number, tag, nowUs, slot.number);
 			}
 		}
 
@@ -1150,7 +998,6 @@ private:
 		slot.number = number;
 		slot.tag = tag;
 		slot.stage = RequestStage::open;
-		slot.deadlineUs = nowUs + Plan::builtInTimeoutMs * 1000u;
 		Advance(number);
 	}
 
@@ -1174,62 +1021,19 @@ private:
 	}
 
 
-	// The request of a command with a reply, from its encoded body in the packet's bytes after the header: a free slot, the next number and tag,
-	// the packet sent, and the slot filled. A refusal of the send returns at once with no slot taken and no number used. The slot keeps the
-	// command's index, for its deadline.
-	Result<RequestId> Launch(
-		std::size_t commandIndex,
-		uint8 id,
-		std::array<uint8, requestBytes>& packet,
-		std::size_t bodyLength,
-		RequestFinalFn finalFn,
-		RequestInterimFn interimFn,
-		const Outbox& outbox)
-	{
-		Slot* slot = FreeRequest();
-		if (slot == nullptr) {
-			return ResultStatus::busy;
+	// The packet of a command with no reply: no slot, and the number and tag are used only when the packet is taken or sent, with the
+	// no-acknowledgement flag.
+	template<bool FailWhileDown>
+	ResultStatus LaunchFire(std::size_t commandIndex, std::array<uint8, requestBytes>& packet, std::size_t bodyLength, const Outbox& outbox) {
+		RequestSection<Plan::concurrent> section;
+		if (LinkRefuses<FailWhileDown>(outbox)) {
+			return ResultStatus::noConnection;
 		}
 
 		uint16 number = FreeNumber();
 		uint8 tag = numbers.nextTag;
-		WriteHeader(id, number, tag, packet);
-		std::size_t length = RequestWire::RequestHeader + bodyLength;
-		ResultStatus status = outbox.Send(std::span<const uint8>(packet.data(), length));
-		if (status != ResultStatus::ok) {
-			return status;
-		}
-
-		slot->number = number;
-		slot->tag = tag;
-		slot->command = static_cast<uint8>(commandIndex);
-		slot->result = ResultStatus::ok;
-		slot->stage = RequestStage::open;
-		slot->armNeeded = true;
-		slot->finalFn = finalFn;
-		if constexpr (Plan::requesterCancels) {
-			slot->cancel = RequestCancelSlot{};
-		}
-
-		if constexpr (Plan::anyInterim) {
-			slot->interim.lastIndex = 0;
-			slot->interim.interimFn = interimFn;
-		}
-
-		Advance(number);
-		return RequestId{number};
-	}
-
-
-	// The packet of a command with no reply: no slot, and the number and tag are used only when the packet is sent.
-	ResultStatus LaunchFire(uint8 id, std::array<uint8, requestBytes>& packet, std::size_t bodyLength, const Outbox& outbox) {
-		uint16 number = FreeNumber();
-		uint8 tag = numbers.nextTag;
-		WriteHeader(id, number, tag, packet);
-		std::size_t length = RequestWire::RequestHeader + bodyLength;
-		Meta meta{};
-		meta.flags = Meta::NoAcknowledgeFlag;
-		ResultStatus status = outbox.Send(std::span<const uint8>(packet.data(), length), meta);
+		WriteHeader(Commands::commandTable[commandIndex].id, number, tag, packet);
+		ResultStatus status = Transmit(std::span<const uint8>(packet.data(), RequestWire::RequestHeader + bodyLength), Meta::NoAcknowledgeFlag, outbox);
 		if (status == ResultStatus::ok) {
 			Advance(number);
 		}
@@ -1364,7 +1168,7 @@ private:
 
 
 	uint32 TimeoutUsOf(uint8 command) const {
-		return Commands::commandTable[command].replyTimeoutMs * 1000u;
+		return Commands::commandTable[command].replyTimeoutMs * UsPerMs;
 	}
 
 

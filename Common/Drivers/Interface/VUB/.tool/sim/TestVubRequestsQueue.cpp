@@ -195,6 +195,44 @@ using QueueStack = VUB::Stack<+[]() {
 using QueueHandle = decltype(std::declval<QueueStack&>().Requests());
 
 
+// A link that reports its state: while it is down, a stack with WhileDown(Fail) refuses the layer's packets with noConnection, and the
+// packet of the layer is not sent. SetUp changes the state through the sink the stack gave.
+struct QueueFailLink {
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(512).FullDuplex().ReportsState();
+	VUB::StateSink sink;
+	std::vector<std::vector<uint8>> wire;
+
+
+	void SetStateSink(VUB::StateSink value) {
+		sink = value;
+	}
+
+
+	void SetUp(bool up) {
+		sink.Report(up);
+	}
+
+
+	ResultStatus Send(std::span<const uint8> packet) {
+		wire.emplace_back(packet.begin(), packet.end());
+		return ResultStatus::ok;
+	}
+};
+
+
+using QueueFailStack = VUB::Stack<+[]() {
+	return VUB::Builder()
+		.Layer<VUB::Requests<QueueCommands, VUB::Handlers<>>>().Open(16).Pending(8).Ping(0).Health().BuiltInTimeoutMs(500).Counted().Awaitable()
+		.Link<QueueFailLink>()
+		.MaxPayload(400)
+		.SendQueue(1)
+		.WhileDown(VUB::Down::Fail)
+		.OnReceive<&QueueReceive>()
+		.Clock<&QueueClock>()
+		.Concurrent();
+}>;
+
+
 // The final and the ping handlers of the tests: they count what they get.
 inline uint32 finalsSeen = 0;
 inline uint32 timeoutsSeen = 0;
@@ -242,7 +280,8 @@ void ResetCounters() {
 
 
 // Runs one Process after the clock moves by stepUs.
-void Tick(QueueStack& stack, uint32 stepUs) {
+template<typename StackType>
+void Tick(StackType& stack, uint32 stepUs) {
 	nowUs.fetch_add(stepUs);
 	stack.Process();
 }
@@ -454,6 +493,92 @@ void TestPingLeavesTheQueue() {
 }
 
 
+// The layer's queue full of fires, with the link blocked: the stack's control packet takes one fire, and eight more wait in the layer's queue,
+// so a ping or a health request sent now finds no room in the queue.
+void FillLayerQueue(QueueStack& stack, QueueHandle& handle, QueueLink& link) {
+	FillControlQueue(stack, handle, link);
+	Job::JobRequest body{};
+	body.amount = 98;
+	for (uint32 index = 0; index < 8; index++) {
+		SIM_EXPECT(handle.Fire<Job::Command::note>(body) == ResultStatus::ok);
+	}
+
+	Tick(stack, 1000);
+	SIM_EXPECT(link.wire.empty());
+}
+
+
+// A cancel that the stack refuses (the link is down under Fail) is held: the next Process sends it once the link is up again. The
+// request itself was sent before the link went down, and the cancel is the packet that the refusal hits.
+void TestCancelRefusedWhileDownIsSentAgain() {
+	ResetCounters();
+	QueueFailLink link;
+	QueueFailStack stack(link);
+	link.SetUp(true);
+	decltype(stack.Requests()) handle = stack.Requests();
+	handle.SetSession(1);
+	Job::JobRequest body{};
+	body.amount = 9;
+	Result<VUB::RequestId> sent = handle.Send<Job::Command::run, &OnFinal>(body);
+	SIM_EXPECT(sent.IsErr() == false);
+	const uint16 number = sent.Value().number;
+	Tick(stack, 1000);
+	SIM_EXPECT(CountRequestsOf(link.wire, static_cast<uint8>(Job::Command::run), number) == 1);
+
+	link.SetUp(false);
+	SIM_EXPECT(handle.Cancel<Job::Command::run>(sent.Value()) == ResultStatus::ok);
+	Tick(stack, 1000);
+	SIM_EXPECT(CountCancelsOf(link.wire, number) == 0);
+
+	link.SetUp(true);
+	Tick(stack, 1000);
+	SIM_EXPECT(CountCancelsOf(link.wire, number) == 1);
+}
+
+
+// A ping that the full queue refuses stays queued: its BuiltInTimeoutMs runs from the first Process after the call, so it ends with timeout,
+// and nothing of it goes out after the link returns.
+void TestPingRefusedByFullQueueTimesOut() {
+	ResetCounters();
+	QueueLink link;
+	QueueStack stack(link);
+	QueueHandle handle = stack.Requests();
+	handle.SetSession(1);
+	FillLayerQueue(stack, handle, link);
+
+	SIM_EXPECT(handle.Ping<&OnPing>(0) == ResultStatus::ok);
+	Tick(stack, 1000);
+	for (uint32 step = 0; step < 8; step++) {
+		Tick(stack, 100000);
+	}
+
+	SIM_EXPECT(pingsSeen == 1 && pingTimeouts == 1);
+	Release(stack, link);
+	SIM_EXPECT(CountRequestsWithId(link.wire, VUB::BuiltInWire::IdPing) == 0);
+}
+
+
+// A health request that the full queue refuses ends with timeout at BuiltInTimeoutMs after the first Process, and is not sent later.
+void TestHealthRefusedByFullQueueTimesOut() {
+	ResetCounters();
+	QueueLink link;
+	QueueStack stack(link);
+	QueueHandle handle = stack.Requests();
+	handle.SetSession(1);
+	FillLayerQueue(stack, handle, link);
+
+	SIM_EXPECT(handle.Health<&OnHealth>() == ResultStatus::ok);
+	Tick(stack, 1000);
+	for (uint32 step = 0; step < 8; step++) {
+		Tick(stack, 100000);
+	}
+
+	SIM_EXPECT(healthSeen == 1 && healthTimeouts == 1);
+	Release(stack, link);
+	SIM_EXPECT(CountRequestsWithId(link.wire, VUB::BuiltInWire::IdHealth) == 0);
+}
+
+
 // A request of more than 255 bytes: the queue keeps its whole packet, and the wire has the same bytes.
 void TestPacketLongerThan255BytesIsSentWhole() {
 	ResetCounters();
@@ -656,17 +781,19 @@ void TestConcurrentPingAndFireFromTwoTasks() {
 		pingsDone.store(true);
 	});
 
+	// The stack takes one packet per Process, so the packets of both tasks need 60 of them. A ping's time runs while it waits in the queue: with
+	// 1 ms between two Processes each one is sent long before its 500 ms.
 	uint32 steps = 0;
 	while ((firesDone.load() == false || pingsDone.load() == false) && steps < 2000000) {
 		steps++;
-		Tick(stack, 10000);
+		Tick(stack, 1000);
 		std::this_thread::yield();
 	}
 
 	fires.join();
 	pings.join();
-	for (uint32 step = 0; step < 100; step++) {
-		Tick(stack, 10000);
+	for (uint32 step = 0; step < 1000; step++) {
+		Tick(stack, 1000);
 	}
 
 	SIM_EXPECT(refused.load() == 0);
@@ -885,6 +1012,9 @@ int main() {
 	TestCancelledRequestLeavesTheQueue();
 	TestAbandonedAwaitLeavesTheQueue();
 	TestPingLeavesTheQueue();
+	TestCancelRefusedWhileDownIsSentAgain();
+	TestPingRefusedByFullQueueTimesOut();
+	TestHealthRefusedByFullQueueTimesOut();
 	TestPacketLongerThan255BytesIsSentWhole();
 	TestRequestMadeInHandlerGoesOutInThatProcess();
 	TestFireMadeInHandlerGoesOutInThatProcess();

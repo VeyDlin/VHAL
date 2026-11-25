@@ -31,7 +31,7 @@ namespace BuiltInWire {
 	inline constexpr std::size_t StackCountersBytes = 22;
 	inline constexpr std::size_t HealthReplyHeader = RequestWire::FinalHeader + CountersBytes;
 	inline constexpr uint32 DefaultTimeoutMs = 1000;
-	inline constexpr uint32 MaxTimeoutMs = 2147483;
+	inline constexpr uint32 MaxTimeoutMs = VUB::MaxTimeoutMs;
 	// The command indexes of the requester slots that hold a ping and a health request. Commands are at most 240, so no command has an index
 	// of FirstBuiltInSlot or more.
 	inline constexpr uint8 PingSlotCommand = 0xFF;

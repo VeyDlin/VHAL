@@ -1060,7 +1060,120 @@ inline ResultStatus SendPingExample(PingLink& link) {
 // --- end snippet ---
 
 
+// The ping REQUEST packets of a capture: a ping with no padding ends with 01 F0, its number, its tag and its four stamp bytes.
+std::size_t CountPingRequests(const ReliableCapture& capture) {
+	std::size_t count = 0;
+	for (std::size_t index = 0; index < capture.count && index < capture.packets.size(); index++) {
+		std::size_t length = capture.lengths[index];
+		if (length >= 9 && capture.packets[index][length - 9] == 0x01 && capture.packets[index][length - 8] == 0xF0) {
+			count++;
+		}
+	}
+
+	return count;
+}
+
+
+// A ping whose peer never answers the sync: the ping waits for the layer to send it, and ends with timeout at BuiltInTimeoutMs (1000 ms) after
+// the first Process after the call. The deadline is 1 001 000 us here, the first Process being at 1000 us.
+void TestPingWithoutAnsweringPeerTimesOut() {
+	ResetPingState();
+	ReportingPacketLine line(VUB::Faults{});
+	PingRequester near(line.a);
+	GiveSession(near);
+	SIM_EXPECT(SendPing(near, 1000, 0) == ResultStatus::ok);
+	uint32 now = 1000;
+	for (uint32 step = 0; step < 12; step++) {
+		testNowUs = now;
+		near.Process();
+		now += 100000;
+	}
+
+	SIM_EXPECT(pingCalls == 1);
+	SIM_EXPECT(pingResults[0] == ResultStatus::timeout);
+}
+
+
+// A ping sent while the link is down (Wait) ends with timeout at its deadline, though the link never came back.
+void TestPingWhileLinkIsDownTimesOut() {
+	ResetPingState();
+	ReportingPacketLine line(VUB::Faults{});
+	PingRequester near(line.a);
+	PingResponder far(line.b);
+	WireLog log;
+	Establish(line, near, far, log);
+
+	line.SetLinkUp(false);
+	SIM_EXPECT(SendPing(near, 2000, 0) == ResultStatus::ok);
+	uint32 now = 2000;
+	for (uint32 step = 0; step < 12; step++) {
+		Round(line, near, far, log, now);
+		now += 100000;
+	}
+
+	SIM_EXPECT(pingCalls == 1);
+	SIM_EXPECT(pingResults[0] == ResultStatus::timeout);
+}
+
+
+// A ping that timed out while it waited for the link is not sent when the link returns: no ping REQUEST reaches the far end afterwards.
+void TestPingTimedOutWhileQueuedIsNotSent() {
+	ResetPingState();
+	ReportingPacketLine line(VUB::Faults{});
+	PingRequester near(line.a);
+	PingResponder far(line.b);
+	WireLog log;
+	Establish(line, near, far, log);
+
+	line.SetLinkUp(false);
+	SIM_EXPECT(SendPing(near, 2000, 0) == ResultStatus::ok);
+	uint32 now = 2000;
+	for (uint32 step = 0; step < 12; step++) {
+		Round(line, near, far, log, now);
+		now += 100000;
+	}
+
+	SIM_EXPECT(pingCalls == 1 && pingResults[0] == ResultStatus::timeout);
+	line.SetLinkUp(true);
+	std::size_t sent = 0;
+	for (uint32 step = 0; step < 12; step++) {
+		Round(line, near, far, log, now);
+		sent += CountPingRequests(log.toFar);
+		now += 100000;
+	}
+
+	SIM_EXPECT(sent == 0);
+	SIM_EXPECT(pingCalls == 1);
+}
+
+
+// A ping with no Reliable below, sent while the link is down (Wait): the link refuses it busy, the layer keeps it, and it ends with timeout at
+// its deadline.
+void TestPlainPingWhileLinkIsDownTimesOut() {
+	ResetPingState();
+	ReportingPacketLine line(VUB::Faults{});
+	PlainPingRequester near(line.a);
+	decltype(near.Requests()) handle = near.Requests();
+	handle.SetSession(5);
+	line.SetLinkUp(false);
+	SIM_EXPECT(SendPing(near, 1000, 0) == ResultStatus::ok);
+	uint32 now = 1000;
+	for (uint32 step = 0; step < 12; step++) {
+		testNowUs = now;
+		near.Process();
+		now += 100000;
+	}
+
+	SIM_EXPECT(pingCalls == 1);
+	SIM_EXPECT(pingResults[0] == ResultStatus::timeout);
+}
+
+
 int main() {
+	TestPlainPingWhileLinkIsDownTimesOut();
+	TestPingWithoutAnsweringPeerTimesOut();
+	TestPingWhileLinkIsDownTimesOut();
+	TestPingTimedOutWhileQueuedIsNotSent();
 	TestPingBytesOnTheWire();
 	TestPingPaddingIsEchoedInTheReply();
 	TestPingPaddingAboveMaximumIsRefused();
