@@ -9,6 +9,7 @@
 #include <Drivers/Interface/VUB/Requests/Body.h>
 #include <Drivers/Interface/VUB/Requests/BuiltIn.h>
 #include <Drivers/Interface/VUB/Requests/Commands.h>
+#include <Drivers/Interface/VUB/Requests/Concurrent.h>
 #include <Drivers/Interface/VUB/Requests/Events.h>
 #include <Drivers/Interface/VUB/Requests/Handlers.h>
 #include <Drivers/Interface/VUB/Requests/Requester.h>
@@ -18,6 +19,7 @@
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
+#include <Utilities/WaitCondition/WaitCondition.h>
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -44,6 +46,9 @@ struct RequestsOptions {
 	uint32 builtInTimeoutMs = BuiltInWire::DefaultTimeoutMs;
 	bool answerPing = false;
 	uint16 answerPadding = 0;
+	bool concurrent = false;
+	uint8 pending = 4;
+	bool awaitable = false;
 };
 
 
@@ -147,9 +152,55 @@ struct RequestsPlan {
 	static constexpr uint16 pingPadding = Value.pingPadding;
 	static constexpr uint32 builtInTimeoutMs = Value.builtInTimeoutMs;
 	static constexpr uint16 answerPadding = Value.answerPadding;
+	static constexpr bool concurrent = Value.concurrent;
+	static constexpr bool awaitable = Value.awaitable && Value.concurrent;
+	static constexpr bool eventsDeclared = Commands::eventCount > 0;
+	// The packets of a concurrent layer that another task may hand to Process: its requests, cancels, fires, pings and events.
+	static constexpr bool queued = Value.concurrent && (sends || eventsDeclared);
+	static constexpr std::size_t pendingCount = Value.pending;
+	static constexpr std::size_t largestPacket = std::max({
+		RequestWire::RequestHeader + Commands::largestRequest,
+		RequestWire::FinalHeader + Commands::largestReply,
+		RequestWire::InterimSize,
+		RequestWire::FinalErrorSize,
+		RequestWire::EventHeader + Commands::largestEvent,
+		RequestWire::CancelSize,
+		BuiltInReplyBytes(Value.answerPing, Value.answerPadding),
+		PingRequestBytes(Value.ping, Value.pingPadding)});
 	static_assert(!sendsPing || (builtInTimeoutMs > 0 && builtInTimeoutMs <= BuiltInWire::MaxTimeoutMs),
 		"BuiltInTimeoutMs must be from 1 to 2147483 milliseconds");
 	static_assert(sendsPing || builtInTimeoutMs == BuiltInWire::DefaultTimeoutMs, "BuiltInTimeoutMs needs the Step .Ping(maxPadding) of the layer");
+	static_assert(!queued || Value.pending > 0, "Pending needs at least 1 packet: give the layer Pending(n) with n of at least 1");
+};
+
+
+// The grace an Await adds to the reply deadline of its request: the wait gives up after the request's own deadline has passed.
+inline constexpr uint32 AwaitGraceMs = 250;
+
+
+// The wait of an Await. Pause runs between two checks of the final; GaveUp runs once the wait has found no final and its limit has passed,
+// before the wait abandons its request. GaveUp does nothing here; a test gives its own policy to run code in that window.
+struct AwaitPolicy {
+	static void Pause() {
+		WaitCondition::RtosYield::Pause();
+	}
+
+
+	static void GaveUp() {
+	}
+};
+
+
+// The type of Await for a command: its final, or for a command with no reply the result of its delivery.
+template<typename Commands, auto Id, bool NoReply = (CommandOf<Commands, Id>::level == 2)>
+struct AwaitResultOf {
+	using Type = Final<typename CommandOf<Commands, Id>::StatusType, typename CommandOf<Commands, Id>::ReplyType>;
+};
+
+
+template<typename Commands, auto Id>
+struct AwaitResultOf<Commands, Id, true> {
+	using Type = ResultStatus;
 };
 
 
@@ -244,6 +295,23 @@ public:
 			next.builtInTimeoutMs = ms;
 			return Step(this->WithLastOptions(next));
 		}
+
+
+		// The packets a concurrent layer holds for Process: the requests, cancels, fires, pings and events that another task sends. A full
+		// queue returns busy. The storage is one packet of the largest size per count, and exists only on a concurrent stack. The default is 4.
+		constexpr Step Pending(uint8 count) const {
+			Options next = this->LastOptions();
+			next.pending = count;
+			return Step(this->WithLastOptions(next));
+		}
+
+
+		// The waits of Await: the requests of this layer may be awaited by a task. Await needs a concurrent stack as well.
+		constexpr Step Awaitable() const {
+			Options next = this->LastOptions();
+			next.awaitable = true;
+			return Step(this->WithLastOptions(next));
+		}
 	};
 
 
@@ -286,16 +354,39 @@ public:
 
 
 		// An event of the set: its packet goes out through the outbox, unacknowledged unless the event is Delivered. Returns what the outbox returns.
+		// On a concurrent layer the packet is queued for Process, and the call returns ok or busy.
 		template<auto Id>
 		ResultStatus Emit(const typename EventOf<Commands, Id>::BodyType& body) const {
-			return EventPart::template Emit<Id>(body, outbox);
+			if constexpr (Value.concurrent) {
+				return layer->template EmitQueued<Id>(body);
+			} else {
+				return EventPart::template Emit<Id>(body, outbox);
+			}
 		}
 
 
 		// The same for an event with no body.
 		template<auto Id>
 		ResultStatus Emit() const requires (std::is_same_v<typename EventOf<Commands, Id>::BodyType, NoBody>) {
-			return EventPart::template Emit<Id>(NoBody{}, outbox);
+			return Emit<Id>(NoBody{});
+		}
+
+
+		// A request of a command with a reply, awaited: the call sends it and waits until its final is in. The result is the final, with its
+		// status and body; a refused send is returned in result, and a wait that reaches its limit gives timeout. The request's final handler
+		// does not run. A command with no reply returns its result. Needs the Step .Awaitable() and a concurrent stack.
+		template<auto Id, auto Interim = nullptr, typename Policy = AwaitPolicy>
+		typename AwaitResultOf<Commands, Id>::Type Await(const typename CommandOf<Commands, Id>::BodyType& body) const {
+			static_assert(Value.awaitable, "Await needs the requests layer's Step .Awaitable(): add .Awaitable() to the requests layer");
+			static_assert(Value.concurrent, "Await needs a concurrent stack: add .Concurrent() to the builder");
+			return layer->template AwaitRequest<Id, Interim, Policy>(body, outbox);
+		}
+
+
+		// The same for a command with no body.
+		template<auto Id, auto Interim = nullptr, typename Policy = AwaitPolicy>
+		typename AwaitResultOf<Commands, Id>::Type Await() const requires (std::is_same_v<typename CommandOf<Commands, Id>::BodyType, NoBody>) {
+			return Await<Id, Interim, Policy>(NoBody{});
 		}
 
 
@@ -348,14 +439,7 @@ public:
 	static constexpr bool wantsOwner = true;
 	static constexpr bool ownerOptional = true;
 	static constexpr bool usesLinkState = Commands::hasFailWhileDown;
-	static constexpr std::size_t largestPacket = std::max({
-		RequestWire::RequestHeader + Commands::largestRequest,
-		RequestWire::FinalHeader + Commands::largestReply,
-		RequestWire::InterimSize,
-		RequestWire::FinalErrorSize,
-		RequestWire::EventHeader + Commands::largestEvent,
-		BuiltInReplyBytes(Value.answerPing, Value.answerPadding),
-		PingRequestBytes(Value.ping, Value.pingPadding)});
+	static constexpr std::size_t largestPacket = Plan::largestPacket;
 
 
 private:
@@ -498,6 +582,11 @@ public:
 		if constexpr (Plan::answers) {
 			responder.SendResponses(outbox);
 		}
+
+		// The packets of the handlers run in this Process: the drain comes after them, and the oldest packet goes first.
+		if constexpr (Plan::queued) {
+			requester.DrainOutgoing(outbox);
+		}
 	}
 
 
@@ -518,6 +607,74 @@ public:
 	template<auto Id>
 	ResultStatus FireRequest(const typename CommandOf<Commands, Id>::BodyType& body, const Outbox& outbox) {
 		return requester.template Fire<Id>(body, outbox);
+	}
+
+
+	// The event of a concurrent layer: the packet is queued for Process. The queue is the requester's, and ok or busy is what it returns.
+	template<auto Id>
+	ResultStatus EmitQueued(const typename EventOf<Commands, Id>::BodyType& body) {
+		return EventPart::template EmitWith<Id>(body, [this](std::span<const uint8> packet, const Meta& meta) -> ResultStatus {
+			return requester.Enqueue(packet, meta.flags);
+		});
+	}
+
+
+	// The await of a request: the request is sent with a waiter on this task's stack, and the task waits until the waiter is done or its limit
+	// passes. The limit is the command's reply deadline plus a grace of 250 ms, so the request's own deadline ends the wait first. A command with
+	// no reply has no deadline of its own: its wait ends with the outcome of the delivery.
+	template<auto Id, auto Interim, typename Policy>
+	typename AwaitResultOf<Commands, Id>::Type AwaitRequest(const typename CommandOf<Commands, Id>::BodyType& body, const Outbox& outbox) {
+		using CommandType = CommandOf<Commands, Id>;
+		constexpr uint32 replyMs = CommandInfoOf<Commands, Id>().replyTimeoutMs;
+		constexpr uint32 limitMs = replyMs > 0 ? replyMs + AwaitGraceMs : 0xFFFFFFFFu;
+		if constexpr (CommandType::level == 2) {
+			AwaitWaiter waiter{};
+			waiter.deliver = &RequesterOf<Commands, Plan>::template DeliverAwait<Id>;
+			Result<RequestId> sent = requester.template StartAwaited<Id, Interim>(body, outbox, &waiter);
+			if (sent.IsErr()) {
+				return sent.Error();
+			}
+
+			if (WaitAwaited<Policy>(waiter, limitMs)) {
+				waiter.result = ResultStatus::timeout;
+			}
+
+			return waiter.result;
+		} else {
+			using FinalType = typename AwaitResultOf<Commands, Id>::Type;
+			AwaitWaiterOf<FinalType> waiter{};
+			waiter.deliver = &RequesterOf<Commands, Plan>::template DeliverAwait<Id>;
+			Result<RequestId> sent = requester.template StartAwaited<Id, Interim>(body, outbox, &waiter);
+			if (sent.IsErr()) {
+				FinalType refused{};
+				refused.result = sent.Error();
+				return refused;
+			}
+
+			if (WaitAwaited<Policy>(waiter, limitMs)) {
+				waiter.value.result = ResultStatus::timeout;
+			}
+
+			return waiter.value;
+		}
+	}
+
+
+	// Waits until the final is in the waiter or the limit passes. Returns true when the wait was abandoned: the requester then clears the pointer
+	// of the request to the waiter, so a final that arrives after the abandon is not written into this task's stack. A final written first is kept.
+	template<typename Policy>
+	bool WaitAwaited(AwaitWaiter& waiter, uint32 limitMs) {
+		uint32 start = System::GetTick32();
+		while (requester.AwaitDone(waiter) == false) {
+			if (System::GetTick32() - start >= limitMs) {
+				Policy::GaveUp();
+				return requester.Abandon(waiter);
+			}
+
+			Policy::Pause();
+		}
+
+		return false;
 	}
 
 

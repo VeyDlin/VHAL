@@ -48,6 +48,15 @@ public:
 	// sends it unsequenced and keeps no slot for it. A Delivered event is sent sequenced, and needs Reliable below. Returns what the outbox returns.
 	template<auto Id>
 	static ResultStatus Emit(const typename EventOf<Commands, Id>::BodyType& body, const Outbox& outbox) {
+		return EmitWith<Id>(body, [&outbox](std::span<const uint8> packet, const Meta& meta) -> ResultStatus {
+			return outbox.Send(packet, meta);
+		});
+	}
+
+
+	// The packet of an event, given to sink with its Meta. Emit gives the outbox as the sink; a concurrent layer gives its queue.
+	template<auto Id, typename Sink>
+	static ResultStatus EmitWith(const typename EventOf<Commands, Id>::BodyType& body, Sink&& sink) {
 		using BodyType = typename EventOf<Commands, Id>::BodyType;
 		constexpr EventInfo info = EventInfoOf<Commands, Id>();
 		static_assert(!info.delivered || Plan::ownerBelow,
@@ -62,7 +71,7 @@ public:
 			meta.flags = Meta::NoAcknowledgeFlag;
 		}
 
-		return outbox.Send(std::span<const uint8>(packet.data(), RequestWire::EventHeader + bodyLength), meta);
+		return sink(std::span<const uint8>(packet.data(), RequestWire::EventHeader + bodyLength), meta);
 	}
 
 

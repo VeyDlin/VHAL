@@ -677,9 +677,124 @@ program with no send includes the application-side send entry of the layer above
 | `Counted()` alone | 16 | 8 | 28 | 8 |
 | `Delivered()` against plain, emit and receive, `Counted()` | 36 | 0 | 44 | 0 |
 
+## Concurrent and Await
+
+A stack built with `Concurrent()` lets tasks other than the one that calls `Process` use the requests layer. The layer takes the stack's
+flag through its options, and a layer that is not concurrent has no code or storage for any of this (see the size rows at the end).
+
+What the user writes: the requests layer takes `Pending(n)` (the packets the layer holds for `Process`, 4 by default) and `Awaitable()`
+(the requests may be awaited); the builder takes `Concurrent()`. The requester of `TestVubRequestsConcurrent.cpp` has this form, with the
+default queue:
+
+```cpp
+using Requester = VUB::Stack<+[]() {
+	return VUB::Builder()
+		.Layer<VUB::Requests<JobCommands, RequesterHandlers>>().Open(4).Awaitable().Counted()
+		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
+		.Link<ReportingPacketEnd>()
+		.MaxPayload(40)
+		.ReceiveQueue(4)
+		.OnReceive<&ConcurrentReceive>()
+		.Clock<&ConcurrentClock>()
+		.Concurrent();
+}>;
+```
+
+### Calls from another task
+
+On a concurrent layer these calls may come from any task while `Process` runs in another: `Send`, `Fire`, `Ping`, `Cancel`, `CancelAll`,
+`Emit`, `Await`, `SetSession`, the counters `Refused()`, `LateReplies()`, `EventsLost()`, and the ticket calls `Interim`, `Finish`,
+`Cancelled` and `Open`.
+
+- Each call touches the layer's tables only inside a `System::CriticalSection` section, and the sections are short: a slot is read or
+  changed, a packet is copied into the queue, a waiter is written. No user handler runs in a section.
+- A user body is encoded on the caller's stack, outside the section. A final's body is decoded by the final handler outside the section;
+  the body of an awaited final is decoded inside the section, since the waiter must still be alive while it is written (no user code runs).
+- `Process` takes what it needs from a table inside a section and acts on it outside. Each handler (final, interim, event, command with no
+  reply, ticket handler, cancel handler) runs outside every section, from `Process` or from the receive walk.
+
+### The queue of a concurrent requester
+
+A request, a fire, a cancel, a ping or an event of a concurrent layer is copied into a queue of `Pending(n)` packets, each as large as the
+largest packet of the layer. `Process` sends the queue from its own outbox, oldest first, outside every section, and removes a packet only
+after the outbox has taken it.
+
+- `Send`, `Fire`, `Emit` and `Ping` return `ok` when the packet is queued, and `busy` when the queue or the request table is full. A busy
+  result takes no number and no slot; the caller sends again.
+- The order rule: the packets of one task go out in the order of its calls, since the queue is first in, first out, and each request gets its
+  number when it is queued. The handlers of one receive burst run in ticket order, not call order: the design orders a Fire and an event
+  against the requests of the same walk, not the handlers of the requests among themselves.
+- A refusal of the outbox other than busy (for example `noConnection` under `Fail`) settles the request the packet names with that result, and
+  its final handler gets it in `Process`. An awaited request gets it in its waiter.
+- A packet whose request has closed while it waited is removed without being sent: a request closed by its deadline, by a cancel, or by the
+  restart of the peer. A REQUEST with a slot goes out only while its number and tag are open (a ping's too), and a CANCEL only while its
+  request is open. A fire and an event have no slot and are always sent. The packets of a request that never reached the wire are not sent
+  after its deadline, however long the stack refused them.
+- `Process` sends the queue at its end, after the deadlines, the handlers of the finals, the interims and the events, and the responder's
+  work of this `Process`. So a request, a fire, an event or a cancel made in a handler goes out in the `Process` that ran the handler, behind the
+  packets queued before it.
+- A packet's length is kept in 16 bits, so a packet of up to the layer's largest packet size (more than 255 bytes is allowed) is sent whole.
+
+### Await
+
+`Await<Id, Interim>(body)` sends the request, waits until its final is in or its limit passes, and returns the final. It is a member of the
+handle, built only when a caller uses it, and it needs `Awaitable()` and `Concurrent()` (a `static_assert` names each). It never runs in
+`Process`.
+
+- The waiter is an object on the caller's stack. The request's slot points at it, and `Process` writes the final into it, inside a section,
+  with its typed decode. No final handler runs for an awaited request.
+- A refused send is returned in `result`, and no wait starts.
+- A command with no reply returns its `ResultStatus`, the outcome of its delivery. Its request has no deadline of its own, so the wait ends
+  with that outcome: while the link is down under `Down::Wait` the request waits for the link, and the wait waits with it. A command with
+  `FailWhileDown()` ends its wait with `noConnection` as soon as the link goes down, since its request does not wait for the link.
+- The limit is the command's reply deadline plus a grace of 250 ms, in system ticks (`WaitCondition::WaitFor<RtosYield>`), so the request's
+  own deadline, which the stack's clock gives, ends the wait first on a running system. A command with no reply has no deadline of its own:
+  its wait ends with the outcome of the delivery.
+- A wait that gives up clears the slot's pointer inside a section, then returns `timeout`, unless the final was written meanwhile, in which case
+  the final is returned. A final that arrives after the give-up is handled by the layer as for any request: if the request is still open it closes it with no
+  handler, and if the request has closed it counts in `lateReplies`.
+
+The orders of the final and the give-up are decided by the section alone. `System::CriticalSection` is the only lock of the layer: every read
+and write of a waiter's `done` flag, and of a slot's pointer to it, is inside a section, and a waiter leaves its frame only after `done` is set
+or its pointer is cleared, both inside a section. On a dual-core target the section must exclude the other core as well, as the port's
+section does (interrupts masked and a nesting depth); the layer relies on that and on no other lock. The four orders, and the test that
+forces each:
+
+| Order | Result | Test |
+|---|---|---|
+| the final is written while the wait runs, or the wait starts after the final is in | the wait returns the final | `TestAwaitAnsweredWithInterim` |
+| the deadline of the request passes first (the stack's clock) | `timeout` from `Process`; a final that arrives after it counts in `lateReplies` | `TestAwaitAbandonedThenLateAnswerFreesSlotOnce` |
+| the wait gives up while the request is open; the final arrives after the give-up | `timeout`; the final closes the request with no handler, and is not late | `TestAwaitAbandonedFinalBeforeDeadline` |
+| the final lands between the wait's last check and its abandon | the wait returns the final (`Abandon` sees `done`) | `TestAwaitFinalBetweenTheCheckAndTheAbandon` |
+
+The window is forced by a policy of the `Await` call (`Await<Id, Interim, Policy>`; the default `AwaitPolicy` has an empty `GaveUp`). The
+waiting loop calls `Policy::GaveUp()` once the limit has passed and no final is in, before it abandons its request. The test's `GaveUp` holds
+the waiter until the responder's final has been taken by the requester, so the abandon finds the final written and the `Await` returns it.
+
+```cpp
+// An awaited request: the reply, or the timeout, or the refusal of the send, comes back as the final.
+VUB::Final<JobStatus, JobReport> reply = handle.Await<Command::run, &OnRunInterim>(body);
+```
+
+### Sizes of the concurrent parts
+
+The rows are in `.tool/size/size.sh`, measured with `arm-none-eabi-g++` 15.2 (`-Os`, nano specs) by `ConfigConcurrent.cpp`: COBS over the
+stream link of `SizeWire.h`, with the port's section (the nesting helper with PRIMASK) and the tick and RTOS handle of the port. The base of
+each row is the same program with no layer and no `Concurrent()`. RAM is data plus bss.
+
+| Program (difference to no layer) | M4 text | M4 RAM | M0+ text | M0+ RAM |
+|---|---:|---:|---:|---:|
+| requester, `Open(2)`, plain | 1368 | 120 | 1416 | 120 |
+| requester, `Open(2)`, `Pending(4)`, `Awaitable()`, `Concurrent()` | 2184 | 404 | 2356 | 404 |
+| responder, `Tickets(1)`, `Refusals(2)`, plain | 1236 | 120 | 1264 | 120 |
+| responder, the same, `Pending(4)`, `Awaitable()`, `Concurrent()` | 1728 | 348 | 1788 | 348 |
+| `Await` of one request: the requester with the call, minus the requester without it | 428 | 4 | 416 | 4 |
+
+The concurrent rows include the stack's `Concurrent()`: its staging ring is most of their RAM. The queue of the requester is 4 packets of the
+layer's largest size, and its concurrency code is the rest of the difference.
+
 ## Not built
 
 These are not in this layer:
 
 - Health (0xF1), with its counters.
-- `Await`.

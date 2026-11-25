@@ -110,6 +110,11 @@ rows=(
 	"requests responder only, ReliableOf<40, 4>|ConfigRequests.cpp|-DSIZE_BASE=3 -DSIZE_ROLE=0|ConfigRequests.cpp|-DSIZE_BASE=3 -DSIZE_ROLE=1"
 	"requests requester only (one Send site), ReliableOf<40, 4>|ConfigRequests.cpp|-DSIZE_BASE=3 -DSIZE_ROLE=0|ConfigRequests.cpp|-DSIZE_BASE=3 -DSIZE_ROLE=2"
 	"requests both, ReliableOf<40, 4>|ConfigRequests.cpp|-DSIZE_BASE=3 -DSIZE_ROLE=0|ConfigRequests.cpp|-DSIZE_BASE=3 -DSIZE_ROLE=3"
+	"concurrent requests: requester, plain (Open(2)), COBS over stream link|ConfigConcurrent.cpp|-DSIZE_ROLE=0 -DSIZE_CONC=0|ConfigConcurrent.cpp|-DSIZE_ROLE=2 -DSIZE_CONC=0"
+	"concurrent requests: requester, Pending(4), Awaitable(), Concurrent()|ConfigConcurrent.cpp|-DSIZE_ROLE=0 -DSIZE_CONC=0|ConfigConcurrent.cpp|-DSIZE_ROLE=2 -DSIZE_CONC=1 -DSIZE_AWAIT=0"
+	"concurrent requests: responder, plain (Tickets(1), Refusals(2))|ConfigConcurrent.cpp|-DSIZE_ROLE=0 -DSIZE_CONC=0|ConfigConcurrent.cpp|-DSIZE_ROLE=1 -DSIZE_CONC=0"
+	"concurrent requests: responder, Pending(4), Awaitable(), Concurrent()|ConfigConcurrent.cpp|-DSIZE_ROLE=0 -DSIZE_CONC=0|ConfigConcurrent.cpp|-DSIZE_ROLE=1 -DSIZE_CONC=1"
+	"concurrent requests: Await of one request, as the difference to the requester without the call|ConfigConcurrent.cpp|-DSIZE_ROLE=2 -DSIZE_CONC=1 -DSIZE_AWAIT=0|ConfigConcurrent.cpp|-DSIZE_ROLE=2 -DSIZE_CONC=1 -DSIZE_AWAIT=1"
 )
 
 baselines=(BaselinePacket.cpp BaselineStream.cpp)

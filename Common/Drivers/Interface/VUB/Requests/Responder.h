@@ -4,6 +4,7 @@
 #include <Drivers/Interface/VUB/Requests/Body.h>
 #include <Drivers/Interface/VUB/Requests/BuiltIn.h>
 #include <Drivers/Interface/VUB/Requests/Commands.h>
+#include <Drivers/Interface/VUB/Requests/Concurrent.h>
 #include <Drivers/Interface/VUB/Requests/Handlers.h>
 #include <Drivers/Interface/VUB/Requests/Ticket.h>
 #include <Drivers/Interface/VUB/Requests/Wire.h>
@@ -222,6 +223,7 @@ public:
 		std::size_t command = CommandIndexById(id);
 		bool answers = command >= Commands::commandCount || Commands::commandTable[command].level >= 3;
 		if constexpr (ticketed) {
+			RequestSection<Plan::concurrent> section;
 			Slot* open = FindTicketByNumber(number);
 			if (open != nullptr && answers) {
 				if (open->tag != tag) {
@@ -268,19 +270,23 @@ public:
 		if constexpr (ticketCount > 0) {
 			for (std::size_t index = 0; index < ticketCount; index++) {
 				Slot& slot = tickets[index];
-				if (slot.stage != TicketStage::received) {
-					continue;
-				}
-
-				if constexpr (Plan::responderCancels) {
-					if (slot.cancel.requested) {
-						WriteFinalError(slot, RequestWire::CodeCancelled);
+				{
+					RequestSection<Plan::concurrent> section;
+					if (slot.stage != TicketStage::received) {
 						continue;
 					}
+
+					if constexpr (Plan::responderCancels) {
+						if (slot.cancel.requested) {
+							WriteFinalError(slot, RequestWire::CodeCancelled);
+							continue;
+						}
+					}
+
+					slot.stage = TicketStage::open;
+					slot.rearm = true;
 				}
 
-				slot.stage = TicketStage::open;
-				slot.rearm = true;
 				CallCommand(slot.command, static_cast<uint8>(index), slot, std::make_index_sequence<Commands::commandCount>());
 			}
 		}
@@ -296,6 +302,7 @@ public:
 		}
 
 		if constexpr (Plan::responderCancels) {
+			RequestSection<Plan::concurrent> section;
 			uint16 number = GetLe16(packet.data() + 1);
 			uint8 tag = packet[3];
 			Slot* slot = FindTicketByNumber(number);
@@ -327,8 +334,15 @@ public:
 		if constexpr (ticketCount > 0 && Plan::responderCancels) {
 			for (std::size_t index = 0; index < ticketCount; index++) {
 				Slot& slot = tickets[index];
-				if (slot.stage == TicketStage::open && slot.cancel.requested) {
+				bool cancelled = false;
+				{
+					RequestSection<Plan::concurrent> section;
+					cancelled = slot.stage == TicketStage::open && slot.cancel.requested;
+				}
+
+				if (cancelled) {
 					RunCancelHandler(static_cast<uint8>(index), slot);
+					RequestSection<Plan::concurrent> section;
 					if (slot.stage == TicketStage::open) {
 						WriteFinalError(slot, RequestWire::CodeCancelled);
 					}
@@ -341,6 +355,7 @@ public:
 	// Arms the deadline of each ticket that was opened or given an interim since the last Process.
 	void RearmTickets(uint32 nowUs) {
 		if constexpr (ticketCount > 0) {
+			RequestSection<Plan::concurrent> section;
 			for (Slot& slot : tickets) {
 				if (slot.stage == TicketStage::open && slot.rearm) {
 					slot.rearm = false;
@@ -358,19 +373,111 @@ public:
 	void ExpireTickets(uint32 nowUs) {
 		if constexpr (ticketCount > 0) {
 			for (Slot& slot : tickets) {
-				if (slot.stage == TicketStage::open && RequestWire::Due(nowUs, slot.deadlineUs)) {
+				bool due = false;
+				{
+					RequestSection<Plan::concurrent> section;
+					due = slot.stage == TicketStage::open && RequestWire::Due(nowUs, slot.deadlineUs);
+				}
+
+				if (due) {
 					if constexpr (Plan::responderCancels) {
 						RunCancelHandler(static_cast<uint8>(&slot - tickets.data()), slot);
+						RequestSection<Plan::concurrent> section;
 						if (slot.stage != TicketStage::open) {
 							continue;
 						}
 					}
 
-					WriteFinalError(slot, RequestWire::CodeTimeout);
+					RequestSection<Plan::concurrent> section;
+					if (slot.stage == TicketStage::open) {
+						WriteFinalError(slot, RequestWire::CodeTimeout);
+					}
 				}
 			}
 		} else {
 			(void)nowUs;
+		}
+	}
+
+
+	// Sends what one ticket has waiting, in order: its interim, the interim that refuses a cancel, and its final. A busy send keeps its packet for
+	// the next Process and ends the ticket's turn. The state is read and written inside sections; each send is made outside them, since the
+	// send may call the link.
+	void SendTicket(Slot& slot, const Outbox& outbox) {
+		if constexpr (anyInterim) {
+			std::array<uint8, RequestWire::InterimSize> packet{};
+			bool pending = false;
+			{
+				RequestSection<Plan::concurrent> section;
+				pending = slot.interim.pending;
+				if (pending) {
+					packet[0] = RequestWire::KindInterim;
+					PutLe16(packet.data() + 1, slot.number);
+					packet[3] = slot.tag;
+					packet[4] = slot.interim.index;
+					packet[5] = slot.interim.status;
+				}
+			}
+
+			if (pending) {
+				if (outbox.Send(std::span<const uint8>(packet.data(), packet.size())) == ResultStatus::busy) {
+					return;
+				}
+
+				RequestSection<Plan::concurrent> section;
+				slot.interim.pending = false;
+			}
+		}
+
+		if constexpr (Plan::responderCancels) {
+			bool refusal = false;
+			uint8 index = 0;
+			{
+				RequestSection<Plan::concurrent> section;
+				refusal = slot.cancel.refusal;
+				if constexpr (anyInterim) {
+					index = slot.interim.index;
+				}
+			}
+
+			if (refusal) {
+				if (index == 255) {
+					RequestSection<Plan::concurrent> section;
+					slot.cancel.refusal = false;
+				} else {
+					uint8 next = static_cast<uint8>(index + 1);
+					std::array<uint8, RequestWire::InterimSize> packet{};
+					packet[0] = RequestWire::KindInterim;
+					PutLe16(packet.data() + 1, slot.number);
+					packet[3] = slot.tag;
+					packet[4] = next;
+					packet[5] = RequestWire::StatusCancelRefused;
+					if (outbox.Send(std::span<const uint8>(packet.data(), packet.size())) == ResultStatus::busy) {
+						return;
+					}
+
+					RequestSection<Plan::concurrent> section;
+					if constexpr (anyInterim) {
+						slot.interim.index = next;
+					}
+
+					slot.cancel.refusal = false;
+				}
+			}
+		}
+
+		bool isFinal = false;
+		{
+			RequestSection<Plan::concurrent> section;
+			isFinal = slot.stage == TicketStage::final;
+		}
+
+		if (isFinal) {
+			ResultStatus status = outbox.Send(std::span<const uint8>(slot.bytes.data(), slot.length));
+			if (status != ResultStatus::busy) {
+				RequestSection<Plan::concurrent> section;
+				slot.stage = TicketStage::free;
+			}
 		}
 	}
 
@@ -402,58 +509,7 @@ public:
 		}
 
 		for (Slot& slot : tickets) {
-			if constexpr (anyInterim) {
-				if (slot.interim.pending) {
-					std::array<uint8, RequestWire::InterimSize> packet{};
-					packet[0] = RequestWire::KindInterim;
-					PutLe16(packet.data() + 1, slot.number);
-					packet[3] = slot.tag;
-					packet[4] = slot.interim.index;
-					packet[5] = slot.interim.status;
-					if (outbox.Send(std::span<const uint8>(packet.data(), packet.size())) == ResultStatus::busy) {
-						continue;
-					}
-
-					slot.interim.pending = false;
-				}
-			}
-
-			if constexpr (Plan::responderCancels) {
-				if (slot.cancel.refusal) {
-					uint8 index = 0;
-					if constexpr (anyInterim) {
-						index = slot.interim.index;
-					}
-
-					if (index == 255) {
-						slot.cancel.refusal = false;
-					} else {
-						uint8 next = static_cast<uint8>(index + 1);
-						std::array<uint8, RequestWire::InterimSize> packet{};
-						packet[0] = RequestWire::KindInterim;
-						PutLe16(packet.data() + 1, slot.number);
-						packet[3] = slot.tag;
-						packet[4] = next;
-						packet[5] = RequestWire::StatusCancelRefused;
-						if (outbox.Send(std::span<const uint8>(packet.data(), packet.size())) == ResultStatus::busy) {
-							continue;
-						}
-
-						if constexpr (anyInterim) {
-							slot.interim.index = next;
-						}
-
-						slot.cancel.refusal = false;
-					}
-				}
-			}
-
-			if (slot.stage == TicketStage::final) {
-				ResultStatus status = outbox.Send(std::span<const uint8>(slot.bytes.data(), slot.length));
-				if (status != ResultStatus::busy) {
-					slot.stage = TicketStage::free;
-				}
-			}
+			SendTicket(slot, outbox);
 		}
 	}
 
@@ -466,13 +522,21 @@ public:
 
 		for (Slot& slot : tickets) {
 			if constexpr (Plan::responderCancels) {
-				if (slot.stage == TicketStage::open) {
+				bool open = false;
+				{
+					RequestSection<Plan::concurrent> section;
+					open = slot.stage == TicketStage::open;
+				}
+
+				if (open) {
 					RunCancelHandler(static_cast<uint8>(&slot - tickets.data()), slot);
 				}
 
+				RequestSection<Plan::concurrent> section;
 				slot.cancel = TicketCancel{};
 			}
 
+			RequestSection<Plan::concurrent> section;
 			slot.stage = TicketStage::free;
 			if constexpr (anyInterim) {
 				slot.interim.pending = false;
@@ -530,6 +594,7 @@ private:
 			}
 
 			if constexpr (Runner::hasTicket) {
+				RequestSection<Plan::concurrent> section;
 				Slot* slot = FreeTicket();
 				if (slot == nullptr) {
 					return RequestWire::CodeBusy;
@@ -682,6 +747,7 @@ private:
 
 	// The final operationCancelled of a live open ticket, queued from the ticket's own call.
 	ResultStatus QueueCancelled(uint8 index, uint8 generation, uint16 number) {
+		RequestSection<Plan::concurrent> section;
 		if (!TicketLive(index, generation, number)) {
 			return ResultStatus::notAvailable;
 		}
@@ -750,6 +816,7 @@ private:
 	// The live ticket of a handle's call: its slot holds the generation and the request number, and is open. A ticket of an earlier request
 	// that the slot has since taken (the generation wraps) is not live.
 	bool TicketLive(uint8 index, uint8 generation, uint16 number) const {
+		RequestSection<Plan::concurrent> section;
 		if constexpr (ticketCount > 0) {
 			if (index < ticketCount) {
 				const Slot& slot = tickets[index];
@@ -762,6 +829,7 @@ private:
 
 
 	ResultStatus QueueInterim(uint8 index, uint8 generation, uint16 number, uint8 status) {
+		RequestSection<Plan::concurrent> section;
 		if constexpr (anyInterim) {
 			if (!TicketLive(index, generation, number)) {
 				return ResultStatus::notAvailable;
@@ -804,6 +872,7 @@ private:
 		uint8 status,
 		std::span<const uint8> body)
 	{
+		RequestSection<Plan::concurrent> section;
 		if (!TicketLive(index, generation, number)) {
 			return ResultStatus::notAvailable;
 		}
