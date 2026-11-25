@@ -6,6 +6,7 @@
 #include <Drivers/Interface/VUB/Requests.h>
 #include <Drivers/Interface/VUB/TestKit/Random.h>
 #include <Drivers/Interface/VUB/Transform/Crc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -904,7 +905,7 @@ using HandlersOf = std::conditional_t<Chain::reliable, FullHandlersOf<Chain>, Pa
 using StackCrcT = VUB::Stack<+[]() {
 	return VUB::Builder()
 		.Layer<VUB::Requests<PathCommands, PathHandlersOf<ChainCrc>>>().Open(6).Tickets(4).Refusals(4).Counted().Ping(16).AnswerPing(16)
-		.Transform<VUB::Crc16Modbus>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
 		.ReceiveQueue(4)
@@ -916,7 +917,7 @@ using StackCrcT = VUB::Stack<+[]() {
 using StackCrcSmallT = VUB::Stack<+[]() {
 	return VUB::Builder()
 		.Layer<VUB::Requests<PathCommands, PathHandlersOf<ChainCrcSmall>>>().Open(1).Tickets(1).Refusals(0).Counted().Ping(16).AnswerPing(16)
-		.Transform<VUB::Crc16Modbus>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
 		.ReceiveQueue(4)
@@ -929,7 +930,7 @@ using StackRelT = VUB::Stack<+[]() {
 	return VUB::Builder()
 		.Layer<VUB::Requests<FullCommands, FullHandlersOf<ChainRel>>>().Open(6).Tickets(4).Refusals(4).Counted().Ping(16).AnswerPing(16)
 		.Layer<VUB::ReliableOf<40, 6>>().Retries(3).TimeoutMs(200).Window(6)
-		.Transform<VUB::Crc16Modbus>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
 		.ReceiveQueue(4)
@@ -942,7 +943,7 @@ using StackRelInOrderT = VUB::Stack<+[]() {
 	return VUB::Builder()
 		.Layer<VUB::Requests<FullCommands, FullHandlersOf<ChainRelInOrder>>>().Open(6).Tickets(4).Refusals(4).Counted().Ping(16).AnswerPing(16)
 		.Layer<VUB::ReliableOf<40, 6, true>>().Retries(3).TimeoutMs(200).Window(6)
-		.Transform<VUB::Crc16Modbus>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
 		.ReceiveQueue(4)
@@ -955,7 +956,7 @@ using StackRelSmallT = VUB::Stack<+[]() {
 	return VUB::Builder()
 		.Layer<VUB::Requests<FullCommands, FullHandlersOf<ChainRelSmall>>>().Open(1).Tickets(1).Refusals(0).Counted().Ping(16).AnswerPing(16)
 		.Layer<VUB::ReliableOf<40, 1>>().Retries(3).TimeoutMs(200).Window(1)
-		.Transform<VUB::Crc16Modbus>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
 		.ReceiveQueue(4)
@@ -968,7 +969,7 @@ using StackRelLargeT = VUB::Stack<+[]() {
 	return VUB::Builder()
 		.Layer<VUB::Requests<FullCommands, FullHandlersOf<ChainRelLarge>>>().Open(12).Tickets(12).Refusals(16).Counted().Ping(16).AnswerPing(16)
 		.Layer<VUB::ReliableOf<40, 12>>().Retries(3).TimeoutMs(200).Window(12)
-		.Transform<VUB::Crc16Modbus>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
 		.ReceiveQueue(4)

@@ -244,6 +244,51 @@ public:
 	static constexpr bool resendsWanted = AnyResendsWanted(std::make_index_sequence<count>{});
 
 
+	// Whether the layer at Index reads the stack's counters (usesCounters = true). It is read from the type the stack stores, since an
+	// option can turn it on.
+	template<std::size_t Index>
+	static consteval bool LayerUsesCounters() {
+		using LayerType = StoredAt<Index>;
+		if constexpr (requires { LayerType::usesCounters; }) {
+			return LayerType::usesCounters;
+		} else {
+			return false;
+		}
+	}
+
+
+	// A layer that declares needsCounters = true sends the stack's counters on, so each of them must be kept: the stack must be HighWater(),
+	// and a block below it that takes its owner (the Reliable layer) must be Counted(). It is read from the stored type too.
+	template<std::size_t Index>
+	static consteval void CheckCounters() {
+		using LayerType = StoredAt<Index>;
+		if constexpr (requires { LayerType::needsCounters; }) {
+			if constexpr (LayerType::needsCounters) {
+				Require<"a layer of the chain sends the high-water marks (Requests with AnswerHealth does): add HighWater() to the stack">(
+					built.settings.highWater);
+				if constexpr (Index + 1 < count) {
+					using Below = std::tuple_element_t<Index + 1, Tuple>;
+					if constexpr (TakesOwnerOf<typename Below::BlockType, LayerType>) {
+						Require<"a layer of the chain sends Reliable's counters (Requests with AnswerHealth does): add Counted() to the Reliable layer">(
+							ReportsCounts<StoredAt<Index + 1>>);
+					}
+				}
+			}
+		}
+	}
+
+
+	template<std::size_t... Index>
+	static consteval bool CheckAllCounters(std::index_sequence<Index...>) {
+		(CheckCounters<Index>(), ...);
+		return true;
+	}
+
+
+	static constexpr bool countersKept = CheckAllCounters(std::make_index_sequence<count>{});
+	static_assert(countersKept, "the counters of the chain were not checked");
+
+
 	static constexpr LinkTraits linkTraits = Builder::ChainLinkTraits();
 	static constexpr bool streamLink = Builder::IsStreamLink();
 	static constexpr bool linkReports = linkTraits.reportsState;
@@ -1018,7 +1063,7 @@ private:
 		if constexpr (Index < count) {
 			using Entry = std::tuple_element_t<Index, Tuple>;
 			if constexpr (Entry::kind == BlockKind::layer) {
-				if constexpr (Entry::UsesCounters()) {
+				if constexpr (LayerUsesCounters<Index>()) {
 					CountingOutbox outbox(
 						this,
 						&Stack::template SendThunk<Index + 1>,
