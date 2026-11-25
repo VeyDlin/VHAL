@@ -110,6 +110,11 @@ rows=(
 	"requests responder only, ReliableOf<40, 4>|ConfigRequests.cpp|-DSIZE_BASE=3 -DSIZE_ROLE=0|ConfigRequests.cpp|-DSIZE_BASE=3 -DSIZE_ROLE=1"
 	"requests requester only (one Send site), ReliableOf<40, 4>|ConfigRequests.cpp|-DSIZE_BASE=3 -DSIZE_ROLE=0|ConfigRequests.cpp|-DSIZE_BASE=3 -DSIZE_ROLE=2"
 	"requests both, ReliableOf<40, 4>|ConfigRequests.cpp|-DSIZE_BASE=3 -DSIZE_ROLE=0|ConfigRequests.cpp|-DSIZE_BASE=3 -DSIZE_ROLE=3"
+	"health asks only (Health, requester Open(2)), ReliableOf<40, 4>|ConfigHealth.cpp|-DSIZE_LAYER=2|ConfigHealth.cpp|-DSIZE_LAYER=2 -DSIZE_HEALTH=1"
+	"health answers next to a served command, with the counters, ReliableOf<40, 4>|ConfigHealth.cpp|-DSIZE_LAYER=1 -DSIZE_COUNTED=1|ConfigHealth.cpp|-DSIZE_LAYER=1 -DSIZE_COUNTED=1 -DSIZE_HEALTH=2"
+	"health both, next to served and requester, with the counters, ReliableOf<40, 4>|ConfigHealth.cpp|-DSIZE_LAYER=3 -DSIZE_COUNTED=1|ConfigHealth.cpp|-DSIZE_LAYER=3 -DSIZE_COUNTED=1 -DSIZE_HEALTH=3"
+	"health next to ping (both sides), with the counters, ReliableOf<40, 4>|ConfigHealth.cpp|-DSIZE_LAYER=2 -DSIZE_COUNTED=1 -DSIZE_PING=1|ConfigHealth.cpp|-DSIZE_LAYER=2 -DSIZE_COUNTED=1 -DSIZE_PING=1 -DSIZE_HEALTH=3"
+	"the counters alone, next to a served command, ReliableOf<40, 4>|ConfigHealth.cpp|-DSIZE_LAYER=1|ConfigHealth.cpp|-DSIZE_LAYER=1 -DSIZE_COUNTED=1"
 )
 
 baselines=(BaselinePacket.cpp BaselineStream.cpp)

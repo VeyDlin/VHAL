@@ -59,9 +59,9 @@ struct RequestCancelSlot {
 
 
 // One request on the requester side. The handlers are the call site's, so the slot holds the function of its Send. The interim part is a
-// member only when the set has interim commands, and the cancel part only when the requester can cancel. A ping is a slot with the command
-// index PingSlotCommand: its final handler is the ping's, and while it is queued its deadline field holds the padding. The slot's own calls
-// take no command type: a Send site adds only its encoding and its final handler.
+// member only when the set has interim commands, and the cancel part only when the requester can cancel. A ping and a health request are
+// slots with the command indexes PingSlotCommand and HealthSlotCommand: their final handler is the request's own, and while a ping is queued
+// its deadline field holds the padding. The slot's own calls take no command type: a Send site adds only its encoding and its final handler.
 template<bool Interim, bool Cancel>
 struct RequestSlot {
 	RequestFinalFn finalFn = nullptr;
@@ -253,28 +253,21 @@ public:
 			return ResultStatus::messageTooLong;
 		}
 
-		if constexpr (!Plan::ownerBelow) {
-			if (!session.given) {
-				return ResultStatus::noInit;
-			}
-		}
+		return QueueBuiltIn(BuiltInWire::PingSlotCommand, &RunPing<Handler>, padding);
+	}
 
-		Slot* slot = FreeRequest();
-		if (slot == nullptr) {
-			return ResultStatus::busy;
-		}
 
-		slot->stage = RequestStage::queued;
-		slot->command = BuiltInWire::PingSlotCommand;
-		slot->armNeeded = false;
-		slot->result = ResultStatus::ok;
-		slot->finalFn = &RunPing<Handler>;
-		slot->deadlineUs = padding;
-		if constexpr (Plan::requesterCancels) {
-			slot->cancel = RequestCancelSlot{};
-		}
-
-		return ResultStatus::ok;
+	// A health request: a slot takes it, and the next Process sends it. The reply is decoded in Take, and its handler runs there, with the slot
+	// freed. A local end (a deadline, a link loss, a restart) gives the handler a report with only the result set. The session, the slots and
+	// the deadline are those of Ping.
+	template<auto Handler>
+	ResultStatus Health() {
+		using UserType = typename HealthHandlerOf<decltype(Handler)>::UserType;
+		static_assert(Plan::asksHealth, "Health needs the layer's Step .Health<U>()");
+		static_assert(Plan::openCount > 0, "Health needs requester slots: give the layer Open(n) with n of at least 1");
+		static_assert(HealthHandlerOf<decltype(Handler)>::valid, "a health handler has the signature void (const VUB::HealthReport<U>&)");
+		static_assert(BodyViewOf<UserType>.maxSize == Plan::healthBytes, "the health handler's user body is not the body of the layer's Step .Health<U>()");
+		return QueueBuiltIn(BuiltInWire::HealthSlotCommand, &RunHealth<Handler>, 0);
 	}
 
 
@@ -293,13 +286,13 @@ public:
 	}
 
 
-	// Sends each queued ping: its number and tag are taken in this call, and its stamp is the clock of this Process. A busy send keeps it
-	// queued for the next Process. A ping sent here arms its deadline from this Process's clock.
-	void SendPings(uint32 nowUs, const Outbox& outbox) {
-		if constexpr (Plan::openCount > 0 && Plan::sendsPing) {
+	// Sends each queued built-in request: its number and tag are taken in this call, and a ping's stamp is the clock of this Process. A busy send
+	// keeps it queued for the next Process. A request sent here arms its deadline from this Process's clock.
+	void SendBuiltIns(uint32 nowUs, const Outbox& outbox) {
+		if constexpr (Plan::openCount > 0 && Plan::sendsBuiltIn) {
 			for (Slot& slot : slots) {
 				if (slot.stage == RequestStage::queued) {
-					SendPing(slot, nowUs, outbox);
+					SendBuiltIn(slot, nowUs, outbox);
 				}
 			}
 		} else {
@@ -368,7 +361,7 @@ public:
 	void CancelAll(const Outbox& outbox) {
 		if constexpr (Plan::requesterCancels) {
 			for (Slot& slot : slots) {
-				if (slot.stage != RequestStage::open || IsPing(slot) || slot.cancel.requested) {
+				if (slot.stage != RequestStage::open || IsBuiltIn(slot) || slot.cancel.requested) {
 					continue;
 				}
 
@@ -449,7 +442,7 @@ public:
 				return;
 			}
 
-			if (IsPing(*slot)) {
+			if (IsBuiltIn(*slot)) {
 				if (outcome.status != ResultStatus::ok) {
 					slot->Settle(outcome.status);
 				}
@@ -542,7 +535,7 @@ public:
 				return ResultStatus::ok;
 			}
 
-			if (IsPing(*slot)) {
+			if (IsBuiltIn(*slot)) {
 				return ResultStatus::ok;
 			}
 
@@ -588,25 +581,79 @@ private:
 	}
 
 
-	// True when a request of the slot has the reply deadline of the built-in request: a ping has its own, and a command has its ReplyTimeoutMs.
+	// True when a request of the slot has the reply deadline of the built-in request: a ping or a health request has its own, and a command has its
+	// ReplyTimeoutMs.
 	static bool TimedSlot(const Slot& slot) {
-		return IsPing(slot) || Commands::commandTable[slot.command].replyTimeoutMs > 0;
+		return IsBuiltIn(slot) || Commands::commandTable[slot.command].replyTimeoutMs > 0;
 	}
 
 
-	// True when the slot's command is FailWhileDown. A ping is not: it waits for the connection.
+	// True when the slot's command is FailWhileDown. A built-in request is not: it waits for the connection.
 	static bool FailsWhileDown(const Slot& slot) {
-		return !IsPing(slot) && Commands::commandTable[slot.command].failWhileDown;
+		return !IsBuiltIn(slot) && Commands::commandTable[slot.command].failWhileDown;
 	}
 
 
-	// Sends one queued ping. A busy send keeps it queued for the next Process; any other refusal ends it at once, and its handler gets that
-	// result. An accepted ping takes its number and tag, and its deadline runs from this Process's clock.
-	void SendPing(Slot& slot, uint32 nowUs, const Outbox& outbox) {
-		std::array<uint8, BuiltInWire::PingRequest + Plan::pingPadding> packet;
+	// True when the slot holds a built-in request (a ping or a health request), whose command index is not in the table. Every lookup of a
+	// slot's command in the table is guarded by this. It is a constant false in a layer that sends no built-in request.
+	static bool IsBuiltIn(const Slot& slot) {
+		if constexpr (Plan::sendsBuiltIn) {
+			return slot.command >= BuiltInWire::FirstBuiltInSlot;
+		} else {
+			(void)slot;
+			return false;
+		}
+	}
+
+
+	// Takes a slot for a built-in request and queues it: the next Process sends it. The slot's deadline field holds the padding of a ping until
+	// then. A full table returns busy, and a layer with no Reliable below and no session returns noInit; both use no number.
+	ResultStatus QueueBuiltIn(uint8 command, RequestFinalFn finalFn, uint32 padding) {
+		if constexpr (!Plan::ownerBelow) {
+			if (!session.given) {
+				return ResultStatus::noInit;
+			}
+		}
+
+		Slot* slot = FreeRequest();
+		if (slot == nullptr) {
+			return ResultStatus::busy;
+		}
+
+		slot->stage = RequestStage::queued;
+		slot->command = command;
+		slot->armNeeded = false;
+		slot->result = ResultStatus::ok;
+		slot->finalFn = finalFn;
+		slot->deadlineUs = padding;
+		if constexpr (Plan::requesterCancels) {
+			slot->cancel = RequestCancelSlot{};
+		}
+
+		return ResultStatus::ok;
+	}
+
+
+	// Sends one queued built-in request: a ping or a health request. A busy send keeps it queued for the next Process; any other refusal ends
+	// it at once, and its handler gets that result. An accepted request takes its number and tag, and its deadline runs from this Process's
+	// clock.
+	void SendBuiltIn(Slot& slot, uint32 nowUs, const Outbox& outbox) {
+		std::array<uint8, Plan::builtInRequestBytes> packet;
 		uint16 number = FreeNumber();
 		uint8 tag = numbers.nextTag;
-		std::size_t length = EncodePingRequest(packet, number, tag, nowUs, static_cast<uint16>(slot.deadlineUs));
+		std::size_t length = 0;
+		if constexpr (Plan::sendsPing) {
+			if (IsPing(slot)) {
+				length = EncodePingRequest(packet, number, tag, nowUs, static_cast<uint16>(slot.deadlineUs));
+			}
+		}
+
+		if constexpr (Plan::asksHealth) {
+			if (!IsPing(slot)) {
+				length = EncodeHealthRequest(packet, number, tag);
+			}
+		}
+
 		ResultStatus status = outbox.Send(std::span<const uint8>(packet.data(), length));
 		if (status == ResultStatus::busy) {
 			return;

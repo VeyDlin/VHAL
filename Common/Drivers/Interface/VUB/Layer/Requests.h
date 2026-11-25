@@ -44,6 +44,11 @@ struct RequestsOptions {
 	uint32 builtInTimeoutMs = BuiltInWire::DefaultTimeoutMs;
 	bool answerPing = false;
 	uint16 answerPadding = 0;
+	bool health = false;
+	uint16 healthBytes = 0;
+	bool answerHealth = false;
+	uint16 answerHealthBytes = 0;
+	void (* const* healthFn)(std::span<uint8>) = nullptr;
 };
 
 
@@ -126,8 +131,11 @@ struct RequestsPlan {
 	static constexpr std::size_t handlerCount = std::tuple_size_v<typename HandlerSet::List>;
 	static constexpr bool served = AnyCommandEntry(typename HandlerSet::List{});
 	static constexpr bool sendsPing = Value.ping;
+	static constexpr bool asksHealth = Value.health;
+	static constexpr bool sendsBuiltIn = sendsPing || asksHealth;
 	static constexpr bool answerPing = Value.answerPing;
-	static constexpr bool answers = served || answerPing;
+	static constexpr bool answerHealth = Value.answerHealth;
+	static constexpr bool answers = served || answerPing || answerHealth;
 	static constexpr bool ticketed = HasTicketHandler<Commands>(onIndex, handlerCount);
 	static constexpr bool cancellable = AnyCommandFlag(Commands::commandTable, &CommandInfo::cancellable);
 	// Interim slots exist only for interim commands. A cancel-refused interim (0xF8) for a command without one has no handler and is dropped.
@@ -147,9 +155,20 @@ struct RequestsPlan {
 	static constexpr uint16 pingPadding = Value.pingPadding;
 	static constexpr uint32 builtInTimeoutMs = Value.builtInTimeoutMs;
 	static constexpr uint16 answerPadding = Value.answerPadding;
-	static_assert(!sendsPing || (builtInTimeoutMs > 0 && builtInTimeoutMs <= BuiltInWire::MaxTimeoutMs),
+	// The user body sizes of the two roles: the asking side's size checks the handler's body (the report is decoded with the handler's type), and
+	// the answering side's size is the body its fill writes.
+	static constexpr uint16 healthBytes = Value.healthBytes;
+	static constexpr uint16 answerHealthBytes = Value.answerHealthBytes;
+	static constexpr void (* const* healthFill)(std::span<uint8>) = Value.healthFn;
+	// The largest packet a requester slot sends for a built-in request, and the bytes of the one reply buffer of a responder.
+	static constexpr std::size_t builtInRequestBytes = std::max(PingRequestBytes(sendsPing, pingPadding), HealthRequestBytes(asksHealth));
+	static constexpr std::size_t replyBytes = BuiltInReplyBytes(answerPing, answerPadding, answerHealth, answerHealthBytes);
+	static_assert(!sendsBuiltIn || (builtInTimeoutMs > 0 && builtInTimeoutMs <= BuiltInWire::MaxTimeoutMs),
 		"BuiltInTimeoutMs must be from 1 to 2147483 milliseconds");
-	static_assert(sendsPing || builtInTimeoutMs == BuiltInWire::DefaultTimeoutMs, "BuiltInTimeoutMs needs the Step .Ping(maxPadding) of the layer");
+	static_assert(sendsBuiltIn || builtInTimeoutMs == BuiltInWire::DefaultTimeoutMs,
+		"BuiltInTimeoutMs needs the Step .Ping(maxPadding) or .Health<U>() of the layer");
+	static_assert(!asksHealth || openCount > 0, "Health needs requester slots: give the layer Open(n) with n of at least 1");
+	static_assert(!answerHealth || counted, "AnswerHealth needs this layer's Counted(): add .Counted() to the requests layer");
 };
 
 
@@ -238,7 +257,32 @@ public:
 		}
 
 
-		// The deadline of a built-in request, in milliseconds: the time a ping waits for its reply. The default is 1000.
+		// The built-in health request, sending side: the layer sends health requests from its requester slots, so Open(n) of at least 1 is
+		// needed. U is the user body of the reply, VUB::NoBody when the responder has none. The handler of Health<&Handler>() takes a
+		// HealthReport<U>.
+		template<typename U = NoBody>
+		constexpr Step Health() const {
+			Options next = this->LastOptions();
+			next.health = true;
+			next.healthBytes = static_cast<uint16>(BodyViewOf<U>.maxSize);
+			return Step(this->WithLastOptions(next));
+		}
+
+
+		// The built-in health request, answering side: the layer answers each health request it takes. Fill is void (*)(U&) and writes the user
+		// body; it is called once per request, from Process. Needs Counted() on the layer. The layer needs no Open, no handler and no ticket for
+		// it.
+		template<typename U, void (*Fill)(U&)>
+		constexpr Step AnswerHealth() const {
+			Options next = this->LastOptions();
+			next.answerHealth = true;
+			next.answerHealthBytes = static_cast<uint16>(BodyViewOf<U>.maxSize);
+			next.healthFn = &HealthFillHandler<&EncodeHealthBody<U, Fill>>;
+			return Step(this->WithLastOptions(next));
+		}
+
+
+		// The deadline of a built-in request, in milliseconds: the time a ping or a health request waits for its reply. The default is 1000.
 		constexpr Step BuiltInTimeoutMs(uint32 ms) const {
 			Options next = this->LastOptions();
 			next.builtInTimeoutMs = ms;
@@ -329,6 +373,14 @@ public:
 		}
 
 
+		// A health request to the peer: the handler gets the peer's HealthReport<U>. The request is sent by the next Process, with the same
+		// session, slot and deadline rules as Ping. Only a layer with the Step .Health<U>() has it.
+		template<auto Handler>
+		ResultStatus Health() const {
+			return layer->template HealthRequest<Handler>();
+		}
+
+
 		RequestsOf& Owner() const {
 			return *layer;
 		}
@@ -348,14 +400,21 @@ public:
 	static constexpr bool wantsOwner = true;
 	static constexpr bool ownerOptional = true;
 	static constexpr bool usesLinkState = Commands::hasFailWhileDown;
+	// A layer that answers health requests reads the stack's counters through the CountingOutbox its Process takes.
+	static constexpr bool usesCounters = Plan::answerHealth;
+	// A layer that sends the counters on needs the stack's high-water marks, and Reliable's counters below it (checked by the stack).
+	static constexpr bool needsCounters = Plan::answerHealth;
 	static constexpr std::size_t largestPacket = std::max({
 		RequestWire::RequestHeader + Commands::largestRequest,
 		RequestWire::FinalHeader + Commands::largestReply,
 		RequestWire::InterimSize,
 		RequestWire::FinalErrorSize,
 		RequestWire::EventHeader + Commands::largestEvent,
-		BuiltInReplyBytes(Value.answerPing, Value.answerPadding),
-		PingRequestBytes(Value.ping, Value.pingPadding)});
+		BuiltInReplyBytes(Value.answerPing, Value.answerPadding, Value.answerHealth, Value.answerHealthBytes),
+		PingRequestBytes(Value.ping, Value.pingPadding),
+		HealthRequestBytes(Value.health || Value.answerHealth),
+		HealthReplyBytes(Value.health, Value.healthBytes),
+		HealthReplyBytes(Value.answerHealth, Value.answerHealthBytes)});
 
 
 private:
@@ -473,11 +532,15 @@ public:
 
 	// Runs once per Process: the requester's deadlines and the finals of the requests that closed without a packet, then the responder's
 	// handlers, deadlines and packets. The handlers run here, so a request or a final made in a handler goes out in this Process.
-	void Process(uint32 nowUs, const Outbox& outbox) {
+	// The outbox is a CountingOutbox when the layer answers health requests (usesCounters), since the reply carries the stack's counters.
+	template<typename OutboxType>
+	void Process(uint32 nowUs, const OutboxType& outbox) {
+		static_assert(!Plan::answerHealth || std::is_same_v<OutboxType, CountingOutbox>,
+			"a layer that answers health requests is given the CountingOutbox of the stack");
 		if constexpr (Plan::openCount > 0) {
 			requester.Arm(nowUs);
-			if constexpr (Plan::sendsPing) {
-				requester.SendPings(nowUs, outbox);
+			if constexpr (Plan::sendsBuiltIn) {
+				requester.SendBuiltIns(nowUs, outbox);
 			}
 
 			requester.Expire(nowUs);
@@ -493,6 +556,10 @@ public:
 
 		if constexpr (Plan::openCount > 0) {
 			requester.Deliver(nowUs);
+		}
+
+		if constexpr (Plan::answerHealth) {
+			responder.FillHealth(outbox.Counters(), counts.refused, requester.LateReplies(), counts.eventsLost);
 		}
 
 		if constexpr (Plan::answers) {
@@ -537,6 +604,12 @@ public:
 	template<auto Handler>
 	ResultStatus PingRequest(uint16 padding) {
 		return requester.template Ping<Handler>(padding);
+	}
+
+
+	template<auto Handler>
+	ResultStatus HealthRequest() {
+		return requester.template Health<Handler>();
 	}
 
 

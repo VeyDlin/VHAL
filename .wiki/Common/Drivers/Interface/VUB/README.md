@@ -1304,6 +1304,8 @@ using WatchedBoard = VUB::Stack<+[] {
 }>;
 ```
 
+A layer that sends these counters on, such as a requests layer with `AnswerHealth`, declares `static constexpr bool needsCounters = true`. The stack then refuses the chain unless it is `HighWater()`, and, when the block below takes the owner (Reliable), unless that block is `Counted()`. The layer's own `Counted()` is a rule of the layer itself: its refusals, late replies and lost events are the counts the reply carries.
+
 #### Concurrent: the Concurrent option and the concurrent flag
 
 `Concurrent()` on the builder lets the application send from another task while `Process` runs. The send from that task copies the payload

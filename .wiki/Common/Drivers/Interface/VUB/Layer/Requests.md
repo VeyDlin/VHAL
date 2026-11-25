@@ -4,7 +4,7 @@ The requests layer: a request with a typed body and one final reply, interim rep
 commands a device serves. The layer sits above `VUB::Reliable` for delivery, or directly above a transform, a framing or a link; its packets
 are the payloads of the block below.
 
-The layer does not build events, ping and health, or `Await` (see Not built).
+The example below does not use events, ping, health, or `Await` (see Not built).
 
 The example below is a device: it serves two commands and sends its packets over a Reliable layer. It is compiled by
 `.tool/sim/TestVubRequestsLayerWiki.cpp`.
@@ -168,7 +168,8 @@ needs its session value (`SetSession`, see Reliable).
 - `Requests/Responder.h` (`ResponderOf`): the responder part. It holds the tickets and the refusal ring, and the calls of the received requests,
   the finals, the interims, the deadlines and the restart.
 - `Requests/Events.h` (`EventsOf`): the emitter of the events and the receiver of the event packets. It holds no state.
-- `Requests/BuiltIn.h`: the built-in ids, the ping's request and reply encoding, and the responder's reply buffer.
+- `Requests/BuiltIn.h`: the built-in ids, the ping's and the health's request and reply encoding, the health report, and the responder's
+  reply buffer.
 - `Requests/Ticket.h`: `RequestId`, `TicketOps` and `Ticket`. `Requests/Wire.h`: the wire kinds, the codes and their results, and the
   deadline compare.
 - Tests: `TestVubRequestsWire.cpp` (the bytes), `TestVubRequestsRequester.cpp`, `TestVubRequestsResponder.cpp`,
@@ -617,6 +618,88 @@ a side that only receives does not otherwise contain. Next to served commands, t
 
 The rows without a ping Step are unchanged from the table below.
 
+## Health
+
+The built-in health request reads the peer's counters and its user body. It is a request with the id 0xF1, answered by the layer itself, with no
+command and no handler. Like ping it has two Steps, and a side takes one or both:
+
+- `.Health<U>()` asks. It needs `Open(n)` of at least 1. `U` is the user body of the reply, `VUB::NoBody` when there is none. The handler of
+  `Health<&Handler>()` takes a `VUB::HealthReport<U>`, and the report is decoded in Take with the handler's own type, so the asking side
+  needs no size of its own beyond the check that the handler's `U` is the one of the Step.
+- `.AnswerHealth<U, &Fill>()` answers. `Fill` is `void (*)(U&)` and writes the user body; it runs once per request, from Process, and the
+  reply goes out in the same Process. It needs no `Open`, no handler and no ticket. It needs `Counted()` on the layer, because the reply
+  carries the layer's refused, lateReplies and eventsLost counts, and the stack needs `HighWater()` and, under Reliable, `Counted()` on
+  Reliable (see the README section on counters).
+
+The reply is 28 bytes of counters, then `U`: the eight drop counters, resends, peerRestarts, refused, lateReplies, eventsLost, and the two
+high-water marks (section 9.2 of the design, the wire of this layer). A report that ends locally (a deadline, a link loss, a restart) has the
+result set and nothing else. A reply whose body is shorter than `U` has `invalidData`; a longer one is read for the fields `U` has.
+
+The health request uses the deadline of `.BuiltInTimeoutMs(ms)`, as ping does, and it takes the same slot, session and `busy` rules. The layer
+has one reply buffer for its built-in requests, which holds the larger of the ping reply and the health reply; a second built-in request
+while the buffer is unsent is refused `busy` through the refusal ring. A refusal that finds the ring full is counted in `refused` on a
+`Counted()` layer, as a refused served command is, and is dropped otherwise.
+
+```cpp
+// --- snippet: Layer/Requests.md, health ---
+// The asking side: two slots, and a health request whose reply carries a HealthBody. The handler gets the report.
+using HealthAsker = VUB::Stack<+[]() {
+	return VUB::Builder()
+		.Layer<VUB::Requests<HealthCommands, PcHandlers>>().Open(2).Tickets(1)
+			.Health<HealthCheck::HealthBody>()
+		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
+		.Transform<XorTransform>()
+		.Link<ReportingPacketEnd>()
+		.MaxPayload(40)
+		.ReceiveQueue(4)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
+// The handler of the report: the result, the responder's counters, and its user body.
+void OnHealthReport(const VUB::HealthReport<HealthCheck::HealthBody>& report) {
+	(void)report;
+}
+
+
+// A health request. The report goes to OnHealthReport in the Process that takes the reply, or with a local result.
+inline ResultStatus AskHealth(HealthAsker& asker) {
+	return asker.Requests().Health<&OnHealthReport>();
+}
+```
+
+```cpp
+// --- snippet: Layer/Requests.md, health answer ---
+// The answering side: Counted() keeps the counts of the reply, Reliable below is Counted(), and the stack is HighWater().
+using HealthAnswerer = VUB::Stack<+[]() {
+	return VUB::Builder()
+		.Layer<VUB::Requests<HealthCommands, DeviceHandlers>>().Counted()
+			.AnswerHealth<HealthCheck::HealthBody, &FillHealth>()
+		.Layer<VUB::ReliableOf<40, 4>>().Counted().Retries(3).TimeoutMs(200).Window(4)
+		.Transform<XorTransform>()
+		.Link<ReportingPacketEnd>()
+		.HighWater()
+		.MaxPayload(40)
+		.ReceiveQueue(4)
+		.OnReceive<&TestReceive>()
+		.Clock<&TestClock>();
+}>;
+```
+
+The snippets use the command set `HealthCommands`, the fill `FillHealth` and the body `HealthCheck::HealthBody` of `TestVubRequestsHealth.cpp`.
+
+Build-time rules:
+
+| Rule | Message |
+|---|---|
+| `Health<U>()` on a layer with no `Open(n)` | `Health needs requester slots: give the layer Open(n) with n of at least 1` |
+| `AnswerHealth` on a layer without `Counted()` | `AnswerHealth needs this layer's Counted(): add .Counted() to the requests layer` |
+| `AnswerHealth` on a stack without `HighWater()` | `add HighWater() to the stack` |
+| `AnswerHealth` under Reliable that is not `Counted()` | `add Counted() to the Reliable layer` |
+| a health handler with another signature | `a health handler has the signature void (const VUB::HealthReport<U>&)` |
+| a handler whose `U` has another size than the Step's | `the health handler's user body is not the body of the layer's Step .Health<U>()` |
+
 ## Size
 
 Measured with `arm-none-eabi-g++` 15.2 (`-Os`, `--gc-sections`, nano specs) by `.tool/size/size.sh`, row by row. Each row is the same chain
@@ -677,9 +760,20 @@ program with no send includes the application-side send entry of the layer above
 | `Counted()` alone | 16 | 8 | 28 | 8 |
 | `Delivered()` against plain, emit and receive, `Counted()` | 36 | 0 | 44 | 0 |
 
+Built-in requests, measured as differences of `.tool/size/ConfigHealth.cpp` over `ReliableOf<40, 4>` on CRC-16/MODBUS over COBS over a stream
+link. Each row's base is the same chain with the layer's other Steps and without the health Steps. An answering side needs `Counted()` on
+the layer, on Reliable and `HighWater()` on the stack, so the answer rows keep those in both programs, and the last row measures them alone.
+
+| Health on the layer | Base | M4 text | M4 RAM | M0+ text | M0+ RAM |
+|---|---|---:|---:|---:|---:|
+| asks: `.Health<HealthBody>()` | requester, `Open(2)` | +1504 | +4 | +1672 | +4 |
+| answers: `.AnswerHealth<HealthBody, &Fill>()` | served command, `Tickets(1)`, `Refusals(2)`, counters | +752 | +48 | +724 | +48 |
+| both | served command and requester, counters | +1296 | +52 | +1360 | +52 |
+| health next to ping, both sides | ping, both sides, counters | +1080 | +12 | +1168 | +12 |
+| counters alone | served command | +176 | +12 | +164 | +12 |
+
 ## Not built
 
 These are not in this layer:
 
-- Health (0xF1), with its counters.
 - `Await`.
