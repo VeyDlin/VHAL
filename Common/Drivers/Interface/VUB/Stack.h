@@ -52,6 +52,14 @@ concept ReportsCounts = requires(const Block& block) {
 };
 
 
+// A block that resends its packets when the connection returns, because the layer above asks whether they are still wanted (Reliable with
+// DeliveryWanted above it). The stack marks the copies it queues for it, and drops the marked copies when the connection returns.
+template<typename Block>
+concept ResendsWanted = requires {
+	requires Block::resendsWanted;
+};
+
+
 // Raises a high-water value to fill, saturating at 255. Called from the receive interrupt for the receive ring, so the value is volatile.
 inline void RaiseHighWater(volatile uint8& high, std::size_t fill) {
 	uint8 level = fill > 255 ? static_cast<uint8>(255) : static_cast<uint8>(fill);
@@ -226,6 +234,16 @@ public:
 	static_assert(payloadsFit, "the payloads of the chain were not checked");
 
 
+	template<std::size_t... Index>
+	static constexpr bool AnyResendsWanted(std::index_sequence<Index...>) {
+		return (false || ... || ResendsWanted<StoredAt<Index>>);
+	}
+
+
+	// Whether a layer of the chain resends its packets when the connection returns (see ResendsWanted). A chain without one has no code for it.
+	static constexpr bool resendsWanted = AnyResendsWanted(std::make_index_sequence<count>{});
+
+
 	static constexpr LinkTraits linkTraits = Builder::ChainLinkTraits();
 	static constexpr bool streamLink = Builder::IsStreamLink();
 	static constexpr bool linkReports = linkTraits.reportsState;
@@ -238,6 +256,8 @@ public:
 	static constexpr std::size_t framedBytes = Builder::FramedBound(built.settings);
 	static constexpr std::size_t framingIndex = Builder::FramingIndex();
 	static constexpr bool hasFraming = framingIndex < count;
+	// A stream chain with a framing and a layer that resends its packets keeps the mark of the frame being written.
+	static constexpr bool framesResent = resendsWanted && streamLink && hasFraming;
 	using FramingEntry = std::tuple_element_t<(framingIndex < count ? framingIndex : 0), Tuple>;
 	// A framing that uses time gets the time of each received byte, and the ring keeps it. Any other chain keeps no time.
 	static constexpr bool framingTimed = streamLink && FramingUsesTime<hasFraming, FramingEntry>::value;
@@ -476,6 +496,17 @@ private:
 	};
 
 
+	// Whether the frame being written carries a packet that a layer below sends again (see ResentBelowFlag). Only a stream chain with such a
+	// layer keeps the mark; any other chain has an empty member.
+	struct FrameMark {
+		bool resent = false;
+	};
+
+
+	struct NoFrameMark {
+	};
+
+
 	LinkType* link;
 	[[no_unique_address]] Detach<linkReports, LinkType> detach;
 	[[no_unique_address]] ReceiverDetach<linkReceives, LinkType> receiverDetach;
@@ -487,6 +518,7 @@ private:
 	[[no_unique_address]] State<hasBulk, HeldState, 5> heldState;
 	[[no_unique_address]] Buffer<streamLink && hasFraming, framedBytes, 6> framed;
 	[[no_unique_address]] State<streamLink && hasFraming, FramedState, 7> framedState;
+	[[no_unique_address]] std::conditional_t<framesResent, FrameMark, NoFrameMark> frameMark{};
 	[[no_unique_address]] QueueStorage<true, sendSlots, packetBytes, 8> control;
 	[[no_unique_address]] QueueStorage<concurrent, stageSlots, stageBytes, 16> staged;
 	[[no_unique_address]] QueueStorage<peersReport, sendSlots, packetBytes, 14> ownQueue;
@@ -532,7 +564,7 @@ private:
 					return ResultStatus::messageTooLong;
 				}
 
-				return SendFrom<From + 1>(out.first(added.Value()), meta, lane, caller);
+				return SendFrom<From + 1>(out.first(added.Value()), ResentMeta<From>(meta), lane, caller);
 			} else if constexpr (Entry::kind == BlockKind::transform) {
 				std::span<uint8> out = StepBuffer<From>();
 				Result<std::size_t> encoded = std::get<From>(blocks).Encode(meta, packet, out);
@@ -557,6 +589,21 @@ private:
 				return Stage(packet, meta, lane);
 			}
 		}
+	}
+
+
+	// The meta of a packet that the layer at From added. A packet of a layer that resends its packets when the connection returns is marked,
+	// unless it needs no acknowledgement: such a packet is not kept by the layer, so it is not sent again by it.
+	template<std::size_t From>
+	static Meta ResentMeta(const Meta& meta) {
+		Meta marked = meta;
+		if constexpr (ResendsWanted<StoredAt<From>>) {
+			if ((meta.flags & Meta::NoAcknowledgeFlag) == 0) {
+				marked.flags = static_cast<uint8>(marked.flags | Meta::ResentBelowFlag);
+			}
+		}
+
+		return marked;
 	}
 
 
@@ -1176,6 +1223,10 @@ private:
 
 		if (next && !record.connected) {
 			record.connected = true;
+			if constexpr (resendsWanted) {
+				DropResent();
+			}
+
 			ResetFraming();
 			TellLayers<0>(true, now);
 		}
@@ -1222,6 +1273,24 @@ private:
 					heldState.Get().valid = false;
 					AddDrops(record.dropped, 1);
 				}
+			}
+		}
+	}
+
+
+	// On the connection's return, ahead of the layers' OnLink. The copies that a layer below sends again are dropped from the queues, and
+	// the other packets keep their order. The layer resends each one still wanted when it is told of the return, so the copy of a packet that
+	// its requester has closed does not reach the link. A copy dropped here is not counted: the layer keeps the packet.
+	void DropResent() {
+		QueueDropFlagged(control.indexes, control.View(), sendSlots, Meta::ResentBelowFlag);
+		if constexpr (peersReport) {
+			QueueDropFlagged(ownQueue.indexes, ownQueue.View(), sendSlots, Meta::ResentBelowFlag);
+		}
+
+		// A frame part written when the connection was lost is written again from its start under Wait. A marked one is dropped instead.
+		if constexpr (framesResent) {
+			if (framedState.Get().valid && frameMark.resent) {
+				framedState.Get().valid = false;
 			}
 		}
 	}
@@ -1289,6 +1358,10 @@ private:
 				framedState.Get().length = static_cast<uint16>(length.Value());
 				framedState.Get().sent = 0;
 				framedState.Get().valid = true;
+				if constexpr (framesResent) {
+					frameMark.resent = (flags & Meta::ResentBelowFlag) != 0;
+				}
+
 				if constexpr (peersReport) {
 					framedState.Get().own = own;
 				}

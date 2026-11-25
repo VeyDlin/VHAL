@@ -132,6 +132,10 @@ public:
 	static constexpr bool makesBulk = false;
 	static constexpr bool passesUp = InOrder;
 
+	// The layer above asks whether a packet is still wanted (DeliveryWanted). Then the layer's resends go out in the order of their numbers,
+	// and its copies in a queue are marked, so the stack drops them when the connection returns and the layer sends the wanted ones again.
+	static constexpr bool resendsWanted = HoldsHandler(options.wantedFn);
+
 	// The flags in the first byte of every packet of the layer.
 	static constexpr uint8 SequencedFlag = 0x01;
 	static constexpr uint8 AcknowledgesFlag = 0x02;
@@ -629,6 +633,14 @@ public:
 		if (up) {
 			for (Slot& slot : peer.slots) {
 				if (slot.state == SlotState::pending) {
+					// With a layer above that asks DeliveryWanted, the try that was under way when the connection was lost does not count: its copy
+					// waited in the stack's queue or was lost with the link. The send at the return takes the try's place.
+					if constexpr (resendsWanted) {
+						if (slot.attempts > 0) {
+							slot.attempts--;
+						}
+					}
+
 					slot.dueUs = nowUs;
 				}
 			}
@@ -1250,11 +1262,25 @@ private:
 	// its tries is dropped without an outcome: the next Send starts the session again, with the same counter. A data packet that is due is
 	// first offered to the layer above when it declares DeliveryWanted: one it does not want is not sent, and its outcome is operationCancelled.
 	void RunTimers(uint32 nowUs, const Outbox& outbox) {
-		for (Slot& slot : peer.slots) {
-			if (slot.state != SlotState::pending || !ReliableWire::Due(nowUs, slot.dueUs)) {
+		uint16 base = 0;
+		if constexpr (resendsWanted) {
+			base = SenderBase();
+		}
+
+		for (std::size_t index = 0; index < WindowCapacity; index++) {
+			Slot* found = nullptr;
+			if constexpr (resendsWanted) {
+				// The packets are visited in the order of their numbers from the sender's base, the order they were given in.
+				found = FindPending(static_cast<uint16>((base + index) & Mask()));
+			} else {
+				found = &peer.slots[index];
+			}
+
+			if (found == nullptr || found->state != SlotState::pending || !ReliableWire::Due(nowUs, found->dueUs)) {
 				continue;
 			}
 
+			Slot& slot = *found;
 			if (slot.attempts > options.retries) {
 				if (slot.sync) {
 					slot.state = SlotState::free;
@@ -1318,7 +1344,12 @@ private:
 		std::size_t headLength = PutHeader(head, fields);
 		std::size_t at = header - headLength;
 		ReliableWire::CopyBytes(head.data(), headLength, slot.bytes.data() + at);
-		if (outbox.Send(std::span<const uint8>(slot.bytes.data() + at, headLength + slot.length)) == ResultStatus::busy) {
+		Meta meta{};
+		if constexpr (resendsWanted) {
+			meta.flags = Meta::ResentBelowFlag;
+		}
+
+		if (outbox.Send(std::span<const uint8>(slot.bytes.data() + at, headLength + slot.length), meta) == ResultStatus::busy) {
 			return false;
 		}
 

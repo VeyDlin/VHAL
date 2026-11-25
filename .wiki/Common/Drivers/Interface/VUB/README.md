@@ -300,7 +300,9 @@ its state the answer is always true. A chain whose layers do not ask is unchange
   application's frame is not sent: it waits, and goes from its first byte when the peer is up.
 - `WhileDown` sets what happens to the packets waiting to be sent:
   - `Wait` (the default): they stay queued. `Send` queues until the queue is full, then returns `busy`, and the packets go in order
-    after the connection is up. A layer's own packet waits the same way while the link is down.
+    after the connection is up. A layer's own packet waits the same way while the link is down. Under a requests layer on Reliable, the
+    copies of its packets that wait when the connection returns are dropped, with the part of a frame that was written, since Reliable sends each packet that is still wanted (see
+    [Requests](Layer/Requests#failure-paths)); the other packets keep their order.
   - `Fail`: the queued packets are dropped and counted under `linkDown`, and `Send` returns `noConnection` while the connection is
     down. When the peer goes down, the application's queued packets are dropped and the layers' own packets are kept; when the link goes
     down, the layers' own packets are dropped too. A layer's own packet gets `noConnection` only while the link is down. A refused
