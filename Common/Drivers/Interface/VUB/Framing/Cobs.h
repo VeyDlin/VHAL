@@ -32,10 +32,10 @@ private:
 
 
 public:
-	// The most bytes Frame adds to a packet of length bytes: one code byte per 254 bytes at least, the code of the last block, and the
+	// The most bytes Frame adds to a packet of length bytes: one code byte per 254 bytes at most, the code of the last block, and the
 	// delimiter (and the leading zero when it is on).
 	static constexpr std::size_t Growth(std::size_t length) {
-		return length + length / 254 + 2 + (LeadingDelimiter ? 1 : 0);
+		return Encoding::Cobs::EncodedSize(length) - length + (LeadingDelimiter ? 1 : 0);
 	}
 
 
@@ -44,7 +44,7 @@ public:
 			return ResultStatus::invalidParameter;
 		}
 
-		if (out.size() < Growth(in.size())) {
+		if (out.size() < in.size() + Growth(in.size())) {
 			return ResultStatus::messageTooLong;
 		}
 

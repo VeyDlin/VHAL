@@ -145,7 +145,7 @@ void Run() {
 
 
 // Growth is a compile-time check as well as a value, so the wiki's growth figures are checked in constant expressions.
-static_assert(VUB::Cobs::Growth(3) == 5);
+static_assert(VUB::Cobs::Growth(3) == 2);
 static_assert(VUB::LengthPrefix<1>::Growth(3) == 3);
 static_assert(VUB::Gap::Growth(3) == 0);
 

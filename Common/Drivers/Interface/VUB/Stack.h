@@ -307,7 +307,6 @@ public:
 	using FramingEntry = std::tuple_element_t<(framingIndex < count ? framingIndex : 0), Tuple>;
 	// A framing that uses time gets the time of each received byte, and the ring keeps it. Any other chain keeps no time.
 	static constexpr bool framingTimed = streamLink && FramingUsesTime<hasFraming, FramingEntry>::value;
-	static constexpr bool hasSteps = Builder::StepCount() > 0;
 	static constexpr bool hasBulk = Builder::BulkCount() > 0;
 	static constexpr std::size_t receiveBytes = linkTraits.maxPacket;
 	static constexpr std::size_t receiveStart = streamLink ? (count >= 2 ? count - 2 : 0) : (count >= 1 ? count - 1 : 0);
@@ -557,8 +556,8 @@ private:
 	[[no_unique_address]] Detach<linkReports, LinkType> detach;
 	[[no_unique_address]] ReceiverDetach<linkReceives, LinkType> receiverDetach;
 	[[no_unique_address]] Storage blocks;
-	[[no_unique_address]] Buffer<hasSteps, packetBytes, 1> sendA;
-	[[no_unique_address]] Buffer<hasSteps, packetBytes, 2> sendB;
+	[[no_unique_address]] Buffer<Builder::HasStepOfParity(0), packetBytes, 1> sendA;
+	[[no_unique_address]] Buffer<Builder::HasStepOfParity(1), packetBytes, 2> sendB;
 	[[no_unique_address]] Buffer<hasBulk, packetBytes, 3> pulled;
 	[[no_unique_address]] Buffer<hasBulk, packetBytes, 4> held;
 	[[no_unique_address]] State<hasBulk, HeldState, 5> heldState;
