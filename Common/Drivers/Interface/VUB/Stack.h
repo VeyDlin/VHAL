@@ -560,10 +560,18 @@ private:
 	};
 
 
+	// The bulk slot of the stack holds one packet at a time: the held packet, which waits for the link in the held buffer, or a pulled packet,
+	// which a block below its producer refused as busy and which stays in the pulled buffer. The pulled packet keeps its length and flags
+	// here, and the slot holds pulledSlot plus the index of its producer, so the packet is offered again at its producer.
 	struct HeldState {
+		static constexpr uint8 emptySlot = 0;
+		static constexpr uint8 heldSlot = 1;
+		static constexpr uint8 pulledSlot = 2;
+
+
 		uint16 length = 0;
 		uint8 flags = 0;
-		bool valid = false;
+		uint8 slot = emptySlot;
 	};
 
 
@@ -659,7 +667,10 @@ private:
 		if constexpr (hasLinkState) {
 			const LinkRecord& record = linkRecord.Get();
 			bool up = own ? record.linkUp : record.connected;
-			if (!up) {
+			// What the link has reported counts as well: a fall that Process has not read, or a link that reports itself down, refuses
+			// the packet at once. A return is not used until Process reads it. A link that does not report has nothing to read.
+			bool reported = !linkReports || (record.reportedUp && record.reportedFalls == record.seenFalls);
+			if (!up || !reported) {
 				return whileDown == Down::Fail ? ResultStatus::noConnection : ResultStatus::busy;
 			}
 		}
@@ -1109,7 +1120,7 @@ private:
 			CopyBytes(packet.data(), packet.size(), held.Span().data());
 			heldState.Get().length = static_cast<uint16>(packet.size());
 			heldState.Get().flags = meta.flags;
-			heldState.Get().valid = true;
+			heldState.Get().slot = HeldState::heldSlot;
 			return ResultStatus::ok;
 		} else {
 			return ResultStatus::notSupported;
@@ -1559,8 +1570,8 @@ private:
 			}
 
 			if constexpr (hasBulk) {
-				if (heldState.Get().valid) {
-					heldState.Get().valid = false;
+				if (heldState.Get().slot != HeldState::emptySlot) {
+					heldState.Get().slot = HeldState::emptySlot;
 					DropLinkDown(1);
 				}
 			}
@@ -1707,7 +1718,9 @@ private:
 
 
 	// Asks the layers in chain order for their next bulk packet, at most room of them. A packet that is staged stays in the held slot,
-	// and the call returns 0 for it. The call returns the number of packets it dropped (each one counted by SendFrom or here).
+	// and the call returns 0 for it. A packet that a block below its producer refused as busy waits in the pulled slot, and the call offers
+	// it again first: no layer is asked for another packet while one waits. The call returns the number of packets it dropped (each one
+	// counted by SendFrom or here).
 	std::size_t PullBulk(std::size_t room) {
 		return PullFrom<0>(room);
 	}
@@ -1720,27 +1733,68 @@ private:
 		} else {
 			using Entry = std::tuple_element_t<Index, Tuple>;
 			if constexpr (Entry::kind == BlockKind::layer && Entry::MakesBulk()) {
-				Meta meta{};
-				std::span<uint8> out = pulled.Span();
-				Result<std::size_t> produced = std::get<Index>(blocks).Next(meta, out);
-				if (produced.IsOk()) {
-					if (produced.Value() > out.size()) {
-						Drop(&DropCounts::layerError);
-					} else if (SendFrom<Index + 1>(out.first(produced.Value()), meta, Lane::bulk, false) == ResultStatus::ok) {
-						return 0;
+				static_assert(Index + HeldState::pulledSlot <= 255, "the chain has too many layers for the bulk slot to keep a producer's index");
+				if (heldState.Get().slot >= HeldState::pulledSlot) {
+					// The walk passes the layers below the producer of the waiting packet without asking them, and offers the packet at the producer.
+					if (heldState.Get().slot == HeldState::pulledSlot + Index) {
+						return OfferPulled<Index>(room);
+					}
+				} else {
+					Meta meta{};
+					std::span<uint8> out = pulled.Span();
+					Result<std::size_t> produced = std::get<Index>(blocks).Next(meta, out);
+					if (produced.IsOk()) {
+						if (produced.Value() > out.size()) {
+							Drop(&DropCounts::layerError);
+						} else {
+							ResultStatus status = SendFrom<Index + 1>(out.first(produced.Value()), meta, Lane::bulk, false);
+							if (status == ResultStatus::ok) {
+								return 0;
+							}
+
+							if (status == ResultStatus::busy) {
+								HeldState& waiting = heldState.Get();
+								waiting.length = static_cast<uint16>(produced.Value());
+								waiting.flags = meta.flags;
+								waiting.slot = static_cast<uint8>(HeldState::pulledSlot + Index);
+								return 0;
+							}
+						}
+
+						// The packet was dropped and counted. The layers below may still have data in this call, within the room left.
+						return room > 1 ? 1 + PullFrom<Index + 1>(room - 1) : 1;
 					}
 
-					// The packet was dropped and counted. The layers below may still have data in this call, within the room left.
-					return room > 1 ? 1 + PullFrom<Index + 1>(room - 1) : 1;
-				}
-
-				if (produced.Error() != ResultStatus::noDataAvailable) {
-					Drop(&DropCounts::layerError);
+					if (produced.Error() != ResultStatus::noDataAvailable) {
+						Drop(&DropCounts::layerError);
+					}
 				}
 			}
 
 			return PullFrom<Index + 1>(room);
 		}
+	}
+
+
+	// Offers the packet that waits in the pulled slot to the blocks below its producer. Busy keeps it for the next call. Any other answer takes
+	// it out: ok puts it in the held slot, and a refusal was counted by the block that gave it, so the packet is dropped.
+	template<std::size_t Index>
+	std::size_t OfferPulled(std::size_t room) {
+		HeldState& waiting = heldState.Get();
+		Meta meta{};
+		meta.flags = waiting.flags;
+		ResultStatus status = SendFrom<Index + 1>(pulled.Span().first(waiting.length), meta, Lane::bulk, false);
+		if (status == ResultStatus::busy) {
+			return 0;
+		}
+
+		// An ok answer has put the packet in the held slot, which the send above set; any other answer drops the packet, and it was counted.
+		if (status == ResultStatus::ok) {
+			return 0;
+		}
+
+		waiting.slot = HeldState::emptySlot;
+		return room > 1 ? 1 + PullFrom<Index + 1>(room - 1) : 1;
 	}
 
 
@@ -1813,19 +1867,19 @@ private:
 			}
 
 			if constexpr (hasBulk) {
-				if (heldState.Get().valid) {
+				if (heldState.Get().slot == HeldState::heldSlot) {
 					std::span<const uint8> bulk(held.Span().data(), heldState.Get().length);
 					if (!Offer(bulk, heldState.Get().flags, now, false)) {
 						return;
 					}
 
-					heldState.Get().valid = false;
+					heldState.Get().slot = HeldState::emptySlot;
 					sentPackets++;
 					continue;
 				}
 
 				std::size_t dropped = PullBulk(perProcess - sentPackets);
-				if (dropped == 0 && !heldState.Get().valid) {
+				if (dropped == 0 && heldState.Get().slot != HeldState::heldSlot) {
 					return;
 				}
 
