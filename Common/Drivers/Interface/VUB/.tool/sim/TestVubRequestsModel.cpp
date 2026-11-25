@@ -205,6 +205,10 @@ inline constexpr std::size_t ModelMaxTickets = 12;
 inline constexpr std::size_t ModelHeldSlots = 32;
 inline constexpr std::size_t ModelPingSlots = 12;
 inline constexpr std::size_t ModelRoundHistory = 1024;
+// The resends and the timeout of Reliable in every chain that has it.
+inline constexpr uint8 ModelRetries = 3;
+inline constexpr uint16 ModelTimeoutMs = 200;
+inline constexpr uint32 ModelTimeoutUs = ModelTimeoutMs * 1000u;
 
 
 // --- The command sets: with Reliable (Note, and the Delivered event) and without it ----------------------------------------------------
@@ -396,7 +400,9 @@ inline uint32 modelQuietUntilUs = 0;
 inline uint32 modelNowUs = 0;
 inline uint32 modelMaxDelayUs = 0;
 inline uint32 modelRoundTimes[ModelRoundHistory] = {};
+inline bool modelRoundLinkUp[ModelRoundHistory] = {};
 inline std::size_t modelRoundCount = 0;
+inline bool modelInOrder = false;
 inline uint32 modelInstance[2] = {0, 0};
 inline uint64 modelSentToward[2] = {0, 0};
 inline uint64 modelRepliesToward[2] = {0, 0};
@@ -465,15 +471,55 @@ inline bool ModelSameNumber(VUB::RequestId first, VUB::RequestId second) {
 }
 
 
-// True when a copy of a request, sent before its requester closed it, could still reach the responder in this round: the copy is due by the
-// close plus the line's delay, and a run two rounds after the close is past that delay.
+// True when no packet sent before closedUs is tried by its sender any more, and the time from which that holds. Such a packet had its first
+// try by then, so ModelRetries + 1 timeouts remain at most, each one ending in a round with the link up; a link that comes back gives a
+// try back.
+inline bool ModelSettledSince(uint32 closedUs, uint32& settledUs) {
+	std::size_t kept = modelRoundCount < ModelRoundHistory ? modelRoundCount : ModelRoundHistory;
+	uint32 timeouts = ModelRetries + 1;
+	uint32 lastUs = closedUs;
+	bool wasUp = true;
+	for (std::size_t age = kept; age > 0; age--) {
+		std::size_t index = (modelRoundCount - age) % ModelRoundHistory;
+		uint32 timeUs = modelRoundTimes[index];
+		bool up = modelRoundLinkUp[index];
+		if (static_cast<int32>(timeUs - closedUs) > 0) {
+			if (up && !wasUp) {
+				timeouts++;
+				lastUs = timeUs;
+			} else if (up && timeUs - lastUs >= ModelTimeoutUs) {
+				lastUs = timeUs;
+				timeouts--;
+			}
+
+			if (timeouts == 0) {
+				settledUs = timeUs;
+				return true;
+			}
+		}
+
+		wasUp = up;
+	}
+
+	return false;
+}
+
+
+// True when a copy of a request, sent before its requester closed it, could no longer reach the responder in this round: the copy is due by
+// the close plus the line's delay, and a run two rounds after the close is past that delay. An in-order receiver keeps a packet until the
+// packets before it have arrived or were given up, so there the delay counts from the time they are settled.
 inline bool ModelLateRun(const ModelRecord& record) {
 	if (modelRoundCount < 3) {
 		return false;
 	}
 
+	uint32 sinceUs = record.closedUs;
+	if (modelInOrder && !ModelSettledSince(record.closedUs, sinceUs)) {
+		return false;
+	}
+
 	uint32 twoRoundsBack = modelRoundTimes[(modelRoundCount - 3) % ModelRoundHistory];
-	int elapsed = static_cast<int>(twoRoundsBack - record.closedUs);
+	int elapsed = static_cast<int>(twoRoundsBack - sinceUs);
 	return elapsed >= static_cast<int>(modelMaxDelayUs);
 }
 
@@ -928,7 +974,7 @@ using StackCrcSmallT = VUB::Stack<+[]() {
 using StackRelT = VUB::Stack<+[]() {
 	return VUB::Builder()
 		.Layer<VUB::Requests<FullCommands, FullHandlersOf<ChainRel>>>().Open(6).Tickets(4).Refusals(4).Counted().Ping(16).AnswerPing(16)
-		.Layer<VUB::ReliableOf<40, 6>>().Retries(3).TimeoutMs(200).Window(6)
+		.Layer<VUB::ReliableOf<40, 6>>().Retries(ModelRetries).TimeoutMs(ModelTimeoutMs).Window(6)
 		.Transform<VUB::Crc16Modbus>()
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
@@ -941,7 +987,7 @@ using StackRelT = VUB::Stack<+[]() {
 using StackRelInOrderT = VUB::Stack<+[]() {
 	return VUB::Builder()
 		.Layer<VUB::Requests<FullCommands, FullHandlersOf<ChainRelInOrder>>>().Open(6).Tickets(4).Refusals(4).Counted().Ping(16).AnswerPing(16)
-		.Layer<VUB::ReliableOf<40, 6, true>>().Retries(3).TimeoutMs(200).Window(6)
+		.Layer<VUB::ReliableOf<40, 6, true>>().Retries(ModelRetries).TimeoutMs(ModelTimeoutMs).Window(6)
 		.Transform<VUB::Crc16Modbus>()
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
@@ -954,7 +1000,7 @@ using StackRelInOrderT = VUB::Stack<+[]() {
 using StackRelSmallT = VUB::Stack<+[]() {
 	return VUB::Builder()
 		.Layer<VUB::Requests<FullCommands, FullHandlersOf<ChainRelSmall>>>().Open(1).Tickets(1).Refusals(0).Counted().Ping(16).AnswerPing(16)
-		.Layer<VUB::ReliableOf<40, 1>>().Retries(3).TimeoutMs(200).Window(1)
+		.Layer<VUB::ReliableOf<40, 1>>().Retries(ModelRetries).TimeoutMs(ModelTimeoutMs).Window(1)
 		.Transform<VUB::Crc16Modbus>()
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
@@ -967,7 +1013,7 @@ using StackRelSmallT = VUB::Stack<+[]() {
 using StackRelLargeT = VUB::Stack<+[]() {
 	return VUB::Builder()
 		.Layer<VUB::Requests<FullCommands, FullHandlersOf<ChainRelLarge>>>().Open(12).Tickets(12).Refusals(16).Counted().Ping(16).AnswerPing(16)
-		.Layer<VUB::ReliableOf<40, 12>>().Retries(3).TimeoutMs(200).Window(12)
+		.Layer<VUB::ReliableOf<40, 12>>().Retries(ModelRetries).TimeoutMs(ModelTimeoutMs).Window(12)
 		.Transform<VUB::Crc16Modbus>()
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
@@ -1399,6 +1445,7 @@ void ModelRound(uint32 advanceUs) {
 	modelNowUs += advanceUs;
 	testNowUs = modelNowUs;
 	modelRoundTimes[modelRoundCount % ModelRoundHistory] = modelNowUs;
+	modelRoundLinkUp[modelRoundCount % ModelRoundHistory] = modelLinkUp;
 	modelRoundCount++;
 	modelLine->SetNow(modelNowUs);
 	ModelProcess<Chain>(0);
@@ -1699,9 +1746,9 @@ void ModelRunSeed(uint32 seed, ModelLineKind kind) {
 	faults.maxDelayUs = 40000;
 	faults.keepsOrder = kind == ModelLineKind::keepsOrder;
 	ModelCheck(kind == ModelLineKind::keepsOrder || Chain::reliable, "a path with no Reliable below has no reordering line");
-	// An in-order receiver keeps a packet it has accepted until the packets before it arrive, so a copy may run after the requester closed the
-	// request without being on the line. The rule of a closed request is checked for the other chains with Reliable.
-	modelHoldsClosed = Chain::reliable && !Chain::inOrder;
+	// The rule of a closed request is checked for every chain with Reliable below the requests layer.
+	modelHoldsClosed = Chain::reliable;
+	modelInOrder = Chain::inOrder;
 	modelDuplicates = faults.duplicatePercent > 0;
 	modelMaxDelayUs = faults.maxDelayUs;
 	ReportingPacketLine line(faults);

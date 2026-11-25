@@ -66,8 +66,8 @@ A path that reorders packets (several routes, a retry queue below the layer) is 
 - no packet is held longer than the packet lifetime that the application states for that path;
 - the sequence numbers do not wrap within that lifetime;
 - after a reboot, a node waits one packet lifetime ahead of its first send, so every packet of its earlier boot has left the
-  path (as TCP's quiet time). Without the wait, a delayed acknowledgement of the earlier boot whose one-byte tag matches
-  the current session can acknowledge a packet that was not passed up (see Limits).
+  path (as TCP's quiet time). Without the wait, a delayed acknowledgement of a packet of the earlier boot can acknowledge a
+  packet of the current session that was not passed up, when its tag and its number both match (see Limits).
 
 The layer does not check either condition. Sixteen-bit sequence numbers are the default, and they wrap after 65536 packets of one session. Eight-bit numbers (`SequenceBits(8)`) wrap after 256 packets, so they are for paths that keep the order only. On such a path a copy of a packet that the path held for a whole session is refused by the session rules (see Sessions), and a copy of a packet that is behind the window is not passed up (see Receiving).
 
@@ -79,7 +79,7 @@ The first byte is the flags. The fields that follow are named by the flags, in t
 |---|---|---|
 | sequenced | 0x01 | a tag, a sequence number and a window base delta follow; the packet is a data packet or a sync |
 | acknowledges | 0x02 | a tag and an acknowledgement number follow |
-| sync | 0x04 | with sequenced: the packet starts a session; it has the boot value and the session counter after the delta, its sequence number is 0, its delta is 0, and it has no payload |
+| sync | 0x04 | with sequenced: the packet starts a session; it has the boot value and the session counter after the delta, its sequence number is the first number of its boot (see Sessions), its delta is 0, and it has no payload |
 | resync | 0x08 | the byte that follows is the tag of the session the receiver asks to be started again; the packet is those two bytes |
 | control | 0x10 | with acknowledges: a bare acknowledgement, with no tag-and-delta part and no payload; with resync: a counter reply (see Sessions) |
 
@@ -108,36 +108,36 @@ The packets that are valid, by their flags:
 | 0x02 | data, not sequenced, with an acknowledgement | ack tag, ack number, payload |
 | 0x01 | data | tag, number, delta, payload |
 | 0x03 | data, with an acknowledgement | tag, number, delta, ack tag, ack number, payload |
-| 0x05 | sync: the first packet of a session | tag, number 0, delta 0, boot value, counter; no payload |
-| 0x07 | sync, with an acknowledgement | tag, number 0, delta 0, boot value, counter, ack tag, ack number; no payload |
+| 0x05 | sync: the first packet of a session | tag, number (the first number of the boot), delta 0, boot value, counter; no payload |
+| 0x07 | sync, with an acknowledgement | tag, number (the first number of the boot), delta 0, boot value, counter, ack tag, ack number; no payload |
 | 0x08 | resync request | tag |
 | 0x12 | bare acknowledgement | ack tag, ack number |
 | 0x18 | counter reply | held boot value, held counter |
 
-Any other packet is refused and counted as a layer error. So is a packet whose length does not match its flags, a sync with a payload, a sync whose number or delta is not 0, and a sync whose tag is not the tag of its boot value and counter (see Sessions).
+Any other packet is refused and counted as a layer error. So is a packet whose length does not match its flags, a sync with a payload, a sync whose delta is not 0, and a sync whose tag is not the tag of its boot value and counter (see Sessions).
 
-Examples, with 16-bit numbers, the boot value 0x1234 given with `SetSession`, the session counter 0, and so the session tag is 0x34 (0x00 + 0x34):
+Examples, with 16-bit numbers, the boot value 0x1234 given with `SetSession`, the session counter 0, and so the session tag is 0x34 (0x00 + 0x34). The first number of boot 0x1234 is 0x012C (0x1234 × 0x9E37 = 0x0B40012C, low 16 bits):
 
 ```
-sync:                                          05 34 00 00 00 34 12 00
+sync:                                          05 34 2C 01 00 34 12 00
 sync of boot 0x5656, counter 0, acknowledging
-  the packet 0x0001 of tag 0x34 (flags 0x07):  07 56 00 00 00 56 56 00 34 01 00
+  the packet 0x012D of tag 0x34 (flags 0x07):  07 56 7A A0 00 56 56 00 34 2D 01
 first data packet after the sync is
-  acknowledged, number 0x0001, delta 0,
-  payload 11 00 22:                            01 34 01 00 00 11 00 22
+  acknowledged, number 0x012D, delta 0,
+  payload 11 00 22:                            01 34 2D 01 00 11 00 22
 second data packet, sent while the first is
-  unacknowledged, number 0x0002, delta 0x01,
-  payload 33 00:                               01 34 02 00 01 33 00
-bare acknowledgement of the sync:              12 34 00 00
+  unacknowledged, number 0x012E, delta 0x01,
+  payload 33 00:                               01 34 2E 01 01 33 00
+bare acknowledgement of the sync:              12 34 2C 01
 resync request for tag 0x34:                   08 34
 counter reply of boot 0x5656 holding
   counter 2:                                   18 56 56 02
-data with payload CD 00, number 0x0001,
-  delta 0, and the acknowledgement of 0x0002
-  (tag 0x34):                                  03 34 01 00 00 34 02 00 CD 00
+data with payload CD 00, number 0x012D,
+  delta 0, and the acknowledgement of 0x012E
+  (tag 0x34):                                  03 34 2D 01 00 34 2E 01 CD 00
 ```
 
-With `SequenceBits(8)` the same sync is `05 34 00 00 34 12 00` (7 bytes) and the bare acknowledgement of it is `12 34 00` (3 bytes).
+With `SequenceBits(8)` the same sync is `05 34 2C 00 34 12 00` (7 bytes) and the bare acknowledgement of it is `12 34 2C` (3 bytes).
 
 Each of these bytes is checked by a test of the sim suite, written by hand from this table.
 
@@ -150,7 +150,8 @@ The sender's values:
 - The boot value is the value given to `SetSession(value)`. It is required: until it is given, `Send` returns `noInit` and no session starts. It must differ for each boot. Where it comes from: a random number from the board's RNG adapter, the chip's unique id mixed with a boot counter kept in flash, or `std::random_device` on a PC. The same value on two boots breaks delivery (see Limits). `SetSession` applies to the sessions that start after the call.
 - The session counter is 0 for the first session of a boot. Each session of the same boot takes the next counter, one byte, so it wraps after 256 sessions.
 - The tag is the counter plus the low byte of the boot value, one byte. Consecutive sessions of one boot have different tags for 256 sessions.
-- A session's sync has the number 0 and the delta 0. The data of the session starts at number 1.
+- The first number of a boot is the boot value times 0x9E37, modulo 2^16 (`ReliableWire::FirstOf`, masked to the sequence width). For example 0x1234 gives 0x012C and 0x5656 gives 0xA07A. The factor is odd, so different boot values have different first numbers. With `SequenceBits(8)` the number is the product modulo 2^8: it is a function of the low byte of the boot value only, so it does not tell apart boot values that have the same low byte.
+- A session's sync has the first number of its boot and the delta 0. The data of the session starts at the number after it. The receiver takes the sync's number as it comes and does not compute it.
 
 A session starts when the application sends, once `SetSession` has been called. The first `Send` after that returns `busy`, and it starts the session: the sync goes out at the next `Process`. A `Send` made while `SetSession` has not been called returns `noInit`, sends nothing, and starts nothing. The sync is a control packet of its own. It carries no application data, so it has no outcome. `Send` returns `busy` until the sync is acknowledged. A session therefore costs one round trip at its start.
 
@@ -195,6 +196,8 @@ A sync is resent like any packet. When it has used its tries, it is dropped with
 ## Acknowledgements
 
 Each sequenced packet is acknowledged by its own number and its tag. An acknowledgement is taken only when its tag is the tag of the sender's current session. An acknowledgement of an earlier session, with the number of a packet in flight, does not acknowledge that packet.
+
+The acknowledgement of a sync names the sync's number, the first number of its boot. With 16-bit numbers that number tells the boots apart, and the tag then gives the counter: an acknowledgement of one boot's sync does not establish another boot's sync, even when the two tags are the same. A data packet's number is not tied to its boot, so an acknowledgement of a data packet of one boot can match a packet of another boot when the tags and the numbers both match (see Limits).
 
 An acknowledgement goes on a packet that is sent to the peer in the meantime (its flags then include 0x02). Its tag is the tag of the peer's session that the number belongs to, which is not always the tag of the packet. When no packet is sent, the acknowledgement goes alone, at the next `Process`. A packet with the no-acknowledgement flag (`VUB::Meta::NoAcknowledgeFlag`) has no sequence number, no tag and no delta, and it is not acknowledged.
 
@@ -292,7 +295,7 @@ The value must differ for each boot. The sources, in the order a board would use
 - the chip's unique id mixed with a boot counter that is kept in flash and counted up at each boot;
 - `std::random_device` on a PC.
 
-The layer cannot check the value. If two boots give the same value, the second boot's sessions match the first boot's: the receiver takes the sync as a copy of a session it holds, or as a counter it has already passed, and the sender's packets can then be acknowledged as duplicates, not passed up, and reported `ok`, or the sender stays `busy`. The counter reply (see Sessions) recovers some of these cases, not all. Sim test `TestVubReliableWiki` runs this call on a chain with the same builder lines and a link that keeps the first packet it sends. With the boot value 0x5A5A the sync is `05 5A 00 00 00 5A 5A 00`.
+The layer cannot check the value. If two boots give the same value, the second boot's sessions match the first boot's: the receiver takes the sync as a copy of a session it holds, or as a counter it has already passed, and the sender's packets can then be acknowledged as duplicates, not passed up, and reported `ok`, or the sender stays `busy`. The counter reply (see Sessions) recovers some of these cases, not all. Sim test `TestVubReliableWiki` runs this call on a chain with the same builder lines and a link that keeps the first packet it sends. With the boot value 0x5A5A the sync is `05 5A 56 F5 00 5A 5A 00`.
 
 ## Options
 
@@ -325,8 +328,9 @@ With `VUB::ReliableOf<PayloadCapacity, WindowCapacity, true>` the packets go up 
 - Held packets go up from `Process`, through the outbox's `Deliver` (the layer declares `passesUp`). Each one goes up once, in sequence order.
 - A held packet is acknowledged when it goes up. So an acknowledgement means the packet was passed up, and an outcome of `ok` means the same. A copy of a held packet is neither acknowledged nor kept again.
 - The gap fills: the held packets after it go up in order, and each is acknowledged.
-- The sender gives up on a gap (`retryExhausted`): the sender's next data packet carries its window base in the delta, and the receiver then passes the held packets up past the gap. The numbers below the sender's base are not passed up, so the gap packets are never passed up.
-- A packet acknowledged after a give-up of a packet below it can carry `retryExhausted`: it was held, and it went up after the sender had stopped waiting for it. This is allowed by the outcome table.
+- The sender gives up on a gap (`retryExhausted`): the sender's next data packet carries its window base in the delta. The receiver moves its base to that number, and the held packets below it are dropped: they are not passed up and not acknowledged, and the sender has reported them `retryExhausted`. The held packets from the base on go up in order, as their gaps fill.
+- A held packet can go up after its sender reported it `retryExhausted`: while the gap in front of it is open and the sender's base has not moved past it, the receiver keeps the packet, and when the gap fills it goes up and is acknowledged. The outcome table allows this.
+- The sender's session is established in `Process`, after the held packets of the receiver have gone up, also when the acknowledgement of the sync was taken in an earlier call. So a packet of the peer's old session that is held goes up before the sender's first packet of the new session is sent. `Send` is busy until the session is established, and no sync is started while it waits.
 - A receiver reboot clears the held packets with its session. The sender's resends of them are refused by the rebooted receiver, which asks for a resync, and the sender reports them `reset`.
 - A payload larger than `PayloadCapacity` is not held and not acknowledged.
 - The option is off by default. With it off the layer has no held store: its type is the same as the plain layer's, and the code of the option is not instantiated.
@@ -334,11 +338,11 @@ With `VUB::ReliableOf<PayloadCapacity, WindowCapacity, true>` the packets go up 
 Limits of the option:
 
 - The window moves in `Process`. A packet that arrives after the sender gave up on a gap is refused while the receiver still has the gap, unless the sender sends it again. The sender sends it again only with `Retries` of 1 or more. `Retries(0)` with this option is a compile error. A held packet is acknowledged only when it goes up, so with no retry each held packet is given up at its first timeout, ahead of the gap in front of it filling. The model check of the option with `Retries(0)` fails that way: once the faults stop, packets sent after them are not reported `ok`. Use at least one retry on an in-order path.
-- A packet held behind a gap waits for the next packet of the sender, which carries the window base as it is then. When the sender sends nothing more after giving up on a gap, the held packets wait: they are passed up by the next packet of the sender, and until then they are not acknowledged, so the sender reports them `retryExhausted`.
+- A held packet goes up when its gap fills. The packets of the gap were sent ahead of it, so the sender tries them for `Retries + 1` timeouts after the held packet's first send at most, with the connection up, and a copy of them can then still be on the line for the line's longest delay. After that the held packet goes up no more: the sender's next packet drops it. So a layer above that closes a request ahead of that time can see the request run after the close. On an in-order path give each command a reply deadline of no less than the timeouts of `Retries + 1` tries: a closed request then runs only from a copy that was on the line. The model check of the requests layer checks this bound (see `TestVubRequestsModel`).
 
-Storage: each window slot holds one payload (`PayloadCapacity` bytes) and a length of 2 bytes, so the store takes `WindowCapacity` times `PayloadCapacity + 2` bytes. The settled base (2 bytes) and the head (1 byte) fit in the padding of the state and add no bytes. Measured in the storage section below: 168 bytes for `VUB::ReliableOf<40, 4, true>` over `VUB::ReliableOf<40, 4>` (4 payloads of 40 bytes and 4 lengths of 2 bytes), and 336 bytes for `VUB::ReliableOf<40, 8, true>` over `VUB::ReliableOf<40, 8>` (8 payloads and 8 lengths). These deltas are the payloads and the lengths only.
+Storage: each window slot holds one payload (`PayloadCapacity` bytes) and a length of 2 bytes, so the store takes `WindowCapacity` times `PayloadCapacity + 2` bytes. The head (1 byte) and the flag of an acknowledged sync (1 byte) fit in the padding of the state and add no bytes. Measured in the storage section below: 168 bytes for `VUB::ReliableOf<40, 4, true>` over `VUB::ReliableOf<40, 4>` (4 payloads of 40 bytes and 4 lengths of 2 bytes), and 336 bytes for `VUB::ReliableOf<40, 8, true>` over `VUB::ReliableOf<40, 8>` (8 payloads and 8 lengths). These deltas are the payloads and the lengths only.
 
-Sim test `TestVubReliableInOrder` checks the option: the packets of a faulty line come up in order and each once, a gap that the sender gives up releases the packets after it, a receiver reboot clears the held packets, a copy of a held packet is not acknowledged, eight-bit numbers wrap over 300 packets, and a payload over the capacity is not held. Its chain is the chain of the faulty line with `VUB::ReliableOf<40, 4, true>`.
+Sim test `TestVubReliableInOrder` checks the option: the packets of a faulty line come up in order and each once, a gap that the sender gives up drops the held packets below the sender's base and releases the packets above it, a receiver reboot clears the held packets, a copy of a held packet is not acknowledged, the acknowledgement of a sync does not establish the session before the held packets of the old session have gone up, eight-bit numbers wrap over 300 packets, and a payload over the capacity is not held. Its chain is the chain of the faulty line with `VUB::ReliableOf<40, 4, true>`.
 
 ## Storage and cost
 
@@ -398,7 +402,8 @@ session and the window) has no symbol of its own in the image: it is inlined int
 
 ## Limits
 
-- The tag is one byte: the counter plus the low byte of the boot value. Boot values that follow each other (a boot counter) share tags as soon as the older boot had more than one session: a session with counter c + 1 of the older boot and the session with counter c of the next boot have the same tag. In general two sessions share a tag when their counter plus the low byte of their boot value is the same byte. On an order-keeping path a packet of an older boot cannot arrive after the sync of the boot that follows it, so this does not reach the data. On a reordering path a packet of an older session that carries the tag of the current session is taken as part of the current session. The same holds for an acknowledgement: an acknowledgement of an older session with the tag and number of a packet in flight acknowledges that packet, so the sender can report `ok` for a packet that was not passed up. This needs two boots with the same tag, and an acknowledgement of the older boot that is delayed past the start of the following boot's session.
+- The tag is one byte: the counter plus the low byte of the boot value. Two sessions of different boots share a tag when their counter plus the low byte of their boot value is the same byte: for example, a boot counter gives boot n with counter c + 1 and boot n + 1 with counter c. The sync tells them apart by its number, the first number of its boot. With 16-bit numbers an acknowledgement of a sync names its boot, and the tag then gives the counter. With 8-bit numbers the first number is a function of the low byte of the boot value only, so the sync's number and tag name the low byte and the counter, but not the high byte of the boot.
+- A data packet is named by its tag and its number, and its number is not tied to the boot. An acknowledgement of a packet of an older session that carries the tag of the current session and the number of a packet in flight acknowledges that packet, so the sender can report `ok` for a packet that was not passed up. The layer does not check that the first numbers of two boots are far apart. Boot values that differ by 0x7787 (30599) have first numbers that differ by 1, so the sync of one has the number of the first data packet of the other: the tags must then also match for a packet to be taken for the other's. The order of a path is kept for each direction only: an acknowledgement sent by the peer can arrive after the sync the sender started later, so an older boot's acknowledgement can reach the new session.
 - The layer cannot tell a boot value that repeats from a fresh one. A sender that restarts with a boot value the receiver already holds can see its data acknowledged as duplicates and reported `ok` without being passed up, or see `busy` for as long as the receiver holds the session. The value must differ for each boot (see Application).
 - A receiver that reboots after delivering a packet, with the acknowledgement still unsent, cannot know that it did. It has no session, so the sender's resend is refused and a resync request comes back. The sender reports the packet `reset`, never `ok`, and does not send it again. The packet may have been delivered once, by the receiver up to the reboot. The sync carries no data, so a reboot after the sync's acknowledgement delivers nothing twice.
 - A sender learns that its peer's receiver rebooted only from a refused packet: the first packet it sends after the reboot is refused, and it is reset (see the resync rules). The packets sent after that resync start a session and are delivered. A rebooted sender is learned by its peer from its sync. When the peer holds a session of that sender, it resets the packets in flight at once; when it holds none, the reset comes with the resync (see Sessions).

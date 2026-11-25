@@ -436,8 +436,9 @@ link returns. `Emit<Id>()` is the form for an event with no body.
   up on it (`retryExhausted`) or the peer restarts with it pending (`reset`), the sender counts a loss in `eventsLost`. An acknowledged event
   counts nothing. A `Delivered` event needs Reliable below the layer: without it the build stops with
   `an event with Delivered() needs Reliable below Requests: a Delivered event is sequenced by Reliable`.
-- The first sequenced send of a session is `busy`: Reliable starts the session with it and queues nothing. The sends after the session's
-  sync is acknowledged are accepted.
+- The first sequenced send of a session is `busy`: Reliable starts the session with it and queues nothing. The sends after the session is
+  established are accepted: the sync's acknowledgement establishes it, and with the in-order option that happens in the `Process` after the
+  held packets of the peer's old session have gone up (see Reliable).
 - The handler of an event runs in the walk that takes its packet, after the requests received earlier in that walk, so the events and the
   requests of one burst run in arrival order.
 - An event whose id is unknown to the receiver, or that the receiver has no handler for, is refused: it is not handled and it is counted in
