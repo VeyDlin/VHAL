@@ -73,10 +73,11 @@ bytes `03 58 AA BB CC` are dropped. Packet `77 88 99` comes out.
 ## Refused headers and the cost of a false one
 
 A header whose length is larger than the receive buffer is refused as a header. The framing learns the buffer from the `out` span it is
-given with each byte, which is the link's `MaxPacket`. The refused header's sync byte is dropped and the bytes after it are read again, so
+given with each byte. On a stream link that buffer is the packet bound of the largest payload the stack receives (`MaxReceive`, which is
+`MaxPayload` by default), not the link's `MaxPacket`. The refused header's sync byte is dropped and the bytes after it are read again, so
 the frame that follows comes out, and the refusal counts as too long. The framing does not know the chain's largest packet, only the
-buffer, which is at least as large; a header between the chain's largest packet and `MaxPacket` is still accepted. Passing the chain's
-bound would need a value the framing does not have at run time, so this framing uses the buffer.
+buffer, so a header between the buffer and the link's `MaxPacket` is refused as too long, as it should be on this chain. Passing the
+chain's bound would need a value the framing does not have at run time, so this framing uses the buffer.
 
 The cost of a false header, one whose check passes by chance (the check matches one sync byte in 256):
 

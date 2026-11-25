@@ -157,6 +157,7 @@ void OnStopInterim(const VUB::Progress<Motor::MotorStatus>& progress) {
 // The requester: four slots, the Reliable layer under it, and the reporting line's end.
 using CancelRequester = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<CancelCommands, VUB::Handlers<>>>().Open(4)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
 		.Link<ReportingPacketEnd>()
@@ -170,6 +171,7 @@ using CancelRequester = VUB::Stack<+[]() {
 // The responder: two tickets, the same Reliable layer.
 using CancelResponder = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<CancelCommands, CancelDeviceHandlers>>().Tickets(2)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
 		.Link<ReportingPacketEnd>()
@@ -183,6 +185,7 @@ using CancelResponder = VUB::Stack<+[]() {
 // The same requester and responder with no Reliable under the layer.
 using PlainCancelRequester = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<CancelCommands, VUB::Handlers<>>>().Open(4)
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
@@ -194,6 +197,7 @@ using PlainCancelRequester = VUB::Stack<+[]() {
 
 using PlainCancelResponder = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<CancelCommands, CancelDeviceHandlers>>().Tickets(2)
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
@@ -206,6 +210,7 @@ using PlainCancelResponder = VUB::Stack<+[]() {
 // The responder with three tickets, for the CancelAll test with three requests open at once.
 using CancelResponderThree = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<CancelCommands, CancelDeviceHandlers>>().Tickets(3)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
 		.Link<ReportingPacketEnd>()
@@ -1545,6 +1550,7 @@ using InOrderLayer = VUB::ReliableOf<40, 4, true>;
 
 using InOrderCancelRequester = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<CancelCommands, VUB::Handlers<>>>().Open(4)
 		.Layer<InOrderLayer>().Retries(3).TimeoutMs(200).Window(4)
 		.Link<ReportingPacketEnd>()
@@ -1557,6 +1563,7 @@ using InOrderCancelRequester = VUB::Stack<+[]() {
 
 using InOrderCancelResponder = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<CancelCommands, CancelDeviceHandlers>>().Tickets(2)
 		.Layer<InOrderLayer>().Retries(3).TimeoutMs(200).Window(4)
 		.Link<ReportingPacketEnd>()
@@ -1938,6 +1945,7 @@ void TestAckLostThenLinkReturnsRunsOnce() {
 // The requester and the responder with no resend at all: Reliable gives up at the first timeout.
 using ZeroRetriesRequester = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<CancelCommands, VUB::Handlers<>>>().Open(4)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(0).TimeoutMs(200).Window(4)
 		.Link<ReportingPacketEnd>()
@@ -1950,6 +1958,7 @@ using ZeroRetriesRequester = VUB::Stack<+[]() {
 
 using ZeroRetriesResponder = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<CancelCommands, CancelDeviceHandlers>>().Tickets(2)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(0).TimeoutMs(200).Window(4)
 		.Link<ReportingPacketEnd>()
@@ -1964,6 +1973,7 @@ using ZeroRetriesResponder = VUB::Stack<+[]() {
 // than its packet, and a frame of a request is about 21 bytes).
 using StreamCancelRequester = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<CancelCommands, VUB::Handlers<>>>().Open(4)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
 		.Framing<FlagFraming>()
@@ -1977,6 +1987,7 @@ using StreamCancelRequester = VUB::Stack<+[]() {
 
 using StreamCancelResponder = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<CancelCommands, CancelDeviceHandlers>>().Tickets(2)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
 		.Framing<FlagFraming>()

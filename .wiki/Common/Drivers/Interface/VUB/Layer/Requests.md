@@ -428,7 +428,10 @@ void EmitFromDevice(StackT& stack) {
 }
 ```
 
-`Emit<Id>(body)` returns what the stack's send returns: `ok`, `busy` (the control queue or the window is full), `noInit` (Reliable has no
+A command with no body is sent without an argument: `Send<Id, &OnFinal>()` and `Fire<Id>()` give the body `VUB::NoBody`, as `Emit<Id>()`
+and `Await<Id>()` do.
+
+`Emit<Id>(body)` returns what the stack's send returns: `ok`, `busy` (the send queue or the window is full, or the link cannot take it), `noInit` (Reliable has no
 session) or `noConnection` (under `Down::Fail` while the link is down). Under `Down::Wait` the packet waits in the control queue until the
 link returns. `Emit<Id>()` is the form for an event with no body.
 
@@ -634,7 +637,7 @@ command and no handler. Like ping it has two Steps, and a side takes one or both
   needs no size of its own beyond the check that the handler's `U` is the one of the Step.
 - `.AnswerHealth<U, &Fill>()` answers. `Fill` is `void (*)(U&)` and writes the user body; it runs once per request, from Process, and the
   reply goes out in the same Process. It needs no `Open`, no handler and no ticket. It needs `Counted()` on the layer, because the reply
-  carries the layer's refused, lateReplies and eventsLost counts, and the stack needs `HighWater()` and, under Reliable, `Counted()` on
+  carries the layer's refused, lateReplies and eventsLost counts, and the stack needs `CountDrops()` and `HighWater()` and, under Reliable, `Counted()` on
   Reliable (see the README section on counters).
 
 The reply is 28 bytes of counters, then `U`. The counters are the bytes of `VUB::HealthCounters` as they lie in memory, which is the wire order:
@@ -692,7 +695,7 @@ inline ResultStatus AskHealth(HealthAsker& asker) {
 
 ```cpp
 // --- snippet: Layer/Requests.md, health answer ---
-// The answering side: Counted() keeps the counts of the reply, Reliable below is Counted(), and the stack is HighWater().
+// The answering side: Counted() keeps the counts of the reply, Reliable below is Counted(), and the stack counts its drops and is HighWater().
 using HealthAnswerer = VUB::Stack<+[]() {
 	return VUB::Builder()
 		.Layer<VUB::Requests<HealthCommands, DeviceHandlers>>().Counted()
@@ -700,6 +703,7 @@ using HealthAnswerer = VUB::Stack<+[]() {
 		.Layer<VUB::ReliableOf<40, 4>>().Counted().Retries(3).TimeoutMs(200).Window(4)
 		.Transform<XorTransform>()
 		.Link<ReportingPacketEnd>()
+		.CountDrops()
 		.HighWater()
 		.MaxPayload(40)
 		.ReceiveQueue(4)
@@ -716,6 +720,7 @@ Build-time rules:
 |---|---|
 | `Health<U>()` on a layer with no `Open(n)` | `Health needs requester slots: give the layer Open(n) with n of at least 1` |
 | `AnswerHealth` on a layer without `Counted()` | `AnswerHealth needs this layer's Counted(): add .Counted() to the requests layer` |
+| `AnswerHealth` on a stack without `CountDrops()` | `add CountDrops() to the stack` |
 | `AnswerHealth` on a stack without `HighWater()` | `add HighWater() to the stack` |
 | `AnswerHealth` under Reliable that is not `Counted()` | `add Counted() to the Reliable layer` |
 | a health handler with another signature | `a health handler has the signature void (const VUB::HealthReport<U>&)` |
@@ -892,26 +897,27 @@ each row is the same program with no layer and no `Concurrent()`. RAM is data pl
 
 | Program (difference to no layer) | M4 text | M4 RAM | M0+ text | M0+ RAM |
 |---|---:|---:|---:|---:|
-| requester, `Open(2)`, plain | 1368 | 40 | 1436 | 40 |
-| requester, `Open(2)`, `Pending(4)`, `Awaitable()`, `Concurrent()` | 2208 | 324 | 2384 | 324 |
-| responder, `Tickets(1)`, `Refusals(2)`, plain | 1256 | 40 | 1312 | 40 |
-| responder, the same, `Pending(4)`, `Awaitable()`, `Concurrent()` | 1748 | 268 | 1828 | 268 |
-| `Await` of one request: the requester with the call, minus the requester without it | 464 | 4 | 464 | 4 |
+| requester, `Open(2)`, plain | 1620 | 84 | 1604 | 84 |
+| requester, `Open(2)`, `Pending(4)`, `Awaitable()`, `Concurrent()` | 2132 | 148 | 2192 | 148 |
+| responder, `Tickets(1)`, `Refusals(2)`, plain | 1416 | 84 | 1404 | 84 |
+| responder, the same, `Pending(4)`, `Awaitable()`, `Concurrent()` | 1636 | 92 | 1628 | 92 |
+| `Await` of one request: the requester with the call, minus the requester without it | 444 | 4 | 464 | 4 |
 
-The concurrent rows include the stack's `Concurrent()`: its staging ring is most of their RAM. The queue of the requester is 4 packets of the
-layer's largest size, and its concurrency code is the rest of the difference.
+The concurrent rows have `Concurrent()` but no staging ring: the requests go through the layer's handle, and the program does not call
+`Send` from another task. A stack that also takes `Send` from another task adds `StageQueue(n)`, and its ring (see
+[Concurrent](../README.md#concurrent-the-concurrent-option-and-the-concurrent-flag)).
 
 ## Health sizes
 
 The health rows are the marginal cost of the Step next to the ping: `.tool/size/ConfigHealth.cpp` over `ReliableOf<40, 4>` on CRC-16/MODBUS over
 COBS over a stream link, with a served command, the ping on both sides, and the counters of the stack (`Counted()` on the layer and on Reliable,
-`HighWater()`) in both programs of each row. The base is that program; the row adds the Step named.
+`CountDrops()` and `HighWater()`) in both programs of each row. The base is that program; the row adds the Step named.
 
 | Health, next to ping and the served command | M4 text | M4 RAM | M0+ text | M0+ RAM |
 |---|---:|---:|---:|---:|
-| asks: `.Health<HealthBody>()` | +280 | +0 | +272 | +0 |
-| answers: `.AnswerHealth<HealthBody, &Fill>()` | +588 | +12 | +544 | +12 |
-| both | +776 | +12 | +724 | +12 |
+| asks: `.Health<HealthBody>()` | +280 | +0 | +276 | +0 |
+| answers: `.AnswerHealth<HealthBody, &Fill>()` | +588 | +12 | +536 | +12 |
+| both | +776 | +12 | +716 | +12 |
 
 A program with no requester has no send path for a built-in request. Its first built-in request pays for that path: the slots of `Open(2)`,
 the queue and send of a built-in request, and the encoding of the request. Measured on a served command with the counters, asking for health

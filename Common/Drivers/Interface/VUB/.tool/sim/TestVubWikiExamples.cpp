@@ -75,6 +75,7 @@ void OnPacket(const VUB::Meta&, std::span<const uint8> payload) {
 
 using Board = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Transform<SumCheck>()
 		.Link<BoardLink>()
 		.MaxPayload(32)
@@ -106,6 +107,7 @@ using WikiWriting::SumCheck;
 
 using Board = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Transform<SumCheck>()
 		.Link<BoardLink>()
 		.MaxPayload(32)
@@ -127,6 +129,7 @@ uint32 BoardClockUs() {
 using Board = VUB::Stack<+[] {
 	using namespace VUB;
 	return Builder()
+		.CountDrops()
 		.Layer<Reliable>().Retries(3).TimeoutMs(200)
 		.Transform<Crc<Checksum::Crc16Modbus>>()
 		.Link<BoardLink>()
@@ -198,6 +201,7 @@ struct XorKey {
 
 using Board = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Transform<XorKey>().Key(0x5A)
 		.Link<BoardLink>()
 		.MaxPayload(32)
@@ -262,6 +266,7 @@ struct XorKeyOf {
 
 using ConfiguredBoard = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Transform<XorKeyOf<>>().Key(0x5A)
 		.Link<BoardLink>()
 		.MaxPayload(32)
@@ -306,6 +311,7 @@ struct UsbLink {
 
 using Usb = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Link<UsbLink>()
 		.MaxPayload(32)
 		.WhileDown(VUB::Down::Fail)
@@ -394,6 +400,7 @@ struct LineFraming {
 
 using Lines = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Framing<LineFraming>()
 		.Link<VUB::StreamEnd<64, 512, true>>()
 		.MaxPayload(32)
@@ -461,6 +468,7 @@ inline uint32 Now() {
 
 using Watched = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<PeerWatch>()
 		.Link<VUB::PacketEnd<64, 512>>()
 		.MaxPayload(32)
@@ -478,6 +486,7 @@ using WikiLine = VUB::PacketLine<64, 512, true>;
 
 using Near = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Link<VUB::PacketEnd<64, 512, true>>()
 		.MaxPayload(32)
 		.WhileDown(VUB::Down::Fail)
@@ -611,6 +620,7 @@ struct InOrderLink {
 
 using InOrderStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<InOrder>()
 		.Link<InOrderLink>()
 		.MaxPayload(8)
@@ -696,6 +706,7 @@ void OnReceived(const VUB::Meta&, std::span<const uint8>) {
 
 using Uart = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Framing<VUB::Cobs>()
 		.Link<UartLink>()
 		.MaxPayload(32)
@@ -706,6 +717,7 @@ using Uart = VUB::Stack<+[] {
 
 using Polled = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Link<PollLink>()
 		.MaxPayload(32)
 		.ReceiveQueue(2)
@@ -799,6 +811,7 @@ struct Relay {
 
 using RelayBoard = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<Relay>()
 		.Link<OptionalLink>()
 		.MaxPayload(32)
@@ -870,6 +883,7 @@ struct Owned {
 
 using OwnedBoard = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<Owned>()
 		.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).PayloadBytes(32)
 		.Link<OptionalLink>()
@@ -909,6 +923,7 @@ struct Bulky {
 
 using BulkyBoard = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<Bulky>()
 		.Layer<VUB::ReliableOf<40, 4>>()
 		.Link<OptionalLink>()
@@ -954,6 +969,7 @@ struct Watch {
 
 using WatchedBoard = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<Watch>()
 		.Layer<VUB::ReliableOf<32, 4>>().Counted()
 		.Link<OptionalLink>()
@@ -1024,6 +1040,7 @@ struct Guarded {
 
 using GuardedBoard = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<Guarded<>>()
 		.Link<OptionalLink>()
 		.MaxPayload(8)

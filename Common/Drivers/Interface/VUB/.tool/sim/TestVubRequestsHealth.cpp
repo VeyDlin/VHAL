@@ -269,6 +269,8 @@ using PcHandlers = VUB::Handlers<
 // The device with the health reply and the counters of the requests layer. One requester slot, one ticket, a refusal ring of two.
 using HealthDevice = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<HealthCommands, DeviceHandlers>>().Open(1).Tickets(1).Refusals(2).Counted()
 			.AnswerHealth<HealthCheck::HealthBody, &FillHealth>()
 		.Layer<VUB::ReliableOf<40, 4>>().Counted().Retries(3).TimeoutMs(200).Window(4)
@@ -285,6 +287,8 @@ using HealthDevice = VUB::Stack<+[]() {
 // The device of the health reply without a user body.
 using NothingDevice = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<HealthCommands, DeviceHandlers>>().Open(1).Tickets(1).Counted()
 			.AnswerHealth<VUB::NoBody, &FillNothing>()
 		.Layer<VUB::ReliableOf<40, 4>>().Counted().Retries(3).TimeoutMs(200).Window(4)
@@ -301,6 +305,8 @@ using NothingDevice = VUB::Stack<+[]() {
 // A device with no health reply: a health request to it is refused.
 using NoHealthDevice = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<HealthCommands, DeviceHandlers>>().Open(1).Tickets(1)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
 		.Transform<XorTransform>()
@@ -315,6 +321,8 @@ using NoHealthDevice = VUB::Stack<+[]() {
 // The requester: four slots, one ticket for the echo, and the health request with the user body.
 using HealthPc = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<HealthCommands, PcHandlers>>().Open(4).Tickets(1)
 			.Health<HealthCheck::HealthBody>()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
@@ -330,6 +338,8 @@ using HealthPc = VUB::Stack<+[]() {
 // The requester of a device with no user body.
 using NothingPc = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<HealthCommands, PcHandlers>>().Open(1).Tickets(1)
 			.Health<VUB::NoBody>()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
@@ -981,6 +991,8 @@ void TestCountersSaturate() {
 // The asking side: two slots, and a health request whose reply carries a HealthBody. The handler gets the report.
 using HealthAsker = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<HealthCommands, PcHandlers>>().Open(2).Tickets(1)
 			.Health<HealthCheck::HealthBody>()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
@@ -1009,6 +1021,8 @@ inline ResultStatus AskHealth(HealthAsker& asker) {
 // The answering side: Counted() keeps the counts of the reply, Reliable below is Counted(), and the stack is HighWater().
 using HealthAnswerer = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<HealthCommands, DeviceHandlers>>().Counted()
 			.AnswerHealth<HealthCheck::HealthBody, &FillHealth>()
 		.Layer<VUB::ReliableOf<40, 4>>().Counted().Retries(3).TimeoutMs(200).Window(4)
@@ -1055,6 +1069,8 @@ void OnPingDone(ResultStatus result, uint32) {
 // bytes). Its Reliable is 48 bytes, the largest packet of the layer; it is Counted() with HighWater(), as the answering side needs.
 using BothWidePc = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<HealthCommands, PcHandlers>>().Open(4).Tickets(1).Counted()
 			.Health<HealthCheck::HealthWideBody>()
 			.AnswerHealth<HealthCheck::HealthBody, &FillHealth>()
@@ -1072,6 +1088,8 @@ using BothWidePc = VUB::Stack<+[]() {
 // The same with a body of HealthShortBody (4 bytes), which is shorter than the answer's body.
 using BothShortPc = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<HealthCommands, PcHandlers>>().Open(4).Tickets(1).Counted()
 			.Health<HealthCheck::HealthShortBody>()
 			.AnswerHealth<HealthCheck::HealthBody, &FillHealth>()
@@ -1089,6 +1107,8 @@ using BothShortPc = VUB::Stack<+[]() {
 // A requester with ping and health, and a responder with both built-in answers, one reply buffer, and a refusal ring of two.
 using PingHealthPc = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<HealthCommands, PcHandlers>>().Open(4).Tickets(1).Ping(16)
 			.Health<HealthCheck::HealthBody>()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
@@ -1103,6 +1123,8 @@ using PingHealthPc = VUB::Stack<+[]() {
 
 using PingHealthDevice = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<HealthCommands, DeviceHandlers>>().Open(1).Tickets(1).Refusals(2).Counted()
 			.AnswerPing(16)
 			.AnswerHealth<HealthCheck::HealthBody, &FillHealth>()
@@ -1121,6 +1143,8 @@ using PingHealthRequests = VUB::Requests<HealthCommands, DeviceHandlers>;
 // The same responder with no refusal ring: a built-in or served request that cannot be refused is dropped, and the layer counts it.
 using ZeroRefusalDevice = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<HealthCommands, DeviceHandlers>>().Open(1).Tickets(1).Refusals(0).Counted()
 			.AnswerPing(16)
 			.AnswerHealth<HealthCheck::HealthBody, &FillHealth>()
@@ -1149,6 +1173,8 @@ using CancelHealthCommands = VUB::CommandSet<+[]() {
 
 using NoReliablePc = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<CancelHealthCommands, VUB::Handlers<>>>().Open(4)
 			.Health<HealthCheck::HealthBody>()
 		.Link<ReportingPacketEnd>()

@@ -90,6 +90,8 @@ rows=(
 	"(a) packet link only|BaselinePacket.cpp||ConfigA.cpp|"
 	"(b) stream link, COBS|BaselineStream.cpp||ConfigB.cpp|"
 	"(c) (b) + CRC-16/MODBUS, default engine (bitwise)|BaselineStream.cpp||ConfigC.cpp|"
+	"(b) with CRC-16, nothing else|BaselineStream.cpp||ConfigMinimal.cpp|"
+	"(b) with CRC-16, SendQueue(4) and CountDrops()|BaselineStream.cpp||ConfigMinimal.cpp|-DSIZE_OPTIONS=.SendQueue(4).CountDrops()"
 	"(d) (b) + CRC-16/MODBUS, table engine named|BaselineStream.cpp||ConfigD.cpp|"
 	"(e) stream link, length prefix 1, CRC-8 bitwise|BaselineStream.cpp||ConfigE.cpp|"
 	"(f) stream link, gap framing, CRC-16 table|BaselineStream.cpp||ConfigF.cpp|"

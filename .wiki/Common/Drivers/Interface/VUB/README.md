@@ -64,7 +64,7 @@ that includes both writes the transform as `VUB::Crc` and the library's class as
 
 A block that misses a member is a compile error. The message names the concept it does not satisfy, for example `the transform does not satisfy VUB::TransformBlock`, and the concept's notes follow it.
 
-The link has two optional members, and the stack has no code for one it does not use. A link with `SetReceiver` feeds its data from an interrupt; a link with `Poll` is polled for its data by `Process`. A link with both is a compile error (see [receiving from a link](#receiving-from-a-link)).
+The link has three optional members, and the stack has no code for one it does not use. A link with `SetReceiver` feeds its data from an interrupt; a link with `Poll` is polled for its data by `Process`. A link with both is a compile error (see [receiving from a link](#receiving-from-a-link)). A packet link with `bool Ready() const` says whether its next `Send` will be taken; the stack asks it before a layer runs on a packet, so a chain on that link can have no send queue (see [Send and receive](#send-and-receive)).
 
 ## The builder
 
@@ -88,8 +88,10 @@ Settings are set anywhere in the chain:
 | `MaxPayload(bytes)` | the largest application payload | required |
 | `ReceiveRing(bytes)` | bytes the receive ring holds (byte-stream links) | 256 |
 | `ReceiveQueue(packets)` | packets the receive queue holds (packet links) | 4 |
-| `SendQueue(packets)` | packets held for the link while it is busy | 4 |
-| `StageQueue(packets)` | packets another task may stage while `Process` runs; a concurrent stack only (see [Concurrent](#concurrent-the-concurrent-option-and-the-concurrent-flag)) | 4 |
+| `MaxReceive(bytes)` | the largest payload the stack receives; the receive buffer of a byte-stream link holds its packet | `MaxPayload` |
+| `SendQueue(packets)` | packets held for the link while it is busy; zero holds none (see [Send and receive](#send-and-receive)) | 0 where a stream link or a packet link with `Ready()` allows it, otherwise 1 |
+| `StageQueue(packets)` | packets another task may stage while `Process` runs; a concurrent stack only (see [Concurrent](#concurrent-the-concurrent-option-and-the-concurrent-flag)) | 0 |
+| `CountDrops()` | keeps the drop counters and gives `Drops()` (see [Drop counters](#drop-counters)) | off |
 | `PerProcess(packets)` | most packets one `Process` call sends | 8 |
 | `Clock<&Fn>()` | the clock, a function returning microseconds as `uint32` | required when a block uses time |
 | `OnReceive<&Fn>()` | the receive handler, `void(const VUB::Meta&, std::span<const uint8>)` | required |
@@ -108,8 +110,13 @@ calls `WithLastOptions`. A user block does not need this.
 
 ## Send and receive
 
-`Send(payload, meta)` encodes at once: the payload goes through the layers and transforms, from the top down, and the result is put
-in the control queue. `Process()` does the rest, in this order:
+`Send(payload, meta)` encodes at once: the payload goes through the layers and transforms, from the top down. With a send queue
+(`SendQueue(n)`, n of one or more) the result is put in the queue. With no send queue, the default on a stream link and on a packet
+link with `Ready()`, the result is given to the link in the call. A stream link keeps the framed packet until the link has taken all
+of it, so `Send` returns `busy` while a framed packet is not complete, and `Process` writes the rest. A packet link with `Ready()` is
+asked first: `Send` returns `busy` when `Ready()` is false, and nothing is taken. The check comes before the layers run, so a layer
+does not count a packet that the link then refuses. A packet link without `Ready()` needs a queue: `SendQueue(1)` or more.
+`Process()` does the rest, in this order:
 
 1. reads the clock (`Process` reads it, and so does `Feed` in a chain whose framing uses time, see below);
 2. polls the link, when the link has `Poll` (see [receiving from a link](#receiving-from-a-link));
@@ -119,8 +126,9 @@ in the control queue. `Process()` does the rest, in this order:
 5. sends.
 
 `Feed(byte)` (byte-stream link) and `FeedPacket(packet)` (packet link) are called from the receive interrupt. They store the data;
-everything else runs in `Process`. `Send` runs the chain at once and takes the control queue, so it is called from the task that calls
-`Process`. On a chain built with `Concurrent()` `Send` from another task stages the payload, and `Process` runs the chain.
+everything else runs in `Process`. `Send` runs the chain at once, so it is called from the task that calls `Process`. On a chain built
+with `Concurrent()` and `StageQueue(n)`, `Send` from another task stages the payload, and `Process` runs the chain. A concurrent chain
+without `StageQueue(n)` has no staging ring, and its `Send` does not compile: the message says so.
 
 A layer that the application sends through is reached with `HandleAt<I>()`, or with `Requests()` for the layer that declares
 `requestsLayer` (see "Optional members" under "Writing a block"). The handle's send enters the blocks below its layer, and it returns a
@@ -250,7 +258,8 @@ packet for that reason.
 - `Process` keeps sending while the link accepts, up to `PerProcess` packets, so one call can move many packets. A packet that the
   framing or the link refuses with an error counts toward `PerProcess` as well, so a bulk layer that always has data cannot hold a call.
 - `Send` and the layers' `Process` queue packets on the control lane, up to `SendQueue` packets. When the queue is full, `Send` returns
-  `busy` and nothing is queued; the caller sends again.
+  `busy` and nothing is queued; the caller sends again. With no send queue (the default on a stream link and on a packet link with
+  `Ready()`), the packet goes to the link in the call, and `busy` is returned, with nothing taken, while the link cannot take it.
 - In a chain with a layer that reports its peer, a layer's own packets (from its `Process` or its outbox) have a second queue of the same
   size, the own lane. The outbox's `Send` returns `busy` when that queue is full, and the layer keeps the packet and sends it again on the
   next `Process`. Any other chain puts the layers' packets on the control lane.
@@ -300,11 +309,12 @@ its state the answer is always true. A chain whose layers do not ask is unchange
   application's frame is not sent: it waits, and goes from its first byte when the peer is up.
 - `WhileDown` sets what happens to the packets waiting to be sent:
   - `Wait` (the default): they stay queued. `Send` queues until the queue is full, then returns `busy`, and the packets go in order
-    after the connection is up. A layer's own packet waits the same way while the link is down. Under a requests layer on Reliable, the
+    after the connection is up. A layer's own packet waits the same way while the link is down. With no send queue, `Send` returns
+    `busy` while the connection is down, and takes nothing. Under a requests layer on Reliable, the
     copies of its packets that wait when the connection returns are dropped, with the part of a frame that was written, since Reliable sends each packet that is still wanted (see
     [Requests](Layer/Requests#failure-paths)); the other packets keep their order.
-  - `Fail`: the queued packets are dropped and counted under `linkDown`, and `Send` returns `noConnection` while the connection is
-    down. When the peer goes down, the application's queued packets are dropped and the layers' own packets are kept; when the link goes
+  - `Fail`: the queued packets are dropped (counted under `linkDown` with `CountDrops()`), and `Send` returns `noConnection` while the
+    connection is down. With no send queue the packets are not queued, so only `Send` changes: it returns `noConnection`. When the peer goes down, the application's queued packets are dropped and the layers' own packets are kept; when the link goes
     down, the layers' own packets are dropped too. A layer's own packet gets `noConnection` only while the link is down. A refused
     `Send` is not counted: the caller has the status.
 - `WhileDown(VUB::Down::Fail)` needs something that can report the connection down: a link with `ReportsState()`, or a layer with
@@ -328,13 +338,15 @@ number and is not acknowledged (see [VUB::Reliable](Layer/Reliable)).
 
 ## Drop counters
 
-Every packet or byte the stack discards is counted under one reason. `Drops()` returns a copy of the counters:
+Every packet or byte the stack discards is counted under one reason, on a stack built with `CountDrops()`. `Drops()` returns a copy of the
+counters. A stack without `CountDrops()` keeps no counter, no code counts, and `Drops()` is not a member: a call to it does not compile.
+`Counters()` on such a stack gives zero drops.
 
 | Field | A packet or byte dropped because |
 |---|---|
 | `ringFull` | the receive interrupt found the ring full (byte-stream link) |
 | `queueFull` | the receive interrupt found the queue full (packet link) |
-| `tooLong` | a frame or packet did not fit in the receive buffer (the link's `MaxPacket`) |
+| `tooLong` | a frame or packet did not fit in the receive buffer (the packet of `MaxReceive` on a byte-stream link, the link's `MaxPacket` on a packet link) |
 | `framingError` | the bytes did not form a frame, or the frame's checks failed |
 | `transformError` | a transform's `Decode` returned an error, or its `Encode` failed for a packet with no caller (see below) |
 | `layerError` | a layer's `Take` returned an error, or a layer's `Add` or `Next` failed for a packet with no caller, or a layer's packet from `Process` was too long, or a packet it passed up with `Deliver` was too long |
@@ -364,30 +376,34 @@ payload plus the layer headers and transform growths, and the framed size adds t
 empty type. The code that works on the buffers is plain inline functions on spans and indexes, shared by every stack in one image.
 
 The defaults take most of the RAM of a small chain: the receive queue holds `ReceiveQueue` packets of the link's `MaxPacket` bytes, and
-the ring holds `ReceiveRing` bytes. A bootloader sets `ReceiveQueue(1)` or a smaller ring. The costs of the configurations on the target
-are in the table below.
+the ring holds `ReceiveRing` bytes. A byte-stream link's receive buffer is the packet of `MaxReceive` (`MaxPayload` by default), not the
+link's `MaxPacket`. A send queue of `SendQueue(n)` packets, and the drop counters of `CountDrops()`, are built only when a chain asks for
+them. A bootloader sets `ReceiveQueue(1)` or a smaller ring. The costs of the configurations on the target are in the table below.
 
 ### Measured configurations
 
 Each row is one program built for a Cortex-M4 and a Cortex-M0+, minus its baseline. The costs are in bytes. Text is the flash of the
-code and read-only data. RAM is the data and bss of the program. Every configuration has `MaxPayload(32)` and the default queues and
-ring, and a link with `MaxPacket(64)`.
+code and read-only data. RAM is the data and bss of the program. Every configuration has `MaxPayload(32)`, the default ring, and a link
+with `MaxPacket(64)`. The queues are the defaults of the chain: no send queue on a stream link, and no drop counters unless the row says so.
+The row with `SendQueue(4)` and `CountDrops()` is the same chain as the row above it with those two calls added.
 
 | Configuration | M4 text | M4 RAM | M0+ text | M0+ RAM |
 |---|---:|---:|---:|---:|
-| (a) packet link only | 676 | 616 | 956 | 616 |
-| (b) stream link, COBS | 944 | 620 | 1224 | 620 |
-| (c) (b) + CRC-16/MODBUS, default engine (bitwise) | 1140 | 700 | 1424 | 700 |
-| (d) (b) + CRC-16/MODBUS, table engine named | 1644 | 700 | 1928 | 700 |
-| (e) stream link, length prefix 1, CRC-8 bitwise | 1052 | 672 | 1344 | 672 |
-| (f) stream link, gap framing, CRC-16 table | 2716 | 1720 | 2876 | 1720 |
-| (g) (c) + VUB::Reliable (Retries 3, Window 4) | 3644 | 1116 | 4124 | 1116 |
-| (h) (g) with the in-order option | 3944 | 1252 | 4460 | 1252 |
-| (i) COBS, CRC-8, VUB::ReliableOf window 1, Retries 3 | 3228 | 912 | 3704 | 912 |
-| breakdown of (i): the same without VUB::ReliableOf | 1104 | 692 | 1392 | 692 |
-| CompactStreamingProtocol<20, 4> (bootloader use) | 2292 | 1116 | 2880 | 1116 |
-| (j) stream link, COBS, CRC-16/MODBUS (default engine), VUB::KeepAlive (default times) | 2116 | 932 | 2472 | 932 |
-| (k) (g) + VUB::KeepAlive (default times) | 4668 | 1400 | 5184 | 1400 |
+| (a) packet link only | 452 | 492 | 716 | 492 |
+| (b) stream link, COBS | 548 | 356 | 832 | 356 |
+| (c) (b) + CRC-16/MODBUS, default engine (bitwise) | 724 | 392 | 968 | 392 |
+| (b) with CRC-16, nothing else | 724 | 392 | 968 | 392 |
+| (b) with CRC-16, SendQueue(4) and CountDrops() | 988 | 604 | 1252 | 604 |
+| (d) (b) + CRC-16/MODBUS, table engine named | 1228 | 392 | 1472 | 392 |
+| (e) stream link, length prefix 1, CRC-8 bitwise | 652 | 404 | 908 | 404 |
+| (f) stream link, gap framing, CRC-16 table | 2292 | 1448 | 2392 | 1448 |
+| (g) (c) + VUB::Reliable (Retries 3, Window 4) | 3236 | 788 | 3644 | 788 |
+| (h) (g) with the in-order option | 3724 | 924 | 4192 | 924 |
+| (i) COBS, CRC-8, VUB::ReliableOf window 1, Retries 3 | 2840 | 588 | 3244 | 588 |
+| breakdown of (i): the same without VUB::ReliableOf | 692 | 392 | 944 | 392 |
+| CompactStreamingProtocol<20, 4> (bootloader use) | 2056 | 1116 | 2636 | 1116 |
+| (j) stream link, COBS, CRC-16/MODBUS (default engine), VUB::KeepAlive (default times) | 1404 | 456 | 1728 | 456 |
+| (k) (g) + VUB::KeepAlive (default times) | 3944 | 816 | 4388 | 816 |
 
 On Cortex-M0+, the text of rows (g), (i) and (k) can move by 4 bytes with the link order of two functions. The functions themselves keep
 their sizes: the padding between two of them depends on the order the linker places them in.
@@ -1306,22 +1322,24 @@ using WatchedBoard = VUB::Stack<+[] {
 }>;
 ```
 
-A layer that sends these counters on, such as a requests layer with `AnswerHealth`, declares `static constexpr bool needsCounters = true`. The stack then refuses the chain unless it is `HighWater()`, and, when the block below takes the owner (Reliable), unless that block is `Counted()`. The layer's own `Counted()` is a rule of the layer itself: its refusals, late replies and lost events are the counts the reply carries.
+A layer that sends these counters on, such as a requests layer with `AnswerHealth`, declares `static constexpr bool needsCounters = true`. The stack then refuses the chain unless it is `CountDrops()` and `HighWater()`, and, when the block below takes the owner (Reliable), unless that block is `Counted()`. The layer's own `Counted()` is a rule of the layer itself: its refusals, late replies and lost events are the counts the reply carries.
 
 #### Concurrent: the Concurrent option and the concurrent flag
 
-`Concurrent()` on the builder lets the application send from another task while `Process` runs. The send from that task copies the payload
-into a staging ring, under a short critical section (`System::CriticalSection`), and returns. `Process` moves the staged packets to the
-control queue at its start, in its own context, oldest first, and then runs as it does on any stack. Only the short pushes and pops of
+`Concurrent()` on the builder lets the application send from another task while `Process` runs, with `StageQueue(n)` for the staging
+ring. The send from that task copies the payload into a staging ring, under a short critical section (`System::CriticalSection`), and
+returns. `Process` moves the staged packets on at its start, in its own context, oldest first: to the send queue, or to the link in the
+call on a stack with no send queue. Then it runs as it does on any stack. Only the short pushes and pops of
 the staging ring are in a critical section; the receive handlers, the links and the layers' `Process` run outside any section.
 
 `Send` on a concurrent stack returns `ok` when the payload is staged, so the encode and the queueing happen in `Process`, and a refusal
 there is counted in `Drops()` and is not returned to the sender. It returns `busy` when the staging ring is full, and the payload is not
 taken: the sender sends it again. `messageTooLong` and `noConnection` (under `Fail`) are returned at once, as on any stack.
 
-`StageQueue(packets)` sets the size of the staging ring, 4 by default. The ring takes the largest payload (`MaxPayload`) per packet, so
-its RAM is `(packets + 1) * (MaxPayload() + 3) + 4` bytes, rounded up to an even count. A stack without `Concurrent()` has no staging ring,
-and no code for it.
+`StageQueue(packets)` sets the size of the staging ring. It is 0 by default: a concurrent stack without `StageQueue(n)` has no staging ring
+and no code for one, its layers still get the concurrent flag, and its `Send` does not compile. The ring takes the largest payload
+(`MaxPayload`) per packet, so its RAM is `(packets + 1) * (MaxPayload() + 3) + 4` bytes, rounded up to an even count. A stack without
+`Concurrent()` has no staging ring, and no code for it.
 
 A layer that guards its own shared state the same way declares an options member `bool concurrent = false`, with a `Step` and
 `Configured` (see Two ways to take options). The stack sets the member from `Concurrent()`, and the layer reads it as a constant:

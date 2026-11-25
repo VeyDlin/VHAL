@@ -119,11 +119,13 @@ constexpr typename Entry::OptionsType OwnedOptionsOf(typename Entry::OptionsType
 //
 // The stack is given its link object: Link link(uart); Link stack(link);
 //
-// Send encodes a packet at once, through the layers and transforms, into the control queue. Process reads the clock, takes the bytes
-// and packets received, decodes them up the chain, runs every layer's Process, and then sends: the layers' own packets first, then the
-// control packets, then the bulk packets of a layer's Next, while the link accepts, at most PerProcess packets a call. A packet the link
-// refuses is kept for the next call; nothing is dropped for a busy link. A layer may pass a packet up from its Process, through its outbox
-// (Deliver): the packet goes through the blocks above the layer, and on to the receive handler.
+// Send encodes a packet at once, through the layers and transforms. With a send queue (SendQueue(n), n of one or more) the packet is queued;
+// without one (the default on a stream link and on a packet link with Ready()) the packet is given to the link in the call, and busy is
+// returned, with nothing taken, while the link cannot take it. Process reads the clock, takes the bytes and packets received, decodes them
+// up the chain, runs every layer's Process, and then sends: the layers' own packets first, then the control packets, then the bulk packets
+// of a layer's Next, while the link accepts, at most PerProcess packets a call. A packet the link refuses is kept for the next call;
+// nothing is dropped for a busy link. A layer may pass a packet up from its Process, through its outbox (Deliver): the packet goes through
+// the blocks above the layer, and on to the receive handler.
 //
 // Feed (a byte-stream link) and FeedPacket (a packet link) are called from the receive interrupt. Send, Process and Drops run in one
 // context. A concurrent stack (Concurrent()) also takes Send from another task: that Send copies the payload into a staging ring under a
@@ -265,6 +267,8 @@ public:
 		using LayerType = StoredAt<Index>;
 		if constexpr (requires { LayerType::needsCounters; }) {
 			if constexpr (LayerType::needsCounters) {
+				Require<"a layer of the chain sends the drop counts (Requests with AnswerHealth does): add CountDrops() to the stack">(
+					built.settings.countDrops);
 				Require<"a layer of the chain sends the high-water marks (Requests with AnswerHealth does): add HighWater() to the stack">(
 					built.settings.highWater);
 				if constexpr (Index + 1 < count) {
@@ -308,9 +312,13 @@ public:
 	// A framing that uses time gets the time of each received byte, and the ring keeps it. Any other chain keeps no time.
 	static constexpr bool framingTimed = streamLink && FramingUsesTime<hasFraming, FramingEntry>::value;
 	static constexpr bool hasBulk = Builder::BulkCount() > 0;
-	static constexpr std::size_t receiveBytes = linkTraits.maxPacket;
+	// A stream link receives into a buffer of the largest received packet; a packet link keeps the MaxPacket of its traits.
+	static constexpr std::size_t receiveBytes = streamLink ? Builder::ReceiveBound(built.settings) : linkTraits.maxPacket;
 	static constexpr std::size_t receiveStart = streamLink ? (count >= 2 ? count - 2 : 0) : (count >= 1 ? count - 1 : 0);
-	static constexpr std::size_t sendSlots = built.settings.sendQueue + 1;
+	// The send queue: zero is no queue, and the packets are given to the link in the call (see Send).
+	static constexpr std::size_t sendQueue = Builder::SendQueueOf(built.settings);
+	static constexpr bool sendQueued = sendQueue > 0;
+	static constexpr std::size_t sendSlots = sendQueue + 1;
 	static constexpr std::size_t ringSlots = built.settings.receiveRing + 1;
 	static constexpr std::size_t receiveSlots = built.settings.receiveQueue + 1;
 	static constexpr std::size_t perProcess = built.settings.perProcess;
@@ -318,9 +326,13 @@ public:
 	static constexpr uint32 (*clockFn)() = built.settings.clockFn;
 	static constexpr bool hasClock = built.settings.hasClock;
 	static constexpr bool concurrent = built.settings.concurrent;
-	static constexpr std::size_t stageSlots = built.settings.stageQueue + 1;
+	// The staging ring exists only on a concurrent stack that has a StageQueue.
+	static constexpr std::size_t stageQueue = built.settings.stageQueue;
+	static constexpr bool stageQueued = concurrent && stageQueue > 0;
+	static constexpr std::size_t stageSlots = stageQueue + 1;
 	static constexpr std::size_t stageBytes = built.settings.maxPayload;
 	static constexpr bool highWater = built.settings.highWater;
+	static constexpr bool countDrops = built.settings.countDrops;
 	static constexpr bool wantsOwners = Builder::WantsOwners();
 	static constexpr std::size_t requestsIndex = Builder::RequestsIndex();
 
@@ -356,6 +368,7 @@ public:
 	// taken. The size and the connection are checked here as well.
 	ResultStatus Send(std::span<const uint8> payload, const Meta& meta = Meta()) {
 		if constexpr (concurrent) {
+			static_assert(stageQueued, "Send from another task needs StageQueue(n): add it to the builder");
 			return StageSend(payload, meta);
 		} else {
 			return SendLocked(payload, meta);
@@ -363,17 +376,17 @@ public:
 	}
 
 
-	// The main loop call. Reads the clock, moves the staged packets (a concurrent stack), polls the link if it has Poll, applies the link's
-	// state, takes the received bytes and packets up the chain, runs the layers' Process, and sends. The receive handlers and the layers run
-	// outside any critical section.
+	// The main loop call. Reads the clock, moves the staged packets (a concurrent stack with a staging ring), polls the link if it has Poll,
+	// applies the link's state, takes the received bytes and packets up the chain, runs the layers' Process, and sends. The receive handlers
+	// and the layers run outside any critical section.
 	void Process() {
 		uint32 now = 0;
 		if constexpr (hasClock) {
 			now = clockFn();
 		}
 
-		if constexpr (concurrent) {
-			DrainStaged();
+		if constexpr (stageQueued && sendQueued) {
+			DrainStaged(now);
 		}
 
 		if constexpr (linkPolled) {
@@ -395,6 +408,11 @@ public:
 			ApplyConnection(now, false, linkRecord.Get().linkUp);
 		}
 
+		// Without a send queue the staged packets go to the link in this call, so they wait for the connection as it is now applied.
+		if constexpr (stageQueued && !sendQueued) {
+			DrainStaged(now);
+		}
+
 		Egress(now);
 	}
 
@@ -413,7 +431,7 @@ public:
 		if (stored) {
 			NoteReceiveFill();
 		} else {
-			CountIsr(ringFullIsr);
+			DropIsr(&DropState::ringFullIsr);
 		}
 	}
 
@@ -436,9 +454,9 @@ public:
 	void FeedPacket(std::span<const uint8> packet) requires (!streamLink) {
 		ResultStatus status = QueuePush(rxQueue.indexes, rxQueue.View(), packet, 0);
 		if (status == ResultStatus::messageTooLong) {
-			CountIsr(tooLongIsr);
+			DropIsr(&DropState::tooLongIsr);
 		} else if (status == ResultStatus::busy) {
-			CountIsr(queueFullIsr);
+			DropIsr(&DropState::queueFullIsr);
 		}
 
 		if (status == ResultStatus::ok) {
@@ -447,18 +465,16 @@ public:
 	}
 
 
-	// A copy of the counters.
-	DropCounters Drops() const {
+	// A copy of the counters. Present only when the stack counts its drops (CountDrops()).
+	DropCounters Drops() const requires (countDrops) {
+		const DropState& state = drops.Get();
 		DropCounters snapshot;
-		static_cast<DropCounts&>(snapshot) = drops;
-		snapshot.ringFull = ringFullIsr;
-		snapshot.queueFull = queueFullIsr;
-		uint32 tooLongTotal = static_cast<uint32>(drops.tooLong) + tooLongIsr;
+		static_cast<DropCounts&>(snapshot) = state;
+		snapshot.ringFull = state.ringFullIsr;
+		snapshot.queueFull = state.queueFullIsr;
+		uint32 tooLongTotal = static_cast<uint32>(state.tooLong) + state.tooLongIsr;
 		snapshot.tooLong = tooLongTotal > 65535 ? 65535 : static_cast<uint16>(tooLongTotal);
-		if constexpr (hasLinkState) {
-			snapshot.linkDown = linkRecord.Get().dropped;
-		}
-
+		snapshot.linkDown = state.linkDown;
 		return snapshot;
 	}
 
@@ -552,6 +568,15 @@ private:
 	};
 
 
+	// The drop counts of the stack, with the counts the receive interrupt writes. Only a stack with CountDrops() has them.
+	struct DropState : DropCounts {
+		uint16 linkDown = 0;
+		volatile uint16 ringFullIsr = 0;
+		volatile uint16 queueFullIsr = 0;
+		volatile uint16 tooLongIsr = 0;
+	};
+
+
 	LinkType* link;
 	[[no_unique_address]] Detach<linkReports, LinkType> detach;
 	[[no_unique_address]] ReceiverDetach<linkReceives, LinkType> receiverDetach;
@@ -564,19 +589,121 @@ private:
 	[[no_unique_address]] Buffer<streamLink && hasFraming, framedBytes, 6> framed;
 	[[no_unique_address]] State<streamLink && hasFraming, FramedState, 7> framedState;
 	[[no_unique_address]] std::conditional_t<framesResent, FrameMark, NoFrameMark> frameMark{};
-	[[no_unique_address]] QueueStorage<true, sendSlots, packetBytes, 8> control;
-	[[no_unique_address]] QueueStorage<concurrent, stageSlots, stageBytes, 16> staged;
-	[[no_unique_address]] QueueStorage<peersReport, sendSlots, packetBytes, 14> ownQueue;
+	[[no_unique_address]] QueueStorage<sendQueued, sendSlots, packetBytes, 8> control;
+	[[no_unique_address]] QueueStorage<stageQueued, stageSlots, stageBytes, 16> staged;
+	[[no_unique_address]] QueueStorage<peersReport && sendQueued, sendSlots, packetBytes, 14> ownQueue;
 	[[no_unique_address]] Buffer<true, receiveBytes, 9> rx;
 	[[no_unique_address]] RingStorage<streamLink, ringSlots, 10> ring;
 	[[no_unique_address]] StampStorage<framingTimed, ringSlots, 13> stamps;
 	[[no_unique_address]] QueueStorage<!streamLink, receiveSlots, receiveBytes, 11> rxQueue;
 	[[no_unique_address]] State<hasLinkState, LinkRecord, 12> linkRecord;
-	DropCounts drops;
-	volatile uint16 ringFullIsr = 0;
-	volatile uint16 queueFullIsr = 0;
-	volatile uint16 tooLongIsr = 0;
+	[[no_unique_address]] State<countDrops, DropState, 17> drops;
 	[[no_unique_address]] State<highWater, HighWaterState, 15> highWaterState;
+
+
+	// Counts one packet or byte the stack discarded, under its reason. A stack without CountDrops() counts nothing.
+	void Drop([[maybe_unused]] uint16 DropCounts::* field) {
+		if constexpr (countDrops) {
+			CountDrop(drops.Get().*field);
+		}
+	}
+
+
+	// Counts one byte or packet that the receive interrupt could not store, under its reason. A stack without CountDrops() counts nothing.
+	void DropIsr([[maybe_unused]] volatile uint16 DropState::* field) {
+		if constexpr (countDrops) {
+			CountIsr(drops.Get().*field);
+		}
+	}
+
+
+	// Counts the packets and bytes that a down discarded, or that were queued when the connection went down under Fail.
+	void DropLinkDown([[maybe_unused]] std::size_t amount) {
+		if constexpr (countDrops) {
+			AddDrops(drops.Get().linkDown, amount);
+		}
+	}
+
+
+	// The time of the call, from the clock. Zero on a chain without one, which has no time to read.
+	uint32 ReadNow() {
+		if constexpr (hasClock) {
+			return clockFn();
+		} else {
+			return 0;
+		}
+	}
+
+
+	// Whether a packet with no queue may be given to the link now, checked before any layer runs on it: the connection, the framed packet
+	// in progress and the gap of a stream link, and the link's Ready() of a packet link. An application packet waits for the connection
+	// under Down::Wait and is refused with noConnection under Down::Fail. A layer's own packet goes while only the peer is down.
+	ResultStatus DirectAdmit(bool own, uint32 now) {
+		if constexpr (hasLinkState) {
+			const LinkRecord& record = linkRecord.Get();
+			bool up = own ? record.linkUp : record.connected;
+			if (!up) {
+				return whileDown == Down::Fail ? ResultStatus::noConnection : ResultStatus::busy;
+			}
+		}
+
+		if constexpr (streamLink && hasFraming) {
+			if (framedState.Get().valid) {
+				return ResultStatus::busy;
+			}
+
+			if constexpr (framingTimed) {
+				if (!std::get<framingIndex>(blocks).Ready(now)) {
+					return ResultStatus::busy;
+				}
+			}
+		} else if constexpr (ReadyLink<LinkType>) {
+			if (!link->Ready()) {
+				return ResultStatus::busy;
+			}
+		}
+
+		return ResultStatus::ok;
+	}
+
+
+	// The check of a packet from the application (Send, AppSend) before any layer runs: the send queue when there is one, otherwise the
+	// direct check.
+	ResultStatus AdmitApplication() {
+		if constexpr (sendQueued) {
+			if constexpr (hasLinkState) {
+				if (whileDown == Down::Fail && !LinkUp()) {
+					return ResultStatus::noConnection;
+				}
+			}
+
+			if (QueueFull(control.indexes, sendSlots)) {
+				return ResultStatus::busy;
+			}
+
+			return ResultStatus::ok;
+		} else {
+			return DirectAdmit(false, ReadNow());
+		}
+	}
+
+
+	// Gives a finished packet to the link in the call, with no send queue. A framed stream packet is written at once; the rest of it, when
+	// the link takes part of it, is written by Process. A packet link refuses with busy when the link does.
+	ResultStatus SendDirect(std::span<const uint8> packet, uint8 flags, bool own) {
+		uint32 now = ReadNow();
+		if (!Offer(packet, flags, now, own)) {
+			return ResultStatus::busy;
+		}
+
+		if constexpr (streamLink && hasFraming) {
+			if (framedState.Get().valid) {
+				WriteFramed(now);
+			}
+		}
+
+		return ResultStatus::ok;
+	}
 
 
 	// The step with index From is applied to packet and its result goes into a step buffer, alternating between the two buffers. The
@@ -595,7 +722,7 @@ private:
 				Result<std::size_t> added = std::get<From>(blocks).Add(meta, packet, out);
 				if (added.IsErr()) {
 					if (!caller && added.Error() != ResultStatus::busy) {
-						CountDrop(drops.layerError);
+						Drop(&DropCounts::layerError);
 					}
 
 					return added.Error();
@@ -603,7 +730,7 @@ private:
 
 				if (added.Value() > out.size()) {
 					if (!caller) {
-						CountDrop(drops.layerError);
+						Drop(&DropCounts::layerError);
 					}
 
 					return ResultStatus::messageTooLong;
@@ -615,7 +742,7 @@ private:
 				Result<std::size_t> encoded = std::get<From>(blocks).Encode(meta, packet, out);
 				if (encoded.IsErr()) {
 					if (!caller && encoded.Error() != ResultStatus::busy) {
-						CountDrop(drops.transformError);
+						Drop(&DropCounts::transformError);
 					}
 
 					return encoded.Error();
@@ -623,7 +750,7 @@ private:
 
 				if (encoded.Value() > out.size()) {
 					if (!caller) {
-						CountDrop(drops.transformError);
+						Drop(&DropCounts::transformError);
 					}
 
 					return ResultStatus::messageTooLong;
@@ -668,14 +795,9 @@ private:
 			return ResultStatus::messageTooLong;
 		}
 
-		if constexpr (hasLinkState) {
-			if (whileDown == Down::Fail && !LinkUp()) {
-				return ResultStatus::noConnection;
-			}
-		}
-
-		if (QueueFull(control.indexes, sendSlots)) {
-			return ResultStatus::busy;
+		ResultStatus admit = AdmitApplication();
+		if (admit != ResultStatus::ok) {
+			return admit;
 		}
 
 		return SendFrom<0>(payload, meta, Lane::control, true);
@@ -703,14 +825,9 @@ private:
 			return ResultStatus::messageTooLong;
 		}
 
-		if constexpr (hasLinkState) {
-			if (whileDown == Down::Fail && !LinkUp()) {
-				return ResultStatus::noConnection;
-			}
-		}
-
-		if (QueueFull(control.indexes, sendSlots)) {
-			return ResultStatus::busy;
+		ResultStatus admit = AdmitApplication();
+		if (admit != ResultStatus::ok) {
+			return admit;
 		}
 
 		return SendFrom<From>(packet, meta, Lane::control, true);
@@ -746,18 +863,24 @@ private:
 	// Moves the staged packets to the control queue, oldest first, from Process in its own context. A packet that the control queue or a
 	// layer refuses as busy stays staged for the next call. Any other refusal is counted where it happens (SendFrom counts it, since the
 	// packet has no caller), and the packet is taken out. Under Fail, a packet drained while the connection is down is dropped and counted.
-	void DrainStaged() {
+	void DrainStaged([[maybe_unused]] uint32 now) {
 		std::span<const uint8> packet;
 		uint8 flags = 0;
 		while (StagedFront(packet, flags)) {
-			if (QueueFull(control.indexes, sendSlots)) {
-				return;
+			if constexpr (sendQueued) {
+				if (QueueFull(control.indexes, sendSlots)) {
+					return;
+				}
+			} else {
+				if (DirectAdmit(false, now) != ResultStatus::ok) {
+					return;
+				}
 			}
 
 			if constexpr (hasLinkState) {
 				if (whileDown == Down::Fail && !LinkUp()) {
 					StagedPop();
-					AddDrops(linkRecord.Get().dropped, 1);
+					DropLinkDown(1);
 					continue;
 				}
 			}
@@ -825,7 +948,10 @@ private:
 	// it is not Counted), and the high-water marks (zero unless the stack is HighWater).
 	StackCounters Snapshot() const {
 		StackCounters snapshot;
-		snapshot.drops = Drops();
+		if constexpr (countDrops) {
+			snapshot.drops = Drops();
+		}
+
 		CollectReliable<0>(snapshot);
 		if constexpr (highWater) {
 			snapshot.highWaterRing = highWaterState.Get().ring;
@@ -864,7 +990,7 @@ private:
 
 	// The high-water mark of the control queue, after a packet was queued (status ok). Nothing is built when the stack is not HighWater().
 	void NoteControlFill(ResultStatus status) {
-		if constexpr (highWater) {
+		if constexpr (highWater && sendQueued) {
 			if (status == ResultStatus::ok) {
 				RaiseHighWater(highWaterState.Get().control, SlotsHeld(control.indexes, sendSlots));
 			}
@@ -874,19 +1000,29 @@ private:
 
 	// Puts a finished packet on its lane: a queue, or the one bulk slot. The own lane is used only by a chain that has an own queue.
 	ResultStatus Stage(std::span<const uint8> packet, const Meta& meta, Lane lane) {
-		if constexpr (peersReport) {
-			if (lane == Lane::own) {
-				return QueuePush(ownQueue.indexes, ownQueue.View(), packet, meta.flags);
+		if constexpr (sendQueued) {
+			if constexpr (peersReport) {
+				if (lane == Lane::own) {
+					return QueuePush(ownQueue.indexes, ownQueue.View(), packet, meta.flags);
+				}
 			}
-		}
 
-		if (lane == Lane::control) {
-			if constexpr (highWater) {
-				ResultStatus status = QueuePush(control.indexes, control.View(), packet, meta.flags);
-				NoteControlFill(status);
-				return status;
-			} else {
-				return QueuePush(control.indexes, control.View(), packet, meta.flags);
+			if (lane == Lane::control) {
+				if constexpr (highWater) {
+					ResultStatus status = QueuePush(control.indexes, control.View(), packet, meta.flags);
+					NoteControlFill(status);
+					return status;
+				} else {
+					return QueuePush(control.indexes, control.View(), packet, meta.flags);
+				}
+			}
+		} else {
+			if (lane == Lane::control) {
+				return SendDirect(packet, meta.flags, false);
+			}
+
+			if (lane == Lane::own) {
+				return SendDirect(packet, meta.flags, true);
 			}
 		}
 
@@ -916,12 +1052,12 @@ private:
 			if constexpr (Entry::kind == BlockKind::transform) {
 				Result<std::size_t> decoded = std::get<Below - 1>(blocks).Decode(meta, packet);
 				if (decoded.IsErr()) {
-					CountDrop(drops.transformError);
+					Drop(&DropCounts::transformError);
 					return decoded.Error();
 				}
 
 				if (decoded.Value() > packet.size()) {
-					CountDrop(drops.transformError);
+					Drop(&DropCounts::transformError);
 					return ResultStatus::invalidData;
 				}
 
@@ -929,7 +1065,7 @@ private:
 			} else if constexpr (Entry::kind == BlockKind::layer) {
 				Result<Taken> taken = std::get<Below - 1>(blocks).Take(meta, packet);
 				if (taken.IsErr()) {
-					CountDrop(drops.layerError);
+					Drop(&DropCounts::layerError);
 					return taken.Error();
 				}
 
@@ -938,7 +1074,7 @@ private:
 				}
 
 				if (taken.Value().consumed > packet.size()) {
-					CountDrop(drops.layerError);
+					Drop(&DropCounts::layerError);
 					return ResultStatus::invalidData;
 				}
 
@@ -989,10 +1125,10 @@ private:
 				ReceivePacket(rx.Span().first(length));
 				break;
 			case FrameStatus::broken:
-				CountDrop(drops.framingError);
+				Drop(&DropCounts::framingError);
 				break;
 			case FrameStatus::tooLong:
-				CountDrop(drops.tooLong);
+				Drop(&DropCounts::tooLong);
 				break;
 			case FrameStatus::pending:
 				break;
@@ -1121,7 +1257,7 @@ private:
 	static ResultStatus DeliverThunk(void* owner, std::span<const uint8> packet) {
 		Stack* self = static_cast<Stack*>(owner);
 		if (packet.size() > receiveBytes) {
-			CountDrop(self->drops.layerError);
+			self->Drop(&DropCounts::layerError);
 			return ResultStatus::messageTooLong;
 		}
 
@@ -1138,7 +1274,7 @@ private:
 	static ResultStatus SendThunk(void* owner, std::span<const uint8> packet, const Meta& meta) {
 		Stack* self = static_cast<Stack*>(owner);
 		if (packet.size() > packetBytes) {
-			CountDrop(self->drops.layerError);
+			self->Drop(&DropCounts::layerError);
 			return ResultStatus::messageTooLong;
 		}
 
@@ -1148,17 +1284,27 @@ private:
 			}
 		}
 
-		if constexpr (peersReport) {
-			if (QueueFull(self->ownQueue.indexes, sendSlots)) {
-				return ResultStatus::busy;
+		// A layer that declares its peer sends on the own lane; any other layer on the control lane.
+		if constexpr (sendQueued) {
+			if constexpr (peersReport) {
+				if (QueueFull(self->ownQueue.indexes, sendSlots)) {
+					return ResultStatus::busy;
+				}
+			} else {
+				if (QueueFull(self->control.indexes, sendSlots)) {
+					return ResultStatus::busy;
+				}
 			}
+		} else {
+			ResultStatus admit = self->DirectAdmit(peersReport, self->ReadNow());
+			if (admit != ResultStatus::ok) {
+				return admit;
+			}
+		}
 
+		if constexpr (peersReport) {
 			return self->template SendFrom<From>(packet, meta, Lane::own, false);
 		} else {
-			if (QueueFull(self->control.indexes, sendSlots)) {
-				return ResultStatus::busy;
-			}
-
 			return self->template SendFrom<From>(packet, meta, Lane::control, false);
 		}
 	}
@@ -1275,7 +1421,7 @@ private:
 	void DropOnDown() {
 		LinkRecord& record = linkRecord.Get();
 		if constexpr (streamLink) {
-			AddDrops(record.dropped, ByteRingClear(ring.indexes, ringSlots));
+			DropLinkDown(ByteRingClear(ring.indexes, ringSlots));
 		}
 
 		if constexpr (streamLink && hasFraming) {
@@ -1288,7 +1434,7 @@ private:
 
 				if (dropFrame) {
 					state.valid = false;
-					AddDrops(record.dropped, 1);
+					DropLinkDown(1);
 				} else {
 					state.sent = 0;
 				}
@@ -1296,17 +1442,19 @@ private:
 		}
 
 		if (whileDown == Down::Fail) {
-			DropQueued(control.indexes, control.View(), sendSlots);
-			if constexpr (peersReport) {
-				if (!record.linkUp) {
-					DropQueued(ownQueue.indexes, ownQueue.View(), sendSlots);
+			if constexpr (sendQueued) {
+				DropQueued(control.indexes, control.View(), sendSlots);
+				if constexpr (peersReport) {
+					if (!record.linkUp) {
+						DropQueued(ownQueue.indexes, ownQueue.View(), sendSlots);
+					}
 				}
 			}
 
 			if constexpr (hasBulk) {
 				if (heldState.Get().valid) {
 					heldState.Get().valid = false;
-					AddDrops(record.dropped, 1);
+					DropLinkDown(1);
 				}
 			}
 		}
@@ -1317,9 +1465,11 @@ private:
 	// the other packets keep their order. The layer resends each one still wanted when it is told of the return, so the copy of a packet that
 	// its requester has closed does not reach the link. A copy dropped here is not counted: the layer keeps the packet.
 	void DropResent() {
-		QueueDropFlagged(control.indexes, control.View(), sendSlots, Meta::ResentBelowFlag);
-		if constexpr (peersReport) {
-			QueueDropFlagged(ownQueue.indexes, ownQueue.View(), sendSlots, Meta::ResentBelowFlag);
+		if constexpr (sendQueued) {
+			QueueDropFlagged(control.indexes, control.View(), sendSlots, Meta::ResentBelowFlag);
+			if constexpr (peersReport) {
+				QueueDropFlagged(ownQueue.indexes, ownQueue.View(), sendSlots, Meta::ResentBelowFlag);
+			}
 		}
 
 		// A frame part written when the connection was lost is written again from its start under Wait. A marked one is dropped instead.
@@ -1337,7 +1487,7 @@ private:
 		uint8 flags = 0;
 		while (QueueFront(indexes, view, packet, flags)) {
 			QueuePop(indexes, slotCount);
-			AddDrops(linkRecord.Get().dropped, 1);
+			DropLinkDown(1);
 		}
 	}
 
@@ -1386,7 +1536,7 @@ private:
 				meta.flags = flags;
 				Result<std::size_t> length = std::get<framingIndex>(blocks).Frame(meta, packet, framed.Span());
 				if (length.IsErr()) {
-					CountDrop(drops.sendError);
+					Drop(&DropCounts::sendError);
 					return true;
 				}
 
@@ -1410,7 +1560,7 @@ private:
 			}
 
 			if (status != ResultStatus::ok) {
-				CountDrop(drops.sendError);
+				Drop(&DropCounts::sendError);
 			}
 
 			return true;
@@ -1426,7 +1576,7 @@ private:
 			std::span<const uint8> rest = std::span<const uint8>(framed.Span()).subspan(state.sent, state.length - state.sent);
 			Result<std::size_t> written = link->Write(rest);
 			if (written.IsErr()) {
-				CountDrop(drops.sendError);
+				Drop(&DropCounts::sendError);
 				state.valid = false;
 				return true;
 			}
@@ -1468,7 +1618,7 @@ private:
 				Result<std::size_t> produced = std::get<Index>(blocks).Next(meta, out);
 				if (produced.IsOk()) {
 					if (produced.Value() > out.size()) {
-						CountDrop(drops.layerError);
+						Drop(&DropCounts::layerError);
 					} else if (SendFrom<Index + 1>(out.first(produced.Value()), meta, Lane::bulk, false) == ResultStatus::ok) {
 						return 0;
 					}
@@ -1478,7 +1628,7 @@ private:
 				}
 
 				if (produced.Error() != ResultStatus::noDataAvailable) {
-					CountDrop(drops.layerError);
+					Drop(&DropCounts::layerError);
 				}
 			}
 
@@ -1525,15 +1675,17 @@ private:
 
 			std::span<const uint8> packet;
 			uint8 flags = 0;
-			if constexpr (peersReport) {
-				if (QueueFront(ownQueue.indexes, ownQueue.View(), packet, flags)) {
-					if (!Offer(packet, flags, now, true)) {
-						return;
-					}
+			if constexpr (sendQueued) {
+				if constexpr (peersReport) {
+					if (QueueFront(ownQueue.indexes, ownQueue.View(), packet, flags)) {
+						if (!Offer(packet, flags, now, true)) {
+							return;
+						}
 
-					QueuePop(ownQueue.indexes, sendSlots);
-					sentPackets++;
-					continue;
+						QueuePop(ownQueue.indexes, sendSlots);
+						sentPackets++;
+						continue;
+					}
 				}
 			}
 
@@ -1541,14 +1693,16 @@ private:
 				return;
 			}
 
-			if (QueueFront(control.indexes, control.View(), packet, flags)) {
-				if (!Offer(packet, flags, now, false)) {
-					return;
-				}
+			if constexpr (sendQueued) {
+				if (QueueFront(control.indexes, control.View(), packet, flags)) {
+					if (!Offer(packet, flags, now, false)) {
+						return;
+					}
 
-				QueuePop(control.indexes, sendSlots);
-				sentPackets++;
-				continue;
+					QueuePop(control.indexes, sendSlots);
+					sentPackets++;
+					continue;
+				}
 			}
 
 			if constexpr (hasBulk) {

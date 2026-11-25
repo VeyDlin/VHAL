@@ -31,6 +31,7 @@ void OnPacket(const VUB::Meta&, std::span<const uint8> payload) {
 
 using Device = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Framing<VUB::Cobs>()
 		.Link<Uart>()
 		.MaxPayload(64)
@@ -68,6 +69,7 @@ void OnPacket(const VUB::Meta&, std::span<const uint8> payload) {
 
 using Device = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Framing<VUB::LengthPrefix<1>>()
 		.Link<Uart>()
 		.MaxPayload(64)
@@ -111,6 +113,7 @@ uint32 MicrosecondClock() {
 
 using Device = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Framing<VUB::Gap>()
 		.GapCharacters(35, 9600)
 		.Link<Uart>()

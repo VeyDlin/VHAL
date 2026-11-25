@@ -194,6 +194,7 @@ struct TooLongUpLayer : PlainUpLayer {
 
 using HoldStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<RecordLayer>()
 		.Transform<XorTransform>()
 		.Layer<HoldLayer>()
@@ -207,6 +208,7 @@ using HoldStack = VUB::Stack<+[] {
 
 using PlainUpStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<PlainUpLayer>()
 		.Link<PacketEnd>()
 		.MaxPayload(4)
@@ -218,6 +220,7 @@ using PlainUpStack = VUB::Stack<+[] {
 
 using TooLongUpStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<TooLongUpLayer>()
 		.Link<PacketEnd>()
 		.MaxPayload(4)

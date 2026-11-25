@@ -179,6 +179,8 @@ void TestPollReadsUpToRoom() {
 // The stack sees the state of the function: up once DTR is set, and its LinkUp() follows.
 using CdcPlainStackA = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Framing<VUB::Cobs>()
 		.Link<CdcLinkType>()
 		.MaxPayload(32)
@@ -215,6 +217,8 @@ void TestStackFollowsTheFunctionState() {
 // stack until the peer has read what is queued.
 using CdcStackA = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Framing<VUB::Cobs>()
 		.Link<CdcLinkType>()
 		.MaxPayload(32)
@@ -224,6 +228,8 @@ using CdcStackA = VUB::Stack<+[] {
 
 using CdcStackB = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Framing<VUB::Cobs>()
 		.Link<CdcLinkType>()
 		.MaxPayload(32)
@@ -273,6 +279,8 @@ void TestStacksExchangeOverCdcWithFullQueues() {
 // The delivery layer over the CDC link, with the same queues.
 using ReliableCdcStackA = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(40)
 		.Framing<VUB::Cobs>()
 		.Link<CdcLinkType>()
@@ -284,6 +292,8 @@ using ReliableCdcStackA = VUB::Stack<+[] {
 
 using ReliableCdcStackB = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(40)
 		.Framing<VUB::Cobs>()
 		.Link<CdcLinkType>()

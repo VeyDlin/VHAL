@@ -231,6 +231,7 @@ namespace DemoVub {
 
 	using UartStack = VUB::Stack<+[] {
 		return VUB::Builder()
+			.CountDrops()
 			.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
 			.OnOutcome<&OutcomeOf<UartIndex>>()
 			.OnRestart<&RestartOf<UartIndex>>()
@@ -245,6 +246,7 @@ namespace DemoVub {
 
 	using CdcStack = VUB::Stack<+[] {
 		return VUB::Builder()
+			.CountDrops()
 			.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
 			.OnOutcome<&OutcomeOf<CdcIndex>>()
 			.OnRestart<&RestartOf<CdcIndex>>()
@@ -258,6 +260,7 @@ namespace DemoVub {
 
 	using BulkStack = VUB::Stack<+[] {
 		return VUB::Builder()
+			.CountDrops()
 			.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
 			.OnOutcome<&OutcomeOf<BulkIndex>>()
 			.OnRestart<&RestartOf<BulkIndex>>()
@@ -271,6 +274,7 @@ namespace DemoVub {
 
 	using HidStack = VUB::Stack<+[] {
 		return VUB::Builder()
+			.CountDrops()
 			.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(32)
 			.OnOutcome<&OutcomeOf<HidIndex>>()
 			.OnRestart<&RestartOf<HidIndex>>()

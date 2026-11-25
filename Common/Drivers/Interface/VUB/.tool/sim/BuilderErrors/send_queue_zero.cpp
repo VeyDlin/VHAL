@@ -1,4 +1,4 @@
-// expect: SendQueue() is zero
+// expect: a packet link with no Ready() needs a send queue
 #include "SnippetSupport.h"
 
 

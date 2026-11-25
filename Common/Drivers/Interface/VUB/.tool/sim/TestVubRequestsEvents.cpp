@@ -229,6 +229,8 @@ using EventReliable = VUB::ReliableOf<40, 16>;
 // Events from the device: no handler on this side, and the Reliable layer below.
 using EventSender = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<EventCommands, VUB::Handlers<>>>().Counted()
 		.Layer<EventReliable>().Retries(3).TimeoutMs(200).Window(16)
 		.Link<ReportingPacketEnd>()
@@ -242,6 +244,8 @@ using EventSender = VUB::Stack<+[]() {
 // Events from the device under WhileDown(Fail): an event sent while the link is down is refused and nothing is queued.
 using FailingEventSender = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<EventCommands, VUB::Handlers<>>>().Counted()
 		.Layer<EventReliable>().Retries(3).TimeoutMs(200).Window(16)
 		.Link<ReportingPacketEnd>()
@@ -256,6 +260,8 @@ using FailingEventSender = VUB::Stack<+[]() {
 // Events from a device whose Event::fault has no body, so the packet of Event::fault is two bytes.
 using ShortEventSender = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<ShortEventCommands, VUB::Handlers<>>>().Counted()
 		.Layer<EventReliable>().Retries(3).TimeoutMs(200).Window(16)
 		.Link<ReportingPacketEnd>()
@@ -269,6 +275,8 @@ using ShortEventSender = VUB::Stack<+[]() {
 // Events to the PC: the handlers of EventCommands, and the counters.
 using EventReceiver = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<EventCommands, EventHandlers>>().Counted()
 		.Layer<EventReliable>().Retries(3).TimeoutMs(200).Window(16)
 		.Link<ReportingPacketEnd>()
@@ -282,6 +290,8 @@ using EventReceiver = VUB::Stack<+[]() {
 // A receiver that has no handler for Event::ready.
 using NoReadyReceiver = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<EventCommands, NoReadyHandlers>>().Counted()
 		.Layer<EventReliable>().Retries(3).TimeoutMs(200).Window(16)
 		.Link<ReportingPacketEnd>()
@@ -295,6 +305,8 @@ using NoReadyReceiver = VUB::Stack<+[]() {
 // A newer peer's sender: the events of NewerEventCommands.
 using NewerSender = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<NewerEventCommands, VUB::Handlers<>>>().Counted()
 		.Layer<EventReliable>().Retries(3).TimeoutMs(200).Window(16)
 		.Link<ReportingPacketEnd>()
@@ -308,6 +320,8 @@ using NewerSender = VUB::Stack<+[]() {
 // A sender that also emits Event::extra, which the receivers do not know.
 using ExtraSender = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<ExtraEventCommands, VUB::Handlers<>>>().Counted()
 		.Layer<EventReliable>().Retries(3).TimeoutMs(200).Window(16)
 		.Link<ReportingPacketEnd>()
@@ -321,6 +335,8 @@ using ExtraSender = VUB::Stack<+[]() {
 // A link with no Reliable below the layer: the events are plain packets.
 using PlainEventStack = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<PlainEventCommands, PlainHandlers>>()
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
@@ -333,6 +349,8 @@ using PlainEventStack = VUB::Stack<+[]() {
 // Both ends of a stack with a Fire command and an event.
 using FireStack = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<FireCommands, FireHandlers>>().Counted()
 		.Layer<EventReliable>().Retries(3).TimeoutMs(200).Window(16)
 		.Link<ReportingPacketEnd>()
@@ -352,6 +370,8 @@ using BurstHandlers = VUB::Handlers<
 // Both ends of a stack with the request of BurstCommands and its fault event. Each end can send a request and can take tickets.
 using BurstStack = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<BurstCommands, BurstHandlers>>().Open(4).Tickets(4)
 		.Layer<EventReliable>().Retries(3).TimeoutMs(200).Window(16)
 		.Link<ReportingPacketEnd>()
@@ -1061,6 +1081,8 @@ using SharedHandlers = VUB::Handlers<
 
 using SharedStack = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<SharedCommands, SharedHandlers>>()
 		.Layer<EventReliable>().Retries(3).TimeoutMs(200).Window(16)
 		.Link<ReportingPacketEnd>()
@@ -1102,6 +1124,8 @@ using FarSetHandlers = VUB::Handlers<
 
 using NearSetStack = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<NearSetEvents, NearSetHandlers>>().Counted()
 		.Layer<EventReliable>().Retries(3).TimeoutMs(200).Window(16)
 		.Link<ReportingPacketEnd>()
@@ -1114,6 +1138,8 @@ using NearSetStack = VUB::Stack<+[]() {
 
 using FarSetStack = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<FarSetEvents, FarSetHandlers>>().Counted()
 		.Layer<EventReliable>().Retries(3).TimeoutMs(200).Window(16)
 		.Link<ReportingPacketEnd>()
@@ -1138,6 +1164,8 @@ using HoldHandlers = VUB::Handlers<
 
 using HoldStack = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<BurstCommands, HoldHandlers>>().Open(4).Tickets(4).Counted()
 		.Layer<EventReliable>().Retries(3).TimeoutMs(200).Window(16)
 		.Link<ReportingPacketEnd>()
@@ -1151,6 +1179,8 @@ using HoldStack = VUB::Stack<+[]() {
 // A device with one ticket and no refusal ring: a second request while the first is held is refused for lack of room.
 using RoomStack = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<BurstCommands, BurstHandlers>>().Open(4).Tickets(1).Refusals(0).Counted()
 		.Layer<EventReliable>().Retries(3).TimeoutMs(200).Window(16)
 		.Link<ReportingPacketEnd>()
@@ -1461,6 +1491,8 @@ void EmitFromDevice(StackT& stack) {
 
 using WikiEventStack = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::Requests<WikiEvents::DeviceEvents, WikiEvents::PcHandlers>>().Counted()
 		.Layer<EventReliable>().Retries(3).TimeoutMs(200).Window(16)
 		.Link<ReportingPacketEnd>()

@@ -170,5 +170,6 @@ void SizeRun() {
 	AwaitOnce(handle);
 #endif
 #endif
-	SizeRunStream(sizeStack);
+	// The stack has no staging ring here, so the Send of SizeRunStream (a send from another task) is not made: the requests go through the handle.
+	sizeStack.Process();
 }

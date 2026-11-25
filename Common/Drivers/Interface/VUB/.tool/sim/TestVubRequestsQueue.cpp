@@ -181,6 +181,7 @@ using QueueCommands = VUB::CommandSet<+[]() {
 // The requester: sixteen slots, a queue of eight packets, one control packet in the stack, a 400-byte payload, and the ping.
 using QueueStack = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::Requests<QueueCommands, VUB::Handlers<>>>().Open(16).Pending(8).Ping(0).Health().BuiltInTimeoutMs(500).Counted().Awaitable()
 		.Link<QueueLink>()
 		.MaxPayload(400)

@@ -83,6 +83,8 @@ using PacketLine = VUB::PacketLine<64, 512>;
 // Layer, XOR transform, flag framing, stream link. Payload 40, packet 40 + 3 + 2 = 45, framed 2 * 45 + 6 = 96 bytes.
 using StreamStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<TestLayer>()
 		.Transform<XorTransform>()
 		.Framing<FlagFraming>()
@@ -97,6 +99,8 @@ using StreamStack = VUB::Stack<+[] {
 // The same stream chain with a beacon every 1000 microseconds.
 using BeaconStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<TestLayer>(TestLayerOptions{1000, false})
 		.Transform<XorTransform>()
 		.Framing<FlagFraming>()
@@ -111,6 +115,8 @@ using BeaconStack = VUB::Stack<+[] {
 // Layer, XOR transform, packet link. Packet 45 bytes, read into a queue of 4 packets.
 using PacketStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<TestLayer>()
 		.Transform<XorTransform>()
 		.Link<PacketEnd>()
@@ -124,6 +130,8 @@ using PacketStack = VUB::Stack<+[] {
 // The packet chain whose layer always has bulk data to pull.
 using BulkStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<TestLayer>(TestLayerOptions{0, true})
 		.Transform<XorTransform>()
 		.Link<PacketEnd>()
@@ -144,6 +152,8 @@ using ReportingPacketLine = VUB::PacketLine<64, 512, true>;
 // Flag framing over a reporting stream line, with no layer: a frame is the payload with its checks and flags. Waits while the link is down.
 using ReportingStreamStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Framing<FlagFraming>()
 		.Link<ReportingStreamEnd>()
 		.MaxPayload(40)
@@ -156,6 +166,8 @@ using ReportingStreamStack = VUB::Stack<+[] {
 // Flag framing over a line that does not report: the stack never knows the line went down.
 using SilentStreamStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Framing<FlagFraming>()
 		.Link<StreamEnd>()
 		.MaxPayload(40)
@@ -168,6 +180,8 @@ using SilentStreamStack = VUB::Stack<+[] {
 // Length framing over a reporting stream line. The waiting chain keeps what is queued while the link is down; the failing one drops it.
 using ReportingLengthStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Framing<LengthFraming>()
 		.Link<ReportingStreamEnd>()
 		.MaxPayload(40)
@@ -179,6 +193,8 @@ using ReportingLengthStack = VUB::Stack<+[] {
 
 using FailingLengthStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Framing<LengthFraming>()
 		.Link<ReportingStreamEnd>()
 		.MaxPayload(40)
@@ -192,6 +208,8 @@ using FailingLengthStack = VUB::Stack<+[] {
 // The same chain, which drops what is queued when the link goes down.
 using FailingStreamStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Framing<FlagFraming>()
 		.Link<ReportingStreamEnd>()
 		.MaxPayload(40)
@@ -205,6 +223,8 @@ using FailingStreamStack = VUB::Stack<+[] {
 // A packet chain with no layer over a reporting packet line. Waits while the link is down.
 using ReportingPacketStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
 		.ReceiveQueue(4)
@@ -216,6 +236,8 @@ using ReportingPacketStack = VUB::Stack<+[] {
 // The same chain, which drops what is queued when the link goes down.
 using FailingPacketStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
 		.ReceiveQueue(4)
@@ -228,6 +250,8 @@ using FailingPacketStack = VUB::Stack<+[] {
 // A packet chain with the flag probe under the layer, so the flags set at the top reach a transform at the bottom.
 using ProbeStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<TestLayer>(TestLayerOptions{0, true})
 		.Transform<FlagProbe>()
 		.Transform<XorTransform>()

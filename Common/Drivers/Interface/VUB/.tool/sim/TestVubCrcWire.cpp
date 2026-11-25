@@ -262,6 +262,7 @@ using CrcStreamEnd = VUB::StreamEnd<64, 512>;
 
 using CrcStream = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Framing<FlagFraming>()
 		.Link<CrcStreamEnd>()
@@ -319,6 +320,7 @@ void TestFaultyLoopbackNeverDeliversCorruptedPayloads() {
 // packets the handler gets are whole. Every packet the wire delivers ends in the handler or in one counted reason.
 using CrcPacketStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Link<PacketEnd>()
 		.MaxPayload(40)
@@ -401,6 +403,7 @@ void TestWrongCrcIsCountedAsTransformError() {
 // A chain with the high byte first variant puts 4B 37 after the digits on the wire; the byte after the flag is the first digit.
 using HighFirstStream = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Transform<VUB::Crc<Checksum::Crc16Modbus, VUB::CrcOrder::highByteFirst>>()
 		.Framing<FlagFraming>()
 		.Link<CrcStreamEnd>()

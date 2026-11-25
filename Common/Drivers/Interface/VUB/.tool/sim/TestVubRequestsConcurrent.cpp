@@ -374,6 +374,7 @@ using RequesterHandlers = VUB::Handlers<
 // needs Awaitable(); Counted() gives the layer's refused and late-reply counters.
 using Requester = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::Requests<JobCommands, RequesterHandlers>>().Open(4).Awaitable().Counted()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
 		.Link<ReportingPacketEnd>()
@@ -389,6 +390,7 @@ using Requester = VUB::Stack<+[]() {
 // tickets, and a responder that answers at once never refuses one of them busy.
 using Responder = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::Requests<JobCommands, ResponderHandlers>>().Tickets(4)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
 		.Link<ReportingPacketEnd>()
@@ -403,6 +405,7 @@ using Responder = VUB::Stack<+[]() {
 // The responder with three tickets, for the test that fills the responder's table: a fourth request is refused busy by the responder.
 using SmallResponder = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::Requests<JobCommands, ResponderHandlers>>().Tickets(3)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
 		.Link<ReportingPacketEnd>()
@@ -1228,6 +1231,7 @@ void TestAwaitResultIsResetWhenPeerRestarts() {
 // A requester with two packets of queue and eight slots: a third send with no Process between is busy, and a send after Process is accepted.
 using QueueRequester = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::Requests<JobCommands, RequesterHandlers>>().Open(8).Pending(2)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
 		.Link<ReportingPacketEnd>()

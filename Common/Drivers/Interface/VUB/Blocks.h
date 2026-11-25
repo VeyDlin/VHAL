@@ -95,6 +95,14 @@ template<typename Link>
 concept LinkBlock = StreamLink<Link> || PacketLink<Link>;
 
 
+// A packet link that says whether its next Send will be taken: Ready() is true when Send takes the next packet. A chain on such a link needs
+// no send queue, since the stack asks Ready before a layer takes the packet. The link need not have it; a packet link without it needs a queue.
+template<typename Link>
+concept ReadyLink = requires(const Link& link) {
+	{ link.Ready() } -> std::convertible_to<bool>;
+};
+
+
 // A link with ReportsState() in its traits. SetStateSink gives the link the sink to report into; the link reports its current state
 // through the sink when it is given one. The stack gives a null sink when it is destroyed.
 template<typename Link>

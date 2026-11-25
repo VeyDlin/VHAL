@@ -91,6 +91,8 @@ struct OwnPeerLayer {
 // The same layer over a framed stream line: a frame is the payload with its checks, between flags (FlagFraming).
 using FramedOwnStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<OwnPeerLayer>()
 		.Framing<FlagFraming>()
 		.Link<ReportingStreamEnd>()
@@ -104,6 +106,8 @@ using FramedOwnStack = VUB::Stack<+[] {
 // A chain whose application packets wait while the connection is down, over a line that reports its state.
 using OwnStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<OwnPeerLayer>()
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
@@ -115,6 +119,8 @@ using OwnStack = VUB::Stack<+[] {
 
 using OwnFailStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<OwnPeerLayer>()
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
@@ -188,6 +194,8 @@ struct RecoverLayer {
 
 using RecoverStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<RecoverLayer>()
 		.Link<PacketEnd>()
 		.MaxPayload(40)

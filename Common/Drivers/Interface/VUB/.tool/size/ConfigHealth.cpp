@@ -3,7 +3,7 @@
 //   SIZE_LAYER   0: no requests layer; 1: served command (Tickets(1), Refusals(2)); 2: requester (Open(2)); 3: both.
 //   SIZE_HEALTH  bit 1: .Health<SizeHealth>() (asks); bit 2: .AnswerHealth<SizeHealth, &SizeFillHealth>() (answers).
 //   SIZE_PING    1: .Ping(16) and .AnswerPing(16).
-//   SIZE_COUNTED 1: Counted() on the layer and on Reliable, and HighWater() on the stack.
+//   SIZE_COUNTED 1: Counted() on the layer and on Reliable, and HighWater() and CountDrops() on the stack.
 #include "SizeWire.h"
 #include <Drivers/Interface/VUB/Framing/Cobs.h>
 #include <Drivers/Interface/VUB/Layer/Reliable.h>
@@ -179,7 +179,7 @@ using SizeHandlers = VUB::Handlers<>;
 
 #if SIZE_COUNTED
 #define SIZE_RELIABLE_COUNT .Counted()
-#define SIZE_HIGH_WATER .HighWater()
+#define SIZE_HIGH_WATER .HighWater().CountDrops()
 #else
 #define SIZE_RELIABLE_COUNT
 #define SIZE_HIGH_WATER

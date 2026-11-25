@@ -29,6 +29,7 @@ void SnippetFill(VUB::NoBody&) {
 // refuses to build.
 using Stack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::Requests<Set, VUB::Handlers<>>>().Counted().AnswerHealth<VUB::NoBody, &SnippetFill>()
 		.Link<VUB::PacketEnd<64, 512>>()
 		.MaxPayload(8)

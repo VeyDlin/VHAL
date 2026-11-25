@@ -143,6 +143,7 @@ void OnUnknownFinalR(const VUB::Final<Motor::MotorStatus, VUB::NoBody>& reply) {
 // The requester: four slots, the Reliable layer under it, and the reporting line's ends.
 using Requester = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<RequesterCommands, VUB::Handlers<>>>().Open(4)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
 		.Link<ReportingPacketEnd>()
@@ -156,6 +157,7 @@ using Requester = VUB::Stack<+[]() {
 // The responder: two tickets, the same Reliable layer.
 using Responder = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<Motor::MotorCommands, DeviceHandlers>>().Tickets(2)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
 		.Link<ReportingPacketEnd>()

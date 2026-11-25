@@ -54,6 +54,8 @@ struct ProbeLayer {
 // A packet chain with the probe and no Reliable, with the high-water marks.
 using MarkChain = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<ProbeLayer>()
 		.Link<PacketEnd>()
 		.MaxPayload(8)
@@ -67,6 +69,8 @@ using MarkChain = VUB::Stack<+[] {
 // The probe above a Reliable that is Counted, over a reporting packet line. No high-water marks.
 using CountChain = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<ProbeLayer>()
 		.Layer<ReliableLayer>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(40).Counted()
 		.Link<ReportingPacketEnd>()

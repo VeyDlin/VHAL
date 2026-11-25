@@ -88,6 +88,7 @@ using LossHidLink = VUB::HidLink<FakeHid<64, 2>, 64>;
 
 using LossUartStackA = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(16).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&LossOutcome>()
 		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Framing<VUB::Cobs>()
@@ -100,6 +101,7 @@ using LossUartStackA = VUB::Stack<+[] {
 
 using LossUartStackB = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(16).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&LossOutcome>()
 		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Framing<VUB::Cobs>()
@@ -112,6 +114,7 @@ using LossUartStackB = VUB::Stack<+[] {
 
 using LossCdcStackA = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(16).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&LossOutcome>()
 		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Framing<VUB::Cobs>()
@@ -124,6 +127,7 @@ using LossCdcStackA = VUB::Stack<+[] {
 
 using LossCdcStackB = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(16).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&LossOutcome>()
 		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Framing<VUB::Cobs>()
@@ -136,6 +140,7 @@ using LossCdcStackB = VUB::Stack<+[] {
 
 using LossBulkStackA = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(16).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&LossOutcome>()
 		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Framing<VUB::Cobs>()
@@ -148,6 +153,7 @@ using LossBulkStackA = VUB::Stack<+[] {
 
 using LossBulkStackB = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(16).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&LossOutcome>()
 		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Framing<VUB::Cobs>()
@@ -160,6 +166,7 @@ using LossBulkStackB = VUB::Stack<+[] {
 
 using LossHidStackA = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(16).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&LossOutcome>()
 		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Link<LossHidLink>()
@@ -172,6 +179,7 @@ using LossHidStackA = VUB::Stack<+[] {
 
 using LossHidStackB = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(16).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&LossOutcome>()
 		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Link<LossHidLink>()

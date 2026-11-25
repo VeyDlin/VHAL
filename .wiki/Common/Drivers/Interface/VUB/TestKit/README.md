@@ -213,7 +213,8 @@ std::array<bool, 2> Run() {
 }
 ```
 
-With `WhileDown(VUB::Down::Fail)` the packets the near stack has queued while the line is down are dropped and counted as `linkDown`. The
+With `WhileDown(VUB::Down::Fail)` the packets the near stack has queued while the line is down are dropped. With `CountDrops()` on the chain
+they are counted as `linkDown`. The
 [link state](../README#link-state) section has the rules.
 
 ## What the checks do not do

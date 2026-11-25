@@ -188,6 +188,8 @@ struct OwnerLayer {
 // A chain with an application-side relay over a packet link, with no Reliable.
 using RelayChain = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<UpperLayer>()
 		.Layer<RelayLayer>()
 		.Link<PacketEnd>()
@@ -201,6 +203,8 @@ using RelayChain = VUB::Stack<+[] {
 // The same with a send queue of one packet, so a second send while the first waits is refused.
 using TinyRelayChain = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<UpperLayer>()
 		.Layer<RelayLayer>()
 		.Link<PacketEnd>()
@@ -215,6 +219,8 @@ using TinyRelayChain = VUB::Stack<+[] {
 // The owner chain: the owner layer above Reliable, over a reporting packet line, as the Reliable chains of the delivery tests.
 using OwnerChain = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<OwnerLayer>()
 		.Layer<ReliableLayer>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(40)
 		.Link<ReportingPacketEnd>()
@@ -234,6 +240,8 @@ void OwnerlessRestart(void* owner) {
 
 using OwnerlessChain = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<ReliableLayer>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(40).OnRestartOwner<&OwnerlessRestart>()
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
@@ -277,6 +285,8 @@ struct LargestLayer {
 
 using FitChain = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<LargestLayer>()
 		.Layer<ReliableLayer>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(40).OnRestart<&ReliableRestart>()
 		.Link<ReportingPacketEnd>()

@@ -160,6 +160,8 @@ void GiveSession(Stack& stack, uint16 value = ReliableSession) {
 // Packet chain, no transform, a line that does not report. Used for the wire bytes and the timing.
 using ReliableWire = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<ReliableLayer>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&ReliableOutcome>().OnRestart<&ReliableRestart>()
 		.Link<PacketEnd>()
 		.MaxPayload(40)
@@ -172,6 +174,8 @@ using ReliableWire = VUB::Stack<+[] {
 // The same with 8-bit sequence numbers.
 using ReliableWire8 = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<ReliableLayer>().Retries(3).TimeoutMs(200).Window(4).SequenceBits(8).PayloadBytes(40).OnOutcome<&ReliableOutcome>().OnRestart<&ReliableRestart>()
 		.Link<PacketEnd>()
 		.MaxPayload(40)
@@ -184,6 +188,8 @@ using ReliableWire8 = VUB::Stack<+[] {
 // The same as ReliableWire with a backoff: the resend timeout doubles after each try, up to 800 ms.
 using ReliableBackoff = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<ReliableLayer>().Retries(3).TimeoutMs(200).Window(4).BackoffMaxMs(800).PayloadBytes(40).OnOutcome<&ReliableOutcome>().OnRestart<&ReliableRestart>()
 		.Link<PacketEnd>()
 		.MaxPayload(40)
@@ -196,6 +202,8 @@ using ReliableBackoff = VUB::Stack<+[] {
 // Packet chain with the XOR check transform, over a line that reports its state.
 using ReliablePacket = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<ReliableLayer>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&ReliableOutcome>().OnRestart<&ReliableRestart>()
 		.Transform<XorTransform>()
 		.Link<ReportingPacketEnd>()
@@ -209,6 +217,8 @@ using ReliablePacket = VUB::Stack<+[] {
 // The 8-bit sequence chain over a reporting packet line, with the XOR transform.
 using ReliablePacket8 = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<ReliableLayer>().Retries(3).TimeoutMs(200).Window(4).SequenceBits(8).PayloadBytes(40).OnOutcome<&ReliableOutcome>().OnRestart<&ReliableRestart>()
 		.Transform<XorTransform>()
 		.Link<ReportingPacketEnd>()
@@ -222,6 +232,8 @@ using ReliablePacket8 = VUB::Stack<+[] {
 // Stream chain: the XOR check transform and the flag framing, over a line that reports its state. Used with byte faults.
 using ReliableStream = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<ReliableLayer>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&ReliableOutcome>().OnRestart<&ReliableRestart>()
 		.Transform<XorTransform>()
 		.Framing<FlagFraming>()

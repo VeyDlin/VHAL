@@ -17,6 +17,7 @@
 // multiple of 100.
 using KeepAliveStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::KeepAlive>()
 		.QuietTime(1000)
 		.DownTime(3000)
@@ -31,6 +32,7 @@ using KeepAliveStack = VUB::Stack<+[] {
 // The same chain under WhileDown(Fail): the application's queued packets are dropped on a down, and Send is refused while it is down.
 using KeepAliveFailStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::KeepAlive>()
 		.QuietTime(1000)
 		.DownTime(3000)
@@ -46,6 +48,7 @@ using KeepAliveFailStack = VUB::Stack<+[] {
 // The same chain with the default times: a quiet time of one second and a down time of three seconds.
 using KeepAliveDefaultStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::KeepAlive>()
 		.Link<PacketEnd>()
 		.MaxPayload(40)
@@ -380,6 +383,7 @@ void TestWireBytesOfDataPingAndPong() {
 // The same chain over a reporting packet line, for the link's state to reach the layer.
 using ReportingKeepAliveStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::KeepAlive>()
 		.QuietTime(1000)
 		.DownTime(3000)
@@ -609,6 +613,7 @@ uint32 BoardClock() {
 
 using Board = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::KeepAlive>()
 		.QuietTime(500000)
 		.DownTime(2000000)

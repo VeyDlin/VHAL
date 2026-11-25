@@ -151,6 +151,7 @@ void TestTakingTheReceiverBackClearsTheDelegate() {
 // until the host has taken the reports before them.
 using HidStackA = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Link<HidLinkType>()
 		.MaxPayload(40)
 		.SendQueue(8)
@@ -161,6 +162,7 @@ using HidStackA = VUB::Stack<+[] {
 
 using HidStackB = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Link<HidLinkType>()
 		.MaxPayload(40)
 		.SendQueue(8)
@@ -218,6 +220,7 @@ void TestStacksExchangeOverHidWithBusyReports() {
 // The delivery layer over the HID link.
 using ReliableHidStackA = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(40)
 		.Link<HidLinkType>()
 		.MaxPayload(40)
@@ -229,6 +232,7 @@ using ReliableHidStackA = VUB::Stack<+[] {
 
 using ReliableHidStackB = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(40)
 		.Link<HidLinkType>()
 		.MaxPayload(40)

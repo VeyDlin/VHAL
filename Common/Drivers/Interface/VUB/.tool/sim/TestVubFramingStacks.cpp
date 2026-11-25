@@ -32,6 +32,7 @@ std::array<uint8, 40> Payload(std::size_t index, std::size_t& length) {
 // A stack on a line that does not report. COBS, a length byte, and the gap of 1000 us.
 using CobsStream = VUB::Stack<+[] {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Framing<VUB::Cobs>()
 		.Link<StreamEnd>()
 		.MaxPayload(40)
@@ -43,6 +44,7 @@ using CobsStream = VUB::Stack<+[] {
 
 using LengthStream = VUB::Stack<+[] {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Framing<VUB::LengthPrefix<1>>()
 		.Link<StreamEnd>()
 		.MaxPayload(40)
@@ -54,6 +56,7 @@ using LengthStream = VUB::Stack<+[] {
 
 using GapStream = VUB::Stack<+[] {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Framing<VUB::Gap>()
 		.GapUs(1000)
 		.Link<StreamEnd>()
@@ -67,6 +70,7 @@ using GapStream = VUB::Stack<+[] {
 // The same three on a line that reports its state, for the link change.
 using ReportingCobsStream = VUB::Stack<+[] {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Framing<VUB::Cobs>()
 		.Link<ReportingStreamEnd>()
 		.MaxPayload(40)
@@ -78,6 +82,7 @@ using ReportingCobsStream = VUB::Stack<+[] {
 
 using ReportingLengthStream = VUB::Stack<+[] {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Framing<VUB::LengthPrefix<1>>()
 		.Link<ReportingStreamEnd>()
 		.MaxPayload(40)
@@ -89,6 +94,7 @@ using ReportingLengthStream = VUB::Stack<+[] {
 
 using ReportingGapStream = VUB::Stack<+[] {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Framing<VUB::Gap>()
 		.GapUs(1000)
 		.Link<ReportingStreamEnd>()

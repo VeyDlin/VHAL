@@ -152,18 +152,21 @@ struct GuardLayer {
 
 using ConcurrentChain = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<GuardLayer<>>()
 		.Link<SinkLink>()
 		.MaxPayload(8)
 		.OnReceive<&SinkReceive>()
 		.Clock<&SinkClock>()
-		.Concurrent();
+		.Concurrent()
+		.StageQueue(4);
 }>;
 
 
 // The same chain with a staging ring of one packet, so a second send before Process is refused.
 using SmallChain = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<GuardLayer<>>()
 		.Link<SinkLink>()
 		.MaxPayload(8)
@@ -177,6 +180,7 @@ using SmallChain = VUB::Stack<+[] {
 // The same chain without Concurrent(): its layer sees the flag off, and its stack builds no section.
 using PlainChain = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<GuardLayer<>>()
 		.Link<SinkLink>()
 		.MaxPayload(8)

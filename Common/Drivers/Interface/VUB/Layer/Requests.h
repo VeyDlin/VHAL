@@ -365,10 +365,24 @@ public:
 		}
 
 
+		// The same for a command with no body: a request of it, with its final and interim handlers (both optional).
+		template<auto Id, auto OnFinal, auto OnInterim = nullptr>
+		Result<RequestId> Send() const requires (std::is_same_v<typename CommandOf<Commands, Id>::BodyType, NoBody>) {
+			return Send<Id, OnFinal, OnInterim>(NoBody{});
+		}
+
+
 		// A request of a command with no reply: the packet goes without a slot and without an outcome.
 		template<auto Id>
 		ResultStatus Fire(const typename CommandOf<Commands, Id>::BodyType& body) const {
 			return layer->template FireRequest<Id>(body, outbox);
+		}
+
+
+		// The same for a command with no body.
+		template<auto Id>
+		ResultStatus Fire() const requires (std::is_same_v<typename CommandOf<Commands, Id>::BodyType, NoBody>) {
+			return Fire<Id>(NoBody{});
 		}
 
 

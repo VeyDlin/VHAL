@@ -103,6 +103,7 @@ using PingHandlers = VUB::Handlers<
 // The requester: four slots and ping up to 16 bytes of padding. The built-in deadline is the default, 1000 ms.
 using PingRequester = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<PingCommands, VUB::Handlers<>>>().Open(4)
 			.Ping(16)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
@@ -117,6 +118,7 @@ using PingRequester = VUB::Stack<+[]() {
 // The requester with a built-in deadline of 300 ms (BuiltInTimeoutMs).
 using PingShortRequester = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<PingCommands, VUB::Handlers<>>>().Open(4)
 			.Ping(16)
 			.BuiltInTimeoutMs(300)
@@ -132,6 +134,7 @@ using PingShortRequester = VUB::Stack<+[]() {
 // The responder: two tickets and ping up to 16 bytes of padding.
 using PingResponder = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<PingCommands, PingHandlers>>().Tickets(2)
 			.AnswerPing(16)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
@@ -146,6 +149,7 @@ using PingResponder = VUB::Stack<+[]() {
 // The responder with one ticket, which the start of one test holds.
 using PingOneTicketResponder = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<PingCommands, PingHandlers>>().Tickets(1)
 			.AnswerPing(16)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
@@ -160,6 +164,7 @@ using PingOneTicketResponder = VUB::Stack<+[]() {
 // A responder built without ping: a ping to it is an unknown command.
 using PingSilentResponder = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<PingCommands, PingHandlers>>().Tickets(2)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
 		.Link<ReportingPacketEnd>()
@@ -173,6 +178,7 @@ using PingSilentResponder = VUB::Stack<+[]() {
 // A stack that both requests and responds: two open slots, two tickets, and ping.
 using PingPeer = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<PingCommands, PingHandlers>>().Open(2).Tickets(2)
 			.Ping(16)
 			.AnswerPing(16)
@@ -188,6 +194,7 @@ using PingPeer = VUB::Stack<+[]() {
 // The requester with a built-in deadline of 5 s, longer than Reliable's give-up.
 using PingLongRequester = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<PingCommands, VUB::Handlers<>>>().Open(4)
 			.Ping(16)
 			.BuiltInTimeoutMs(5000)
@@ -203,6 +210,7 @@ using PingLongRequester = VUB::Stack<+[]() {
 // The requester and the responder with no Reliable below: a link directly under the layer.
 using PlainPingRequester = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<PingCommands, VUB::Handlers<>>>().Open(4)
 			.Ping(16)
 		.Link<ReportingPacketEnd>()
@@ -215,6 +223,7 @@ using PlainPingRequester = VUB::Stack<+[]() {
 
 using PlainPingResponder = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<PingCommands, PingHandlers>>().Tickets(2)
 			.AnswerPing(16)
 		.Link<ReportingPacketEnd>()
@@ -228,6 +237,7 @@ using PlainPingResponder = VUB::Stack<+[]() {
 // A side that answers pings and serves nothing: no command handler and no ticket, with the default refusal ring.
 using PingAnswerOnlyResponder = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<PingCommands, VUB::Handlers<>>>()
 			.AnswerPing(16)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)
@@ -242,6 +252,7 @@ using PingAnswerOnlyResponder = VUB::Stack<+[]() {
 // The same side with Refusals(0): a second ping while its reply buffer is unsent is dropped, with no refusal.
 using PingDroppingResponder = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<PingCommands, VUB::Handlers<>>>()
 			.Refusals(0)
 			.AnswerPing(16)
@@ -1023,6 +1034,7 @@ void TestPingSecondWhileBufferUnsentIsDroppedWithoutRefusals() {
 // The requester: four slots, a ping of up to 16 bytes of padding, and the default deadline of 1000 ms.
 using PingLink = VUB::Stack<+[]() {
 	return VUB::Builder()
+		.SendQueue(4)
 		.Layer<VUB::Requests<PingCommands, VUB::Handlers<>>>().Open(4)
 			.Ping(16)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4)

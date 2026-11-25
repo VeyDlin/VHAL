@@ -9,12 +9,13 @@
 
 
 // The sizes of the stream chain, worked out by hand: payload 40, layer header 3, XOR growth 2, so the packet is 45 bytes. The flag
-// framing adds up to 45 + 6 + 45 = 96 bytes. The link's MaxPacket is 64, and the receive buffer is the link's MaxPacket.
+// framing adds up to 45 + 6 + 45 = 96 bytes. The link's MaxPacket is 64. The receive buffer of a stream link is the packet bound of the
+// largest payload the stack receives, which is MaxPayload here: 45 bytes, not the link's MaxPacket.
 static_assert(StreamStack::count == 4);
 static_assert(StreamStack::packetBytes == 45);
 static_assert(StreamStack::framedBytes == 96);
 static_assert(StreamStack::streamLink);
-static_assert(StreamStack::receiveBytes == 64);
+static_assert(StreamStack::receiveBytes == 45);
 
 // The packet chain has no framing, so its framed size is its packet size.
 static_assert(PacketStack::packetBytes == 45);
@@ -31,7 +32,8 @@ static_assert(VUB::Builder().Transform<XorTransform>().Link<StreamEnd>().LastIs<
 
 // A chain with no stored block: its storage is an empty type, and the stack takes no room for it. Without [[no_unique_address]] the
 // empty storage takes a byte, and the padding after it can add 8 bytes to the stack (on a 64-bit host, with a receive queue of 3, the
-// stack is 592 bytes instead of 584).
+// stack is 448 bytes instead of 440). The chain has no drop counters and, a packet link with no Ready() taking one packet, a send queue of
+// one: 149 bytes less than the same chain with the send queue of four and the counters, which is 435 rounded up to 440.
 using NoBlockStack = VUB::Stack<+[] {
 	return VUB::Builder()
 		.Link<PacketEnd>()
@@ -46,7 +48,7 @@ static_assert(std::is_empty_v<NoBlockStack::Storage>);
 
 
 void TestNoBlockStorageTakesNoRoom() {
-	SIM_EXPECT(sizeof(NoBlockStack) == 584);
+	SIM_EXPECT(sizeof(NoBlockStack) == 440);
 }
 
 
