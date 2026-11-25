@@ -53,14 +53,13 @@ The CRC transform takes a CRC type of the shared CRC library (`Utilities/Checksu
 as `Checksum::Crc16Modbus`, are in `Utilities/Checksum/CRC/Preset/`. The library's class and the transform are both named `Crc`, so a file
 that includes both writes the transform as `VUB::Crc` and the library's class as `Checksum::Crc`.
 
-## The five kinds
+## The four kinds
 
 | Kind | Concept | What it does | Members the concept needs |
 |---|---|---|---|
 | Link | `VUB::StreamLink`, `VUB::PacketLink` | the wire at the bottom | `traits`; `Write(span)` returning `Result<size_t>` (a byte stream), or `Send(span)` returning `ResultStatus` (whole packets). Optional, not both: `SetReceiver(Receiver)` for a link that receives in an interrupt (`VUB::ReceivingLink`), or `Poll(Receiver)` for a link that is polled from `Process` (`VUB::PollingLink`); see [receiving from a link](#receiving-from-a-link) |
 | Framing | `VUB::FramingBlock` | finds packet boundaries in a byte stream | `usesTime`, `Growth(length)`, `Frame(meta, packet, out)`, `Push(byte, out, length)`; with `usesTime`: `Push(byte, nowUs, out, length)`, `Poll(nowUs, out, length)`, `Ready(nowUs)` and `Sent(nowUs, count)` (see [gap framing](Framing/Gap)) |
 | Transform | `VUB::TransformBlock` | one packet into another, and back | `growth`, `fingerprint`, `Encode(meta, in, out)`, `Decode(meta, packet)` |
-| Engine | `VUB::EngineBlock`, `VUB::EngineFor` | computes what a transform describes (a CRC, AES) | `synchronous`; `Supports<Algorithm>()` and `Run<Algorithm>(data)` for `VUB::EngineFor`. The CRC engines are the library's, see [CRC](../../../Utilities/Checksum/CRC/Crc) |
 | Layer | `VUB::LayerBlock` | a header, state, time; may send packets of its own and make bulk packets | `header`, `fingerprint`, `usesTime`, `makesBulk`, `Add`, `Take`, `Process`, and `Next` when `makesBulk` is true |
 
 A block that misses a member is a compile error. The message names the concept it does not satisfy, for example `the transform does not satisfy VUB::TransformBlock`, and the concept's notes follow it.

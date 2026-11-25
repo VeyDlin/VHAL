@@ -7,8 +7,10 @@
 #include <Utilities/Result/ResultStatus.h>
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <span>
+#include <type_traits>
 
 
 namespace VUB {
@@ -25,6 +27,8 @@ namespace BuiltInWire {
 	inline constexpr std::size_t HealthRequest = RequestWire::RequestHeader;
 	// The counters at the start of a health reply, 28 bytes on the wire. The user body follows them.
 	inline constexpr std::size_t CountersBytes = 28;
+	// The StackCounters at the start of those 28 bytes: the 22 bytes before the layer's three counts.
+	inline constexpr std::size_t StackCountersBytes = 22;
 	inline constexpr std::size_t HealthReplyHeader = RequestWire::FinalHeader + CountersBytes;
 	inline constexpr uint32 DefaultTimeoutMs = 1000;
 	inline constexpr uint32 MaxTimeoutMs = 2147483;
@@ -40,16 +44,28 @@ namespace BuiltInWire {
 using PingFn = void (*)(ResultStatus, uint32);
 
 
-// The report of a health request. The counters are the responder's: the drop counters, resends and peer restarts, and the high-water marks.
-// refused, lateReplies and eventsLost are the responder's layer counters. The user body U is NoBody when the responder has none. A report
-// that ends locally (a deadline, a link loss, a restart) has the result set and the rest at its defaults.
-template<typename U>
-struct HealthReport {
-	ResultStatus result = ResultStatus::ok;
-	StackCounters counters{};
+// The counters of a health reply, in the order they lie in memory and on the wire: the StackCounters of the responder (the eight drop
+// counters, resends, peerRestarts, and the two high-water marks), then the layer's refused, lateReplies and eventsLost. The reply's 28 bytes
+// are copied to and from this object as they lie, so the host is little-endian.
+struct HealthCounters : StackCounters {
 	uint16 refused = 0;
 	uint16 lateReplies = 0;
 	uint16 eventsLost = 0;
+};
+
+
+static_assert(std::is_trivially_copyable_v<HealthCounters>, "HealthCounters is copied as bytes, so it must be trivially copyable");
+static_assert(sizeof(HealthCounters) == BuiltInWire::CountersBytes, "HealthCounters must be the 28 counter bytes of a health reply");
+static_assert(sizeof(StackCounters) == BuiltInWire::StackCountersBytes, "StackCounters must be the 22 bytes before the layer's counts");
+static_assert(std::endian::native == std::endian::little, "the health counters are copied as they lie: the host must be little-endian");
+
+
+// The report of a health request. The user body U is NoBody when the responder has none. A report that ends locally (a deadline, a link
+// loss, a restart) has the result set and the rest at its defaults.
+template<typename U>
+struct HealthReport {
+	ResultStatus result = ResultStatus::ok;
+	HealthCounters counters{};
 	U user{};
 };
 
@@ -78,27 +94,6 @@ void RunPing(ResultStatus result, uint8, std::span<const uint8> roundTrip) {
 }
 
 
-// Reads the 28 counter bytes of a health reply into a report.
-template<typename U>
-void DecodeHealthCounters(const uint8* at, HealthReport<U>& report) {
-	report.counters.drops.ringFull = GetLe16(at + 0);
-	report.counters.drops.queueFull = GetLe16(at + 2);
-	report.counters.drops.tooLong = GetLe16(at + 4);
-	report.counters.drops.framingError = GetLe16(at + 6);
-	report.counters.drops.transformError = GetLe16(at + 8);
-	report.counters.drops.layerError = GetLe16(at + 10);
-	report.counters.drops.sendError = GetLe16(at + 12);
-	report.counters.drops.linkDown = GetLe16(at + 14);
-	report.counters.resends = GetLe16(at + 16);
-	report.counters.peerRestarts = GetLe16(at + 18);
-	report.refused = GetLe16(at + 20);
-	report.lateReplies = GetLe16(at + 22);
-	report.eventsLost = GetLe16(at + 24);
-	report.counters.highWaterRing = at[26];
-	report.counters.highWaterControl = at[27];
-}
-
-
 // The final handler of a health slot. The FINAL's body is the 28 counter bytes and then the user body. A reply that is not ok, or whose body
 // is too short, has the result set and no counters. A local end has no body, so its report has only the result set.
 template<auto Handler>
@@ -110,7 +105,7 @@ void RunHealth(ResultStatus result, uint8 status, std::span<const uint8> body) {
 		if (status != 0 || body.size() < BuiltInWire::CountersBytes) {
 			report.result = ResultStatus::invalidData;
 		} else {
-			DecodeHealthCounters(body.data(), report);
+			CopyBytes(body.data(), BuiltInWire::CountersBytes, reinterpret_cast<uint8*>(&report.counters));
 			ResultStatus decoded = Decode(body.subspan(BuiltInWire::CountersBytes), report.user);
 			if (decoded != ResultStatus::ok) {
 				report.result = decoded;
@@ -119,27 +114,6 @@ void RunHealth(ResultStatus result, uint8 status, std::span<const uint8> body) {
 	}
 
 	Handler(report);
-}
-
-
-// Writes the 28 counter bytes of a health reply, in the order of the wire: the eight drop counters, resends, peer restarts, refused,
-// lateReplies, eventsLost, and the two high-water marks.
-inline void EncodeHealthCounters(uint8* at, const StackCounters& counters, uint16 refused, uint16 lateReplies, uint16 eventsLost) {
-	PutLe16(at + 0, counters.drops.ringFull);
-	PutLe16(at + 2, counters.drops.queueFull);
-	PutLe16(at + 4, counters.drops.tooLong);
-	PutLe16(at + 6, counters.drops.framingError);
-	PutLe16(at + 8, counters.drops.transformError);
-	PutLe16(at + 10, counters.drops.layerError);
-	PutLe16(at + 12, counters.drops.sendError);
-	PutLe16(at + 14, counters.drops.linkDown);
-	PutLe16(at + 16, counters.resends);
-	PutLe16(at + 18, counters.peerRestarts);
-	PutLe16(at + 20, refused);
-	PutLe16(at + 22, lateReplies);
-	PutLe16(at + 24, eventsLost);
-	at[26] = counters.highWaterRing;
-	at[27] = counters.highWaterControl;
 }
 
 

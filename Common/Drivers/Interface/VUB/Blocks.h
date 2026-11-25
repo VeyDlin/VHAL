@@ -198,25 +198,6 @@ concept TransformBlock = requires(
 };
 
 
-// A synchronous engine computes what a transform describes (a CRC, AES). Engines are synchronous only. Engine has no state of
-// its own: the transform calls its static members.
-template<typename Engine>
-concept EngineBlock = requires {
-	requires Engine::synchronous;
-};
-
-
-// An engine that can compute one algorithm. Algorithm is a type the transform gives, with the algorithm's parameters in
-// Algorithm::parameters (a CRC is CrcAlgorithm<parameters>). Supports<Algorithm>() says whether the engine computes it, and
-// Run<Algorithm>(data) computes it over the bytes. The builder refuses a transform whose engine does not support its algorithm: the
-// transform checks it when the transform type is instantiated.
-template<typename Engine, typename Algorithm>
-concept EngineFor = EngineBlock<Engine> && requires(std::span<const uint8> data) {
-	requires Engine::template Supports<Algorithm>();
-	{ Engine::template Run<Algorithm>(data) };
-};
-
-
 // A block with state and time. header is the number of bytes Add puts in front of a packet. Add writes header + in into out. Take
 // removes the header from a received packet, or keeps it. Process(now, outbox) runs once per Process call, and may send packets of its
 // own through the outbox. makesBulk says the layer has bulk packets: then Next gives the next one, and the stack asks for it only when

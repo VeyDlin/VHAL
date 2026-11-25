@@ -29,10 +29,10 @@ The last block of a frame has no zero after it. Examples, written by hand:
 
 ## Growth
 
-`Growth(n) = n + n / 254 + 2`: one code byte at least, one more for each 254 bytes, and the delimiter. The bound is exact for a packet
+`Growth(n) = n / 254 + 2`: one code byte at least, one more for each 254 bytes, and the delimiter. The bound is exact for a packet
 of 255 bytes, and one more than needed for 254 bytes (256 bytes sent, 257 reserved).
 
-With the leading delimiter, `VUB::CobsFlushed`, the bound is one more: `Growth(n) = n + n / 254 + 3`.
+With the leading delimiter, `VUB::CobsFlushed`, the bound is one more: `Growth(n) = n / 254 + 3`.
 
 ## Leading delimiter
 

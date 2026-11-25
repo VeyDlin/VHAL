@@ -640,6 +640,15 @@ public:
 	}
 
 
+	// Whether a layer or a transform is at a block index of this parity (0 or 1). The step at an index writes into the buffer of its parity.
+	static constexpr bool HasStepOfParity(std::size_t parity) {
+		std::size_t index = 0;
+		bool found = false;
+		((found = found || ((Entries::kind == BlockKind::layer || Entries::kind == BlockKind::transform) && index % 2 == parity), index++), ...);
+		return found;
+	}
+
+
 	// The number of layers that make bulk packets.
 	static constexpr std::size_t BulkCount() {
 		std::size_t total = 0;

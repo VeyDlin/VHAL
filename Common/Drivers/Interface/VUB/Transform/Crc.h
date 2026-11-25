@@ -1,4 +1,5 @@
 #pragma once
+#include <Drivers/Interface/VUB/Bytes.h>
 #include <Drivers/Interface/VUB/Meta.h>
 #include <Utilities/Checksum/CRC/Crc.h>
 #include <Utilities/DataTypes.h>
@@ -93,10 +94,7 @@ public:
 			return ResultStatus::invalidParameter;
 		}
 
-		for (std::size_t index = 0; index < in.size(); index++) {
-			out[index] = in[index];
-		}
-
+		CopyBytes(in.data(), in.size(), out.data());
 		const Word crc = CrcType::Calculate(in);
 		for (std::size_t index = 0; index < growth; index++) {
 			out[in.size() + index] = static_cast<uint8>(crc >> (8 * BytePosition(index)));
