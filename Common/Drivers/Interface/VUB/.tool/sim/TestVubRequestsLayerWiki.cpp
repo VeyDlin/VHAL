@@ -153,8 +153,49 @@ using DeviceLink = VUB::Stack<+[]() {
 // --- end snippet ---
 
 
+// --- snippet: Layer/Requests.md, the requester ---
+void OnStartFinal(const VUB::Final<Motor::MotorStatus, Motor::MotorReport>& reply) {
+	(void)reply;
+}
+
+
+void OnStartInterim(const VUB::Progress<Motor::MotorStatus>& progress) {
+	(void)progress;
+}
+
+
+void OnStopFinal(const VUB::Final<Motor::MotorStatus, VUB::NoBody>& reply) {
+	(void)reply;
+}
+
+
+using RequesterLink = VUB::Stack<+[]() {
+	return VUB::Builder()
+		.Layer<VUB::Requests<Motor::MotorCommands, VUB::Handlers<>>>().Open(2)
+		.Layer<VUB::ReliableOf<40, 4>>()
+			.Retries(3)
+			.TimeoutMs(200)
+			.Window(4)
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
+		.Framing<VUB::Cobs>()
+		.Link<UartLink>()
+		.MaxPayload(40)
+		.OnReceive<&HandlePacket>()
+		.Clock<&MicrosecondClock>();
+}>;
+
+
+// A start request with an interim reply, and a stop request, which has no body and no interim replies.
+inline void SendCommands(RequesterLink& link) {
+	(void)link.Requests().Send<Motor::MotorCommand::start, &OnStartFinal, &OnStartInterim>(Motor::MotorStart{1200, 1});
+	(void)link.Requests().Send<Motor::MotorCommand::stop, &OnStopFinal>();
+}
+// --- end snippet ---
+
+
 int main() {
 	static_assert(sizeof(DeviceLink) > 0);
+	static_assert(sizeof(RequesterLink) > 0);
 	SIM_EXPECT(Motor::MotorCommands::commandCount == 2);
 	SIM_EXPECT(Motor::MotorCommands::largestRequest == 3);
 	return SimFinish("TestVubRequestsLayerWiki");
