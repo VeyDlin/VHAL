@@ -5,7 +5,7 @@
 #include <Utilities/Buffer/RingBuffer.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
-#include <Utilities/TextLiteral.h>
+#include <Utilities/CompileTime/TextLiteral.h>
 #include <Utilities/DataTypes.h>
 #include <cstddef>
 #include <span>

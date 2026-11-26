@@ -1,5 +1,5 @@
 #pragma once
-#include <Utilities/TextLiteral.h>
+#include <Utilities/CompileTime/TextLiteral.h>
 
 
 // Compile-time checks of the command line declarations. A message is carried by a template argument, and a failed check calls

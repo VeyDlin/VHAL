@@ -1,5 +1,5 @@
 #pragma once
-#include <Utilities/TextLiteral.h>
+#include <Utilities/CompileTime/TextLiteral.h>
 #include <cstddef>
 
 namespace VUB {

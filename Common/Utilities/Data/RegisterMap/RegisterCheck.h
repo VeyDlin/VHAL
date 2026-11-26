@@ -1,5 +1,5 @@
 #pragma once
-#include <Utilities/TextLiteral.h>
+#include <Utilities/CompileTime/TextLiteral.h>
 
 
 // Compile-time checks of the register map. A failed check calls RegisterError<Message>(), which is declared but never defined.

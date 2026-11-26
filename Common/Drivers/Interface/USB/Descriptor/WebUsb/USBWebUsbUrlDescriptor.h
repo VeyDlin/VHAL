@@ -6,7 +6,7 @@
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorString.h>
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorUtility.h>
 #include <System/System.h>
-#include <Utilities/TextLiteral.h>
+#include <Utilities/CompileTime/TextLiteral.h>
 
 
 // Optional component: the URL descriptor that WebUSB GET_URL returns. A landing page URL that starts with https:// or http://

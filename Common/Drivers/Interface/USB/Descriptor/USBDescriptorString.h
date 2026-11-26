@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorUtility.h>
 #include <Drivers/Interface/USB/USBProtocol.h>
-#include <Utilities/TextLiteral.h>
+#include <Utilities/CompileTime/TextLiteral.h>
 
 
 // One code point decoded from UTF-8. length is 0 when the bytes at the position are not a valid sequence.

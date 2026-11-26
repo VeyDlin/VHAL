@@ -1,6 +1,6 @@
 #pragma once
 #include <Utilities/DataTypes.h>
-#include <Utilities/TextLiteral.h>
+#include <Utilities/CompileTime/TextLiteral.h>
 #include <cstddef>
 
 

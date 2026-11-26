@@ -3,7 +3,6 @@
 #include <Utilities/Data/RegisterMap/RegisterBus.h>
 #include <Utilities/Data/RegisterMap/RegisterCheck.h>
 #include <Utilities/Result/ResultStatus.h>
-#include <Utilities/TextLiteral.h>
 #include <array>
 #include <cstddef>
 #include <span>

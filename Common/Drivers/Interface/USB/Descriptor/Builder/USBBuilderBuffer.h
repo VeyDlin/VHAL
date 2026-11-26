@@ -6,7 +6,7 @@
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorString.h>
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorUtility.h>
 #include <System/System.h>
-#include <Utilities/TextLiteral.h>
+#include <Utilities/CompileTime/TextLiteral.h>
 
 
 // Shared pieces of the fluent builder. A chain is evaluated in a constant expression: the application writes it inside a

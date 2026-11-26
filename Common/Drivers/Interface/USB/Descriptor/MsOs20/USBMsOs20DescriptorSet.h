@@ -6,7 +6,7 @@
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorSet.h>
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorString.h>
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorUtility.h>
-#include <Utilities/TextLiteral.h>
+#include <Utilities/CompileTime/TextLiteral.h>
 
 
 // Optional component: the Microsoft OS 2.0 descriptor set, served by a vendor request with wIndex 7. Every length is computed

@@ -2,7 +2,7 @@
 #include <Utilities/Checksum/CRC/CrcParameters.h>
 #include <Utilities/Checksum/CRC/Engine/CrcBitwise.h>
 #include <Utilities/DataTypes.h>
-#include <Utilities/TextLiteral.h>
+#include <Utilities/CompileTime/TextLiteral.h>
 #include <array>
 #include <cstddef>
 #include <span>
