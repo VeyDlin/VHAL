@@ -52,9 +52,9 @@ void CommutationChecks(const char* name) {
 		virtualTimer++;
 
 		typename CommutationTrigger<T>::Input input{
-			.Va = T(va),
-			.Vb = T(vb),
-			.Vc = T(vc),
+			.Va = FOCCheck::FromDouble<T>(va),
+			.Vb = FOCCheck::FromDouble<T>(vb),
+			.Vc = FOCCheck::FromDouble<T>(vc),
 			.commutationPointer = static_cast<uint32>((k / 40) % 6),
 			.virtualTimer = virtualTimer
 		};

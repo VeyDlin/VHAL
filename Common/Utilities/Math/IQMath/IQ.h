@@ -79,12 +79,6 @@ namespace IQDetail {
 		return SaturateRaw(quotient);
 	}
 
-	// Float scalars are rejected by the IQ operators that take one. The assertion depends on F, so it fires at the call.
-	template<typename F>
-	constexpr void RejectFloatScalar() {
-		static_assert(std::is_integral_v<F>, "IQ arithmetic takes an integer scalar. Convert a float explicitly, for example IQ(value) * x.");
-	}
-
 	// An integer scalar as int64. An unsigned value above INT64_MAX becomes INT64_MAX.
 	template<std::integral S>
 	constexpr int64 IntegerToInt64(S value) {
@@ -141,9 +135,10 @@ public:
 
 	constexpr IQ() = default;
 
+	// A float or double constant is converted when the program is compiled. A run-time value does not compile: use FromFloat.
 	// The scale by 2^Q is exact in float, so the product is the exact scaled value (or overflows to infinity, which saturates).
-	constexpr IQ(float v) : raw(IQDetail::RealToRaw(v * static_cast<float>(one))) {}
-	constexpr IQ(double v) : raw(IQDetail::RealToRaw(v * one)) {}
+	consteval IQ(float v) : raw(IQDetail::RealToRaw(v * static_cast<float>(one))) {}
+	consteval IQ(double v) : raw(IQDetail::RealToRaw(v * one)) {}
 	// Every integral type converts exactly. One template covers them all, so int32 on ARM (long) is not ambiguous.
 	template<std::integral S>
 	constexpr IQ(S v) : raw(IQDetail::SaturateRaw(IQDetail::ScalarForSaturation(v) * one)) {}
@@ -154,13 +149,14 @@ public:
 		return result;
 	}
 
+	// The run-time form of IQ(float). It rounds to the nearest raw value and saturates like the constructor.
+	static constexpr IQ FromFloat(float v) {
+		return FromRaw(IQDetail::RealToRaw(v * static_cast<float>(one)));
+	}
+
 
 	constexpr float ToFloat() const {
 		return static_cast<float>(raw) / one;
-	}
-
-	constexpr double ToDouble() const {
-		return static_cast<double>(raw) / one;
 	}
 
 	constexpr int32 ToInt() const {
@@ -170,7 +166,6 @@ public:
 
 	// Conversion operators. Values outside the target integer type saturate to its limits.
 	constexpr explicit operator float() const { return ToFloat(); }
-	constexpr explicit operator double() const { return ToDouble(); }
 	constexpr explicit operator int8() const { return IQDetail::SaturateToInteger<int8>(ToInt()); }
 	constexpr explicit operator int16() const { return IQDetail::SaturateToInteger<int16>(ToInt()); }
 	constexpr explicit operator int32() const { return ToInt(); }
@@ -203,8 +198,8 @@ public:
 	constexpr IQ& operator/=(IQ b) { *this = *this / b; return *this; }
 
 
-	// Arithmetic IQ <-> integer scalar. An integer scalar is exact. A float or double scalar does not compile: convert it
-	// first with IQ(value).
+	// Arithmetic IQ <-> integer scalar. An integer scalar is exact. A float or double constant converts to IQ on the right of
+	// an operator; a run-time float does not convert, so it is passed through FromFloat.
 	template<std::integral S>
 	constexpr IQ operator+(S s) const { return FromRaw(IQDetail::SaturateRaw(static_cast<int64>(raw) + IQDetail::ScalarForSaturation(s) * one)); }
 	template<std::integral S>
@@ -229,41 +224,6 @@ public:
 	constexpr IQ& operator*=(S s) { *this = *this * s; return *this; }
 	template<std::integral S>
 	constexpr IQ& operator/=(S s) { *this = *this / s; return *this; }
-
-
-	// Float and double scalars: each overload exists only to reject the operand at compile time.
-	template<std::floating_point F>
-	constexpr IQ operator+(F) const { IQDetail::RejectFloatScalar<F>(); return *this; }
-
-	template<std::floating_point F>
-	constexpr IQ operator-(F) const { IQDetail::RejectFloatScalar<F>(); return *this; }
-
-	template<std::floating_point F>
-	constexpr IQ operator*(F) const { IQDetail::RejectFloatScalar<F>(); return *this; }
-
-	template<std::floating_point F>
-	constexpr IQ operator/(F) const { IQDetail::RejectFloatScalar<F>(); return *this; }
-
-	template<std::floating_point F>
-	friend constexpr IQ operator+(F, IQ a) { IQDetail::RejectFloatScalar<F>(); return a; }
-
-	template<std::floating_point F>
-	friend constexpr IQ operator-(F, IQ a) { IQDetail::RejectFloatScalar<F>(); return a; }
-
-	template<std::floating_point F>
-	friend constexpr IQ operator*(F, IQ a) { IQDetail::RejectFloatScalar<F>(); return a; }
-
-	template<std::floating_point F>
-	constexpr IQ& operator+=(F) { IQDetail::RejectFloatScalar<F>(); return *this; }
-
-	template<std::floating_point F>
-	constexpr IQ& operator-=(F) { IQDetail::RejectFloatScalar<F>(); return *this; }
-
-	template<std::floating_point F>
-	constexpr IQ& operator*=(F) { IQDetail::RejectFloatScalar<F>(); return *this; }
-
-	template<std::floating_point F>
-	constexpr IQ& operator/=(F) { IQDetail::RejectFloatScalar<F>(); return *this; }
 
 
 	// Comparison
@@ -353,3 +313,15 @@ concept IQType = requires {
 
 template<typename T>
 concept RealType = std::is_floating_point_v<T> || IQType<T>;
+
+
+// A run-time real value in the type T. A float or double is converted to T; an IQ takes the nearest raw value. An IQ takes a
+// double through float, so the value keeps 24 significant bits before it is rounded to the raw value.
+template<RealType T, std::floating_point F>
+constexpr T RealFrom(F value) {
+	if constexpr (IQType<T>) {
+		return T::FromFloat(static_cast<float>(value));
+	} else {
+		return static_cast<T>(value);
+	}
+}

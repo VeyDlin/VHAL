@@ -86,7 +86,7 @@ void CurrentModelChecks(const char* name, double bound) {
 		double iqs = Q<T>(0.8 * std::cos(2 * pi * 2 * t));
 		double wr = Q<T>(0.2);
 
-		model.Set(T(ids), T(iqs), T(wr)).Resolve();
+		model.Set(FOCCheck::FromDouble<T>(ids), FOCCheck::FromDouble<T>(iqs), FOCCheck::FromDouble<T>(wr)).Resolve();
 		reference.Set(ids, iqs, wr).Resolve();
 		maxTheta = std::fmax(maxTheta, FOCCheck::CircularError(FOCCheck::ToDouble(model.Get().theta), reference.Get().theta));
 	}
@@ -133,7 +133,7 @@ void CurrentModelStartChecks(const char* name, double bound) {
 		double iqs = Q<T>(0.5);
 		double wr = Q<T>(0.2);
 
-		model.Set(T(ids), T(iqs), T(wr)).Resolve();
+		model.Set(FOCCheck::FromDouble<T>(ids), FOCCheck::FromDouble<T>(iqs), FOCCheck::FromDouble<T>(wr)).Resolve();
 		reference.Set(ids, iqs, wr).Resolve();
 		double theta = FOCCheck::ToDouble(model.Get().theta);
 		allFinite = allFinite && std::isfinite(theta);
@@ -194,7 +194,7 @@ void ACIFluxChecks(const char* name, double bound) {
 		double uds = Q<T>(0.7 * std::cos(w));
 		double uqs = Q<T>(0.7 * std::sin(w));
 
-		estimator.Set(T(ids), T(iqs), T(uds), T(uqs)).Resolve();
+		estimator.Set(FOCCheck::FromDouble<T>(ids), FOCCheck::FromDouble<T>(iqs), FOCCheck::FromDouble<T>(uds), FOCCheck::FromDouble<T>(uqs)).Resolve();
 		reference.Set(ids, iqs, uds, uqs).Resolve();
 		maxTheta = std::fmax(maxTheta, FOCCheck::CircularError(FOCCheck::ToDouble(estimator.Get().thetaFlux), reference.Get().thetaFlux));
 		maxPsiD = std::fmax(maxPsiD, std::fabs(FOCCheck::ToDouble(estimator.Get().psiDrS) - reference.Get().psiDrS));
@@ -247,7 +247,7 @@ void SlidingModeChecks(const char* name, double bound) {
 		double iAlpha = Q<T>(0.8 * std::cos(w));
 		double iBeta = Q<T>(0.8 * std::sin(w));
 
-		observer.Set(T(vAlpha), T(vBeta), T(iAlpha), T(iBeta)).Resolve();
+		observer.Set(FOCCheck::FromDouble<T>(vAlpha), FOCCheck::FromDouble<T>(vBeta), FOCCheck::FromDouble<T>(iAlpha), FOCCheck::FromDouble<T>(iBeta)).Resolve();
 		reference.Set(vAlpha, vBeta, iAlpha, iBeta).Resolve();
 		maxTheta = std::fmax(maxTheta, FOCCheck::CircularError(FOCCheck::ToDouble(observer.Get().theta), reference.Get().theta));
 	}
@@ -300,7 +300,7 @@ void ACISpeedChecks(const char* name, double bound, double baseFrequency, double
 		double iqs = Q<T>(0.8);
 		double ids = Q<T>(0.5);
 
-		estimator.Set(T(iqs), T(ids), T(psiDr), T(psiQr), T(theta)).Resolve();
+		estimator.Set(FOCCheck::FromDouble<T>(iqs), FOCCheck::FromDouble<T>(ids), FOCCheck::FromDouble<T>(psiDr), FOCCheck::FromDouble<T>(psiQr), FOCCheck::FromDouble<T>(theta)).Resolve();
 		reference.Set(iqs, ids, psiDr, psiQr, theta).Resolve();
 
 		double speed = FOCCheck::ToDouble(estimator.Get().speed);
@@ -350,7 +350,7 @@ void ACISettledSpeedChecks(const char* name, double baseFrequency) {
 		double psiDr = Q<T>(std::cos(2 * pi * theta));
 		double psiQr = Q<T>(std::sin(2 * pi * theta));
 
-		estimator.Set(T(0.8), T(0.5), T(psiDr), T(psiQr), T(theta)).Resolve();
+		estimator.Set(T(0.8), T(0.5), FOCCheck::FromDouble<T>(psiDr), FOCCheck::FromDouble<T>(psiQr), FOCCheck::FromDouble<T>(theta)).Resolve();
 		if (k >= settleStart && k < settleEnd) {
 			sumSpeed += FOCCheck::ToDouble(estimator.Get().speed);
 			settledCount++;

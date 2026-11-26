@@ -165,31 +165,42 @@ void BuildScenario(std::array<RawSample, sampleCount>& samples, std::array<Angle
 
 
 // Runs the class under test with number type T over the samples and returns the largest angle error against the reference.
+// The value of an IQ or float as a double, for the error. An IQ is read through its raw value, so no rounding is added.
+template<typename T>
+double AsDouble(T value) {
+	if constexpr (IQType<T>) {
+		return static_cast<double>(value.raw) / static_cast<double>(value.one);
+	} else {
+		return static_cast<double>(value);
+	}
+}
+
+
 template<typename T>
 double RunType(const std::array<RawSample, sampleCount>& samples, const std::array<Angles, sampleCount>& reference) {
 	ComplementaryFilter<T> filter;
 	typename ComplementaryFilter<T>::Sample first;
-	first.accelX = T(samples[0].accelX);
-	first.accelY = T(samples[0].accelY);
-	first.accelZ = T(samples[0].accelZ);
-	first.gyroX = T(samples[0].gyroX);
-	first.gyroY = T(samples[0].gyroY);
-	first.gyroZ = T(samples[0].gyroZ);
+	first.accelX = RealFrom<T>(samples[0].accelX);
+	first.accelY = RealFrom<T>(samples[0].accelY);
+	first.accelZ = RealFrom<T>(samples[0].accelZ);
+	first.gyroX = RealFrom<T>(samples[0].gyroX);
+	first.gyroY = RealFrom<T>(samples[0].gyroY);
+	first.gyroZ = RealFrom<T>(samples[0].gyroZ);
 	filter.Reset(first);
 
 	double maxError = 0.0;
 	for (uint32 index = 1; index < sampleCount; index++) {
 		typename ComplementaryFilter<T>::Sample sample;
-		sample.accelX = T(samples[index].accelX);
-		sample.accelY = T(samples[index].accelY);
-		sample.accelZ = T(samples[index].accelZ);
-		sample.gyroX = T(samples[index].gyroX);
-		sample.gyroY = T(samples[index].gyroY);
-		sample.gyroZ = T(samples[index].gyroZ);
-		filter.Update(sample, T(dtSec));
+		sample.accelX = RealFrom<T>(samples[index].accelX);
+		sample.accelY = RealFrom<T>(samples[index].accelY);
+		sample.accelZ = RealFrom<T>(samples[index].accelZ);
+		sample.gyroX = RealFrom<T>(samples[index].gyroX);
+		sample.gyroY = RealFrom<T>(samples[index].gyroY);
+		sample.gyroZ = RealFrom<T>(samples[index].gyroZ);
+		filter.Update(sample, RealFrom<T>(dtSec));
 
-		double pitchError = std::fabs(static_cast<double>(filter.GetPitchDeg()) - reference[index].pitchDeg);
-		double rollError = std::fabs(static_cast<double>(filter.GetRollDeg()) - reference[index].rollDeg);
+		double pitchError = std::fabs(AsDouble(filter.GetPitchDeg()) - reference[index].pitchDeg);
+		double rollError = std::fabs(AsDouble(filter.GetRollDeg()) - reference[index].rollDeg);
 		if (pitchError > maxError) {
 			maxError = pitchError;
 		}

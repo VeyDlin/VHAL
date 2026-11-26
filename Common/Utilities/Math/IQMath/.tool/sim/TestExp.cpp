@@ -56,7 +56,7 @@ void Sweep(double fullBound, double smallBound, int64_t step, int line) {
 
 	for (int64_t raw = lo; raw <= hi; raw += step) {
 		IQ<Q, L> x = IQ<Q, L>::FromRaw(static_cast<int32_t>(raw));
-		double xv = x.ToDouble();
+		double xv = static_cast<double>(x.raw) / static_cast<double>(x.one);
 
 		double referenceExp = std::exp(xv) * one;
 		if (referenceExp < 2147483000.0) {

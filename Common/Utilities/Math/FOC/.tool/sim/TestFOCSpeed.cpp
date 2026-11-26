@@ -77,7 +77,7 @@ void SpeedChecks(const char* name, double bound, double baseFrequency, double ra
 		double angle = rateHz * k * ts + 0.0123;
 		double electricalAngle = Q<T>(angle - std::floor(angle));
 
-		calc.Set(T(electricalAngle)).Resolve();
+		calc.Set(FOCCheck::FromDouble<T>(electricalAngle)).Resolve();
 		reference.Set(electricalAngle).Resolve();
 		double speed = FOCCheck::ToDouble(calc.Get().speed);
 		if (k >= settleStart && k < settleEnd) {
@@ -117,7 +117,7 @@ void SpeedPeriodChecks(const char* name, double bound) {
 	unsigned stamp = 0;
 	for (int k = 0; k < steps; k++) {
 		stamp = (stamp + 37 + (k % 11)) % 32768;
-		calc.SetTimeStamp(T(stamp)).Resolve();
+		calc.SetTimeStamp(FOCCheck::FromDouble<T>(stamp)).Resolve();
 		reference.SetTimeStamp(double(stamp)).Resolve();
 		maxSpeed = std::fmax(maxSpeed, std::fabs(FOCCheck::ToDouble(calc.Get().speed) - reference.Get().speed));
 		maxRpm = std::fmax(maxRpm, std::fabs(FOCCheck::ToDouble(calc.Get().speedRpm) - reference.Get().speedRpm));
@@ -134,7 +134,7 @@ void SpeedPeriodChecks(const char* name, double bound) {
 	maxSpeed = 0;
 	for (int k = 0; k < steps; k++) {
 		double period = 300 + (k * 7) % 900;
-		periodCalc.SetEventPeriod(T(period)).Resolve();
+		periodCalc.SetEventPeriod(FOCCheck::FromDouble<T>(period)).Resolve();
 		periodReference.SetEventPeriod(period).Resolve();
 		maxSpeed = std::fmax(maxSpeed, std::fabs(FOCCheck::ToDouble(periodCalc.Get().speed) - periodReference.Get().speed));
 	}

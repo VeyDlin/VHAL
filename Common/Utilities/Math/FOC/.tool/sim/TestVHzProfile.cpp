@@ -1,3 +1,4 @@
+#include "FOCCheck.h"
 #include <Utilities/Math/FOC/VHzProfile.h>
 #include <Utilities/Math/IQMath/IQ.h>
 #include <cmath>
@@ -36,8 +37,8 @@ void Fill(VHzProfile<T>& profile) {
 
 template <typename T>
 double Resolve(VHzProfile<T>& profile, double frequency) {
-	profile.Set(T(frequency)).Resolve();
-	return static_cast<double>(profile.Get().voltage);
+	profile.Set(FOCCheck::FromDouble<T>(frequency)).Resolve();
+	return FOCCheck::ToDouble(profile.Get().voltage);
 }
 
 

@@ -1,4 +1,5 @@
 #pragma once
+#include <Utilities/Math/IQMath/IQ.h>
 #include <cmath>
 #include <cstdio>
 
@@ -13,7 +14,23 @@ inline int failures = 0;
 // The value of a float, double or IQ as a double, for the references and the error.
 template<typename T>
 double ToDouble(T value) {
-	return static_cast<double>(value);
+	if constexpr (IQType<T>) {
+		return static_cast<double>(value.raw) / static_cast<double>(value.one);
+	} else {
+		return static_cast<double>(value);
+	}
+}
+
+
+// The value of T nearest to a run-time double x: an IQ takes the raw value nearest to x * 2^Q, saturating, as its constructor
+// from a double did. The run-time path belongs to the host tests only, so the library has no double conversion.
+template<typename T>
+T FromDouble(double x) {
+	if constexpr (IQType<T>) {
+		return T::FromRaw(IQDetail::RealToRaw(x * static_cast<double>(T::one)));
+	} else {
+		return static_cast<T>(x);
+	}
 }
 
 
@@ -21,7 +38,7 @@ double ToDouble(T value) {
 // class sees, so the error measures the arithmetic only.
 template<typename T>
 double Quantized(double x) {
-	return static_cast<double>(T(x));
+	return ToDouble(FromDouble<T>(x));
 }
 
 

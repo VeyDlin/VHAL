@@ -4,6 +4,17 @@
 #include <utility>
 
 
+// A float or IQ value as a double. An IQ is read through its raw value, so the read adds no rounding.
+template <typename Number>
+double AsDouble(Number value) {
+	if constexpr (IQType<Number>) {
+		return static_cast<double>(value.raw) / static_cast<double>(Number::one);
+	} else {
+		return static_cast<double>(value);
+	}
+}
+
+
 // Host tests for ITIMHelper::CalculateFrequency and SetBaseFrequency. The clock is in Hz, as TIMAdapter reports it.
 // Each expected pair is worked out by hand from period = clock / (division * (prescaler + 1) * target) - 1: the 16-bit
 // timer takes the smallest prescaler whose period fits in 16 bits, and the 32-bit timer always takes prescaler 0.
@@ -25,8 +36,8 @@ struct FrequencyProbe : public ITIMHelper<Type> {
 // The target must be exact in Type, so the case tests the stated frequency and not a rounded one.
 template <RealType Type>
 void ExpectPair(ATIM& adapter, double targetHz, uint16 expectedPrescaler, uint32 expectedPeriod, int line) {
-	Type target(targetHz);
-	if (static_cast<double>(target) != targetHz) {
+	Type target = RealFrom<Type>(targetHz);
+	if (AsDouble(target) != targetHz) {
 		failureCount++;
 		std::fprintf(stderr, "TestCalculateFrequency.cpp:%d: target %.9f is not exact in this type\n", line, targetHz);
 	}
@@ -46,7 +57,7 @@ void ExpectPair(ATIM& adapter, double targetHz, uint16 expectedPrescaler, uint32
 template <RealType Type>
 void ExpectBaseFrequency(ATIM& adapter, double targetHz, uint16 expectedPrescaler, uint32 expectedPeriod, int line) {
 	ITIMHelper<Type> helper(adapter, ATIM::ChannelOption::Ch1);
-	helper.SetBaseFrequency(Type(targetHz));
+	helper.SetBaseFrequency(RealFrom<Type>(targetHz));
 
 	ATIM::Parameters parameters = adapter.GetParameters();
 	if (parameters.prescaler != expectedPrescaler || parameters.period != expectedPeriod) {

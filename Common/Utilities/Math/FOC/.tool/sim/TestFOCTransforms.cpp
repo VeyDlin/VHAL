@@ -37,7 +37,7 @@ void ClarkeChecks(const char* name, double bound) {
 		double c = FOCCheck::Quantized<T>(-0.7 * std::sin(angle));
 
 		ClarkeTransformation<T> clarke;
-		typename ClarkeTransformation<T>::Phase phase{T(a), T(b), T(c)};
+		typename ClarkeTransformation<T>::Phase phase{FOCCheck::FromDouble<T>(a), FOCCheck::FromDouble<T>(b), FOCCheck::FromDouble<T>(c)};
 
 		clarke.SetPhase(phase).Resolve(ClarkeTransformation<T>::CurrentsMode::C2);
 		double betaC2 = (a + 2 * b) / sqrt3;
@@ -48,7 +48,7 @@ void ClarkeChecks(const char* name, double bound) {
 		double betaC3 = (b - c) / sqrt3;
 		maxC3 = std::fmax(maxC3, std::fabs(FOCCheck::ToDouble(clarke.GetClarke().beta) - betaC3));
 
-		typename ClarkeTransformation<T>::Clarke clarkeIn{T(a), T(b)};
+		typename ClarkeTransformation<T>::Clarke clarkeIn{FOCCheck::FromDouble<T>(a), FOCCheck::FromDouble<T>(b)};
 		clarke.SetClarke(clarkeIn).ResolveInverse();
 		double phaseB = (sqrt3 / 2) * b - 0.5 * a;
 		double phaseC = -0.5 * a - (sqrt3 / 2) * b;
@@ -77,7 +77,7 @@ void ParkChecks(const char* name, double bound) {
 		double beta = FOCCheck::Quantized<T>(0.9 * std::sin(3 * angle));
 
 		ParkTransformation<T> park;
-		typename ParkTransformation<T>::Axis axis{T(alpha), T(beta), T(angle)};
+		typename ParkTransformation<T>::Axis axis{FOCCheck::FromDouble<T>(alpha), FOCCheck::FromDouble<T>(beta), FOCCheck::FromDouble<T>(angle)};
 		park.SetAxis(axis).Resolve();
 
 		double d = alpha * std::cos(angle) + beta * std::sin(angle);
@@ -85,7 +85,7 @@ void ParkChecks(const char* name, double bound) {
 		maxForward = std::fmax(maxForward, std::fabs(FOCCheck::ToDouble(park.GetPark().dAxis) - d));
 		maxForward = std::fmax(maxForward, std::fabs(FOCCheck::ToDouble(park.GetPark().qAxis) - q));
 
-		typename ParkTransformation<T>::Park pk{T(d), T(q), T(angle)};
+		typename ParkTransformation<T>::Park pk{FOCCheck::FromDouble<T>(d), FOCCheck::FromDouble<T>(q), FOCCheck::FromDouble<T>(angle)};
 		park.SetPark(pk).ResolveInverse();
 		maxInverse = std::fmax(maxInverse, std::fabs(FOCCheck::ToDouble(park.GetAxis().alpha) - (d * std::cos(angle) - q * std::sin(angle))));
 		maxInverse = std::fmax(maxInverse, std::fabs(FOCCheck::ToDouble(park.GetAxis().beta) - (d * std::sin(angle) + q * std::cos(angle))));
@@ -111,7 +111,7 @@ void VoltageChecks(const char* name, double bound) {
 		double mc = FOCCheck::Quantized<T>(0.5 + 0.4 * std::sin(angle + 2 * pi / 3));
 
 		VoltageCalculator<T> calc;
-		calc.Set(T(dc), T(ma), T(mb), T(mc)).Resolve();
+		calc.Set(FOCCheck::FromDouble<T>(dc), FOCCheck::FromDouble<T>(ma), FOCCheck::FromDouble<T>(mb), FOCCheck::FromDouble<T>(mc)).Resolve();
 
 		// Phase voltages as the class forms them: one third of the bus voltage times the modulation difference.
 		double phaseA = dc / 3 * (2 * ma - mb - mc);
@@ -146,7 +146,7 @@ void SpaceVectorChecks(const char* name, double bound) {
 		double alpha = FOCCheck::Quantized<T>(0.8 * std::cos(angle));
 		double beta = FOCCheck::Quantized<T>(0.8 * std::sin(angle));
 
-		svg.Set(T(alpha), T(beta)).Resolve();
+		svg.Set(FOCCheck::FromDouble<T>(alpha), FOCCheck::FromDouble<T>(beta)).Resolve();
 		referenceSvg.Set(alpha, beta).Resolve();
 		maxSvpwm = std::fmax(maxSvpwm, std::fabs(FOCCheck::ToDouble(svg.Get().phaseA) - referenceSvg.Get().phaseA));
 		maxSvpwm = std::fmax(maxSvpwm, std::fabs(FOCCheck::ToDouble(svg.Get().phaseB) - referenceSvg.Get().phaseB));
@@ -186,7 +186,7 @@ void SVGenMFChecks(const char* name, double bound) {
 		double gain = FOCCheck::Quantized<T>(0.9);
 		double offset = FOCCheck::Quantized<T>(0.05);
 
-		svm.Set(T(frequency), T(gain), T(offset)).Resolve();
+		svm.Set(FOCCheck::FromDouble<T>(frequency), FOCCheck::FromDouble<T>(gain), FOCCheck::FromDouble<T>(offset)).Resolve();
 		referenceSvm.Set(frequency, gain, offset).Resolve();
 		maxError = std::fmax(maxError, std::fabs(FOCCheck::ToDouble(svm.Get().phaseA) - referenceSvm.Get().phaseA));
 		maxError = std::fmax(maxError, std::fabs(FOCCheck::ToDouble(svm.Get().phaseB) - referenceSvm.Get().phaseB));
@@ -204,7 +204,7 @@ void RampGeneratorChecks(const char* name, double bound, double step) {
 	RampGenerator<double> referenceRamp;
 	RampGenerator<T> ramp;
 	referenceRamp.stepAngleMax = FOCCheck::Quantized<T>(step);
-	ramp.stepAngleMax = T(step);
+	ramp.stepAngleMax = FOCCheck::FromDouble<T>(step);
 	referenceRamp.outputMax = 1;
 	referenceRamp.outputMin = -1;
 	ramp.outputMax = T(1);

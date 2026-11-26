@@ -93,8 +93,7 @@ void RandomConstructionCases(int line) {
 		float uniformValue = uniform(generator);
 		for (float value : {tie, uniformValue}) {
 			int64_t expected = ReferenceRaw(static_cast<double>(value) * one);
-			ExpectRaw(IQ<Q>(value).raw, expected, line);
-			ExpectRaw(IQ<Q>(static_cast<double>(value)).raw, expected, line);
+			ExpectRaw(IQ<Q>::FromFloat(value).raw, expected, line);
 		}
 	}
 }
