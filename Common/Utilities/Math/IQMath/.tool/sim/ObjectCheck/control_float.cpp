@@ -1,5 +1,5 @@
 // A control for the object check: a run-time float multiply must reference the soft-float helper on Cortex-M0+. If this
-// file stops referencing it, the check no longer sees soft float and the other samples prove nothing.
+// file that references no helper would leave the check blind to soft float, and the other samples would prove nothing.
 
 
 volatile float sourceValue = 1.5f;

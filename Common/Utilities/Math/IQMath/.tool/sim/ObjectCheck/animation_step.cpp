@@ -1,6 +1,5 @@
 #include <Utilities/Animation/Animation.h>
 #include <Utilities/Math/IQMath/IQ.h>
-#include <chrono>
 
 
 volatile uint32 sourceTick = 1000;
