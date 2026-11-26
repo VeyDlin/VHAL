@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorUtility.h>
 #include <Drivers/Interface/USB/USBProtocol.h>
-#include <Utilities/CompileTime/TextLiteral.h>
+#include <Utilities/CompileTime/Require.h>
 
 
 // One code point decoded from UTF-8. length is 0 when the bytes at the position are not a valid sequence.
@@ -102,7 +102,7 @@ constexpr std::size_t USBEncodeUtf16(
 	std::size_t index = 0;
 	while (index < textSize) {
 		USBUtf8Character character = USBDecodeUtf8(text, textSize, index);
-		USBDescriptorRequire(character.length != 0, "string is not valid UTF-8");
+		Require<"USB: string is not valid UTF-8">(character.length != 0);
 		if (character.codePoint < 0x10000) {
 			USBDescriptorPut16(bytes, offset, static_cast<uint16>(character.codePoint));
 			offset += 2;
@@ -163,7 +163,7 @@ constexpr std::array<uint8, 2 + 2 * USBUtf16UnitCount<Text>()> MakeUSBStringDesc
 
 // String descriptor 0: the supported language IDs. The stack answers with the one language given here, so this takes one.
 constexpr std::array<uint8, 4> MakeUSBLanguageIdDescriptor(uint16 languageId) {
-	USBDescriptorRequire(languageId != 0, "language ID 0 names no language");
+	Require<"USB: language ID 0 names no language">(languageId != 0);
 	std::array<uint8, 4> bytes{};
 	bytes[0] = 4;
 	bytes[1] = static_cast<uint8>(USBDescriptorType::String);

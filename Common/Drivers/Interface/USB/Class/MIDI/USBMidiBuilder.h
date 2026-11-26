@@ -8,6 +8,7 @@
 #include <Drivers/Interface/USB/Descriptor/Builder/USBFunctionBuilder.h>
 #include <Drivers/Interface/USB/Descriptor/USBConfigurationDescriptor.h>
 #include <Drivers/Interface/USB/USBProtocol.h>
+#include <Utilities/CompileTime/Require.h>
 
 
 // Constants of the Audio Device Class 1.0 (the Audio Control interface, section 4.3) and of the MIDI Device Class 1.0 (the
@@ -103,7 +104,7 @@ constexpr std::array<uint8, 9> MakeUSBMidiOutJack(uint8 jackType, uint8 jackId, 
 // The class-specific MS bulk data endpoint descriptor (section 6.2.2) for a bulk endpoint: bNumEmbMIDIJack and the IDs of the
 // embedded jacks it carries. The array has room for the largest cable count; the descriptor is its first 4 + count bytes.
 constexpr std::array<uint8, 4 + USBMidiMaxCables> MakeUSBMidiEndpointJacks(const std::array<uint8, USBMidiMaxCables>& jackIds, uint8 count) {
-	USBDescriptorRequire(count >= 1 && count <= USBMidiMaxCables, "a MIDI endpoint lists 1 to 16 embedded jacks");
+	Require<"USB:USB: a MIDI endpoint lists 1 to 16 embedded jacks">(count >= 1 && count <= USBMidiMaxCables);
 	std::array<uint8, 4 + USBMidiMaxCables> bytes{};
 	bytes[0] = static_cast<uint8>(4 + count);
 	bytes[1] = USBMidiClassSpecificEndpoint;
@@ -140,7 +141,7 @@ private:
 public:
 	// Number of cables, 1 to 16. Required: the jacks and the endpoint descriptors are written for each cable.
 	constexpr USBMidiBuilder& Cables(uint8 count) {
-		Require<"a USB-MIDI function has 1 to 16 cables">(count >= 1 && count <= USBMidiMaxCables);
+		Require<"USB:a USB-MIDI function has 1 to 16 cables">(count >= 1 && count <= USBMidiMaxCables);
 		cableCount = count;
 		return *this;
 	}
@@ -148,8 +149,8 @@ public:
 
 	// Address of the bulk OUT endpoint, the host to device direction. Without it the configuration builder assigns the number.
 	constexpr USBMidiBuilder& BulkOut(uint8 address) {
-		Require<"BulkOut needs an OUT address (bit 7 clear)">(!USBEndpoint::IsIn(address));
-		Require<"endpoint 0 belongs to the control pipe">(USBEndpoint::Number(address) != 0);
+		Require<"USB:BulkOut needs an OUT address (bit 7 clear)">(!USBEndpoint::IsIn(address));
+		Require<"USB:endpoint 0 belongs to the control pipe">(USBEndpoint::Number(address) != 0);
 		bulkOutAddress = address;
 		return *this;
 	}
@@ -157,8 +158,8 @@ public:
 
 	// Address of the bulk IN endpoint, the device to host direction. Without it the configuration builder assigns the number.
 	constexpr USBMidiBuilder& BulkIn(uint8 address) {
-		Require<"BulkIn needs an IN address (bit 7 set)">(USBEndpoint::IsIn(address));
-		Require<"endpoint 0 belongs to the control pipe">(USBEndpoint::Number(address) != 0);
+		Require<"USB:BulkIn needs an IN address (bit 7 set)">(USBEndpoint::IsIn(address));
+		Require<"USB:endpoint 0 belongs to the control pipe">(USBEndpoint::Number(address) != 0);
 		bulkInAddress = address;
 		return *this;
 	}
@@ -179,7 +180,7 @@ public:
 
 
 	constexpr std::size_t InterfaceCount() const {
-		Require<"a USB-MIDI interface needs its cables: call Cables()">(cableCount >= 1);
+		Require<"USB:a USB-MIDI interface needs its cables: call Cables()">(cableCount >= 1);
 		return 2;
 	}
 

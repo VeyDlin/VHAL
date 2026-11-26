@@ -6,7 +6,7 @@
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorSet.h>
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorString.h>
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorUtility.h>
-#include <Utilities/CompileTime/TextLiteral.h>
+#include <Utilities/CompileTime/Require.h>
 
 
 // Optional component: the Microsoft OS 2.0 descriptor set, served by a vendor request with wIndex 7. Every length is computed
@@ -45,7 +45,7 @@ constexpr std::size_t USBMsOs20AppendElement(
 	std::span<const uint8> element,
 	std::size_t lengthOffset)
 {
-	USBDescriptorRequire(USBDescriptorRead16(element, lengthOffset) == element.size(), "an MS OS 2.0 element's length field must equal its size");
+	Require<"USB: an MS OS 2.0 element's length field must equal its size">(USBDescriptorRead16(element, lengthOffset) == element.size());
 	return USBDescriptorAppend(bytes, offset, element);
 }
 
@@ -62,9 +62,8 @@ constexpr std::size_t USBMsOs20AppendSubset(
 	uint16 type = USBDescriptorRead16(subset, 2);
 	bool configurationSubset = type == static_cast<uint16>(USBMsOs20DescriptorType::ConfigurationSubsetHeader);
 	bool functionSubset = type == static_cast<uint16>(USBMsOs20DescriptorType::FunctionSubsetHeader);
-	USBDescriptorRequire(
-		functionSubset || (allowConfiguration && configurationSubset),
-		"a set holds configuration and function subsets, a configuration subset holds function subsets only");
+	Require<"USB: a set holds configuration and function subsets, a configuration subset holds function subsets only">(
+		functionSubset || (allowConfiguration && configurationSubset));
 	return USBMsOs20AppendElement(bytes, offset, subset, 6);
 }
 
@@ -74,7 +73,7 @@ template<std::size_t Size>
 constexpr void USBMsOs20CopyAscii(std::array<uint8, Size>& bytes, std::size_t offset, const char* text, std::size_t length) {
 	for (std::size_t index = 0; index < length; index++) {
 		uint8 character = static_cast<uint8>(text[index]);
-		USBDescriptorRequire(character < 0x80, "compatible IDs are ASCII");
+		Require<"USB: compatible IDs are ASCII">(character < 0x80);
 		USBDescriptorPut8(bytes, offset + index, character);
 	}
 }
@@ -86,8 +85,8 @@ constexpr std::array<uint8, 20> MakeMsOs20CompatibleId(
 	const char (&compatibleId)[IdSize],
 	const char (&subCompatibleId)[SubIdSize])
 {
-	USBDescriptorRequire(IdSize - 1 <= 8, "a compatible ID is at most 8 characters");
-	USBDescriptorRequire(SubIdSize - 1 <= 8, "a sub-compatible ID is at most 8 characters");
+	Require<"USB: a compatible ID is at most 8 characters">(IdSize - 1 <= 8);
+	Require<"USB: a sub-compatible ID is at most 8 characters">(SubIdSize - 1 <= 8);
 
 	std::array<uint8, 20> bytes{};
 	USBDescriptorPut16(bytes, 0, 20);
@@ -107,7 +106,7 @@ constexpr std::array<uint8, 10 + 2 * (USBUtf16UnitCount<Name>() + 1) + DataSize>
 {
 	constexpr std::size_t nameBytes = 2 * (USBUtf16UnitCount<Name>() + 1);
 	constexpr std::size_t total = 10 + nameBytes + DataSize;
-	USBDescriptorRequire(total <= 0xFFFF, "a registry property is at most 65535 bytes");
+	Require<"USB: a registry property is at most 65535 bytes">(total <= 0xFFFF);
 
 	std::array<uint8, total> bytes{};
 	USBDescriptorPut16(bytes, 0, static_cast<uint16>(total));
@@ -141,8 +140,8 @@ constexpr std::array<uint8, 8 + (std::tuple_size_v<Features> + ... + 0)> MakeMsO
 	const Features&... features)
 {
 	constexpr std::size_t total = 8 + (std::tuple_size_v<Features> + ... + 0);
-	USBDescriptorRequire(sizeof...(Features) >= 1, "a function subset holds at least one feature");
-	USBDescriptorRequire(total <= 0xFFFF, "wSubsetLength is 16 bits");
+	Require<"USB: a function subset holds at least one feature">(sizeof...(Features) >= 1);
+	Require<"USB: wSubsetLength is 16 bits">(total <= 0xFFFF);
 
 	std::array<uint8, total> bytes{};
 	USBDescriptorPut16(bytes, 0, 8);
@@ -163,9 +162,9 @@ constexpr std::array<uint8, 8 + (std::tuple_size_v<Functions> + ... + 0)> MakeMs
 	const Functions&... functions)
 {
 	constexpr std::size_t total = 8 + (std::tuple_size_v<Functions> + ... + 0);
-	USBDescriptorRequire(sizeof...(Functions) >= 1, "a configuration subset holds at least one function subset");
-	USBDescriptorRequire(configurationValue >= 1, "a configuration subset names a configuration value");
-	USBDescriptorRequire(total <= 0xFFFF, "wTotalLength is 16 bits");
+	Require<"USB: a configuration subset holds at least one function subset">(sizeof...(Functions) >= 1);
+	Require<"USB: a configuration subset names a configuration value">(configurationValue >= 1);
+	Require<"USB: wTotalLength is 16 bits">(total <= 0xFFFF);
 
 	std::array<uint8, total> bytes{};
 	USBDescriptorPut16(bytes, 0, 8);
@@ -174,7 +173,7 @@ constexpr std::array<uint8, 8 + (std::tuple_size_v<Functions> + ... + 0)> MakeMs
 	USBDescriptorPut16(bytes, 6, static_cast<uint16>(total));
 	std::size_t offset = 8;
 	(static_cast<void>(offset = USBMsOs20AppendSubset(bytes, offset, functions, false)), ...);
-	USBDescriptorRequire(offset == total, "the configuration subset's children fill its length");
+	Require<"USB: the configuration subset's children fill its length">(offset == total);
 	return bytes;
 }
 
@@ -187,8 +186,8 @@ constexpr std::array<uint8, 10 + (std::tuple_size_v<Subsets> + ... + 0)> MakeMsO
 	const Subsets&... subsets)
 {
 	constexpr std::size_t total = 10 + (std::tuple_size_v<Subsets> + ... + 0);
-	USBDescriptorRequire(sizeof...(Subsets) >= 1, "a descriptor set holds at least one subset");
-	USBDescriptorRequire(total <= 0xFFFF, "wTotalLength is 16 bits");
+	Require<"USB: a descriptor set holds at least one subset">(sizeof...(Subsets) >= 1);
+	Require<"USB: wTotalLength is 16 bits">(total <= 0xFFFF);
 
 	std::array<uint8, total> bytes{};
 	USBDescriptorPut16(bytes, 0, 10);
@@ -208,7 +207,7 @@ constexpr std::size_t USBMsOs20AppendFeature(std::array<uint8, Size>& bytes, std
 	uint16 type = USBDescriptorRead16(feature, 2);
 	bool compatibleId = type == static_cast<uint16>(USBMsOs20DescriptorType::CompatibleId);
 	bool registryProperty = type == static_cast<uint16>(USBMsOs20DescriptorType::RegistryProperty);
-	USBDescriptorRequire(compatibleId || registryProperty, "a device-level set holds compatible ID and registry property features only");
+	Require<"USB: a device-level set holds compatible ID and registry property features only">(compatibleId || registryProperty);
 	return USBMsOs20AppendElement(bytes, offset, feature, 0);
 }
 
@@ -222,8 +221,8 @@ constexpr std::array<uint8, 10 + (std::tuple_size_v<Features> + ... + 0)> MakeMs
 	const Features&... features)
 {
 	constexpr std::size_t total = 10 + (std::tuple_size_v<Features> + ... + 0);
-	USBDescriptorRequire(sizeof...(Features) >= 1, "a device-level set holds at least one feature");
-	USBDescriptorRequire(total <= 0xFFFF, "wTotalLength is 16 bits");
+	Require<"USB: a device-level set holds at least one feature">(sizeof...(Features) >= 1);
+	Require<"USB: wTotalLength is 16 bits">(total <= 0xFFFF);
 
 	std::array<uint8, total> bytes{};
 	USBDescriptorPut16(bytes, 0, 10);
