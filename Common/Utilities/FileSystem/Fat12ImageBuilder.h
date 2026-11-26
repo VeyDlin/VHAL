@@ -1,6 +1,6 @@
 #pragma once
 #include <Utilities/DataTypes.h>
-#include <Utilities/CompileTime/TextLiteral.h>
+#include <Utilities/CompileTime/Require.h>
 #include <array>
 #include <cstddef>
 #include <span>
@@ -48,20 +48,6 @@ constexpr uint8 Fat12AttrLabel = 0x08;
 constexpr uint16 Fat12DosDate = 0x0021;
 
 
-// Declared, never defined. A call from a constant expression is ill-formed, and the compiler prints the message in the template argument.
-template<TextLiteral Message>
-void Fat12Error();
-
-
-// The rule check of the builder. Calls Fat12Error<Message>() when the condition does not hold.
-template<TextLiteral Message>
-constexpr void Fat12Require(bool condition) {
-	if (!condition) {
-		Fat12Error<Message>();
-	}
-}
-
-
 // One file of the builder. The text or the bytes are kept as views, so the data must be a string literal or static storage.
 struct Fat12File {
 	std::array<char, 11> shortName{};
@@ -104,7 +90,7 @@ constexpr bool Fat12IsShortNameChar(char value) {
 // Upper-cases one character of a name and checks it against the short-name set.
 constexpr char Fat12CheckedChar(char value) {
 	char upper = Fat12Upper(value);
-	Fat12Require<"a short name character is not allowed">(Fat12IsShortNameChar(upper));
+	Require<"Fat12:a short name character is not allowed">(Fat12IsShortNameChar(upper));
 	return upper;
 }
 
@@ -118,13 +104,13 @@ constexpr std::array<char, 11> Fat12FileName(std::string_view name) {
 
 	std::size_t dot = name.find('.');
 	if (dot != std::string_view::npos) {
-		Fat12Require<"a file name has at most one dot">(name.find('.', dot + 1) == std::string_view::npos);
+		Require<"Fat12:a file name has at most one dot">(name.find('.', dot + 1) == std::string_view::npos);
 	}
 
 	std::string_view base = dot == std::string_view::npos ? name : name.substr(0, dot);
 	std::string_view extension = dot == std::string_view::npos ? std::string_view() : name.substr(dot + 1);
-	Fat12Require<"a short name base has 1 to 8 characters">(base.size() >= 1 && base.size() <= 8);
-	Fat12Require<"a short name extension has at most 3 characters">(extension.size() <= 3);
+	Require<"Fat12:a short name base has 1 to 8 characters">(base.size() >= 1 && base.size() <= 8);
+	Require<"Fat12:a short name extension has at most 3 characters">(extension.size() <= 3);
 
 	for (std::size_t index = 0; index < base.size(); index++) {
 		result[index] = Fat12CheckedChar(base[index]);
@@ -140,7 +126,7 @@ constexpr std::array<char, 11> Fat12FileName(std::string_view name) {
 
 // The 11 bytes of the volume label. The label may hold spaces, and it is upper-cased like a name.
 constexpr std::array<char, 11> Fat12LabelName(std::string_view label) {
-	Fat12Require<"the volume label has 1 to 11 characters">(label.size() >= 1 && label.size() <= 11);
+	Require<"Fat12:the volume label has 1 to 11 characters">(label.size() >= 1 && label.size() <= 11);
 
 	std::array<char, 11> result{};
 	for (char& value : result) {
@@ -149,7 +135,7 @@ constexpr std::array<char, 11> Fat12LabelName(std::string_view label) {
 
 	for (std::size_t index = 0; index < label.size(); index++) {
 		char upper = Fat12Upper(label[index]);
-		Fat12Require<"the volume label holds only short-name characters and spaces">(upper == ' ' || Fat12IsShortNameChar(upper));
+		Require<"Fat12:the volume label holds only short-name characters and spaces">(upper == ' ' || Fat12IsShortNameChar(upper));
 		result[index] = upper;
 	}
 
@@ -248,7 +234,7 @@ public:
 
 	// Sectors per cluster: 1, 2, 4, ..., 128. The default is 1, which suits a small volume.
 	constexpr Fat12ImageBuilder& SectorsPerCluster(uint8 count) {
-		Fat12Require<"sectors per cluster is a power of two from 1 to 128">(count >= 1 && count <= 128 && (count & (count - 1)) == 0);
+		Require<"Fat12:sectors per cluster is a power of two from 1 to 128">(count >= 1 && count <= 128 && (count & (count - 1)) == 0);
 		sectorsPerCluster = count;
 		return *this;
 	}
@@ -256,7 +242,7 @@ public:
 
 	// Copies of the FAT: 1 or 2. The default is 2, as Windows writes it.
 	constexpr Fat12ImageBuilder& Fats(uint8 count) {
-		Fat12Require<"a FAT has 1 or 2 copies">(count == 1 || count == 2);
+		Require<"Fat12:a FAT has 1 or 2 copies">(count == 1 || count == 2);
 		fatCount = count;
 		return *this;
 	}
@@ -264,7 +250,7 @@ public:
 
 	// Entries in the root directory, a multiple of 16. The label takes one of them. The default is 112.
 	constexpr Fat12ImageBuilder& RootEntries(uint16 count) {
-		Fat12Require<"root entries are a multiple of 16, at least 16">(count >= 16 && count % 16 == 0);
+		Require<"Fat12:root entries are a multiple of 16, at least 16">(count >= 16 && count % 16 == 0);
 		rootEntryCount = count;
 		return *this;
 	}
@@ -300,8 +286,8 @@ public:
 
 	// Lays out the volume and writes every byte of it: boot sector, FAT copies, root directory, and file data.
 	constexpr Fat12Volume Build() const {
-		Fat12Require<"a FAT12 image needs a size: call Sectors()">(sectorCount != 0);
-		Fat12Require<"the image is larger than the builder capacity of 512 sectors">(sectorCount <= Fat12MaxSectors);
+		Require<"Fat12:a FAT12 image needs a size: call Sectors()">(sectorCount != 0);
+		Require<"Fat12:the image is larger than the builder capacity of 512 sectors">(sectorCount <= Fat12MaxSectors);
 
 		std::size_t rootSectors = rootEntryCount / 16;
 		std::size_t fatSectors = 1;
@@ -311,7 +297,7 @@ public:
 		// so this settles in a few steps. It stops at the first FAT size that holds the clusters it leaves.
 		for (std::size_t attempt = 0; attempt < 8; attempt++) {
 			std::size_t overhead = 1 + fatCount * fatSectors + rootSectors;
-			Fat12Require<"the volume has no room for data">(overhead < sectorCount);
+			Require<"Fat12:the volume has no room for data">(overhead < sectorCount);
 			clusters = (sectorCount - overhead) / sectorsPerCluster;
 			std::size_t fatBytes = ((clusters + 2) * 3 + 1) / 2;
 			std::size_t needed = (fatBytes + Fat12SectorBytes - 1) / Fat12SectorBytes;
@@ -322,13 +308,13 @@ public:
 			fatSectors = needed;
 		}
 
-		Fat12Require<"the FAT does not hold the clusters of the volume">(((clusters + 2) * 3 + 1) / 2 <= fatSectors * Fat12SectorBytes);
+		Require<"Fat12:the FAT does not hold the clusters of the volume">(((clusters + 2) * 3 + 1) / 2 <= fatSectors * Fat12SectorBytes);
 		// Guards for a larger Fat12MaxSectors. At the cap of 512 sectors there are fewer than 512 clusters, so these two do not fire
 		// until the cap is raised.
-		Fat12Require<"a FAT12 volume has at most 4084 clusters">(clusters <= Fat12MaxClusters);
-		Fat12Require<"the volume has no clusters for files">(clusters >= 1);
+		Require<"Fat12:a FAT12 volume has at most 4084 clusters">(clusters <= Fat12MaxClusters);
+		Require<"Fat12:the volume has no clusters for files">(clusters >= 1);
 		// The boot sector's 16-bit sector count. It is a guard for the same reason as the check above.
-		Fat12Require<"a FAT12 image holds at most 65535 sectors">(sectorCount <= 0xFFFF);
+		Require<"Fat12:a FAT12 image holds at most 65535 sectors">(sectorCount <= 0xFFFF);
 
 		std::size_t fatStart = 1;
 		std::size_t rootStart = fatStart + fatCount * fatSectors;
@@ -351,8 +337,8 @@ public:
 		for (std::size_t file = 0; file < fileCount; file++) {
 			const Fat12File& entry = files[file];
 			std::size_t count = (entry.size + clusterBytes - 1) / clusterBytes;
-			Fat12Require<"the files do not fit in the volume">(nextCluster + count <= clusters + 2);
-			Fat12Require<"the root directory is full">(rootIndex < rootEntryCount);
+			Require<"Fat12:the files do not fit in the volume">(nextCluster + count <= clusters + 2);
+			Require<"Fat12:the root directory is full">(rootIndex < rootEntryCount);
 
 			std::size_t first = count == 0 ? 0 : nextCluster;
 
@@ -385,11 +371,11 @@ public:
 
 private:
 	constexpr void AddFile(std::string_view name, std::string_view text, std::span<const uint8> bytes, bool isBytes, std::size_t size) {
-		Fat12Require<"the builder holds at most 8 files">(fileCount < Fat12MaxFiles);
+		Require<"Fat12:the builder holds at most 8 files">(fileCount < Fat12MaxFiles);
 		std::array<char, 11> shortName = Fat12FileName(name);
 
 		for (std::size_t index = 0; index < fileCount; index++) {
-			Fat12Require<"two files have the same short name">(files[index].shortName != shortName);
+			Require<"Fat12:two files have the same short name">(files[index].shortName != shortName);
 		}
 
 		Fat12File entry;
