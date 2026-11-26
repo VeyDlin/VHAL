@@ -54,4 +54,4 @@ A `Size` of 0 is a compile error (`a command line input ring needs at least one 
 
 ## Why not RingBuffer.h
 
-`Utilities/Buffer/RingBuffer.h` does not fit. Each of its operations masks interrupts, which `Feed` must not do from an interrupt, and it holds a `std::function`, which the console does not use. It also has no lost count.
+`Utilities/Buffer/RingBuffer.h` does not fit. Each of its operations masks interrupts, which `Feed` must not do from an interrupt. It also has no lost count.

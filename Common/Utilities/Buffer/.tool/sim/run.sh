@@ -20,9 +20,15 @@ for source in "$simDir"/Test*.cpp; do
     name="$(basename "$source" .cpp)"
     exe="$buildDir/$name$exeSuffix"
 
+    # A test that checks a static object of another translation unit names that unit here.
+    extraSources=""
+    if [ "$name" = "TestRingBufferStorage" ]; then
+        extraSources="$simDir/RingSecondUnit.cpp"
+    fi
+
     if ! "$cxx" -std=c++23 -Wall -Wextra -Werror \
         -I "$simDir/shim" -I "$vhalRoot/Periphery" -I "$vhalRoot/Common" \
-        -o "$exe" "$source"; then
+        -o "$exe" "$source" $extraSources; then
         echo "BUILD FAILED: $name"
         failures=$((failures + 1))
         continue
