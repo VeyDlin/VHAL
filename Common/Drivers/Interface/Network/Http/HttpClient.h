@@ -3,7 +3,7 @@
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Memory/IAllocator.h>
-#include <Utilities/VSTD/utility/Function.h>
+#include <Utilities/Callback/Ref.h>
 #include "HttpByteBuffer.h"
 #include <cstddef>
 #include <span>
@@ -61,10 +61,6 @@ public:
 		// Sent unless the request supplies its own User-Agent. nullptr sends none.
 		const char *userAgent = "VHAL-HttpClient/1.0";
 	};
-
-	// Called with each piece of the body as it arrives. The span is valid only during the call. Returning anything
-	// other than ok stops the read: the connection is closed and ReadBody() returns that status.
-	using BodyCallback = VSTD::Function<ResultStatus(std::span<const uint8>)>;
 
 	Options options;
 
@@ -254,8 +250,10 @@ public:
 
 
 	// Streams the rest of the body to onBody. Returns ok at the end of the body, connectionClosed when the peer closed
-	// before the body was complete, or the status of a failed read or of the callback.
-	ResultStatus ReadBody(const BodyCallback& onBody) {
+	// before the body was complete, or the status of a failed read or of the callback. onBody receives each piece of
+	// the body as it arrives; the span is valid only during the call. Returning anything other than ok stops the read:
+	// the connection is closed and ReadBody() returns that status. A null function pointer returns invalidParameter.
+	ResultStatus ReadBody(Callback::Ref<ResultStatus(std::span<const uint8>)> onBody) {
 		if (!onBody) {
 			return ResultStatus::invalidParameter;
 		}
@@ -295,7 +293,7 @@ public:
 	// and the rest of the body is then discarded with the connection.
 	ResultStatus ReadBodyTo(std::span<uint8> buffer, uint32& size) {
 		size = 0;
-		BodyCallback copy = [&buffer, &size](std::span<const uint8> piece) -> ResultStatus {
+		return ReadBody([&buffer, &size](std::span<const uint8> piece) -> ResultStatus {
 			if (piece.size() > buffer.size() - size) {
 				return ResultStatus::outOfRange;
 			}
@@ -306,9 +304,7 @@ public:
 			}
 
 			return ResultStatus::ok;
-		};
-
-		return ReadBody(copy);
+		});
 	}
 
 
@@ -1033,7 +1029,7 @@ private:
 	}
 
 
-	ResultStatus ReadLength(const BodyCallback& onBody) {
+	ResultStatus ReadLength(Callback::Ref<ResultStatus(std::span<const uint8>)> onBody) {
 		while (bodyRemaining > 0) {
 			ResultStatus ready = EnsureReceived();
 			if (ready != ResultStatus::ok) {
@@ -1055,7 +1051,7 @@ private:
 
 
 	// Without a length the body ends when the server closes the connection (RFC 9112 section 6.3, rule 7).
-	ResultStatus ReadUntilClose(const BodyCallback& onBody) {
+	ResultStatus ReadUntilClose(Callback::Ref<ResultStatus(std::span<const uint8>)> onBody) {
 		while (true) {
 			ResultStatus ready = EnsureReceived();
 			if (ready == ResultStatus::connectionClosed) {
@@ -1076,7 +1072,7 @@ private:
 	}
 
 
-	ResultStatus ReadChunked(const BodyCallback& onBody) {
+	ResultStatus ReadChunked(Callback::Ref<ResultStatus(std::span<const uint8>)> onBody) {
 		while (chunkState != ChunkState::Done) {
 			ResultStatus ready = EnsureReceived();
 			if (ready != ResultStatus::ok) {
