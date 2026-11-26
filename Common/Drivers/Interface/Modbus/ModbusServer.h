@@ -14,7 +14,7 @@
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
-#include <Utilities/CompileTime/TextLiteral.h>
+#include <Utilities/CompileTime/Require.h>
 #include <array>
 #include <cstddef>
 #include <span>
@@ -37,7 +37,7 @@ public:
 
 public:
 	constexpr ServerBuilder SlaveAddress(uint8 address) const {
-		ModbusRequire<TextLiteral{"slave address must be 1 to 247 (0 is broadcast: use Broadcast())"}>(address >= 1 && address <= 247);
+		Require<"Modbus:slave address must be 1 to 247 (0 is broadcast: use Broadcast())">(address >= 1 && address <= 247);
 
 		ServerBuilder next = *this;
 		next.slaveAddress = address;
@@ -46,7 +46,7 @@ public:
 
 
 	constexpr ServerBuilder MaxCoilWrite(uint16 count) const {
-		ModbusRequire<TextLiteral{"a coil write takes 1 to 1968 coils"}>(count >= 1 && count <= 1968);
+		Require<"Modbus:a coil write takes 1 to 1968 coils">(count >= 1 && count <= 1968);
 
 		ServerBuilder next = *this;
 		next.maxCoilWrite = count;
