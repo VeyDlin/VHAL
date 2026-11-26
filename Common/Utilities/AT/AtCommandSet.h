@@ -64,15 +64,15 @@ template<TextLiteral Name>
 constexpr void AtCheckCommandName() {
 	constexpr std::string_view text = Name.View();
 
-	Require<"AT:a command name is empty">(!text.empty());
+	Require<"AT: a command name is empty">(!text.empty());
 
 	if (!text.empty()) {
-		Require<"AT:a command name does not start with +">(text[0] == '+');
-		Require<"AT:a command name has a space">(text.find(' ') == std::string_view::npos);
-		Require<"AT:a command name has no letters after +">(text.size() > 1);
+		Require<"AT: a command name does not start with +">(text[0] == '+');
+		Require<"AT: a command name has a space">(text.find(' ') == std::string_view::npos);
+		Require<"AT: a command name has no letters after +">(text.size() > 1);
 
 		for (char character : text.substr(1)) {
-			Require<"AT:a command name has a character that is not A-Z or 0-9">((character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9'));
+			Require<"AT: a command name has a character that is not A-Z or 0-9">((character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9'));
 		}
 	}
 }
@@ -82,7 +82,7 @@ constexpr void AtCheckCommandName() {
 template<TextLiteral Name>
 constexpr void AtCheckBasicName() {
 	constexpr std::string_view text = Name.View();
-	Require<"AT:a basic command is not one letter A to Z">(text.size() == 1 && text[0] >= 'A' && text[0] <= 'Z');
+	Require<"AT: a basic command is not one letter A to Z">(text.size() == 1 && text[0] >= 'A' && text[0] <= 'Z');
 }
 
 
@@ -91,8 +91,8 @@ template<TextLiteral Name>
 constexpr void AtCheckUrcName() {
 	constexpr std::string_view text = Name.View();
 
-	Require<"AT:a URC prefix is empty">(!text.empty());
-	Require<"AT:a URC prefix has a colon or a comma">(text.find(':') == std::string_view::npos && text.find(',') == std::string_view::npos);
+	Require<"AT: a URC prefix is empty">(!text.empty());
+	Require<"AT: a URC prefix has a colon or a comma">(text.find(':') == std::string_view::npos && text.find(',') == std::string_view::npos);
 }
 
 
@@ -609,14 +609,14 @@ constexpr CommandTreeBuilder<Bound> AtBuildTree(
 	uint16 commandRoot = builder.AddRoot();
 	uint16 urcRoot = builder.AddRoot();
 
-	Require<"AT:the command and URC roots of the tree are not where the client expects them">(commandRoot == AtCommandRoot && urcRoot == AtUrcRoot);
+	Require<"AT: the command and URC roots of the tree are not where the client expects them">(commandRoot == AtCommandRoot && urcRoot == AtUrcRoot);
 
 	for (std::size_t index = 0; index < CommandCount; index++) {
-		Require<"AT:a command name is declared twice in one set">(builder.Insert(commandRoot, commandNames[index], static_cast<uint16>(index)));
+		Require<"AT: a command name is declared twice in one set">(builder.Insert(commandRoot, commandNames[index], static_cast<uint16>(index)));
 	}
 
 	for (std::size_t index = 0; index < UrcCount; index++) {
-		Require<"AT:a URC prefix is declared twice">(builder.Insert(urcRoot, urcNames[index], static_cast<uint16>(index)));
+		Require<"AT: a URC prefix is declared twice">(builder.Insert(urcRoot, urcNames[index], static_cast<uint16>(index)));
 	}
 
 	return builder;
@@ -669,25 +669,25 @@ constexpr bool AtCheckUrcs(
 	const std::array<std::string_view, UrcCount>& urcNames)
 {
 	for (std::string_view urc : urcNames) {
-		Require<"AT:a URC prefix is a prefix of a command name, or the reverse">(!AtUrcClashesTree(std::span<const CommandTreeNode>(tree.data(), tree.size()), urc));
+		Require<"AT: a URC prefix is a prefix of a command name, or the reverse">(!AtUrcClashesTree(std::span<const CommandTreeNode>(tree.data(), tree.size()), urc));
 
 		for (std::string_view standard : AtStandardFinals) {
-			Require<"AT:a URC prefix is a prefix of a final line, so the URC would take the final line">(!standard.starts_with(urc));
+			Require<"AT: a URC prefix is a prefix of a final line, so the URC would take the final line">(!standard.starts_with(urc));
 		}
 
 		for (const AtCommandInfo& command : commands) {
 			std::string_view reply = command.options.replyPrefix;
 
 			if (!reply.empty()) {
-				Require<"AT:a URC prefix is a prefix of a reply prefix, or the reverse">(!(urc.starts_with(reply) || reply.starts_with(urc)));
+				Require<"AT: a URC prefix is a prefix of a reply prefix, or the reverse">(!(urc.starts_with(reply) || reply.starts_with(urc)));
 			}
 
 			for (std::size_t index = 0; index < command.options.finalCount; index++) {
-				Require<"AT:a URC prefix is a prefix of a final line, so the URC would take the final line">(!command.options.finals[index].starts_with(urc));
+				Require<"AT: a URC prefix is a prefix of a final line, so the URC would take the final line">(!command.options.finals[index].starts_with(urc));
 			}
 
 			for (std::size_t index = 0; index < command.options.failureCount; index++) {
-				Require<"AT:a URC prefix is a prefix of a final line, so the URC would take the final line">(!command.options.failures[index].starts_with(urc));
+				Require<"AT: a URC prefix is a prefix of a final line, so the URC would take the final line">(!command.options.failures[index].starts_with(urc));
 			}
 		}
 	}
@@ -783,20 +783,20 @@ constexpr bool AtCheckFailureCodes(
 		}
 
 		for (std::string_view urc : urcNames) {
-			Require<"AT:a failure code prefix is a URC prefix">(prefix != urc);
+			Require<"AT: a failure code prefix is a URC prefix">(prefix != urc);
 		}
 
 		for (std::string_view standard : AtStandardFinals) {
-			Require<"AT:a failure code prefix is a final line of the set">(prefix != standard);
+			Require<"AT: a failure code prefix is a final line of the set">(prefix != standard);
 		}
 
 		for (const AtCommandInfo& other : commands) {
 			for (std::size_t index = 0; index < other.options.finalCount; index++) {
-				Require<"AT:a failure code prefix is a final line of the set">(prefix != other.options.finals[index]);
+				Require<"AT: a failure code prefix is a final line of the set">(prefix != other.options.finals[index]);
 			}
 
 			for (std::size_t index = 0; index < other.options.failureCount; index++) {
-				Require<"AT:a failure code prefix is a final line of the set">(prefix != other.options.failures[index]);
+				Require<"AT: a failure code prefix is a final line of the set">(prefix != other.options.failures[index]);
 			}
 		}
 	}
@@ -835,7 +835,7 @@ constexpr void AtCheckDataPosition() {
 	constexpr std::size_t total = ((std::is_same_v<Declarations, AtDataDecl> ? std::size_t{1} : std::size_t{0}) + ... + std::size_t{0});
 	constexpr std::size_t last = AtLastIsDataOf<Declarations...>::value ? std::size_t{1} : std::size_t{0};
 
-	Require<"AT:Data() must be the last argument of a URC">(total == last);
+	Require<"AT: Data() must be the last argument of a URC">(total == last);
 }
 
 
@@ -880,8 +880,8 @@ constexpr auto AtUrcFrom(const Normalized& normalized, std::index_sequence<K...>
 		using Kept = std::tuple<std::tuple_element_t<K, Normalized>...>;
 		using Length = typename AtLastArgumentOf<Kept>::Type;
 
-		Require<"AT:Data() needs a length argument before it">(sizeof...(K) > 0);
-		Require<"AT:the length before Data() must be a required uint8, uint16 or uint32 argument">(AtIsLengthArgument<Length>);
+		Require<"AT: Data() needs a length argument before it">(sizeof...(K) > 0);
+		Require<"AT: the length before Data() must be a required uint8, uint16 or uint32 argument">(AtIsLengthArgument<Length>);
 
 		return AtUrcItem<Name, AtDataLength<typename Length::Type>, std::tuple_element_t<K, Normalized>...>{CommandPackOf(std::get<K>(normalized)...)};
 	} else {
@@ -917,13 +917,13 @@ template<std::size_t Count>
 constexpr bool AtCheckDataModes(const std::array<AtCommandInfo, Count>& commands, bool anyUrcData, bool listed) {
 	for (const AtCommandInfo& command : commands) {
 		if (command.isPrompt) {
-			Require<"AT:a prompt command needs AtDataMode among the modules of the set">(listed);
-			Require<"AT:a prompt command needs a declared final, such as SEND OK, to end after its data">(command.options.finalCount > 0);
+			Require<"AT: a prompt command needs AtDataMode among the modules of the set">(listed);
+			Require<"AT: a prompt command needs a declared final, such as SEND OK, to end after its data">(command.options.finalCount > 0);
 		}
 	}
 
 	if (anyUrcData) {
-		Require<"AT:Data() in a URC needs AtDataMode among the modules of the set">(listed);
+		Require<"AT: Data() in a URC needs AtDataMode among the modules of the set">(listed);
 	}
 
 	return true;
@@ -975,7 +975,7 @@ public:
 
 	// The set's defaults, such as AtDefaults().TimeoutMs(2000).
 	constexpr auto Defaults(AtDefaults defaults) const {
-		Require<"AT:Defaults() is given twice">(!Given<AtDefaults>());
+		Require<"AT: Defaults() is given twice">(!Given<AtDefaults>());
 		return AddItem(defaults);
 	}
 
@@ -983,8 +983,8 @@ public:
 	// A module tag, such as AtDataMode. Each module is listed once, and a call takes one tag.
 	template<typename Tag>
 	constexpr auto Modules(Tag tag) const {
-		Require<"AT:Modules() takes a module tag, such as AtDataMode">(AtIsModule<Tag>);
-		Require<"AT:a module is given twice">(!Given<Tag>());
+		Require<"AT: Modules() takes a module tag, such as AtDataMode">(AtIsModule<Tag>);
+		Require<"AT: a module is given twice">(!Given<Tag>());
 		return AddItem(tag);
 	}
 
@@ -992,7 +992,7 @@ public:
 	// The dialect: the items of an AtDialect() chain. Given once.
 	template<typename... Entries>
 	constexpr auto Dialect(AtDialectBuilder<Entries...> dialect) const {
-		Require<"AT:Dialect() is given twice">(!GivenDialect());
+		Require<"AT: Dialect() is given twice">(!GivenDialect());
 		return AddItem(AtDialectItem<Entries...>{dialect.items});
 	}
 
@@ -1011,7 +1011,7 @@ public:
 	// AT+X=?
 	constexpr AtCommandSetBuilder<typename Open::template With<AtTestForm>, Items...> Test() const {
 		RequireForm<AtFormKind::test>();
-		Require<"AT:a basic command has no test, read or write form">(!Open::isBasic);
+		Require<"AT: a basic command has no test, read or write form">(!Open::isBasic);
 		return AtCommandSetBuilder<typename Open::template With<AtTestForm>, Items...>(items, open.WithForm(AtTestForm{}));
 	}
 
@@ -1021,8 +1021,8 @@ public:
 	constexpr AtCommandSetBuilder<typename Open::template With<AtReadForm<T>>, Items...> Read(std::string_view name) const {
 		AtCheckType<T>();
 		RequireForm<AtFormKind::read>();
-		Require<"AT:a basic command has no test, read or write form">(!Open::isBasic);
-		Require<"AT:a read form has no name">(!name.empty());
+		Require<"AT: a basic command has no test, read or write form">(!Open::isBasic);
+		Require<"AT: a read form has no name">(!name.empty());
 		return AtCommandSetBuilder<typename Open::template With<AtReadForm<T>>, Items...>(items, open.WithForm(AtReadForm<T>{name}));
 	}
 
@@ -1032,7 +1032,7 @@ public:
 	requires AtIsRowDecl<RowDecl>
 	constexpr AtCommandSetBuilder<typename Open::template With<AtReadRecordForm<RowDecl>>, Items...> Read(const RowDecl& row) const {
 		RequireForm<AtFormKind::read>();
-		Require<"AT:a basic command has no test, read or write form">(!Open::isBasic);
+		Require<"AT: a basic command has no test, read or write form">(!Open::isBasic);
 		return AtCommandSetBuilder<typename Open::template With<AtReadRecordForm<RowDecl>>, Items...>(
 			items,
 			open.WithForm(AtReadRecordForm<RowDecl>{row}));
@@ -1044,7 +1044,7 @@ public:
 	requires AtIsRowDecl<RowDecl>
 	constexpr AtCommandSetBuilder<typename Open::template With<AtReadRowsForm<RowDecl>>, Items...> ReadRows(const RowDecl& row) const {
 		RequireForm<AtFormKind::read>();
-		Require<"AT:a basic command has no test, read or write form">(!Open::isBasic);
+		Require<"AT: a basic command has no test, read or write form">(!Open::isBasic);
 		return AtCommandSetBuilder<typename Open::template With<AtReadRowsForm<RowDecl>>, Items...>(
 			items,
 			open.WithForm(AtReadRowsForm<RowDecl>{row}));
@@ -1055,8 +1055,8 @@ public:
 	template<typename... Arguments>
 	constexpr AtCommandSetBuilder<typename Open::template With<AtWriteForm<AtNormalizedOf<Arguments>...>>, Items...> Write(Arguments... arguments) const {
 		RequireForm<AtFormKind::write>();
-		Require<"AT:a basic command has no test, read or write form">(!Open::isBasic);
-		Require<"AT:a write form has no arguments">(sizeof...(Arguments) > 0);
+		Require<"AT: a basic command has no test, read or write form">(!Open::isBasic);
+		Require<"AT: a write form has no arguments">(sizeof...(Arguments) > 0);
 		AtCheckArguments(AtNormalize(arguments)...);
 		return AtCommandSetBuilder<typename Open::template With<AtWriteForm<AtNormalizedOf<Arguments>...>>, Items...>(
 			items,
@@ -1076,7 +1076,7 @@ public:
 	constexpr AtCommandSetBuilder<typename Open::template With<AtRunValueForm<T>>, Items...> Run(std::string_view name) const {
 		AtCheckType<T>();
 		RequireForm<AtFormKind::run>();
-		Require<"AT:a run form has no name">(!name.empty());
+		Require<"AT: a run form has no name">(!name.empty());
 		return AtCommandSetBuilder<typename Open::template With<AtRunValueForm<T>>, Items...>(items, open.WithForm(AtRunValueForm<T>{name}));
 	}
 
@@ -1107,8 +1107,8 @@ public:
 	// the request (SendData). It needs AtDataMode in the set's modules, and a declared final that ends the request after the data.
 	constexpr AtCommandSetBuilder<Open, Items...> Prompt() const {
 		RequireOption();
-		Require<"AT:Prompt() is for a write form, which comes before it">(Open::template CountOf<AtFormKind::write>() == 1);
-		Require<"AT:Prompt() is given twice">(!open.prompt);
+		Require<"AT: Prompt() is for a write form, which comes before it">(Open::template CountOf<AtFormKind::write>() == 1);
+		Require<"AT: Prompt() is given twice">(!open.prompt);
 		return AtCommandSetBuilder<Open, Items...>(items, open.WithPrompt());
 	}
 
@@ -1117,8 +1117,8 @@ public:
 	template<typename... Arguments>
 	constexpr AtCommandSetBuilder<typename Open::template With<AtValueForm<AtNormalizedOf<Arguments>...>>, Items...> Value(Arguments... arguments) const {
 		RequireForm<AtFormKind::value>();
-		Require<"AT:a value form is for a basic command">(Open::isBasic);
-		Require<"AT:a value form has no arguments">(sizeof...(Arguments) > 0);
+		Require<"AT: a value form is for a basic command">(Open::isBasic);
+		Require<"AT: a value form has no arguments">(sizeof...(Arguments) > 0);
 		AtCheckArguments(AtNormalize(arguments)...);
 		return AtCommandSetBuilder<typename Open::template With<AtValueForm<AtNormalizedOf<Arguments>...>>, Items...>(
 			items,
@@ -1129,7 +1129,7 @@ public:
 	// The timeout of the open command, which overrides the set default.
 	constexpr AtCommandSetBuilder<Open, Items...> TimeoutMs(uint32 milliseconds) const {
 		RequireOption();
-		Require<"AT:a timeout of 0">(milliseconds > 0);
+		Require<"AT: a timeout of 0">(milliseconds > 0);
 
 		AtCommandOptions options = open.options;
 		options.timeoutMs = milliseconds;
@@ -1140,7 +1140,7 @@ public:
 	// The info line prefix of the open command, for a reply that does not start with the command name, such as +CIFSR:STAIP.
 	constexpr AtCommandSetBuilder<Open, Items...> Reply(std::string_view prefix) const {
 		RequireOption();
-		Require<"AT:a reply prefix is empty">(!prefix.empty());
+		Require<"AT: a reply prefix is empty">(!prefix.empty());
 
 		AtCommandOptions options = open.options;
 		options.replyPrefix = prefix;
@@ -1151,10 +1151,10 @@ public:
 	// A final line that ends the reply as a success, such as SEND OK.
 	constexpr AtCommandSetBuilder<Open, Items...> Finals(std::string_view text) const {
 		RequireOption();
-		Require<"AT:a final line is empty">(!text.empty());
+		Require<"AT: a final line is empty">(!text.empty());
 
 		AtCommandOptions options = open.options;
-		Require<"AT:a command has too many final lines">(options.finalCount < AtMaxFinals);
+		Require<"AT: a command has too many final lines">(options.finalCount < AtMaxFinals);
 		options.finals[options.finalCount] = text;
 		options.finalCount++;
 		return AtCommandSetBuilder<Open, Items...>(items, open.WithOptions(options));
@@ -1164,10 +1164,10 @@ public:
 	// A final line that ends the reply as a failure, such as FAIL or SEND FAIL.
 	constexpr AtCommandSetBuilder<Open, Items...> Failures(std::string_view text) const {
 		RequireOption();
-		Require<"AT:a failure line is empty">(!text.empty());
+		Require<"AT: a failure line is empty">(!text.empty());
 
 		AtCommandOptions options = open.options;
-		Require<"AT:a command has too many failure lines">(options.failureCount < AtMaxFinals);
+		Require<"AT: a command has too many failure lines">(options.failureCount < AtMaxFinals);
 		options.failures[options.failureCount] = text;
 		options.failureCount++;
 		return AtCommandSetBuilder<Open, Items...>(items, open.WithOptions(options));
@@ -1178,11 +1178,11 @@ public:
 	// final. The status of the request then carries the code (AtStatus::failureCode).
 	constexpr AtCommandSetBuilder<Open, Items...> FailureCode(std::string_view prefix) const {
 		RequireOption();
-		Require<"AT:a failure code prefix is empty">(!prefix.empty());
-		Require<"AT:a failure code prefix holds a colon, a comma or a blank; the colon after it is added">(
+		Require<"AT: a failure code prefix is empty">(!prefix.empty());
+		Require<"AT: a failure code prefix holds a colon, a comma or a blank; the colon after it is added">(
 			prefix.find_first_of(":, \r\n") == std::string_view::npos
 		);
-		Require<"AT:FailureCode() is given twice">(open.failureCodePrefix.empty());
+		Require<"AT: FailureCode() is given twice">(open.failureCodePrefix.empty());
 		return AtCommandSetBuilder<Open, Items...>(items, open.WithFailureCode(prefix));
 	}
 
@@ -1202,13 +1202,13 @@ private:
 	// The open command must be a command, and must not have a form of this kind yet.
 	template<AtFormKind Kind>
 	static constexpr void RequireForm() {
-		Require<"AT:a form is declared with no command before it">(Open::isCommand);
-		Require<"AT:a form is declared twice for one command">(Open::template CountOf<Kind>() == 0);
+		Require<"AT: a form is declared with no command before it">(Open::isCommand);
+		Require<"AT: a form is declared twice for one command">(Open::template CountOf<Kind>() == 0);
 	}
 
 
 	static constexpr void RequireOption() {
-		Require<"AT:an option is declared with no command before it">(Open::isCommand);
+		Require<"AT: an option is declared with no command before it">(Open::isCommand);
 	}
 
 

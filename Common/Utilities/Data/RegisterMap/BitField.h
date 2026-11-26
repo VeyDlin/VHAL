@@ -35,7 +35,7 @@ struct RegisterBitField {
 
 
 	constexpr RegisterBitField(Descriptor target, uint8 position) : reg(target), shift(position) {
-		Require<"RegisterMap:bit field is outside the register width">(static_cast<std::size_t>(position) + Width <= 8 * sizeof(RawType));
+		Require<"RegisterMap: bit field is outside the register width">(static_cast<std::size_t>(position) + Width <= 8 * sizeof(RawType));
 	}
 
 

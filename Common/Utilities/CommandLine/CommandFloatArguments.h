@@ -97,8 +97,8 @@ public:
 	constexpr Argument Range(T low, T high) const {
 		// A finite value minus itself is zero. Infinity and nan give nan, which is not zero. This needs IEEE arithmetic: under -ffast-math the
 		// compiler folds the test to true, so the build must not use it.
-		Require<"CommandLine:a float range bound is not finite">(low - low == 0 && high - high == 0);
-		Require<"CommandLine:a range has its minimum above its maximum">(low <= high);
+		Require<"CommandLine: a float range bound is not finite">(low - low == 0 && high - high == 0);
+		Require<"CommandLine: a range has its minimum above its maximum">(low <= high);
 
 		Argument copy = *this;
 		copy.minimum = low;
@@ -117,7 +117,7 @@ public:
 
 	// Checked when the command is declared, because Range and Default may come in either order.
 	constexpr void Verify() const {
-		Require<"CommandLine:the default is outside the range of the argument">(!hasDefault || (defaultValue >= minimum && defaultValue <= maximum));
+		Require<"CommandLine: the default is outside the range of the argument">(!hasDefault || (defaultValue >= minimum && defaultValue <= maximum));
 	}
 };
 

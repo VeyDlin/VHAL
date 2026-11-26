@@ -207,7 +207,7 @@ private:
 
 	template<typename Entry>
 	constexpr AtDialectBuilder<Entries..., Entry> Add(const Entry& entry) const {
-		Require<"AT:a dialect item is given twice">(!Given<Entry>());
+		Require<"AT: a dialect item is given twice">(!Given<Entry>());
 		return AtDialectBuilder<Entries..., Entry>(CommandPackAppend(items, entry));
 	}
 };

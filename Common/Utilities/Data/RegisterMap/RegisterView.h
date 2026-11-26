@@ -227,14 +227,14 @@ struct ComputedSource {
 // A user variable. Variable(&x) or Variable(&x, &check).
 template<typename ValueType>
 constexpr VariableSource<ValueType> Variable(ValueType* target) {
-	Require<"RegisterMap:a variable needs a target">(target != nullptr);
+	Require<"RegisterMap: a variable needs a target">(target != nullptr);
 	return VariableSource<ValueType>{ target, nullptr };
 }
 
 
 template<typename ValueType>
 constexpr VariableSource<ValueType> Variable(ValueType* target, bool (*check)(ValueType)) {
-	Require<"RegisterMap:a variable needs a target">(target != nullptr);
+	Require<"RegisterMap: a variable needs a target">(target != nullptr);
 	return VariableSource<ValueType>{ target, check };
 }
 
@@ -242,7 +242,7 @@ constexpr VariableSource<ValueType> Variable(ValueType* target, bool (*check)(Va
 // A read-only function source. Computed(&get).
 template<typename ValueType>
 constexpr ComputedSource<ValueType, false> Computed(ValueType (*get)()) {
-	Require<"RegisterMap:a computed value needs a read function">(get != nullptr);
+	Require<"RegisterMap: a computed value needs a read function">(get != nullptr);
 	return ComputedSource<ValueType, false>{ get, nullptr, nullptr };
 }
 
@@ -250,16 +250,16 @@ constexpr ComputedSource<ValueType, false> Computed(ValueType (*get)()) {
 // A function source with a write. Computed(&get, &set) or Computed(&get, &set, &check).
 template<typename ValueType>
 constexpr ComputedSource<ValueType, true> Computed(ValueType (*get)(), ResultStatus (*set)(ValueType)) {
-	Require<"RegisterMap:a computed value needs a read function">(get != nullptr);
-	Require<"RegisterMap:a computed value needs a set function">(set != nullptr);
+	Require<"RegisterMap: a computed value needs a read function">(get != nullptr);
+	Require<"RegisterMap: a computed value needs a set function">(set != nullptr);
 	return ComputedSource<ValueType, true>{ get, set, nullptr };
 }
 
 
 template<typename ValueType>
 constexpr ComputedSource<ValueType, true> Computed(ValueType (*get)(), ResultStatus (*set)(ValueType), bool (*check)(ValueType)) {
-	Require<"RegisterMap:a computed value needs a read function">(get != nullptr);
-	Require<"RegisterMap:a computed value needs a set function">(set != nullptr);
+	Require<"RegisterMap: a computed value needs a read function">(get != nullptr);
+	Require<"RegisterMap: a computed value needs a set function">(set != nullptr);
 	return ComputedSource<ValueType, true>{ get, set, check };
 }
 
@@ -435,14 +435,14 @@ template<RegisterTable Table, typename Source>
 constexpr RegisterViewEntry<Table, Source> RegisterViewMake(uint16 address, Source source) {
 	using Value = typename Source::Value;
 	if constexpr (Table == RegisterTable::Holding || Table == RegisterTable::Input) {
-		Require<"RegisterMap:a register value is an integer of 2, 4 or 8 bytes, or an array of 16-bit integers">(RegisterViewIsWordValue<Value>());
+		Require<"RegisterMap: a register value is an integer of 2, 4 or 8 bytes, or an array of 16-bit integers">(RegisterViewIsWordValue<Value>());
 	} else {
-		Require<"RegisterMap:a coil or discrete input is a bool or an array of bool">(RegisterViewIsBitValue<Value>());
+		Require<"RegisterMap: a coil or discrete input is a bool or an array of bool">(RegisterViewIsBitValue<Value>());
 	}
 
-	Require<"RegisterMap:an entry has at least one register">(RegisterViewCount<Value>() >= 1);
-	Require<"RegisterMap:a block runs past Modbus address 0xFFFF">(static_cast<std::size_t>(address) + RegisterViewCount<Value>() <= 0x10000);
-	Require<"RegisterMap:input registers and discrete inputs cannot take a set function">(
+	Require<"RegisterMap: an entry has at least one register">(RegisterViewCount<Value>() >= 1);
+	Require<"RegisterMap: a block runs past Modbus address 0xFFFF">(static_cast<std::size_t>(address) + RegisterViewCount<Value>() <= 0x10000);
+	Require<"RegisterMap: input registers and discrete inputs cannot take a set function">(
 		!((Table == RegisterTable::Input || Table == RegisterTable::Discrete) && Source::kWritesThroughFunction));
 	return RegisterViewEntry<Table, Source>{ address, source };
 }
@@ -556,7 +556,7 @@ constexpr bool RegisterViewCheck(const std::array<RegisterViewSlot, Size>& slots
 			const RegisterViewSlot& left = slots[first];
 			const RegisterViewSlot& right = slots[second];
 			bool overlap = left.table == right.table && left.address < right.address + right.count && right.address < left.address + left.count;
-			Require<"RegisterMap:two view entries overlap in the same table at one Modbus address">(!overlap);
+			Require<"RegisterMap: two view entries overlap in the same table at one Modbus address">(!overlap);
 		}
 	}
 	return true;

@@ -71,12 +71,12 @@ struct RegisterDescriptor {
 
 	// deviceAddress is the 7-bit I2C address. SPI and Modbus ignore it.
 	constexpr RegisterDescriptor(uint8 deviceAddress, uint16 registerAddress) : device(deviceAddress), address(registerAddress) {
-		Require<"RegisterMap:device address must be 7 bits">(deviceAddress <= 0x7F);
+		Require<"RegisterMap: device address must be 7 bits">(deviceAddress <= 0x7F);
 	}
 
 
 	constexpr RegisterDescriptor AddressWidth(uint8 width) const {
-		Require<"RegisterMap:address width must be 1 or 2 bytes">(width == 1 || width == 2);
+		Require<"RegisterMap: address width must be 1 or 2 bytes">(width == 1 || width == 2);
 		RegisterDescriptor result = *this;
 		result.addressWidth = width;
 		return result;

@@ -35,10 +35,10 @@ constexpr bool CommandIsNameCharacter(char character) {
 
 // A name must not be empty and must use name characters only.
 constexpr void CommandRequireName(std::string_view name) {
-	Require<"CommandLine:a name is empty">(!name.empty());
+	Require<"CommandLine: a name is empty">(!name.empty());
 
 	for (char character : name) {
-		Require<"CommandLine:a name has a character outside a-z, 0-9, _ and -">(CommandIsNameCharacter(character));
+		Require<"CommandLine: a name has a character outside a-z, 0-9, _ and -">(CommandIsNameCharacter(character));
 	}
 }
 
@@ -88,7 +88,7 @@ public:
 
 private:
 	constexpr uint16 AddNode(char character) {
-		Require<"CommandLine:the command set has too many names for the builder">(count < Capacity);
+		Require<"CommandLine: the command set has too many names for the builder">(count < Capacity);
 
 		CommandTreeNode node;
 		node.character = character;

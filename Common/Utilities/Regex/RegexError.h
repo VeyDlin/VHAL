@@ -50,61 +50,61 @@ struct RegexFailure {
 template<RegexErrorCode Code, std::size_t Value>
 constexpr void RegexRaise() {
 	if constexpr (Code == RegexErrorCode::unbalancedClose) {
-		RequireValue<"Regex:unbalanced ')'", Value>(false);
+		RequireValue<"Regex: unbalanced ')'", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::unclosedGroup) {
-		RequireValue<"Regex:missing ')'", Value>(false);
+		RequireValue<"Regex: missing ')'", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::unclosedClass) {
-		RequireValue<"Regex:missing ']'", Value>(false);
+		RequireValue<"Regex: missing ']'", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::emptyClass) {
-		RequireValue<"Regex:empty class", Value>(false);
+		RequireValue<"Regex: empty class", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::reversedRange) {
-		RequireValue<"Regex:reversed range", Value>(false);
+		RequireValue<"Regex: reversed range", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::classEscapeRange) {
-		RequireValue<"Regex:a class escape cannot start or end a range", Value>(false);
+		RequireValue<"Regex: a class escape cannot start or end a range", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::nothingToRepeat) {
-		RequireValue<"Regex:nothing to repeat", Value>(false);
+		RequireValue<"Regex: nothing to repeat", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::repeatAbove255) {
-		RequireValue<"Regex:repeat count above 255", Value>(false);
+		RequireValue<"Regex: repeat count above 255", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::repeatMinimumAboveMaximum) {
-		RequireValue<"Regex:repeat minimum above maximum", Value>(false);
+		RequireValue<"Regex: repeat minimum above maximum", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::bareBrace) {
-		RequireValue<"Regex:escape '{' and '}' that are not quantifiers", Value>(false);
+		RequireValue<"Regex: escape '{' and '}' that are not quantifiers", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::bareBracket) {
-		RequireValue<"Regex:escape ']' outside a class", Value>(false);
+		RequireValue<"Regex: escape ']' outside a class", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::unknownEscape) {
-		RequireValue<"Regex:unknown escape", Value>(false);
+		RequireValue<"Regex: unknown escape", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::escapeNul) {
-		RequireValue<"Regex:use \\x00 for NUL", Value>(false);
+		RequireValue<"Regex: use \\x00 for NUL", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::hexEscape) {
-		RequireValue<"Regex:\\x takes two hex digits", Value>(false);
+		RequireValue<"Regex: \\x takes two hex digits", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::trailingBackslash) {
-		RequireValue<"Regex:pattern ends with a backslash", Value>(false);
+		RequireValue<"Regex: pattern ends with a backslash", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::backreference) {
-		RequireValue<"Regex:backreferences are not supported", Value>(false);
+		RequireValue<"Regex: backreferences are not supported", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::lookaround) {
-		RequireValue<"Regex:lookaround is not supported", Value>(false);
+		RequireValue<"Regex: lookaround is not supported", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::namedGroup) {
-		RequireValue<"Regex:named groups are not supported", Value>(false);
+		RequireValue<"Regex: named groups are not supported", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::inlineFlags) {
-		RequireValue<"Regex:inline flags are not supported, use IgnoreCase()", Value>(false);
+		RequireValue<"Regex: inline flags are not supported, use IgnoreCase()", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::unknownGroup) {
-		RequireValue<"Regex:unknown group syntax", Value>(false);
+		RequireValue<"Regex: unknown group syntax", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::wordBoundary) {
-		RequireValue<"Regex:word boundaries are not supported", Value>(false);
+		RequireValue<"Regex: word boundaries are not supported", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::tooManyGroups) {
-		RequireValue<"Regex:more than 15 groups", Value>(false);
+		RequireValue<"Regex: more than 15 groups", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::tooManyParts) {
-		RequireValue<"Regex:pattern has too many parts", Value>(false);
+		RequireValue<"Regex: pattern has too many parts", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::instructionLimit) {
-		RequireValue<"Regex:program is over the instruction limit", Value>(false);
+		RequireValue<"Regex: program is over the instruction limit", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::classLimit) {
-		RequireValue<"Regex:program is over the class limit", Value>(false);
+		RequireValue<"Regex: program is over the class limit", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::plainStack) {
-		RequireValue<"Regex:matching needs more stack than StackLimit allows", Value>(false);
+		RequireValue<"Regex: matching needs more stack than StackLimit allows", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::capturesStack) {
-		RequireValue<"Regex:captures need more stack than StackLimit allows", Value>(false);
+		RequireValue<"Regex: captures need more stack than StackLimit allows", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::writeMismatch) {
-		RequireValue<"Regex:the program fill does not match its count", Value>(false);
+		RequireValue<"Regex: the program fill does not match its count", Value>(false);
 	}
 }
 
@@ -113,7 +113,7 @@ constexpr void RegexRaise() {
 template<std::size_t Needed, std::size_t Limit>
 constexpr void RegexRequirePlainStack() {
 	if constexpr (Needed > Limit) {
-		RequireValue<"Regex:matching needs more stack than StackLimit allows", Needed>(false);
+		RequireValue<"Regex: matching needs more stack than StackLimit allows", Needed>(false);
 	}
 }
 
@@ -122,7 +122,7 @@ constexpr void RegexRequirePlainStack() {
 template<std::size_t Needed, std::size_t Limit>
 constexpr void RegexRequireCapturesStack() {
 	if constexpr (Needed > Limit) {
-		RequireValue<"Regex:captures need more stack than StackLimit allows", Needed>(false);
+		RequireValue<"Regex: captures need more stack than StackLimit allows", Needed>(false);
 	}
 }
 
