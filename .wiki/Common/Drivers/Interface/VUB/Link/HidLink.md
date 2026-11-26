@@ -41,7 +41,7 @@ must be `ReportBytes` long.
 |---|---|---|
 | `SendReport(std::span<const uint8>)` | `Send` | main (`Process`) |
 | `SetOutputDelegate(OutputDelegate)` | `SetReceiver`, the destructor | main. Setting is `busy` while the device is configured; clearing is accepted at any time |
-| `OutputDelegate` (`VSTD::Delegate<void(std::span<const uint8>)>`) | the output reports | interrupt |
+| `OutputDelegate` (`Callback::Delegate<void(std::span<const uint8>)>`) | the output reports | interrupt |
 | `Report()`, with `InputLength(0)` and `OutputLength(0)` | `SetReceiver` | main |
 | `MaxReportLength` (optional) | the bound of `ReportBytes` | compile time |
 

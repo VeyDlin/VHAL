@@ -3,7 +3,7 @@
 #include <Drivers/Interface/USB/Device/USBFunction.h>
 #include <Drivers/Interface/USB/USBProtocol.h>
 #include <System/System.h>
-#include <Utilities/VSTD/utility/Delegate.h>
+#include <Utilities/Callback/Delegate.h>
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -43,22 +43,22 @@ public:
 
 	// Output report, with its report ID byte when the descriptor uses IDs. Called in interrupt context. The span is valid only during
 	// the call.
-	using OutputDelegate = VSTD::Delegate<void(std::span<const uint8> report)>;
+	using OutputDelegate = Callback::Delegate<void(std::span<const uint8> report)>;
 
 
 	// Feature report requested by GET_REPORT(Feature). Fills report, which is exactly the feature report's length, and returns true,
 	// or returns false to stall the request. Called in interrupt context.
-	using FeatureGetDelegate = VSTD::Delegate<bool(uint8 reportId, std::span<uint8> report)>;
+	using FeatureGetDelegate = Callback::Delegate<bool(uint8 reportId, std::span<uint8> report)>;
 
 
 	// Feature report sent by SET_REPORT(Feature). Returns false to stall the request. Called in interrupt context.
-	using FeatureSetDelegate = VSTD::Delegate<bool(std::span<const uint8> report)>;
+	using FeatureSetDelegate = Callback::Delegate<bool(std::span<const uint8> report)>;
 
 
 	// Called when the function is deconfigured (SET_CONFIGURATION 0 or Stop) or the bus resets, after the report queue is cleared. The
 	// application's state that describes what the host has seen (a mouse's pending movement) is dropped here, so it does not reach the
 	// host after the next enumeration. Called in the context of the event: the interrupt, or the critical section of Stop().
-	using ResetDelegate = VSTD::Delegate<void()>;
+	using ResetDelegate = Callback::Delegate<void()>;
 
 
 private:

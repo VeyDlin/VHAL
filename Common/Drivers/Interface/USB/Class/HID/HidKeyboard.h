@@ -1,6 +1,6 @@
 #pragma once
 #include <Drivers/Interface/USB/Class/HID/HidFunction.h>
-#include <Utilities/VSTD/utility/Delegate.h>
+#include <Utilities/Callback/Delegate.h>
 #include <array>
 #include <cstddef>
 #include <span>
@@ -117,7 +117,7 @@ template<std::size_t QueueDepth>
 class HidKeyboard {
 public:
 	// Called in interrupt context with the five LED bits: bit 0 Num Lock, bit 1 Caps Lock, bit 2 Scroll Lock, bit 3 Compose, bit 4 Kana.
-	using LedDelegate = VSTD::Delegate<void(uint8 leds)>;
+	using LedDelegate = Callback::Delegate<void(uint8 leds)>;
 
 
 	static constexpr uint8 LeftControl = 0x01;

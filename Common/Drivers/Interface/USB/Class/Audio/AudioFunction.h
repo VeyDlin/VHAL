@@ -6,7 +6,7 @@
 #include <Drivers/Interface/USB/USBProtocol.h>
 #include <System/System.h>
 #include <Utilities/Buffer/RingBuffer.h>
-#include <Utilities/VSTD/utility/Delegate.h>
+#include <Utilities/Callback/Delegate.h>
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -96,11 +96,11 @@ template<uint16 MicrophoneSamples, uint16 SpeakerSamples>
 class AudioFunction : public USBFunction {
 public:
 	// A stream's alternate setting changed. active is true when the stream starts.
-	using StreamDelegate = VSTD::Delegate<void(USBAudioStream stream, bool active)>;
+	using StreamDelegate = Callback::Delegate<void(USBAudioStream stream, bool active)>;
 	// The volume or the mute of a stream changed. The volume is in 1/256 dB.
-	using FeatureDelegate = VSTD::Delegate<void(USBAudioStream stream, int16 volume, bool muted)>;
+	using FeatureDelegate = Callback::Delegate<void(USBAudioStream stream, int16 volume, bool muted)>;
 	// The sampling rate of a stream changed.
-	using RateDelegate = VSTD::Delegate<void(USBAudioStream stream, uint32 rate)>;
+	using RateDelegate = Callback::Delegate<void(USBAudioStream stream, uint32 rate)>;
 
 
 	// The volume range, in 1/256 dB: -60 dB to 0 dB, one step per dB. GET_RES answers VolumeResolution.

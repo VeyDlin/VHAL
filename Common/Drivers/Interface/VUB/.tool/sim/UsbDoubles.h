@@ -2,7 +2,7 @@
 #include "LinkFaults.h"
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/ResultStatus.h>
-#include <Utilities/VSTD/utility/Delegate.h>
+#include <Utilities/Callback/Delegate.h>
 #include <array>
 #include <cstddef>
 #include <span>
@@ -206,7 +206,7 @@ private:
 template<std::size_t ReportBytes, std::size_t QueueDepth>
 class FakeHid {
 public:
-	using OutputDelegate = VSTD::Delegate<void(std::span<const uint8> report)>;
+	using OutputDelegate = Callback::Delegate<void(std::span<const uint8> report)>;
 
 	// The largest report, as HidFunction::MaxReportLength gives it.
 	static constexpr std::size_t MaxReportLength = ReportBytes;

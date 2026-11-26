@@ -361,7 +361,7 @@ void TestDelegateSetter() {
 	FakeUSB usb;
 	SETTER_TRUE(!usb.onBusReset);
 
-	usb.SetOnBusReset(VSTD::Delegate<void(USBSpeed speed)>::FromRaw(RecordBusResetA));
+	usb.SetOnBusReset(Callback::Delegate<void(USBSpeed speed)>::FromRaw(RecordBusResetA));
 	lastBusReset = '-';
 	usb.onBusReset(static_cast<USBSpeed>(1));
 	SETTER_TRUE(lastBusReset == 'A');
@@ -383,7 +383,7 @@ void TestDelegateSetter() {
 	};
 
 	uint32 entersBefore = simCriticalEnters;
-	usb.SetOnBusReset(VSTD::Delegate<void(USBSpeed speed)>::FromRaw(RecordBusResetB));
+	usb.SetOnBusReset(Callback::Delegate<void(USBSpeed speed)>::FromRaw(RecordBusResetB));
 	simCriticalHook = nullptr;
 
 	SETTER_EQ(simCriticalEnters - entersBefore, 1);

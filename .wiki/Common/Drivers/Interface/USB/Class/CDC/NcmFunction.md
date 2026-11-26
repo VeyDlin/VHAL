@@ -92,8 +92,8 @@ RAM: the buffers take `InNtbSize + OutNtbSize` bytes and `(TxFrames + RxFrames) 
 | `GetMalformedCount(status)` | Thread | NTBs that broke the given `USBNcmNtb16Status` rule |
 | `GetPacketFilter()` | Any | The bitmap of the last SET_ETHERNET_PACKET_FILTER. Stored, not used for filtering |
 | `MacStringIndex()` | Any | The run-time string index of the MAC address, for `USBDevice::SetRuntimeString()` |
-| `SetDataPathStartedHandler()`, `SetDataPathStoppedHandler()` | Thread, before Start | `VSTD::Delegate<void()>`. Started when alternate 1 opens the path; stopped when it closes, if it was open. Both run in interrupt context, so they are short, and they must not call `SendFrame()`, `ReceiveFrame()`, `NextFrameLength()` or other queue API. `busy` once configured |
-| `SetFrameReceivedHandler()` | Thread, before Start | `VSTD::Delegate<void()>`. Called from `Process()` after an NTB delivered at least one frame. `busy` once configured |
+| `SetDataPathStartedHandler()`, `SetDataPathStoppedHandler()` | Thread, before Start | `Callback::Delegate<void()>`. Started when alternate 1 opens the path; stopped when it closes, if it was open. Both run in interrupt context, so they are short, and they must not call `SendFrame()`, `ReceiveFrame()`, `NextFrameLength()` or other queue API. `busy` once configured |
+| `SetFrameReceivedHandler()` | Thread, before Start | `Callback::Delegate<void()>`. Called from `Process()` after an NTB delivered at least one frame. `busy` once configured |
 
 The class requests, on the communication interface. Anything else is stalled, and so is a request with the wrong direction or length:
 

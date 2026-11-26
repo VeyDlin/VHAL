@@ -6,7 +6,7 @@
 #include <Drivers/Interface/USB/Device/USBFunction.h>
 #include <Drivers/Interface/USB/USBProtocol.h>
 #include <System/System.h>
-#include <Utilities/VSTD/utility/Delegate.h>
+#include <Utilities/Callback/Delegate.h>
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -139,9 +139,9 @@ class NcmFunction : public USBFunction {
 public:
 	// Opened and stopped run in interrupt context, when the data path opens (alternate 1) or closes. Stopped runs only when the path was
 	// open. They must be short, and must not call the queue API of this class (see the Context paragraph above).
-	using DataPathDelegate = VSTD::Delegate<void()>;
+	using DataPathDelegate = Callback::Delegate<void()>;
 	// A received NTB delivered at least one frame. It runs in Process(), in thread context.
-	using FrameReceivedDelegate = VSTD::Delegate<void()>;
+	using FrameReceivedDelegate = Callback::Delegate<void()>;
 
 
 	// The counters of the function, all kept in thread context.

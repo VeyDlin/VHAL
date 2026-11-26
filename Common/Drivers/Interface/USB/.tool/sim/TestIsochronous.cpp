@@ -75,9 +75,9 @@ struct IsoEvents {
 
 
 void Attach(SimUSBDeviceAdapter& sim, IsoEvents& events) {
-	sim.onTransferComplete = VSTD::Delegate<void(uint8, uint32)>::Bind<IsoEvents, &IsoEvents::OnTransferComplete>(&events);
-	sim.onError = VSTD::Delegate<void(SimUSBDeviceAdapter::Error)>::Bind<IsoEvents, &IsoEvents::OnError>(&events);
-	sim.onStartOfFrame = VSTD::Delegate<void(uint16)>::Bind<IsoEvents, &IsoEvents::OnStartOfFrame>(&events);
+	sim.onTransferComplete = Callback::Delegate<void(uint8, uint32)>::Bind<IsoEvents, &IsoEvents::OnTransferComplete>(&events);
+	sim.onError = Callback::Delegate<void(SimUSBDeviceAdapter::Error)>::Bind<IsoEvents, &IsoEvents::OnError>(&events);
+	sim.onStartOfFrame = Callback::Delegate<void(uint16)>::Bind<IsoEvents, &IsoEvents::OnStartOfFrame>(&events);
 }
 
 
@@ -137,7 +137,7 @@ struct IsoStream {
 void AttachStream(SimUSBDeviceAdapter& sim, IsoEvents& events, IsoStream& stream) {
 	stream.sim = &sim;
 	stream.events = &events;
-	sim.onTransferComplete = VSTD::Delegate<void(uint8, uint32)>::Bind<IsoStream, &IsoStream::OnTransferComplete>(&stream);
+	sim.onTransferComplete = Callback::Delegate<void(uint8, uint32)>::Bind<IsoStream, &IsoStream::OnTransferComplete>(&stream);
 }
 
 

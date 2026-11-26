@@ -5,7 +5,7 @@
 #include <Drivers/Interface/USB/USBProtocol.h>
 #include <System/System.h>
 #include <Utilities/Buffer/RingBuffer.h>
-#include <Utilities/VSTD/utility/Delegate.h>
+#include <Utilities/Callback/Delegate.h>
 #include <array>
 #include <cstddef>
 #include <span>
@@ -88,11 +88,11 @@ public:
 	static constexpr uint16 PacketsPerTransfer = PacketSize / 4;
 
 	// Called with each received event, in interrupt context. The packet is valid only during the call.
-	using EventHandler = VSTD::Delegate<void(const USBMidiPacket& packet)>;
+	using EventHandler = Callback::Delegate<void(const USBMidiPacket& packet)>;
 
 	// Called with the MIDI bytes of each received SysEx packet, in interrupt context. The span is valid only during the call.
 	// A packet carries one to three bytes; the F0 and F7 bytes of a message arrive as part of the stream.
-	using SysExHandler = VSTD::Delegate<void(uint8 cable, std::span<const uint8> bytes)>;
+	using SysExHandler = Callback::Delegate<void(uint8 cable, std::span<const uint8> bytes)>;
 
 
 private:

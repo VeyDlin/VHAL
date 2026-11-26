@@ -1,6 +1,6 @@
 #pragma once
 #include <Drivers/Interface/USB/Class/Vendor/VendorBulkFunctionBase.h>
-#include <Utilities/VSTD/utility/Delegate.h>
+#include <Utilities/Callback/Delegate.h>
 #include <array>
 #include <span>
 
@@ -48,11 +48,11 @@ public:
 	// whose protocol needs a terminator sends a short packet itself, as its last bytes.
 	// A delegate, not std::function: it holds a function pointer and a context pointer, so it never allocates. The context is the
 	// application's object, which must outlive the function.
-	using Producer = VSTD::Delegate<size_t(std::span<uint8> packets)>;
+	using Producer = Callback::Delegate<size_t(std::span<uint8> packets)>;
 
 
 	// Takes the bytes of one received OUT packet (1 to 64 bytes). The span is valid only during the call. Same delegate as the producer.
-	using Consumer = VSTD::Delegate<void(std::span<const uint8> packets)>;
+	using Consumer = Callback::Delegate<void(std::span<const uint8> packets)>;
 
 
 	static constexpr size_t TransferSize = static_cast<size_t>(PacketsPerTransfer) * PacketSize;
