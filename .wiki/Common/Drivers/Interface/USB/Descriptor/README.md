@@ -291,7 +291,7 @@ using Usb = USBDescriptors<[] {
 GCC 15 reports (the first line of the diagnostic):
 
 ```text
-error: call to non-'constexpr' function 'void CompileTimeError() [with TextLiteral<...auto...> Message = TextLiteral<56>{"USB: bMaxPower counts 2 mA steps, so the value is even"}]'
+error: call to non-'constexpr' function 'void CompileTimeError() [with TextLiteral<...auto...> Message = TextLiteral<55>{"USB: bMaxPower counts 2 mA steps, so the value is even"}]'
 ```
 
 The lines after it trace the instantiations back to the chain, and point at the `MaxPowerMilliamps(101)` call. The message is the text the rule gives, prefixed with `USB: `, so the diagnostic names the rule that failed. Other rules give their own message, such as `"USB: VendorId is required"`, `"USB: an endpoint number is above EndpointNumberLimit"` or `"USB: MsOs20VendorCode is required when a function asks for WinUSB"`. Only GCC has been checked this way.
