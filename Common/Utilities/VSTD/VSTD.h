@@ -16,5 +16,4 @@
 #include "utility/Variant.h"
 #include "utility/UniquePtr.h"
 #include "utility/Function.h"
-#include "utility/Delegate.h"
 #include "utility/SharedPtr.h"

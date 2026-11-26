@@ -1,7 +1,7 @@
 #pragma once
 #include "IAdapter.h"
 #include <Adapter/Utilities/USBTypes.h>
-#include <Utilities/VSTD/utility/Delegate.h>
+#include <Utilities/Callback/Delegate.h>
 #include <span>
 
 #define VHAL_USB_DEVICE_ADAPTER
@@ -128,31 +128,31 @@ public:
 
 
 	// Events. Assign them before Connect(). They run in interrupt context, so a handler must be short and must not block
-	// or allocate. A delegate is a function pointer with a context, made with VSTD::Delegate::Bind() on a member function; a
+	// or allocate. A delegate is a function pointer with a context, made with Callback::Delegate::Bind() on a member function; a
 	// lambda with captures does not fit. An empty delegate is skipped. To replace one while its interrupt may run, use the
 	// SetOn... setter of that event.
-	VSTD::Delegate<void(USBSpeed speed)> onBusReset;
+	Callback::Delegate<void(USBSpeed speed)> onBusReset;
 
 
-	VSTD::Delegate<void(const USBSetupBytes& setup)> onSetup;
+	Callback::Delegate<void(const USBSetupBytes& setup)> onSetup;
 
 
 	// A transfer finished: byteCount is the bytes moved (sent for IN, stored for OUT, 0 for a zero-length packet). It fires
 	// after the hardware has finished the transfer, so the transfer is no longer in flight inside the callback, and the
 	// callback may arm the next transfer in the same direction. onError for the same transfer fires before it.
-	VSTD::Delegate<void(uint8 address, uint32 byteCount)> onTransferComplete;
+	Callback::Delegate<void(uint8 address, uint32 byteCount)> onTransferComplete;
 
 
-	VSTD::Delegate<void()> onSuspend;
+	Callback::Delegate<void()> onSuspend;
 
 
-	VSTD::Delegate<void()> onResume;
+	Callback::Delegate<void()> onResume;
 
 
-	VSTD::Delegate<void(uint16 frameNumber)> onStartOfFrame;
+	Callback::Delegate<void(uint16 frameNumber)> onStartOfFrame;
 
 
-	VSTD::Delegate<void(Error error)> onError;
+	Callback::Delegate<void(Error error)> onError;
 
 
 protected:
@@ -161,7 +161,7 @@ protected:
 
 public:
 	// Replaces onBusReset while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
-	void SetOnBusReset(VSTD::Delegate<void(USBSpeed speed)> handler) {
+	void SetOnBusReset(Callback::Delegate<void(USBSpeed speed)> handler) {
 		System::CriticalSection(true);
 		onBusReset = handler;
 		System::CriticalSection(false);
@@ -169,7 +169,7 @@ public:
 
 
 	// Replaces onSetup while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
-	void SetOnSetup(VSTD::Delegate<void(const USBSetupBytes& setup)> handler) {
+	void SetOnSetup(Callback::Delegate<void(const USBSetupBytes& setup)> handler) {
 		System::CriticalSection(true);
 		onSetup = handler;
 		System::CriticalSection(false);
@@ -177,7 +177,7 @@ public:
 
 
 	// Replaces onTransferComplete while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
-	void SetOnTransferComplete(VSTD::Delegate<void(uint8 address, uint32 byteCount)> handler) {
+	void SetOnTransferComplete(Callback::Delegate<void(uint8 address, uint32 byteCount)> handler) {
 		System::CriticalSection(true);
 		onTransferComplete = handler;
 		System::CriticalSection(false);
@@ -185,7 +185,7 @@ public:
 
 
 	// Replaces onSuspend while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
-	void SetOnSuspend(VSTD::Delegate<void()> handler) {
+	void SetOnSuspend(Callback::Delegate<void()> handler) {
 		System::CriticalSection(true);
 		onSuspend = handler;
 		System::CriticalSection(false);
@@ -193,7 +193,7 @@ public:
 
 
 	// Replaces onResume while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
-	void SetOnResume(VSTD::Delegate<void()> handler) {
+	void SetOnResume(Callback::Delegate<void()> handler) {
 		System::CriticalSection(true);
 		onResume = handler;
 		System::CriticalSection(false);
@@ -201,7 +201,7 @@ public:
 
 
 	// Replaces onStartOfFrame while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
-	void SetOnStartOfFrame(VSTD::Delegate<void(uint16 frameNumber)> handler) {
+	void SetOnStartOfFrame(Callback::Delegate<void(uint16 frameNumber)> handler) {
 		System::CriticalSection(true);
 		onStartOfFrame = handler;
 		System::CriticalSection(false);
@@ -209,7 +209,7 @@ public:
 
 
 	// Replaces onError while its interrupt may run. See "Changing a callback while its interrupt may run" in the wiki.
-	void SetOnError(VSTD::Delegate<void(Error error)> handler) {
+	void SetOnError(Callback::Delegate<void(Error error)> handler) {
 		System::CriticalSection(true);
 		onError = handler;
 		System::CriticalSection(false);

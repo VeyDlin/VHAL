@@ -126,7 +126,7 @@ Output reports arrive from the OUT endpoint (a packet of another length than the
 | `FeatureSetDelegate` | `bool(span report)` | SET_REPORT feature. It returns false to stall |
 | `ResetDelegate` | `void()` | The function is deconfigured or the bus resets, after the queue is cleared. It runs in the context of the event (interrupt, or the section of `Stop()`), so it only touches state that the thread side guards with a section |
 
-The delegates are `VSTD::Delegate`s, so they never allocate. Set them with `SetOutputDelegate()`, `SetFeatureGetDelegate()`, `SetFeatureSetDelegate()` and `SetResetDelegate()`. Setting a delegate returns `busy` while the function is configured. Clearing one (passing an empty delegate) is accepted at any time, inside the function's section, so the owner of a delegate can take it back when it is destroyed while the device runs. Once cleared, the delegate is not called.
+The delegates are `Callback::Delegate`s, so they never allocate. Set them with `SetOutputDelegate()`, `SetFeatureGetDelegate()`, `SetFeatureSetDelegate()` and `SetResetDelegate()`. Setting a delegate returns `busy` while the function is configured. Clearing one (passing an empty delegate) is accepted at any time, inside the function's section, so the owner of a delegate can take it back when it is destroyed while the device runs. Once cleared, the delegate is not called.
 
 ## Keyboard
 

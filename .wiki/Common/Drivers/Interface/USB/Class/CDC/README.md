@@ -98,7 +98,7 @@ Control lines and line coding:
 | `GetLineCoding()` | The line coding the host last set, or 115200 8N1 before it sets one. A bus reset returns it to the default |
 | `SetSerialState(bits)` | Sets the UART state bitmap (bit 0 RX carrier, bit 1 TX carrier, bit 2 break, bit 3 ring, bit 4 framing, bit 5 parity, bit 6 overrun). `Process()` sends it |
 
-The handlers the application sets. Each is a `VSTD::Delegate`, so it never allocates, and each runs in interrupt context when the host's request arrives, so it must be short. Set them before the host configures the device. Once the host has configured it, they return `busy`.
+The handlers the application sets. Each is a `Callback::Delegate`, so it never allocates, and each runs in interrupt context when the host's request arrives, so it must be short. Set them before the host configures the device. Once the host has configured it, they return `busy`.
 
 | Setter | Delegate | Called for |
 |--------|----------|------------|
