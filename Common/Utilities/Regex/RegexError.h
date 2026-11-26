@@ -1,12 +1,12 @@
 #pragma once
 #include <Utilities/DataTypes.h>
-#include <Utilities/CompileTime/TextLiteral.h>
+#include <Utilities/CompileTime/Require.h>
 #include <cstddef>
 
 
 // The errors of the pattern parser and of the matching checks. The parser stores the first failure as a code and a value. The value is
-// an offset in the pattern, or a count, or a number of bytes. RegexRaise turns the code into a call to RegexError<Message, Value>, which
-// is declared and never defined, so the compiler prints the message and the value in the error.
+// an offset in the pattern, or a count, or a number of bytes. RegexRaise turns the code into a RequireValue check, which fails with the
+// message and the value in the error.
 enum class RegexErrorCode : uint8 {
 	none,
 	unbalancedClose,
@@ -46,70 +46,65 @@ struct RegexFailure {
 };
 
 
-// Declared, never defined. A call from a constant expression is ill-formed, and the compiler prints the message and the value.
-template<TextLiteral Message, std::size_t Value>
-void RegexError();
-
-
-// Calls RegexError with the message of a code. A code of none does nothing.
+// Fails the check with the message of a code. A code of none does nothing.
 template<RegexErrorCode Code, std::size_t Value>
 constexpr void RegexRaise() {
 	if constexpr (Code == RegexErrorCode::unbalancedClose) {
-		RegexError<TextLiteral{"unbalanced ')'"}, Value>();
+		RequireValue<"Regex:unbalanced ')'", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::unclosedGroup) {
-		RegexError<TextLiteral{"missing ')'"}, Value>();
+		RequireValue<"Regex:missing ')'", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::unclosedClass) {
-		RegexError<TextLiteral{"missing ']'"}, Value>();
+		RequireValue<"Regex:missing ']'", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::emptyClass) {
-		RegexError<TextLiteral{"empty class"}, Value>();
+		RequireValue<"Regex:empty class", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::reversedRange) {
-		RegexError<TextLiteral{"reversed range"}, Value>();
+		RequireValue<"Regex:reversed range", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::classEscapeRange) {
-		RegexError<TextLiteral{"a class escape cannot start or end a range"}, Value>();
+		RequireValue<"Regex:a class escape cannot start or end a range", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::nothingToRepeat) {
-		RegexError<TextLiteral{"nothing to repeat"}, Value>();
+		RequireValue<"Regex:nothing to repeat", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::repeatAbove255) {
-		RegexError<TextLiteral{"repeat count above 255"}, Value>();
+		RequireValue<"Regex:repeat count above 255", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::repeatMinimumAboveMaximum) {
-		RegexError<TextLiteral{"repeat minimum above maximum"}, Value>();
+		RequireValue<"Regex:repeat minimum above maximum", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::bareBrace) {
-		RegexError<TextLiteral{"escape '{' and '}' that are not quantifiers"}, Value>();
+		RequireValue<"Regex:escape '{' and '}' that are not quantifiers", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::bareBracket) {
-		RegexError<TextLiteral{"escape ']' outside a class"}, Value>();
+		RequireValue<"Regex:escape ']' outside a class", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::unknownEscape) {
-		RegexError<TextLiteral{"unknown escape"}, Value>();
+		RequireValue<"Regex:unknown escape", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::escapeNul) {
-		RegexError<TextLiteral{"use \\x00 for NUL"}, Value>();
+		RequireValue<"Regex:use \\x00 for NUL", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::hexEscape) {
-		RegexError<TextLiteral{"\\x takes two hex digits"}, Value>();
+		RequireValue<"Regex:\\x takes two hex digits", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::trailingBackslash) {
-		RegexError<TextLiteral{"pattern ends with a backslash"}, Value>();
+		RequireValue<"Regex:pattern ends with a backslash", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::backreference) {
-		RegexError<TextLiteral{"backreferences are not supported"}, Value>();
+		RequireValue<"Regex:backreferences are not supported", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::lookaround) {
-		RegexError<TextLiteral{"lookaround is not supported"}, Value>();
+		RequireValue<"Regex:lookaround is not supported", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::namedGroup) {
-		RegexError<TextLiteral{"named groups are not supported"}, Value>();
+		RequireValue<"Regex:named groups are not supported", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::inlineFlags) {
-		RegexError<TextLiteral{"inline flags are not supported, use IgnoreCase()"}, Value>();
+		RequireValue<"Regex:inline flags are not supported, use IgnoreCase()", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::unknownGroup) {
-		RegexError<TextLiteral{"unknown group syntax"}, Value>();
+		RequireValue<"Regex:unknown group syntax", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::wordBoundary) {
-		RegexError<TextLiteral{"word boundaries are not supported"}, Value>();
+		RequireValue<"Regex:word boundaries are not supported", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::tooManyGroups) {
-		RegexError<TextLiteral{"more than 15 groups"}, Value>();
+		RequireValue<"Regex:more than 15 groups", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::tooManyParts) {
-		RegexError<TextLiteral{"pattern has too many parts"}, Value>();
+		RequireValue<"Regex:pattern has too many parts", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::instructionLimit) {
-		RegexError<TextLiteral{"program is over the instruction limit"}, Value>();
+		RequireValue<"Regex:program is over the instruction limit", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::classLimit) {
-		RegexError<TextLiteral{"program is over the class limit"}, Value>();
+		RequireValue<"Regex:program is over the class limit", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::plainStack) {
-		RegexError<TextLiteral{"matching needs more stack than StackLimit allows"}, Value>();
+		RequireValue<"Regex:matching needs more stack than StackLimit allows", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::capturesStack) {
-		RegexError<TextLiteral{"captures need more stack than StackLimit allows"}, Value>();
+		RequireValue<"Regex:captures need more stack than StackLimit allows", Value>(false);
 	} else if constexpr (Code == RegexErrorCode::writeMismatch) {
-		RegexError<TextLiteral{"the program fill does not match its count"}, Value>();
+		RequireValue<"Regex:the program fill does not match its count", Value>(false);
 	}
 }
 
@@ -118,7 +113,7 @@ constexpr void RegexRaise() {
 template<std::size_t Needed, std::size_t Limit>
 constexpr void RegexRequirePlainStack() {
 	if constexpr (Needed > Limit) {
-		RegexError<TextLiteral{"matching needs more stack than StackLimit allows"}, Needed>();
+		RequireValue<"Regex:matching needs more stack than StackLimit allows", Needed>(false);
 	}
 }
 
@@ -127,7 +122,7 @@ constexpr void RegexRequirePlainStack() {
 template<std::size_t Needed, std::size_t Limit>
 constexpr void RegexRequireCapturesStack() {
 	if constexpr (Needed > Limit) {
-		RegexError<TextLiteral{"captures need more stack than StackLimit allows"}, Needed>();
+		RequireValue<"Regex:captures need more stack than StackLimit allows", Needed>(false);
 	}
 }
 
