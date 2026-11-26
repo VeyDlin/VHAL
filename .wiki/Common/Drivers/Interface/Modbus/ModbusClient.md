@@ -107,7 +107,7 @@ must have the same address and value or quantity (`invalidData`).
 ## Sizes
 
 The numbers are the output of `Common/Drivers/Interface/Modbus/.tool/size/size.sh`, row `ClientHolding` (the `.cpp` in that folder). The
-script builds it with `arm-none-eabi-g++` 15.2 for a Cortex-M4, `-std=gnu++20 -mcpu=cortex-m4 -mthumb -fno-rtti -fno-exceptions -Os`.
+script builds it with `arm-none-eabi-g++` 15.2 for a Cortex-M4, `-std=gnu++23 -mcpu=cortex-m4 -mthumb -fno-rtti -fno-exceptions -Os`.
 The probe transport is declared and not defined, so the UART and the timing are not in these numbers. The text includes the 512-byte
 CRC table once.
 

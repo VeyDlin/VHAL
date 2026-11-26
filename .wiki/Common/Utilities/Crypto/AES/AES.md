@@ -1,6 +1,6 @@
 # AES
 
-A C++20 template-based AES (Advanced Encryption Standard) implementation supporting AES-128, AES-192, and AES-256 in ECB, CBC, and CTR modes.
+A C++23 template-based AES (Advanced Encryption Standard) implementation supporting AES-128, AES-192, and AES-256 in ECB, CBC, and CTR modes.
 
 ## Table of Contents
 

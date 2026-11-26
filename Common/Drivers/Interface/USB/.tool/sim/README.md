@@ -7,7 +7,7 @@ Documentation: [`.wiki/Common/Drivers/Interface/USB/.tool/sim/README.md`](../../
 
 ## Run
 
-From this folder, with a g++ that supports C++20 (tested with g++ 15.2):
+From this folder, with a g++ that supports C++23 (tested with g++ 15.2):
 
 ```
 sh run.sh

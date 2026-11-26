@@ -5,11 +5,11 @@ hardware and enforces the rules of the `USBDeviceAdapter` contract, and a script
 
 ## Run
 
-From this folder, with a g++ that supports C++20 (tested with g++ 15.2):
+From this folder, with a g++ that supports C++23 (tested with g++ 15.2):
 
     sh run.sh
 
-Each `Test*.cpp` is built into its own executable with `-std=c++20 -Wall -Wextra -Werror` and run. The script exits
+Each `Test*.cpp` is built into its own executable with `-std=c++23 -Wall -Wextra -Werror` and run. The script exits
 non-zero when a test fails to build or any check fails. It works in Git Bash on Windows and on Linux or macOS. The
 `CXX` variable selects another compiler. Build output goes to a temporary directory outside the repository.
 

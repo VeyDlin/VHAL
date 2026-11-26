@@ -27,7 +27,7 @@ as a question about the check as well as about the board.
 
 ## Build
 
-Windows, MinGW-w64 g++ 15 (C++20), CMake and Ninja. Only Win32 APIs and the libraries that Windows ships are used: SetupAPI,
+Windows, MinGW-w64 g++ 15 (C++23), CMake and Ninja. Only Win32 APIs and the libraries that Windows ships are used: SetupAPI,
 the configuration manager, WinUSB, Raw Input, the IP Helper (adapter and neighbour tables, ICMP) and the audio endpoints (the MMDevice
 API, Core Audio, through COM). There is no third-party code.
 

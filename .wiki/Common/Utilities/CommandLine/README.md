@@ -422,7 +422,7 @@ There is no line buffer in the core. `LineEditing` adds one, of its size. Flash 
 
 ## Tests and checks
 
-The sim tests are in `Common/Utilities/CommandLine/.tool/sim`, run by `run.sh` with `-std=c++20 -Wall -Wextra -Werror`:
+The sim tests are in `Common/Utilities/CommandLine/.tool/sim`, run by `run.sh` with `-std=c++23 -Wall -Wextra -Werror`:
 
 - `TestCommandTree.cpp`, `TestCommandArguments.cpp`, `TestCommandCalls.cpp`: the declarations, the tables, the readers and the handler calls;
 - `TestCommandLine.cpp`: the console, every event and range, the line ends, the quotes, Ctrl+C, the terminal and Backspace at every position of each line;

@@ -231,7 +231,7 @@ The extension points are marked in the code: the `AtIsClientModule` specializati
 
 ## Tests
 
-`Common/Utilities/AT/.tool/sim/run.sh` builds and runs everything on the host (`g++ -std=c++20 -Wall -Wextra -Werror`), checks the rules with the builder snippets, and compiles the sets for Cortex-M4 with `arm-none-eabi-g++` (set `ARM_CXX`).
+`Common/Utilities/AT/.tool/sim/run.sh` builds and runs everything on the host (`g++ -std=c++23 -Wall -Wextra -Werror`), checks the rules with the builder snippets, and compiles the sets for Cortex-M4 with `arm-none-eabi-g++` (set `ARM_CXX`).
 
 - `TestAtDescription.cpp`, `TestAtValue.cpp`: the description and the value grammar.
 - `TestAtServer.cpp`: the server, every form and argument type, chaining, the dialect, the input line end with the registers, CME with `CmeErrors(mode)` and `CmeCommand()`, and the URC queue.
