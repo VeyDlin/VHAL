@@ -2,7 +2,7 @@
 #include <Adapter/SocketAdapter.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
-#include <Utilities/VSTD/memory/IAllocator.h>
+#include <Utilities/Memory/IAllocator.h>
 #include <Utilities/VSTD/utility/Function.h>
 #include "HttpByteBuffer.h"
 #include <cstddef>
@@ -121,7 +121,7 @@ private:
 	uint32 trailerBytes = 0;
 
 public:
-	HttpClient(SocketAdapter& adapter, VSTD::IAllocator& memory)
+	HttpClient(SocketAdapter& adapter, Memory::IAllocator& memory)
 		: socket(adapter),
 		  head(memory) {
 	}

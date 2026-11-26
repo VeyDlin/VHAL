@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace VSTD {
+namespace Memory {
 
 // One slot of the entry table. The generation changes each time the slot is brought into use, so a Handle taken
 // from an earlier use of the slot does not match it. The generation is 32 bits. A slot brought into use 2^32 times

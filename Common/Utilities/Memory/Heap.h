@@ -4,9 +4,9 @@
 #include <cstddef>
 #include <string.h>
 #include <new>
-#include "IAllocator.h"
+#include <Utilities/Memory/IAllocator.h>
 
-namespace VSTD {
+namespace Memory {
 
 struct NoDefrag {
     template <typename Heap>

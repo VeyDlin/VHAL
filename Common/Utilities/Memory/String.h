@@ -1,11 +1,11 @@
 #pragma once
 
-#include "Vector.h"
+#include <Utilities/Memory/Vector.h>
 #include <cstdint>
 #include <string.h>
 #include <string_view>
 
-namespace VSTD {
+namespace Memory {
 
 // Operations that can allocate return false when the allocator refuses memory, and then leave the string unchanged
 // (same text, still terminated). Constructors and operator+ cannot return a status: they yield an empty string

@@ -1,16 +1,16 @@
 #include <array>
 #include <cstdint>
 #include <utility>
-#include <Utilities/VSTD/container/Vector.h>
-#include <Utilities/VSTD/memory/Heap.h>
+#include <Utilities/Memory/Heap.h>
+#include <Utilities/Memory/Vector.h>
 #include <Utilities/VSTD/utility/Function.h>
-#include "SimAllocator.h"
-#include "SimCheck.h"
+#include <Utilities/Memory/.tool/sim/SimAllocator.h>
+#include <Utilities/Memory/.tool/sim/SimCheck.h>
 
 namespace {
 
 // Captures 64 bytes, more than the small buffer of Function, so the callable is stored in an allocator block.
-VSTD::Function<int()> MakeBigCallable(VSTD::IAllocator* alloc) {
+VSTD::Function<int()> MakeBigCallable(Memory::IAllocator* alloc) {
     std::array<int, 16> values{};
     values[15] = 7;
     return VSTD::Function<int()>(alloc, [values]() { return values[15]; });
@@ -20,8 +20,8 @@ VSTD::Function<int()> MakeBigCallable(VSTD::IAllocator* alloc) {
 void InjectedAllocatorServesTheBlock() {
     static uint8_t bufferA[1024];
     static uint8_t bufferB[1024];
-    VSTD::Heap<> heapA(bufferA, sizeof(bufferA));
-    VSTD::Heap<> heapB(bufferB, sizeof(bufferB));
+    Memory::Heap<> heapA(bufferA, sizeof(bufferA));
+    Memory::Heap<> heapB(bufferB, sizeof(bufferB));
     SimRecordingAllocator recordA(heapA);
     SimRecordingAllocator recordB(heapB);
     VSTD::SetDefaultHeap(&recordB);
@@ -44,8 +44,8 @@ void InjectedAllocatorServesTheBlock() {
 void BlockIsFreedToTheAllocatorThatMadeIt() {
     static uint8_t bufferA[1024];
     static uint8_t bufferB[1024];
-    VSTD::Heap<> heapA(bufferA, sizeof(bufferA));
-    VSTD::Heap<> heapB(bufferB, sizeof(bufferB));
+    Memory::Heap<> heapA(bufferA, sizeof(bufferA));
+    Memory::Heap<> heapB(bufferB, sizeof(bufferB));
     SimRecordingAllocator recordA(heapA);
     SimRecordingAllocator recordB(heapB);
 
@@ -68,7 +68,7 @@ void BlockIsFreedToTheAllocatorThatMadeIt() {
 // When the allocator refuses the block, the Function is empty and the caller can see it.
 void RefusedAllocationIsVisible() {
     static uint8_t tinyBuffer[64];
-    VSTD::Heap<> tiny(tinyBuffer, sizeof(tinyBuffer));
+    Memory::Heap<> tiny(tinyBuffer, sizeof(tinyBuffer));
 
     VSTD::Function<int()> f = MakeBigCallable(&tiny);
     SIM_CHECK(!static_cast<bool>(f));
@@ -100,11 +100,11 @@ void SmallCallableMoves() {
 // Vector growth copies the elements' bytes to a new block. Every callable must still run afterwards.
 void CallablesSurviveVectorGrowth() {
     static uint8_t buffer[8192];
-    VSTD::Heap<> heap(buffer, sizeof(buffer));
+    Memory::Heap<> heap(buffer, sizeof(buffer));
     VSTD::SetDefaultHeap(&heap);
 
     {
-        VSTD::Vector<VSTD::Function<int()>> v;
+        Memory::Vector<VSTD::Function<int()>> v(&heap);
         for (int i = 0; i < 9; i++) {
             SIM_CHECK(v.PushBack(VSTD::Function<int()>([i]() { return i * 10; })));
         }
@@ -126,14 +126,14 @@ void CallablesSurviveVectorGrowth() {
 // block, so the heap has less used space afterwards.
 void HeapStoredCallableSurvivesDefragment() {
     static uint8_t buffer[1024];
-    VSTD::Heap<VSTD::IncrementalDefrag<4>> heap(buffer, sizeof(buffer));
+    Memory::Heap<Memory::IncrementalDefrag<4>> heap(buffer, sizeof(buffer));
 
-    VSTD::Handle front = heap.Allocate(64);
+    Memory::Handle front = heap.Allocate(64);
     std::array<int, 16> values{};
     values[15] = 11;
     VSTD::Function<int()> f(&heap, [values]() { return values[15]; });
     SIM_CHECK(static_cast<bool>(f));
-    VSTD::Handle back = heap.Allocate(64);
+    Memory::Handle back = heap.Allocate(64);
     SIM_CHECK(back.IsValid());
 
     heap.Deallocate(front);

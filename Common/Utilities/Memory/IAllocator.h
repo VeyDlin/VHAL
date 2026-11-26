@@ -1,8 +1,8 @@
 #pragma once
 
-#include "Handle.h"
+#include <Utilities/Memory/Handle.h>
 
-namespace VSTD {
+namespace Memory {
 
 // Type-erased allocator interface so containers can work
 // with any Heap<DefragPolicy, LockPolicy> instantiation.

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "../memory/Handle.h"
-#include "../memory/IAllocator.h"
-#include "../memory/DefaultHeap.h"
+#include <Utilities/Memory/Handle.h>
+#include <Utilities/Memory/IAllocator.h>
+#include <Utilities/VSTD/memory/DefaultHeap.h>
 #include <cstddef>
 #include <string.h>
 #include <new>
@@ -43,8 +43,8 @@ private:
     alignas(std::max_align_t) unsigned char sbo_[SboSize];
     bool hasCallable_ = false;
     bool usesHeap_ = false;
-    Handle heapHandle_;
-    IAllocator* allocator_ = nullptr;
+    Memory::Handle heapHandle_;
+    Memory::IAllocator* allocator_ = nullptr;
 
 public:
     Function() = default;
@@ -59,7 +59,7 @@ public:
     // Uses alloc for a callable that does not fit in the small buffer. The block is freed to alloc.
     template<typename F, typename = std::enable_if_t<
         !std::is_same_v<std::decay_t<F>, Function>>>
-    Function(IAllocator* alloc, F&& f) {
+    Function(Memory::IAllocator* alloc, F&& f) {
         Store(alloc, static_cast<F&&>(f));
     }
 
@@ -105,7 +105,7 @@ public:
 
 private:
     template<typename F>
-    void Store(IAllocator* alloc, F&& f) {
+    void Store(Memory::IAllocator* alloc, F&& f) {
         using Decay = std::decay_t<F>;
         if constexpr (sizeof(Callable<Decay>) <= SboSize) {
             static_assert(alignof(Callable<Decay>) <= alignof(std::max_align_t),
@@ -117,12 +117,12 @@ private:
             // Heap block data is aligned to a pointer, so an over-aligned callable cannot be placed there.
             static_assert(alignof(Callable<Decay>) <= alignof(void*),
                 "the callable is over-aligned for a heap block");
-            IAllocator* target = alloc != nullptr ? alloc : GetDefaultHeap();
+            Memory::IAllocator* target = alloc != nullptr ? alloc : GetDefaultHeap();
             if (target == nullptr) {
                 return;
             }
 
-            Handle block = target->Allocate(sizeof(Callable<Decay>));
+            Memory::Handle block = target->Allocate(sizeof(Callable<Decay>));
             if (!block.IsValid()) {
                 return;
             }
@@ -150,7 +150,7 @@ private:
 
         other.hasCallable_ = false;
         other.usesHeap_ = false;
-        other.heapHandle_ = Handle{};
+        other.heapHandle_ = Memory::Handle{};
         other.allocator_ = nullptr;
     }
 
@@ -181,7 +181,7 @@ private:
 
         hasCallable_ = false;
         usesHeap_ = false;
-        heapHandle_ = Handle{};
+        heapHandle_ = Memory::Handle{};
         allocator_ = nullptr;
     }
 };

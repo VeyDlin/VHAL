@@ -3,9 +3,9 @@
 #include <cstdint>
 #include <cstddef>
 #include <new>
-#include "IAllocator.h"
+#include <Utilities/Memory/IAllocator.h>
 
-namespace VSTD {
+namespace Memory {
 
 // BlockSize is the minimum usable size of a block. Blocks are laid out at a stride
 // rounded up to pointer alignment so the free list can live inside every free block.

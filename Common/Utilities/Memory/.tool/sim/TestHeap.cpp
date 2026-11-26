@@ -2,16 +2,16 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
-#include <Utilities/VSTD/memory/Heap.h>
+#include <Utilities/Memory/Heap.h>
 #include "SimCheck.h"
 
 namespace {
 
 // Takes 64-byte blocks until the heap refuses one. Returns how many were taken.
-std::size_t FillWithBlocks(VSTD::Heap<>& heap, VSTD::Handle* blocks, std::size_t maxBlocks) {
+std::size_t FillWithBlocks(Memory::Heap<>& heap, Memory::Handle* blocks, std::size_t maxBlocks) {
     std::size_t count = 0;
     while (count < maxBlocks) {
-        VSTD::Handle block = heap.Allocate(64);
+        Memory::Handle block = heap.Allocate(64);
         if (!block.IsValid()) {
             break;
         }
@@ -24,42 +24,42 @@ std::size_t FillWithBlocks(VSTD::Heap<>& heap, VSTD::Handle* blocks, std::size_t
 // Two adjacent free blocks merge when they are freed, so a request for their combined size succeeds without Defragment().
 void AdjacentFreeBlocksMergeOnFree() {
     static uint8_t buffer[1024];
-    VSTD::Heap<> heap(buffer, sizeof(buffer));
-    VSTD::Handle blocks[32];
+    Memory::Heap<> heap(buffer, sizeof(buffer));
+    Memory::Handle blocks[32];
     std::size_t count = FillWithBlocks(heap, blocks, 32);
     SIM_CHECK(count >= 4);
 
-    VSTD::Handle first = blocks[1];
-    VSTD::Handle second = blocks[2];
+    Memory::Handle first = blocks[1];
+    Memory::Handle second = blocks[2];
     heap.Deallocate(first);
     heap.Deallocate(second);
 
-    VSTD::Handle merged = heap.Allocate(120);
+    Memory::Handle merged = heap.Allocate(120);
     SIM_CHECK(merged.IsValid());
 }
 
 // A free block at the end of the used region merges with the free block before it, and the merged space is reused.
 void FreeTailBlocksMergeOnFree() {
     static uint8_t buffer[1024];
-    VSTD::Heap<> heap(buffer, sizeof(buffer));
-    VSTD::Handle blocks[32];
+    Memory::Heap<> heap(buffer, sizeof(buffer));
+    Memory::Handle blocks[32];
     std::size_t count = FillWithBlocks(heap, blocks, 32);
     SIM_CHECK(count >= 4);
 
-    VSTD::Handle penultimate = blocks[count - 2];
-    VSTD::Handle last = blocks[count - 1];
+    Memory::Handle penultimate = blocks[count - 2];
+    Memory::Handle last = blocks[count - 1];
     heap.Deallocate(penultimate);
     heap.Deallocate(last);
 
-    VSTD::Handle merged = heap.Allocate(120);
+    Memory::Handle merged = heap.Allocate(120);
     SIM_CHECK(merged.IsValid());
 }
 
 // Freeing every block in any order leaves the whole data region free, so one large block fits again.
 void FreeEverythingInAnyOrderFreesTheRegion() {
     static uint8_t buffer[1024];
-    VSTD::Heap<> heap(buffer, sizeof(buffer));
-    VSTD::Handle blocks[32];
+    Memory::Heap<> heap(buffer, sizeof(buffer));
+    Memory::Handle blocks[32];
     std::size_t count = FillWithBlocks(heap, blocks, 32);
 
     for (std::size_t i = 0; i < count; i += 2) {
@@ -70,18 +70,18 @@ void FreeEverythingInAnyOrderFreesTheRegion() {
     }
     SIM_CHECK(heap.UsedBytes() == 0);
 
-    VSTD::Handle large = heap.Allocate(600);
+    Memory::Handle large = heap.Allocate(600);
     SIM_CHECK(large.IsValid());
 }
 
 // The default policy never moves a block, so a block keeps its address across Defragment().
 void DefaultPolicyKeepsBlocksInPlace() {
     static uint8_t buffer[1024];
-    VSTD::Heap<> heap(buffer, sizeof(buffer));
+    Memory::Heap<> heap(buffer, sizeof(buffer));
 
-    VSTD::Handle a = heap.Allocate(64);
-    VSTD::Handle b = heap.Allocate(64);
-    VSTD::Handle c = heap.Allocate(64);
+    Memory::Handle a = heap.Allocate(64);
+    Memory::Handle b = heap.Allocate(64);
+    Memory::Handle c = heap.Allocate(64);
     void* before = c.Data();
     heap.Deallocate(a);
     heap.Deallocate(b);
@@ -93,11 +93,11 @@ void DefaultPolicyKeepsBlocksInPlace() {
 // Defragment() moves a block. The raw pointer taken before the move goes stale, and the handle keeps the data.
 void DefragmentMovesBlocksAndOnlyHandlesFollow() {
     static uint8_t buffer[1024];
-    VSTD::Heap<VSTD::IncrementalDefrag<4>> heap(buffer, sizeof(buffer));
+    Memory::Heap<Memory::IncrementalDefrag<4>> heap(buffer, sizeof(buffer));
 
-    VSTD::Handle a = heap.Allocate(64);
-    VSTD::Handle b = heap.Allocate(64);
-    VSTD::Handle c = heap.Allocate(64);
+    Memory::Handle a = heap.Allocate(64);
+    Memory::Handle b = heap.Allocate(64);
+    Memory::Handle c = heap.Allocate(64);
     std::memset(c.Data(), 0x5A, 64);
     uint8_t* raw = static_cast<uint8_t*>(c.Data());
 
@@ -117,14 +117,14 @@ void EntriesAreAlignedForAnyCapacity() {
 
     for (std::size_t skip = 0; skip < 4; skip++) {
         for (std::size_t size = 1000; size < 1008; size++) {
-            VSTD::Heap<> heap(arena + skip, size);
+            Memory::Heap<> heap(arena + skip, size);
 
-            VSTD::Handle first = heap.Allocate(40);
-            VSTD::Handle second = heap.Allocate(72);
+            Memory::Handle first = heap.Allocate(40);
+            Memory::Handle second = heap.Allocate(72);
             SIM_CHECK(first.IsValid());
             SIM_CHECK(second.IsValid());
-            SIM_CHECK(reinterpret_cast<std::uintptr_t>(first.GetEntry()) % alignof(VSTD::Entry) == 0);
-            SIM_CHECK(reinterpret_cast<std::uintptr_t>(second.GetEntry()) % alignof(VSTD::Entry) == 0);
+            SIM_CHECK(reinterpret_cast<std::uintptr_t>(first.GetEntry()) % alignof(Memory::Entry) == 0);
+            SIM_CHECK(reinterpret_cast<std::uintptr_t>(second.GetEntry()) % alignof(Memory::Entry) == 0);
             SIM_CHECK(reinterpret_cast<std::uintptr_t>(first.Data()) % alignof(void*) == 0);
             SIM_CHECK(reinterpret_cast<std::uintptr_t>(second.Data()) % alignof(void*) == 0);
         }
@@ -137,9 +137,9 @@ void TotalBytesIsTheUsableCapacity() {
 
     for (std::size_t skip = 0; skip < 4; skip++) {
         for (std::size_t size = 1000; size < 1008; size++) {
-            VSTD::Heap<> heap(arena + skip, size);
+            Memory::Heap<> heap(arena + skip, size);
             SIM_CHECK(heap.TotalBytes() <= size);
-            SIM_CHECK(heap.TotalBytes() % alignof(VSTD::Entry) == 0);
+            SIM_CHECK(heap.TotalBytes() % alignof(Memory::Entry) == 0);
         }
     }
 }
@@ -166,11 +166,11 @@ struct CountingLock {
 // Each tail allocation that is freed again reuses the entry slot it had. The entry table must not grow with each cycle.
 void TailChurnDoesNotExhaustTheEntryTable() {
     static uint8_t buffer[4096];
-    VSTD::Heap<> heap(buffer, sizeof(buffer));
+    Memory::Heap<> heap(buffer, sizeof(buffer));
 
     std::size_t failures = 0;
     for (int cycle = 0; cycle < 10000; cycle++) {
-        VSTD::Handle block = heap.Allocate(16);
+        Memory::Handle block = heap.Allocate(16);
         if (!block.IsValid()) {
             failures++;
             break;
@@ -184,7 +184,7 @@ void TailChurnDoesNotExhaustTheEntryTable() {
 // A request larger than the heap is refused, whatever its size. No size wraps around to a small block.
 void OversizedRequestsAreRefused() {
     static uint8_t buffer[1024];
-    VSTD::Heap<> heap(buffer, sizeof(buffer));
+    Memory::Heap<> heap(buffer, sizeof(buffer));
     const std::size_t maxSize = std::numeric_limits<std::size_t>::max();
 
     SIM_CHECK(!heap.Allocate(maxSize).IsValid());
@@ -196,11 +196,11 @@ void OversizedRequestsAreRefused() {
 // Reallocate takes the lock once and never nests it. A nested lock would deadlock a mutex-backed policy.
 void ReallocateTakesTheLockOnce() {
     static uint8_t buffer[1024];
-    VSTD::Heap<VSTD::NoDefrag, CountingLock> heap(buffer, sizeof(buffer));
+    Memory::Heap<Memory::NoDefrag, CountingLock> heap(buffer, sizeof(buffer));
 
-    VSTD::Handle block = heap.Allocate(32);
+    Memory::Handle block = heap.Allocate(32);
     CountingLock::acquisitions = 0;
-    VSTD::Handle moved = heap.Reallocate(block, 64);
+    Memory::Handle moved = heap.Reallocate(block, 64);
 
     SIM_CHECK(moved.IsValid());
     SIM_CHECK(!CountingLock::nested);
@@ -211,10 +211,10 @@ void ReallocateTakesTheLockOnce() {
 // sum of the live blocks.
 void RandomOperationsKeepContentAndAccounting() {
     static uint8_t buffer[2048];
-    VSTD::Heap<VSTD::IncrementalDefrag<2>> heap(buffer, sizeof(buffer));
+    Memory::Heap<Memory::IncrementalDefrag<2>> heap(buffer, sizeof(buffer));
 
     constexpr std::size_t kSlots = 12;
-    VSTD::Handle slots[kSlots];
+    Memory::Handle slots[kSlots];
     uint8_t tags[kSlots] = {};
     std::uint32_t state = 12345;
     auto next = [&state]() -> std::uint32_t {
@@ -228,7 +228,7 @@ void RandomOperationsKeepContentAndAccounting() {
         switch (next() % 4) {
             case 0:
                 if (!slots[index].IsValid()) {
-                    VSTD::Handle block = heap.Allocate(1 + next() % 96);
+                    Memory::Handle block = heap.Allocate(1 + next() % 96);
                     if (block.IsValid()) {
                         tags[index] = static_cast<uint8_t>(1 + next() % 255);
                         std::memset(block.Data(), tags[index], block.Size());
@@ -242,7 +242,7 @@ void RandomOperationsKeepContentAndAccounting() {
             case 2:
                 if (slots[index].IsValid()) {
                     std::size_t oldSize = slots[index].Size();
-                    VSTD::Handle moved = heap.Reallocate(slots[index], oldSize + 1 + next() % 64);
+                    Memory::Handle moved = heap.Reallocate(slots[index], oldSize + 1 + next() % 64);
                     if (moved.IsValid()) {
                         std::memset(static_cast<uint8_t*>(moved.Data()) + oldSize, tags[index], moved.Size() - oldSize);
                         slots[index] = moved;

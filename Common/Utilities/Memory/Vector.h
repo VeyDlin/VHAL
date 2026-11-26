@@ -1,8 +1,7 @@
 #pragma once
 
-#include "../memory/Handle.h"
-#include "../memory/IAllocator.h"
-#include "../memory/DefaultHeap.h"
+#include <Utilities/Memory/Handle.h>
+#include <Utilities/Memory/IAllocator.h>
 #include <cstddef>
 #include <cstdint>
 #include <string.h>
@@ -10,7 +9,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace VSTD {
+namespace Memory {
 
 template<typename T>
 class Vector {
@@ -324,10 +323,9 @@ private:
     // The most elements a buffer can hold without its byte count overflowing size_t.
     static constexpr std::size_t kMaxCapacity = static_cast<std::size_t>(-1) / sizeof(T);
 
-    // The allocator of the buffer. A vector with a buffer always has one, and a vector without a buffer uses the
-    // default heap when it needs one. Returns nullptr when neither is set.
+    // The allocator the vector was given. Returns nullptr when there is none, and then no buffer can be made.
     IAllocator* GetAlloc() const {
-        return allocator_ ? allocator_ : GetDefaultHeap();
+        return allocator_;
     }
 
     // Frees the buffer to the allocator that holds it. Callers destroy the elements first.

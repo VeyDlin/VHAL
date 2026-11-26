@@ -1,21 +1,21 @@
 #pragma once
 
-#include "IAllocator.h"
+#include <Utilities/Memory/IAllocator.h>
 
 namespace VSTD {
 
 namespace detail {
-    inline IAllocator*& DefaultHeapStorage() {
-        static IAllocator* instance = nullptr;
+    inline Memory::IAllocator*& DefaultHeapStorage() {
+        static Memory::IAllocator* instance = nullptr;
         return instance;
     }
 }
 
-inline void SetDefaultHeap(IAllocator* heap) {
+inline void SetDefaultHeap(Memory::IAllocator* heap) {
     detail::DefaultHeapStorage() = heap;
 }
 
-inline IAllocator* GetDefaultHeap() {
+inline Memory::IAllocator* GetDefaultHeap() {
     return detail::DefaultHeapStorage();
 }
 
