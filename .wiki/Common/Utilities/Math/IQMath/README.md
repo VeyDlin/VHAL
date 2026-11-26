@@ -162,6 +162,17 @@ volatile float runTime = 2.7f;
 iq16 fine = x * iq16::FromFloat(runTime);
 ```
 
+### Float values and soft float
+
+The rules for a `float` in IQ code:
+
+- A float or double constant converts when the program compiles. It goes on the right of an operator (`x * 2.7f`), never on the left.
+- A run-time float converts with `IQ<Q>::FromFloat(value)`. `RealFrom<T>(value)` takes a float for an IQ `T`, and a double only for a float `T`.
+
+The object check, `Common/Utilities/Math/IQMath/.tool/sim/ObjectCheck.sh`, builds the samples in `.tool/sim/ObjectCheck/` for Cortex-M0+ with `-Os`. The samples are IQ add, multiply, divide, sqrt, sin, exp, an `Animation` step and a `LowPassFilter` step, all in `IQ<16>`. The check fails when an object references a soft-float or soft-double helper (`__aeabi_f*` or `__aeabi_d*`). `run.sh` runs it. The control sample `control_float.cpp` multiplies two run-time floats and must reference `__aeabi_fmul`; if it does not, the check cannot see soft float and fails.
+
+The double tokens in `IQTrig.h` (`TaylorSin`, the sine table, `twoPiValue` and `RadiansToPhase`) are evaluated by the compiler. The sine table is placed in flash as `int32` data (1028 bytes for `LutSize` 256), and no function that takes a double is emitted in the sine object. A run-time call to `RadiansToPhase` would reference the soft-double helpers, so pass a constant angle to it.
+
 ## Math Functions
 
 All functions are free-standing (not methods) and work via ADL. This allows using IQ as a drop-in replacement for float in template classes.
