@@ -27,7 +27,7 @@ Headers: `#include <Drivers/Interface/Network/Http/HttpClient.h>` and `#include 
 
 Header: `#include <Drivers/Interface/Network/Http/HttpClient.h>`
 
-Constructor: `HttpClient(SocketAdapter& adapter, VSTD::IAllocator& memory)`. The client holds both references: they must outlive it. The destructor closes the connection.
+Constructor: `HttpClient(SocketAdapter& adapter, Memory::IAllocator& memory)`. The client holds both references: they must outlive it. The destructor closes the connection.
 
 ### Enums and types
 
@@ -39,7 +39,6 @@ Constructor: `HttpClient(SocketAdapter& adapter, VSTD::IAllocator& memory)`. The
 | `Request` | `Method method`, `std::string_view url`, `std::span<const Header> headers`, `std::span<const uint8> body` | Everything `Send()` needs. Views must stay valid until `Send()` returns |
 | `UrlParts` | `Scheme scheme`, `std::string_view host`, `uint16 port`, `std::string_view target` | Output of `ParseUrl()`. Views point into the URL. An empty `target` means `/` |
 | `Options` | `uint32 connectTimeoutMs = 10000`, `uint32 timeoutMs = 10000`, `uint32 maxHeaderBytes = 4096`, `const char *caCertificate = nullptr`, `const char *userAgent = "VHAL-HttpClient/1.0"` | Public field `options`. Change it between requests |
-| `BodyCallback` | `VSTD::Function<ResultStatus(std::span<const uint8>)>` | Called with each piece of the body. Return `ok` to continue |
 
 ### API
 
@@ -47,7 +46,7 @@ Constructor: `HttpClient(SocketAdapter& adapter, VSTD::IAllocator& memory)`. The
 |--------|--------|-------------|--------|
 | `static ParseUrl(std::string_view url, UrlParts& parts)` | `ResultStatus` | Split an absolute `http://` or `https://` URL. Default port 80 or 443. Rejects spaces and control characters | `invalidParameter`: no scheme, empty host, bad port (0 or above 65535), bad host character, space in target. `notSupported`: other scheme, userinfo, IPv6 literal. `outOfRange`: host of 128 bytes or more |
 | `Send(const Request& request)` | `ResultStatus` | Connect if needed, write the request, read the final response head. Interim 1xx responses are skipped. Afterwards `GetStatusCode()` and `FindHeader()` are valid and the body is pending | `invalidParameter`: bad header name or value (CR, LF or NUL in a value), a `Host`, `Content-Length`, `Transfer-Encoding` or `Connection` header from the caller, a body on `Head`. `outOfRange`: body above 4 GiB-1, or header block above `maxHeaderBytes`. `invalidData`: malformed status line, header without colon, whitespace before colon, obs-fold, `Content-Length` values that disagree or are not digits, `Transfer-Encoding` with `Content-Length`. `notSupported`: `HTTP/2` or other major version, plus any socket `Open()` status such as `notSupported` for `https` without TLS. `noConnection`, `timeout`, `notFound`, `readError`, `writeError`, `connectionClosed`: from the socket. `outOfMemory`: the heap could not hold the header block |
-| `ReadBody(const BodyCallback& onBody)` | `ResultStatus` | Stream the rest of the body to `onBody`. The span is valid only during the call. Ends the response: the connection is kept for reuse when the response allows it, otherwise closed | `ok` at the end of the body. `invalidParameter`: `onBody` is empty, and the body stays pending. `notReady`: no body pending (no `Send()`, or the body was already read). `connectionClosed`: the peer closed before a `Content-Length` or chunked body was complete. `invalidData`: bad chunk size, bad chunk framing (CRLF missing after data). `outOfRange`: trailer section above `maxHeaderBytes`. Any other status from the socket. The callback's non-`ok` status is returned as is and closes the connection |
+| `ReadBody(Callback::Ref<ResultStatus(std::span<const uint8>)> onBody)` | `ResultStatus` | Stream the rest of the body to `onBody`, which is called with each piece and returns `ok` to continue. The span is valid only during the call. Ends the response: the connection is kept for reuse when the response allows it, otherwise closed | `ok` at the end of the body. `invalidParameter`: `onBody` is empty, and the body stays pending. `notReady`: no body pending (no `Send()`, or the body was already read). `connectionClosed`: the peer closed before a `Content-Length` or chunked body was complete. `invalidData`: bad chunk size, bad chunk framing (CRLF missing after data). `outOfRange`: trailer section above `maxHeaderBytes`. Any other status from the socket. The callback's non-`ok` status is returned as is and closes the connection |
 | `ReadBodyTo(std::span<uint8> buffer, uint32& size)` | `ResultStatus` | Read the whole body into `buffer`. `size` receives the bytes stored | As `ReadBody()`. `outOfRange` also when the body is larger than `buffer`; the rest is discarded with the connection |
 | `Close()` | `ResultStatus` | Close the connection and forget any unread body. Safe to call when nothing is open | `ok` or the socket's status |
 | `GetStatusCode()` | `uint16` | Status code of the final response. 0 before the first `Send()` | None |
@@ -100,13 +99,13 @@ HTTP/1.0 responses ignore `Transfer-Encoding`, so they use `Content-Length` or r
 
 Header: `#include <Drivers/Interface/Network/Http/ServerSentEvents.h>`
 
-Constructor: `ServerSentEvents(VSTD::IAllocator& memory, uint32 maxEventBytes)`. The parser does not know about HTTP: feed it the bytes of any stream.
+Constructor: `ServerSentEvents(Memory::IAllocator& memory, uint32 maxEventBytes)`. The parser does not know about HTTP: feed it the bytes of any stream.
 
 ### API
 
 | Member | Return | Description | Errors / Notes |
 |--------|--------|-------------|----------------|
-| `onEvent` | `VSTD::Function<void(std::string_view type, std::string_view data, std::string_view id)>` | Called once per dispatched event. `type` is `"message"` when the event has no `event:` field. `id` is the last event ID, which persists across events | The views are valid only during the call |
+| `onEvent` | `Callback::Delegate<void(std::string_view type, std::string_view data, std::string_view id)>`. Bind a member with `Bind<T, &T::Method>(&object)`; a callback with captures does not fit | Called once per dispatched event. `type` is `"message"` when the event has no `event:` field. `id` is the last event ID, which persists across events | The views are valid only during the call |
 | `Feed(std::span<const uint8> bytes)` | `ResultStatus` | Parse the next bytes. Any split is allowed, including inside a CRLF or a UTF-8 sequence | `ok`, or the reason of the last event dropped during this call: `outOfRange` when it exceeded `maxEventBytes`, `outOfMemory` when the heap could not hold it. A dropped event is not dispatched; the parser resyncs at the next blank line, so the caller keeps feeding |
 | `Reset()` | `void` | Start a new stream: forget the last event ID, the retry value and any partial event | None |
 | `GetLastEventId()` | `std::string_view` | The last event ID | Valid until the next `Feed()` or heap defragment step |
@@ -136,7 +135,7 @@ The parser ignores the `retry` value itself; reconnecting is the caller's job.
 - The fixed buffers are members: 512 bytes to receive, 256 bytes to send, a 128-byte NUL-terminated host copy.
 - **A block can move.** `Heap::Defragment()` moves live blocks, so the memory behind a `Handle` changes. The code therefore calls `Handle::Data()` again after every call that can allocate or run a heap step. No raw pointer or view is kept across a socket read.
 - A view returned by `FindHeader()`, `GetLastEventId()` or passed to `onEvent` is valid until the next call into the client or parser, or until a defragment step. Copy the text if it is kept.
-- Do not call `Defragment()` inside `onEvent` or a `BodyCallback`. Defragmenting from `SocketAdapter::ReadByteArray()` is fine: the client re-reads its handles afterwards.
+- Do not call `Defragment()` inside `onEvent` or a body callback passed to `ReadBody()`. Defragmenting from `SocketAdapter::ReadByteArray()` is fine: the client re-reads its handles afterwards.
 - Set up a heap large enough for one header block and for the event buffers. A failed allocation is `outOfMemory` (header) or a dropped event (SSE), and the rest of the stream is still parsed.
 
 ## Example: xAI Chat Completions
@@ -147,14 +146,14 @@ POST a JSON body with `"stream": true` and print each `choices[0].delta.content`
 #include <Drivers/Interface/Network/Http/HttpClient.h>
 #include <Drivers/Interface/Network/Http/ServerSentEvents.h>
 #include <Utilities/Serialization/JSON/JSON.h>
-#include <Utilities/VSTD/memory/Heap.h>
+#include <Utilities/Memory/Heap.h>
 #include <array>
 #include <cstdio>
 
 
 // Prints the answer as it arrives. Returns the status of the request.
 ResultStatus StreamChat(SocketAdapter& socket, const char *apiKey) {
-    static VSTD::Heap<> heap(8192);
+    static Memory::Heap<> heap(8192);
 
     HttpClient client(socket, heap);
     client.options.timeoutMs = 15000;

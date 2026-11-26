@@ -2,7 +2,7 @@
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Memory/IAllocator.h>
-#include <Utilities/VSTD/utility/Function.h>
+#include <Utilities/Callback/Delegate.h>
 #include "HttpByteBuffer.h"
 #include <cstddef>
 #include <span>
@@ -17,9 +17,7 @@
 // a defragment step inside onEvent.
 class ServerSentEvents {
 public:
-	using EventCallback = VSTD::Function<void(std::string_view, std::string_view, std::string_view)>;
-
-	EventCallback onEvent;
+	Callback::Delegate<void(std::string_view, std::string_view, std::string_view)> onEvent;
 
 private:
 	enum class Field : uint8 {
