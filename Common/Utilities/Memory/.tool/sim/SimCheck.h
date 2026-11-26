@@ -1,8 +1,23 @@
 #pragma once
 
+#include <System/System.h>
 #include <cstdio>
+#include <cstdlib>
 
-// Check helpers for the VSTD host tests. A failed check is printed and counted, and the test keeps going,
+// Host definitions of the System functions that the heap reaches: IsInterrupt() answers as a port does, and Abort()
+// ends the run. A test sets simInterrupt around a call that runs as an interrupt would.
+inline bool simInterrupt = false;
+
+inline bool System::IsInterrupt() {
+	return simInterrupt;
+}
+
+inline void System::Abort(const char* message, const char* file, uint32 line) {
+	std::fprintf(stderr, "abort: %s (%s:%u)\n", message != nullptr ? message : "", file != nullptr ? file : "", line);
+	std::abort();
+}
+
+// Check helpers for the host tests. A failed check is printed and counted, and the test keeps going,
 // so one run reports every failure. A crash ends the run with a non-zero exit code.
 namespace VstdSim {
 

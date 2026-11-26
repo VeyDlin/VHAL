@@ -1,13 +1,12 @@
 #pragma once
 
-#include "../memory/Handle.h"
-#include "../memory/IAllocator.h"
-#include "../memory/DefaultHeap.h"
+#include <Utilities/Memory/Handle.h>
+#include <Utilities/Memory/IAllocator.h>
 #include <cstddef>
 #include <new>
 #include <type_traits>
 
-namespace VSTD {
+namespace Memory {
 
 template<typename T>
 class SharedPtr {
@@ -102,14 +101,11 @@ public:
     }
 
     template<typename U, typename... Args>
-    friend SharedPtr<U> MakeShared(Args&&... args);
-
-    template<typename U, typename... Args>
     friend SharedPtr<U> AllocateShared(IAllocator* alloc, Args&&... args);
 
 private:
     IAllocator* GetAlloc() const {
-        return allocator_ ? allocator_ : GetDefaultHeap();
+        return allocator_;
     }
 
     ControlBlock* GetBlock() const {
@@ -130,18 +126,6 @@ private:
         handle_ = Handle{};
     }
 };
-
-template<typename T, typename... Args>
-SharedPtr<T> MakeShared(Args&&... args) {
-    auto* alloc = GetDefaultHeap();
-    Handle handle = alloc->Allocate(sizeof(typename SharedPtr<T>::ControlBlock));
-    if (!handle.IsValid()) return SharedPtr<T>();
-
-    using CB = typename SharedPtr<T>::ControlBlock;
-    new (handle.Data()) CB(static_cast<Args&&>(args)...);
-
-    return SharedPtr<T>(handle, alloc);
-}
 
 template<typename T, typename... Args>
 SharedPtr<T> AllocateShared(IAllocator* alloc, Args&&... args) {

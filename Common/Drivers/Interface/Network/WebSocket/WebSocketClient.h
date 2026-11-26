@@ -3,7 +3,7 @@
 #include <Adapter/SocketAdapter.h>
 #include <Utilities/Crypto/SHA/SHA1.h>
 #include <Utilities/Encoding/Base/Base64.h>
-#include <Utilities/VSTD/memory/IAllocator.h>
+#include <Utilities/Memory/IAllocator.h>
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -134,7 +134,7 @@ private:
 	static constexpr std::string_view kGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 	SocketAdapter& adapter;
-	VSTD::IAllocator& memory;
+	Memory::IAllocator& memory;
 
 	std::function<uint32()> randomSource;
 	std::function<uint32()> clockMs;
@@ -183,13 +183,13 @@ private:
 
 	bool messageInProgress = false;
 	uint8 messageOpcode = 0;
-	VSTD::Handle messageHandle;
+	Memory::Handle messageHandle;
 	size_t messageLength = 0;
 	Utf8Checker utf8;
 
 
 public:
-	WebSocketClient(SocketAdapter& adapterRef, VSTD::IAllocator& memoryRef) : adapter(adapterRef), memory(memoryRef) {
+	WebSocketClient(SocketAdapter& adapterRef, Memory::IAllocator& memoryRef) : adapter(adapterRef), memory(memoryRef) {
 	}
 
 
@@ -1470,7 +1470,7 @@ private:
 		size_t target = std::max(needed, current * 2);
 		target = std::min(target, static_cast<size_t>(maxMessageSize));
 
-		VSTD::Handle grown = Resize(target);
+		Memory::Handle grown = Resize(target);
 		if (!grown.IsValid() && target > needed) {
 			grown = Resize(needed);
 		}
@@ -1484,7 +1484,7 @@ private:
 	}
 
 
-	VSTD::Handle Resize(size_t size) {
+	Memory::Handle Resize(size_t size) {
 		if (messageHandle.IsValid()) {
 			return memory.Reallocate(messageHandle, size);
 		}

@@ -1,7 +1,7 @@
 #pragma once
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
-#include <Utilities/VSTD/memory/IAllocator.h>
+#include <Utilities/Memory/IAllocator.h>
 #include <string_view>
 
 
@@ -12,12 +12,12 @@ class HttpByteBuffer {
 private:
 	static constexpr uint32 MinimumCapacity = 16;
 
-	VSTD::IAllocator& allocator;
-	VSTD::Handle handle;
+	Memory::IAllocator& allocator;
+	Memory::Handle handle;
 	uint32 size = 0;
 
 public:
-	explicit HttpByteBuffer(VSTD::IAllocator& memory)
+	explicit HttpByteBuffer(Memory::IAllocator& memory)
 		: allocator(memory) {
 	}
 
@@ -43,7 +43,7 @@ public:
 				wanted = limit;
 			}
 
-			VSTD::Handle grown = allocator.Reallocate(handle, wanted);
+			Memory::Handle grown = allocator.Reallocate(handle, wanted);
 			if (!grown.IsValid()) {
 				return ResultStatus::outOfMemory;
 			}
@@ -72,7 +72,7 @@ public:
 
 	// Exchanges contents with other. Both must use the same allocator.
 	void Swap(HttpByteBuffer& other) {
-		VSTD::Handle tmpHandle = handle;
+		Memory::Handle tmpHandle = handle;
 		handle = other.handle;
 		other.handle = tmpHandle;
 
@@ -87,7 +87,7 @@ public:
 			allocator.Deallocate(handle);
 		}
 
-		handle = VSTD::Handle();
+		handle = Memory::Handle();
 		size = 0;
 	}
 

@@ -1,5 +1,6 @@
 #include <cstdint>
-#include <Utilities/VSTD/VSTD.h>
+#include <Utilities/Memory/Heap.h>
+#include <Utilities/Memory/PoolAllocator.h>
 #include "SimCheck.h"
 
 namespace {
@@ -8,17 +9,17 @@ namespace {
 // Blocks on both sides of owner keep its space from merging into the unallocated tail, so its slot is the one reused.
 void HeapStaleCopyStaysDead() {
     static uint8_t buffer[1024];
-    VSTD::Heap<> heap(buffer, sizeof(buffer));
+    Memory::Heap<> heap(buffer, sizeof(buffer));
 
-    VSTD::Handle keeper = heap.Allocate(32);
-    VSTD::Handle owner = heap.Allocate(32);
-    VSTD::Handle after = heap.Allocate(32);
-    VSTD::Entry* slot = owner.GetEntry();
-    VSTD::Handle stale = owner;
+    Memory::Handle keeper = heap.Allocate(32);
+    Memory::Handle owner = heap.Allocate(32);
+    Memory::Handle after = heap.Allocate(32);
+    Memory::Entry* slot = owner.GetEntry();
+    Memory::Handle stale = owner;
     heap.Deallocate(owner);
     SIM_CHECK(!stale.IsValid());
 
-    VSTD::Handle reuser = heap.Allocate(32);
+    Memory::Handle reuser = heap.Allocate(32);
     SIM_CHECK(reuser.IsValid());
     SIM_CHECK(reuser.GetEntry() == slot);
     SIM_CHECK(!stale.IsValid());
@@ -36,14 +37,14 @@ void HeapStaleCopyStaysDead() {
 }
 
 void PoolStaleCopyStaysDead() {
-    VSTD::PoolAllocator<32, 2> pool;
+    Memory::PoolAllocator<32, 2> pool;
 
-    VSTD::Handle owner = pool.Allocate(16);
-    VSTD::Entry* slot = owner.GetEntry();
-    VSTD::Handle stale = owner;
+    Memory::Handle owner = pool.Allocate(16);
+    Memory::Entry* slot = owner.GetEntry();
+    Memory::Handle stale = owner;
     pool.Deallocate(owner);
 
-    VSTD::Handle reuser = pool.Allocate(16);
+    Memory::Handle reuser = pool.Allocate(16);
     SIM_CHECK(reuser.IsValid());
     SIM_CHECK(reuser.GetEntry() == slot);
     SIM_CHECK(!stale.IsValid());
@@ -59,10 +60,10 @@ void PoolStaleCopyStaysDead() {
 // Invalidate clears only the copy it is called on. The block stays allocated until Deallocate frees it.
 void HeapInvalidateKeepsTheBlock() {
     static uint8_t buffer[1024];
-    VSTD::Heap<> heap(buffer, sizeof(buffer));
+    Memory::Heap<> heap(buffer, sizeof(buffer));
 
-    VSTD::Handle owner = heap.Allocate(32);
-    VSTD::Handle copy = owner;
+    Memory::Handle owner = heap.Allocate(32);
+    Memory::Handle copy = owner;
     owner.Invalidate();
     SIM_CHECK(!owner.IsValid());
     SIM_CHECK(copy.IsValid());
@@ -74,10 +75,10 @@ void HeapInvalidateKeepsTheBlock() {
 }
 
 void PoolInvalidateKeepsTheBlock() {
-    VSTD::PoolAllocator<32, 2> pool;
+    Memory::PoolAllocator<32, 2> pool;
 
-    VSTD::Handle owner = pool.Allocate(16);
-    VSTD::Handle copy = owner;
+    Memory::Handle owner = pool.Allocate(16);
+    Memory::Handle copy = owner;
     owner.Invalidate();
     SIM_CHECK(copy.IsValid());
     SIM_CHECK(pool.AllocatedCount() == 1);
