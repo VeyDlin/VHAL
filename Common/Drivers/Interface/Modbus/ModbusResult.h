@@ -1,7 +1,6 @@
 #pragma once
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/ResultStatus.h>
-#include <Utilities/CompileTime/Require.h>
 
 
 // The outcome of one Modbus request. The status is the ResultStatus of the transaction. For an exception reply the status is
