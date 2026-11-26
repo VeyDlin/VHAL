@@ -60,8 +60,8 @@ struct CommandRingSizeOf<First, Rest...> : CommandRingSizeOf<Rest...> {
 // through Reached, which compares them modulo 2^32. The ring holds at most 2^30 bytes, so the signed difference of two positions is
 // exact: it is at most 2^30 in size, and a difference of 2^31 would read as negative.
 //
-// RingBuffer.h does not fit. Each of its operations masks interrupts, which Feed must not do from an interrupt. It also holds a
-// std::function member, which the console does not use.
+// RingBuffer.h does not fit. Each of its operations masks interrupts, which Feed must not do from an interrupt. It also has no
+// lost count.
 template<std::size_t Size>
 class CommandRing {
 	static_assert(Size > 0, "a command line input ring needs at least one byte");
