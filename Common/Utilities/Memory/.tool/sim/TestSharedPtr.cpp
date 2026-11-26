@@ -9,9 +9,10 @@ namespace {
 void CopiesShareOneObject() {
     static uint8_t buffer[512];
     Memory::Heap<> heap(buffer, sizeof(buffer));
+    Memory::AllocatorOf<Memory::Heap<>> adapter(heap);
 
     {
-        Memory::SharedPtr<int> first = Memory::AllocateShared<int>(&heap, 7);
+        Memory::SharedPtr<int> first = Memory::AllocateShared<int>(&adapter, 7);
         SIM_CHECK(static_cast<bool>(first));
         SIM_CHECK(first.UseCount() == 1);
 
@@ -32,9 +33,10 @@ void CopiesShareOneObject() {
 void ObjectFollowsDefragment() {
     static uint8_t buffer[1024];
     Memory::Heap<Memory::IncrementalDefrag<4>> heap(buffer, sizeof(buffer));
+    Memory::AllocatorOf<Memory::Heap<Memory::IncrementalDefrag<4>>> adapter(heap);
 
     Memory::Handle front = heap.Allocate(64);
-    Memory::SharedPtr<int> shared = Memory::AllocateShared<int>(&heap, 42);
+    Memory::SharedPtr<int> shared = Memory::AllocateShared<int>(&adapter, 42);
     SIM_CHECK(static_cast<bool>(shared));
 
     heap.Deallocate(front);
@@ -46,8 +48,9 @@ void ObjectFollowsDefragment() {
 void RefusedAllocationIsEmpty() {
     static uint8_t buffer[16];
     Memory::Heap<> heap(buffer, sizeof(buffer));
+    Memory::AllocatorOf<Memory::Heap<>> adapter(heap);
 
-    Memory::SharedPtr<int> refused = Memory::AllocateShared<int>(&heap, 1);
+    Memory::SharedPtr<int> refused = Memory::AllocateShared<int>(&adapter, 1);
     SIM_CHECK(!static_cast<bool>(refused));
     SIM_CHECK(refused.UseCount() == 0);
 }

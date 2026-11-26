@@ -27,8 +27,9 @@ void StringWithoutAllocatorRefuses() {
 void StringKeepsTextInItsAllocator() {
     static uint8_t buffer[512];
     Memory::Heap<> heap(buffer, sizeof(buffer));
+    Memory::AllocatorOf<Memory::Heap<>> adapter(heap);
 
-    Memory::String text("abc", &heap);
+    Memory::String text("abc", &adapter);
     SIM_CHECK(text.Length() == 3);
     SIM_CHECK(text.Append("def"));
     SIM_CHECK(text.Length() == 6);

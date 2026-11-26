@@ -275,6 +275,153 @@ void RandomOperationsKeepContentAndAccounting() {
     SIM_CHECK(violations == 0);
 }
 
+int outOfMemoryCalls = 0;
+
+void CountOutOfMemory() {
+    outOfMemoryCalls++;
+}
+
+// A refused request calls the out-of-memory policy once, and a granted request does not. A refused reallocation
+// leaves the block it was given.
+void OutOfMemoryPolicyIsCalledOnRefusal() {
+    static uint8_t buffer[256];
+    Memory::Heap<Memory::NoDefrag, Memory::NoLock, Memory::OomHandler<&CountOutOfMemory>> heap(buffer, sizeof(buffer));
+
+    outOfMemoryCalls = 0;
+    Memory::Handle granted = heap.Allocate(32);
+    SIM_CHECK(granted.IsValid());
+    SIM_CHECK(outOfMemoryCalls == 0);
+
+    Memory::Handle refused = heap.Allocate(4096);
+    SIM_CHECK(!refused.IsValid());
+    SIM_CHECK(outOfMemoryCalls == 1);
+
+    Memory::Handle refusedGrowth = heap.Reallocate(granted, 4096);
+    SIM_CHECK(!refusedGrowth.IsValid());
+    SIM_CHECK(outOfMemoryCalls == 2);
+    SIM_CHECK(granted.IsValid());
+}
+
+// The data of every block is 8-byte aligned, from any buffer start, whatever the sizes and the order of allocation,
+// freeing and defragmenting.
+void DataIsEightByteAlignedOnEveryBlock() {
+    static uint8_t buffer[1024 + 3];
+    Memory::Heap<Memory::IncrementalDefrag<2>> heap(buffer + 1, sizeof(buffer) - 1);
+    Memory::Handle live[8];
+
+    std::uint32_t seed = 7;
+    for (int step = 0; step < 400; step++) {
+        seed = seed * 1103515245u + 12345u;
+        std::size_t slot = (seed >> 16) % 8;
+        if (live[slot].IsValid()) {
+            heap.Deallocate(live[slot]);
+        } else {
+            live[slot] = heap.Allocate(1 + (seed >> 8) % 60);
+        }
+        heap.Defragment();
+
+        for (const Memory::Handle& handle : live) {
+            if (handle.IsValid()) {
+                SIM_CHECK(reinterpret_cast<std::uintptr_t>(handle.Data()) % 8 == 0);
+            }
+        }
+    }
+}
+
+// An empty heap has all of its bytes free. A block takes its bytes from the used count, and freeing it again leaves
+// the heap as it was, less the entry slot that stays in the table.
+void FreeBytesAccountForTheWholeHeap() {
+    static uint8_t buffer[512];
+    Memory::Heap<> heap(buffer, sizeof(buffer));
+    SIM_CHECK(heap.FreeBytes() == heap.TotalBytes());
+
+    Memory::Handle block = heap.Allocate(64);
+    SIM_CHECK(heap.UsedBytes() == 64);
+    SIM_CHECK(heap.FreeBytes() < heap.TotalBytes() - 64);
+
+    heap.Deallocate(block);
+    SIM_CHECK(heap.UsedBytes() == 0);
+    SIM_CHECK(heap.FreeBytes() == heap.TotalBytes() - sizeof(Memory::Entry));
+}
+
+// A hole between two used blocks is fragmentation. Free space at the end of the used data is not.
+void FragmentationCountsTheHoleBetweenBlocks() {
+    static uint8_t buffer[1024];
+    Memory::Heap<> heap(buffer, sizeof(buffer));
+    Memory::Handle first = heap.Allocate(64);
+    Memory::Handle second = heap.Allocate(64);
+    Memory::Handle third = heap.Allocate(64);
+    SIM_CHECK(heap.FragmentationPercent() == 0);
+
+    heap.Deallocate(third);
+    SIM_CHECK(heap.FragmentationPercent() == 0);
+
+    heap.Deallocate(first);
+    SIM_CHECK(heap.FragmentationPercent() > 0);
+    SIM_CHECK(heap.FragmentationPercent() <= 100);
+
+    heap.Deallocate(second);
+    SIM_CHECK(heap.FragmentationPercent() == 0);
+}
+
+// A pinned block keeps its address and its bytes through Defragment(). Deallocate() and Reallocate() refuse it, and
+// ReleasePinned() frees it. ReleasePinned() ignores a pointer that is not a pinned block.
+void PinnedBlocksStayAndRefuseHandleOperations() {
+    static uint8_t buffer[1024];
+    Memory::Heap<Memory::IncrementalDefrag<4>> heap(buffer, sizeof(buffer));
+
+    Memory::Handle front = heap.Allocate(64);
+    Memory::Handle pinned = heap.AllocatePinnedHandle(48, 8);
+    Memory::Handle back = heap.Allocate(64);
+    SIM_CHECK(pinned.IsValid());
+    SIM_CHECK(back.IsValid());
+
+    void* pinnedAddress = pinned.Data();
+    std::memset(pinnedAddress, 0x5A, 48);
+
+    heap.Deallocate(front);
+    heap.Defragment();
+    SIM_CHECK(pinned.Data() == pinnedAddress);
+    SIM_CHECK(static_cast<uint8_t*>(pinnedAddress)[47] == 0x5A);
+
+    heap.Deallocate(pinned);
+    SIM_CHECK(pinned.IsValid());
+
+    Memory::Handle grown = heap.Reallocate(pinned, 128);
+    SIM_CHECK(!grown.IsValid());
+    SIM_CHECK(pinned.IsValid());
+
+    heap.ReleasePinned(back.Data());
+    SIM_CHECK(back.IsValid());
+
+    heap.ReleasePinned(pinnedAddress);
+    SIM_CHECK(!pinned.IsValid());
+    SIM_CHECK(heap.UsedBytes() == 64);
+}
+
+// AllocatePinned() honours the alignment it is given, up to 64 bytes. An alignment that is not a power of two, or is
+// larger than 64, is refused.
+void PinnedBlocksHonourTheirAlignment() {
+    static uint8_t buffer[1024];
+    Memory::Heap<> heap(buffer, sizeof(buffer));
+
+    void* aligned = heap.AllocatePinned(40, 32);
+    SIM_CHECK(aligned != nullptr);
+    SIM_CHECK(reinterpret_cast<std::uintptr_t>(aligned) % 32 == 0);
+    SIM_CHECK(heap.AllocatePinned(8, 3) == nullptr);
+    SIM_CHECK(heap.AllocatePinned(8, 128) == nullptr);
+
+    heap.ReleasePinned(aligned);
+    SIM_CHECK(heap.UsedBytes() == 0);
+}
+
+// The heap object reports that its constructor ran.
+void HeapReportsItsConstruction() {
+    static uint8_t buffer[128];
+    Memory::Heap<> heap(buffer, sizeof(buffer));
+    SIM_CHECK(heap.IsConstructed());
+}
+
 }
 
 int main() {
@@ -289,5 +436,12 @@ int main() {
     OversizedRequestsAreRefused();
     ReallocateTakesTheLockOnce();
     RandomOperationsKeepContentAndAccounting();
+    OutOfMemoryPolicyIsCalledOnRefusal();
+    DataIsEightByteAlignedOnEveryBlock();
+    FreeBytesAccountForTheWholeHeap();
+    FragmentationCountsTheHoleBetweenBlocks();
+    PinnedBlocksStayAndRefuseHandleOperations();
+    PinnedBlocksHonourTheirAlignment();
+    HeapReportsItsConstruction();
     return VstdSim::Finish("TestHeap");
 }

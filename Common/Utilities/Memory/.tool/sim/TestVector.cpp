@@ -12,7 +12,8 @@ namespace {
 void VectorUsesOnlyItsAllocator() {
     static uint8_t buffer[2048];
     Memory::Heap<> heap(buffer, sizeof(buffer));
-    SimRecordingAllocator recording(heap);
+    Memory::AllocatorOf<Memory::Heap<>> adapter(heap);
+    SimRecordingAllocator recording(adapter);
 
     {
         Memory::Vector<int> v(&recording);
@@ -53,8 +54,9 @@ void VectorWithoutAllocatorRefuses() {
 void VectorAccessorsOnEmptyReturnNull() {
     static uint8_t buffer[256];
     Memory::Heap<> heap(buffer, sizeof(buffer));
+    Memory::AllocatorOf<Memory::Heap<>> adapter(heap);
 
-    Memory::Vector<int> empty(&heap);
+    Memory::Vector<int> empty(&adapter);
     SIM_CHECK(empty.Front() == nullptr);
     SIM_CHECK(empty.Back() == nullptr);
 
@@ -62,7 +64,7 @@ void VectorAccessorsOnEmptyReturnNull() {
     SIM_CHECK(constEmpty.Front() == nullptr);
     SIM_CHECK(constEmpty.Back() == nullptr);
 
-    Memory::Vector<int> filled(&heap);
+    Memory::Vector<int> filled(&adapter);
     SIM_CHECK(filled.PushBack(1));
     SIM_CHECK(filled.PushBack(2));
     SIM_CHECK(*filled.Front() == 1);
@@ -73,7 +75,8 @@ void VectorAccessorsOnEmptyReturnNull() {
 void VectorRefusesCapacityThatOverflows() {
     static uint8_t buffer[2048];
     Memory::Heap<> heap(buffer, sizeof(buffer));
-    Memory::Vector<int> v(&heap);
+    Memory::AllocatorOf<Memory::Heap<>> adapter(heap);
+    Memory::Vector<int> v(&adapter);
     SIM_CHECK(v.PushBack(5));
 
     const std::size_t maxSize = std::numeric_limits<std::size_t>::max();
@@ -90,7 +93,8 @@ void VectorRefusesCapacityThatOverflows() {
 void PushFromOwnElementAcrossGrowth() {
     static uint8_t buffer[2048];
     Memory::Heap<> heap(buffer, sizeof(buffer));
-    Memory::Vector<int> v(&heap);
+    Memory::AllocatorOf<Memory::Heap<>> adapter(heap);
+    Memory::Vector<int> v(&adapter);
     for (int i = 1; i <= 4; i++) {
         SIM_CHECK(v.PushBack(i));
     }

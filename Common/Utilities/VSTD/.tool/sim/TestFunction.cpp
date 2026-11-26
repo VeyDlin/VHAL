@@ -22,8 +22,10 @@ void InjectedAllocatorServesTheBlock() {
     static uint8_t bufferB[1024];
     Memory::Heap<> heapA(bufferA, sizeof(bufferA));
     Memory::Heap<> heapB(bufferB, sizeof(bufferB));
-    SimRecordingAllocator recordA(heapA);
-    SimRecordingAllocator recordB(heapB);
+    Memory::AllocatorOf<Memory::Heap<>> adapterA(heapA);
+    Memory::AllocatorOf<Memory::Heap<>> adapterB(heapB);
+    SimRecordingAllocator recordA(adapterA);
+    SimRecordingAllocator recordB(adapterB);
     VSTD::SetDefaultHeap(&recordB);
 
     {
@@ -46,8 +48,10 @@ void BlockIsFreedToTheAllocatorThatMadeIt() {
     static uint8_t bufferB[1024];
     Memory::Heap<> heapA(bufferA, sizeof(bufferA));
     Memory::Heap<> heapB(bufferB, sizeof(bufferB));
-    SimRecordingAllocator recordA(heapA);
-    SimRecordingAllocator recordB(heapB);
+    Memory::AllocatorOf<Memory::Heap<>> adapterA(heapA);
+    Memory::AllocatorOf<Memory::Heap<>> adapterB(heapB);
+    SimRecordingAllocator recordA(adapterA);
+    SimRecordingAllocator recordB(adapterB);
 
     VSTD::SetDefaultHeap(&recordA);
     {
@@ -69,8 +73,9 @@ void BlockIsFreedToTheAllocatorThatMadeIt() {
 void RefusedAllocationIsVisible() {
     static uint8_t tinyBuffer[64];
     Memory::Heap<> tiny(tinyBuffer, sizeof(tinyBuffer));
+    Memory::AllocatorOf<Memory::Heap<>> tinyAdapter(tiny);
 
-    VSTD::Function<int()> f = MakeBigCallable(&tiny);
+    VSTD::Function<int()> f = MakeBigCallable(&tinyAdapter);
     SIM_CHECK(!static_cast<bool>(f));
     SIM_CHECK(f() == 0);
 }
@@ -101,10 +106,11 @@ void SmallCallableMoves() {
 void CallablesSurviveVectorGrowth() {
     static uint8_t buffer[8192];
     Memory::Heap<> heap(buffer, sizeof(buffer));
-    VSTD::SetDefaultHeap(&heap);
+    Memory::AllocatorOf<Memory::Heap<>> adapter(heap);
+    VSTD::SetDefaultHeap(&adapter);
 
     {
-        Memory::Vector<VSTD::Function<int()>> v(&heap);
+        Memory::Vector<VSTD::Function<int()>> v(&adapter);
         for (int i = 0; i < 9; i++) {
             SIM_CHECK(v.PushBack(VSTD::Function<int()>([i]() { return i * 10; })));
         }
@@ -131,7 +137,8 @@ void HeapStoredCallableSurvivesDefragment() {
     Memory::Handle front = heap.Allocate(64);
     std::array<int, 16> values{};
     values[15] = 11;
-    VSTD::Function<int()> f(&heap, [values]() { return values[15]; });
+    Memory::AllocatorOf<Memory::Heap<Memory::IncrementalDefrag<4>>> adapter(heap);
+    VSTD::Function<int()> f(&adapter, [values]() { return values[15]; });
     SIM_CHECK(static_cast<bool>(f));
     Memory::Handle back = heap.Allocate(64);
     SIM_CHECK(back.IsValid());
