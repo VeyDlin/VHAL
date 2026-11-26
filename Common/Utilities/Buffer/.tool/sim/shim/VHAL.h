@@ -41,6 +41,12 @@ inline void System::Abort(const char* message, const char* file, uint32 line) {
 }
 
 
+// The heap asserts that it is not called from an interrupt. The shim runs in no interrupt.
+inline bool System::IsInterrupt() {
+	return false;
+}
+
+
 inline void System::CriticalError(const char* message, const char* file, uint32 line) {
 	System::Abort(message, file, line);
 }

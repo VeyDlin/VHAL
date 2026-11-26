@@ -1,6 +1,6 @@
 # Buffer
 
-A collection of thread-safe buffer and FIFO data structures for embedded systems, built on the VHAL framework.
+A ring buffer for embedded systems, built on the VHAL framework. Its elements are kept in a storage that the template parameter selects: an array inside the object, a pinned block of a heap, or memory the caller gives.
 
 ---
 
@@ -11,13 +11,8 @@ A collection of thread-safe buffer and FIFO data structures for embedded systems
   - [Basic Push / Pop](#basic-push--pop)
   - [Peek and Indexed Access](#peek-and-indexed-access)
   - [Transactional Reads](#transactional-reads)
+  - [Storage](#storage)
   - [API Reference](#ringbuffer-api-reference)
-- [StaticFifo](#staticfifo)
-  - [Usage](#staticfifo-usage)
-  - [API Reference](#staticfifo-api-reference)
-- [DynamicFifo](#dynamicfifo)
-  - [Usage](#dynamicfifo-usage)
-  - [API Reference](#dynamicfifo-api-reference)
 - [Thread Safety](#thread-safety)
 
 ---
@@ -46,11 +41,13 @@ if (result.IsOk()) {
 ## RingBuffer
 
 ```cpp
-template<typename ElementType, uint16 BufferSize>
+template<typename ElementType, uint16 BufferSize, typename Policy = Memory::Inside>
 class RingBuffer;
 ```
 
 A fixed-capacity circular (ring) buffer. When full, `Push` returns `ResultStatus::filled` rather than overwriting old data. Supports transactional reads via `MarkRead` / `CommitReads` / `RollbackReads`, which let you peek at data and only remove it once processing succeeds.
+
+`Policy` is the storage policy of the ring (see [Storage](#storage)). It defaults to `Memory::Inside`, so `RingBuffer<T, N>` keeps the elements in the object.
 
 ### Basic Push / Pop
 
@@ -77,6 +74,8 @@ Push also accepts a pointer:
 uint16 value = 42;
 buf.Push(&value);
 ```
+
+Bulk calls copy up to the free space (`Push(std::span<const ElementType>)`) or up to the size of the output span (`Pop(std::span<ElementType>)`), in one critical section, and return the count moved.
 
 ### Peek and Indexed Access
 
@@ -123,13 +122,46 @@ buf.RollbackReads();
 uint16 pending = buf.GetUncommittedCount();
 ```
 
+### Storage
+
+The third template argument selects where the elements are kept. Each policy is in `Utilities/Memory/Storage.h`.
+
+| Policy | Elements are | Object holds | Use |
+|---|---|---|---|
+| `Memory::Inside` (default) | an array of the object | the elements and the indexes | a fixed ring in a static or stack object |
+| `Memory::FromHeap<heap>` | a pinned block of `heap` | a pointer and the indexes | a ring whose size is chosen from a heap; the block is freed with the ring |
+| `Memory::External` | memory the caller passes | a pointer, a length and the indexes | a ring over a buffer that a DMA or another module owns |
+
+```cpp
+RingBuffer<uint8, 256> fixed;                                            // Memory::Inside
+
+Memory::Heap<> heap(arena, sizeof(arena));                                // a static object
+RingBuffer<uint8, 256, Memory::FromHeap<heap>> pooled;                    // a pinned block of heap
+
+uint8 dmaBuffer[256];
+RingBuffer<uint8, 256, Memory::External> given{std::span<uint8>(dmaBuffer)};
+```
+
+- `FromHeap` takes its block when the ring is constructed and releases it when the ring is destroyed. The heap must be a static object, and it must be constructed before the ring. A debug build asserts this. A ring that is a static object in another translation unit is built on first use (a function-local static), so the heap exists by then.
+- `External` needs a span of at least `BufferSize` elements. A shorter span leaves the ring not ready.
+- A ring that is not ready refuses its writes: `Push` returns `ResultStatus::notReady` and the bulk `Push` returns 0. `Size()` stays 0, and `Pop` and `Peek` return empty.
+- The policy changes only where the elements are. The operations, the critical sections and the transactional reads are the same for every policy.
+
+Memory costs, measured on Cortex-M0+ and M4 with a ring of 16 `uint8` elements:
+
+- `Inside` takes 22 bytes in the object (16 elements and 6 bytes of indexes).
+- `FromHeap` takes 12 bytes in the object (a pointer and the indexes). Its block takes the heap's block header (12 bytes on Cortex-M0+) and the elements, with the block size rounded up to 8 bytes. A ring of 16 bytes therefore costs 40 bytes in all, 18 bytes more than `Inside`.
+- The flash cost of `FromHeap` is the heap's allocator, once per program (about 1 KB of text on Cortex-M0+), and about 96 bytes of text for each further ring that uses it (16 bytes for an `Inside` ring of the same type).
+
 ### RingBuffer API Reference
 
 | Method | Return | Description |
 |---|---|---|
-| `Push(const ElementType)` | `ResultStatus` | Push element by value. Returns `ResultStatus::filled` if full. |
-| `Push(const ElementType*)` | `ResultStatus` | Push element by pointer. Returns `ResultStatus::error` if null. |
+| `Push(const ElementType)` | `ResultStatus` | Push element by value. Returns `ResultStatus::filled` if full, `ResultStatus::notReady` if the storage is not ready. |
+| `Push(const ElementType*)` | `ResultStatus` | Push element by pointer. Returns `ResultStatus::error` if null, `ResultStatus::notReady` if the storage is not ready. |
+| `Push(std::span<const ElementType>)` | `uint16` | Push as many elements as fit. Returns the count pushed (0 if the storage is not ready). |
 | `Pop()` | `Result<ElementType>` | Remove and return the oldest element. Returns `ResultStatus::empty` if empty, and `ResultStatus::busy` (nothing removed) while elements are marked by `MarkRead`; call `CommitReads` or `RollbackReads` first. |
+| `Pop(std::span<ElementType>)` | `uint16` | Remove up to `out.size()` oldest elements into `out`. Returns the count, 0 while elements are marked. |
 | `Peek()` | `Result<ElementType>` | Return the oldest element without removing it. Returns `ResultStatus::empty` if empty. |
 | `PeekMultiple(out, count, offset)` | `uint16` | Copy up to `count` elements starting at `offset` into `out`. Returns actual count. |
 | `operator[](uint16)` | `ElementType` | Access element by index (0 = oldest). Asserts if out of range. |
@@ -144,101 +176,8 @@ uint16 pending = buf.GetUncommittedCount();
 | `RollbackReads()` | `void` | Cancel all uncommitted marks. |
 | `GetUncommittedCount()` | `uint16` | Number of elements currently marked but not committed. |
 
-**Callback:**
-
-| Field | Type | Description |
-|---|---|---|
-| `onLook` | `std::function<void(bool)>` | Optional callback, assignable by user. Not called internally. |
-
----
-
-## StaticFifo
-
-```cpp
-template <size_t ElementsCount, typename Type = uint8>
-class StaticFifo;
-```
-
-A fixed-capacity FIFO queue for elements of a single type. Elements are stored in a contiguous byte array and shifted on pop (not a ring buffer). Best suited for small queues where simplicity matters more than pop performance.
-
-### StaticFifo Usage
-
-```cpp
-StaticFifo<8, uint32> fifo; // up to 8 uint32 elements
-
-fifo.Push(100);   // ResultStatus::ok
-fifo.Push(200);   // ResultStatus::ok
-fifo.GetCount();  // 2
-
-auto result = fifo.Pop();
-if (result.IsOk()) {
-    uint32 val = result.Value(); // 100
-}
-
-fifo.Clear();
-fifo.IsReady();   // true unless another operation is in progress
-```
-
-### StaticFifo API Reference
-
-| Method | Return | Description |
-|---|---|---|
-| `Push(const Type&)` | `ResultStatus` | Add an element. Returns `ResultStatus::filled` if full, `ResultStatus::busy` if not ready. |
-| `Pop()` | `Result<Type>` | Remove and return the oldest element. Returns an error with `ResultStatus::empty` or `ResultStatus::busy`. |
-| `Clear()` | `ResultStatus` | Empty the queue. Returns `ResultStatus::busy` if not ready. |
-| `GetCount()` | `size_t` | Number of elements currently stored. |
-| `IsReady()` | `bool` | False if another operation is in progress. |
-
----
-
-## DynamicFifo
-
-```cpp
-template <size_t heapSize, typename dataSizeType = uint8>
-class DynamicFifo;
-```
-
-A FIFO queue for variable-length data packets. Each entry is stored as a size prefix (`dataSizeType`) followed by the raw bytes. This is useful for queuing messages or packets of different sizes in a single buffer.
-
-The `dataSizeType` template parameter controls the maximum size of a single entry (e.g., `uint8` allows entries up to 255 bytes, `uint16` up to 65535).
-
-### DynamicFifo Usage
-
-```cpp
-DynamicFifo<512, uint16> fifo;
-
-// Push a struct
-struct Packet { uint8 id; uint16 value; };
-Packet pkt = { 1, 0xBEEF };
-fifo.Push(pkt, sizeof(Packet)); // returns true on success
-
-// Pop into a buffer
-Packet out;
-size_t readSize = fifo.Pop(out); // readSize == sizeof(Packet)
-
-// Push raw byte arrays
-uint8 data[10] = { /* ... */ };
-fifo.Push(data, 10);
-
-uint8 outData[10];
-fifo.Pop(outData); // returns 10
-
-fifo.GetCount(); // bytes currently used in the heap
-fifo.Clear();
-```
-
-### DynamicFifo API Reference
-
-| Method | Return | Description |
-|---|---|---|
-| `Push(const dataType&, dataSizeType)` | `bool` | Push `dataSize` bytes from `data`. Returns false if not enough space, busy, or `dataSize` is larger than `sizeof(dataType)`. |
-| `Pop(dataType&)` | `size_t` | Pop the oldest entry into `data`. Returns the byte count, or 0 if empty/busy. |
-| `Clear()` | `bool` | Empty the buffer. Returns false if busy. |
-| `GetCount()` | `size_t` | Total bytes currently occupied in the heap (including size prefixes). |
-| `IsReady()` | `bool` | False if another operation is in progress. |
-
 ---
 
 ## Thread Safety
 
-All three classes use `System::CriticalSection(true/false)` to guard their internal state, making them safe to use from interrupts or concurrent contexts in a bare-metal or RTOS environment. The `StaticFifo` and `DynamicFifo` classes additionally use an `isReady` flag to detect reentrant access and return a busy/failure status rather than corrupting data.
+Every operation that changes the ring uses `System::CriticalSection(true/false)` to guard its state, so the ring is safe to use from an interrupt or from a concurrent context in a bare-metal or RTOS environment. A bulk call holds one critical section for the whole copy.

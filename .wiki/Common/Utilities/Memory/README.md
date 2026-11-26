@@ -96,6 +96,40 @@ Memory::SharedPtr<int> shared = Memory::AllocateShared<int>(&adapter, 42);
 
 `SharedPtr` is compared with `std::shared_ptr`. `std::shared_ptr` allocates its control block from `operator new` (or from an allocator through `std::allocate_shared`), and the object it points to stays at the address it was given. `Memory::SharedPtr` keeps the object in a heap block and reaches it through a `Handle`, so the object follows a block that `Defragment()` moves. It takes the allocator it is given and no other. It is kept for that reason.
 
+## Storage
+
+`Utilities/Memory/Storage.h` holds the storage policies of a container. A container takes a policy as a template argument, with `Memory::Inside` as the default, and keeps the storage as a member:
+
+```cpp
+typename Policy::template Storage<ElementType, Capacity> storage;
+```
+
+A storage has `Data()`, which points to `Capacity` elements, and `Ready()`, which is false when the storage has no memory. A container refuses its writes while `Ready()` is false. `RingBuffer` is the container that uses the policies (see the Buffer page).
+
+| Policy | Memory | Ready |
+|---|---|---|
+| `Memory::Inside` | an array of the object | always true |
+| `Memory::FromHeap<heap>` | a pinned block of `heap`, taken in the constructor and released in the destructor | false when the heap has no block of that size |
+| `Memory::External` | the span passed to the constructor | false when the span holds fewer than `Capacity` elements |
+
+```cpp
+alignas(8) uint8 arena[512];
+Memory::Heap<> heap(arena, sizeof(arena));            // namespace scope: the policy needs a static object
+
+void Fill() {
+	Memory::FromHeap<heap>::Storage<uint32, 8> block; // 8 uint32 in a pinned block
+	block.Data()[0] = 1;                              // the block does not move
+}
+```
+
+Rules for `FromHeap`:
+- The heap is a static object with external linkage. The heap object is constructed before a `FromHeap` storage is built. A debug build asserts this, through the magic word that the heap sets in its constructor. A static storage in another translation unit may be constructed before the heap, so such a container is a function-local static, or it is created after the heap is initialised in `main`.
+- A pinned block is aligned to `alignof(ElementType)` or more. `Data()` stays valid until the storage is destroyed. An interrupt or a DMA may keep the pointer.
+- `Reallocate` and `Deallocate` refuse a pinned block, and only `ReleasePinned` frees it.
+- With `NDEBUG`, the magic word and the assert are compiled out.
+
+Storage costs, Cortex-M0+ and M4, measured with a `RingBuffer<uint8, 16>` (see the Buffer page): the `Inside` ring is byte-equal to the ring without the storage parameter. The `FromHeap` ring adds the heap's allocator once (about 0.9 KB of text) and about 96 bytes of text for each further ring of another type. Per ring, the object is 12 bytes instead of 22 bytes, and the block takes a 12-byte header and its elements.
+
 ## Measurements
 
 Object sizes, Cortex-M0+ and Cortex-M4F (`arm-none-eabi-g++` 15.2, `-std=c++20 -Os -fno-exceptions -fno-rtti`, the size read from `.rodata`):
