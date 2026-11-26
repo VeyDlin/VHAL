@@ -247,7 +247,7 @@ private:
 				return 0;
 			}
 			T ms = distance / speed * T(1000);
-			if (ms >= T(18446744073709551616.0)) {
+			if (ms >= T(18446744073709551616.0f)) {
 				return ~static_cast<uint64>(0);
 			}
 			return static_cast<uint64>(ms);
