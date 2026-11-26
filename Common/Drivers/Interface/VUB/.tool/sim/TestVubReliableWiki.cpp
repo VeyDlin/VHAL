@@ -105,9 +105,9 @@ int main() {
 	std::array<uint8, 3> hello = {1, 2, 3};
 	SIM_EXPECT(probe.Send(std::span<const uint8>(hello.data(), hello.size())) == ResultStatus::busy);
 	probe.Process();
-	// The sync: flags 0x05, tag 0x5A (counter 0 plus the boot value's low byte), number 0xF556 (the low 16 bits of 0x5A5A * 0x9E37), delta
-	// 0x00, boot 0x5A5A, counter 0x00.
-	std::array<uint8, 8> sync = {0x05, 0x5A, 0x56, 0xF5, 0x00, 0x5A, 0x5A, 0x00};
+	// The sync: flags 0x05, tag 0x67 (counter 0 plus the mixed byte 0x67 of the boot value), number 0xF556 (the low 16 bits of 0x5A5A * 0x9E37),
+	// delta 0x00, boot 0x5A5A, counter 0x00.
+	std::array<uint8, 8> sync = {0x05, 0x67, 0x56, 0xF5, 0x00, 0x5A, 0x5A, 0x00};
 	SIM_EXPECT(probeLink.sentFirst);
 	SIM_EXPECT(probeLink.firstLength == sync.size());
 	for (std::size_t index = 0; index < sync.size(); index++) {

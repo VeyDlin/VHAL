@@ -32,6 +32,20 @@ void Establish(Line& line, Stack& near, Stack& far) {
 }
 
 
+// A packet chain with no SendQueue. Its packet link has no Ready(), so the default send queue is one packet, and a send that finds the
+// link full is refused with busy. Used where the link has room for one packet a round.
+using ReliableOneSlot = VUB::Stack<+[] {
+	return VUB::Builder()
+		.CountDrops()
+		.Layer<ReliableLayer>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&ReliableOutcome>().OnRestart<&ReliableRestart>()
+		.Link<PacketEnd>()
+		.MaxPayload(40)
+		.ReceiveQueue(4)
+		.OnReceive<&ReliableReceive>()
+		.Clock<&TestClock>();
+}>;
+
+
 // Every packet of ids 1 to 3 is delivered once, in order, and each gets one outcome: ok.
 void TestSendIsDeliveredAndAcknowledged() {
 	ResetReliableState();
@@ -319,6 +333,85 @@ void TestUnsequencedPacketIsNotAcknowledged() {
 }
 
 
+// One round of a packet line whose two ends are different stacks: the near stack processes, its packets reach the far stack, the far stack
+// processes, and its packets come back. The near end is the one-packet link under test; the far end is the peer, with a send queue of 4.
+template<typename NearStack, typename FarStack>
+void SplitRound(PacketLine& line, NearStack& near, FarStack& far) {
+	near.Process();
+	line.DeliverToB(far);
+	far.Process();
+	line.DeliverToA(near);
+	near.Process();
+}
+
+
+// A lost packet is sent again while the peer keeps sending, on a link with room for one packet a round. Near sends packet 1 and the line
+// drops it. Far sends a new packet every round, so near owes an acknowledgement at every Process. The resends go ahead of the owed
+// acknowledgements: the resend of packet 1 goes out at its timeout (200 ms after its send at 1 ms), and packet 1 is delivered once and
+// reported ok after that one resend. Before that order, the bare acknowledgement took the one slot in every round, so the resend was
+// refused as busy for as long as far kept sending.
+void TestLostPacketIsSentAgainWhilePeerSends() {
+	ResetReliableState();
+	PacketLine line(VUB::Faults{});
+	ReliableOneSlot near(line.a);
+	GiveSession(near);
+	ReliableWire far(line.b);
+	GiveSession(far);
+	testNowUs = 0;
+	line.SetNow(0);
+	near.Process();
+	far.Process();
+	SIM_EXPECT(ReliableSend(near, 0xFFFF) == ResultStatus::busy);
+	SIM_EXPECT(ReliableSend(far, 0xFFFF) == ResultStatus::busy);
+	for (std::size_t round = 0; round < 4; round++) {
+		SplitRound(line, near, far);
+	}
+
+	// Packet 1 is added at 1 ms, so its first timeout is at 201 ms. Its first transmission is the first Process of the loop, at 1 ms.
+	testNowUs = 1000;
+	line.SetNow(1000);
+	near.Process();
+	SIM_EXPECT(ReliableSend(near, 1) == ResultStatus::ok);
+	ReliableCapture discard;
+	uint32 deliveredAt = 0;
+	uint32 farRefused = 0;
+	uint16 next = 100;
+	for (uint32 now = 1000; now < 400000; now += 1000) {
+		testNowUs = now;
+		line.SetNow(now);
+		line.a.StartRound(1);
+		near.Process();
+		if (now == 1000) {
+			line.DeliverToB(discard);
+		} else {
+			line.DeliverToB(far);
+		}
+
+		if (ReliableSend(far, next) != ResultStatus::ok) {
+			farRefused++;
+		}
+
+		next++;
+		far.Process();
+		line.DeliverToA(near);
+		if (deliveredAt == 0 && testDelivered[1] == 1) {
+			deliveredAt = now;
+		}
+	}
+
+	// Far's sends were all accepted, so near owed an acknowledgement at every round. Packet 1 was resent within its timeout and a few rounds,
+	// delivered once, reported ok, and sent twice in all.
+	SIM_EXPECT(farRefused == 0);
+	SIM_EXPECT(deliveredAt != 0);
+	SIM_EXPECT(deliveredAt <= 1000 + 200000 + 4000);
+	SIM_EXPECT(testDelivered[1] == 1);
+	SIM_EXPECT(testOutcomes[1] == 1);
+	SIM_EXPECT(testStatus[1] == ResultStatus::ok);
+	SIM_EXPECT(testAttempts[1] == 2);
+	SIM_EXPECT(testRestarts == 0);
+}
+
+
 int main() {
 	TestSendIsDeliveredAndAcknowledged();
 	TestWindowLimitsUnacknowledgedPackets();
@@ -328,5 +421,6 @@ int main() {
 	TestEightBitSequenceWraps();
 	TestUnsequencedPacketIsNotAcknowledged();
 	TestGivenUpPacketDoesNotStopTheStream();
+	TestLostPacketIsSentAgainWhilePeerSends();
 	return SimFinish("TestVubReliableDelivery");
 }

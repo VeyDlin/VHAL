@@ -33,9 +33,24 @@ struct Outcome {
 // Plain helpers of the delivery layer. They do not depend on the layer's template arguments, so each is one function in the program,
 // whatever the number of layers.
 namespace ReliableWire {
-	// The session tag: the counter plus the low byte of the boot value. Sessions of one boot have different tags for 256 sessions.
+	// The byte of a boot value that the session tags are built from: bits 8 to 15 of the boot value times TagStep. Boot values that follow
+	// each other give bytes that differ by 91 or 92, so their tags differ for adjacent counters.
+	inline uint8 MixOf(uint16 boot) {
+		return static_cast<uint8>((static_cast<uint32>(boot) * TagStep) >> 8);
+	}
+
+
+	// The session tag: the counter plus the mixed byte of the boot value. A boot value of 0 gives the counter itself.
 	inline uint8 TagOf(uint16 boot, uint8 counter) {
-		return static_cast<uint8>(counter + static_cast<uint8>(boot & 0xFF));
+		return static_cast<uint8>(counter + MixOf(boot));
+	}
+
+
+	// The tag of the data of a session, bound to the receiver: the session tag plus the mixed byte of the receiver's boot value. A receiver
+	// with the boot value 0 gives the session tag. A receiver that took the session for another boot of its own instance has another bound
+	// tag, so its data is refused.
+	inline uint8 BoundTagOf(uint16 senderBoot, uint8 counter, uint16 receiverBoot) {
+		return static_cast<uint8>(TagOf(senderBoot, counter) + MixOf(receiverBoot));
 	}
 
 
@@ -362,6 +377,9 @@ private:
 		bool owesResync = false;
 		uint8 resyncTag = 0;
 		bool owesCounter = false;
+		bool owesSyncAck = false;
+		uint16 syncAckSequence = 0;
+		uint8 syncAckTag = 0;
 		std::array<uint16, 2 * WindowCapacity> owed{};
 		std::array<uint8, 2 * WindowCapacity> owedTags{};
 		std::size_t owedHead = 0;
@@ -501,12 +519,17 @@ public:
 		}
 
 		if (flags == (ControlFlag | AcknowledgesFlag)) {
-			if (packet.size() != 2 + seqBytes) {
-				return ResultStatus::invalidData;
+			if (packet.size() == 2 + seqBytes) {
+				ReceiveAcknowledgement(packet[1], GetSequence(packet.data() + 2));
+				return Taken{2 + seqBytes, false};
 			}
 
-			ReceiveAcknowledgement(packet[1], GetSequence(packet.data() + 2));
-			return Taken{2 + seqBytes, false};
+			if (packet.size() == 4 + seqBytes) {
+				ReceiveSyncAcknowledgement(packet[1], GetSequence(packet.data() + 2), GetLe16(packet.data() + 2 + seqBytes));
+				return Taken{4 + seqBytes, false};
+			}
+
+			return ResultStatus::invalidData;
 		}
 
 		if ((flags & 0xE0) != 0 || (flags & (ResyncFlag | ControlFlag)) != 0) {
@@ -619,8 +642,13 @@ public:
 		}
 
 		StartSync();
-		FlushAcknowledgements(outbox);
+		FlushSyncAcknowledgement(outbox);
+		// The owed acknowledgement of a sync goes first: at most one packet, and only while a peer's session is starting. Then the resends
+		// that are due go ahead of the owed acknowledgements of data: each one carries the oldest owed acknowledgement, and the rest go alone
+		// after it. The other way round, on a link with room for one packet, a peer that keeps sending gives an acknowledgement owed at every
+		// Process, and the resends stay refused as busy for as long as it sends.
 		RunTimers(nowUs, outbox);
+		FlushAcknowledgements(outbox);
 	}
 
 
@@ -851,6 +879,15 @@ private:
 	}
 
 
+	// The acknowledgement of a sync is kept alone: one waiting acknowledgement, the last one owed. It is sent alone, with the boot value of
+	// this receiver, and a newer one replaces it: the sender sends the sync again while it waits.
+	void OweSyncAcknowledgement(uint16 sequence, uint8 tag) {
+		peer.owesSyncAck = true;
+		peer.syncAckSequence = sequence;
+		peer.syncAckTag = tag;
+	}
+
+
 	// The acknowledgements owed to the peer, a ring of 2 * WindowCapacity numbers, each with the tag of its session. PushOwed drops the
 	// number when the ring is full: the peer resends the packet, and it is acknowledged then.
 	bool PeekOwed(uint16& value, uint8& tag) const {
@@ -882,23 +919,39 @@ private:
 	}
 
 
-	// An acknowledgement is taken when its tag is the tag of the sender's current session. The acknowledgement of the sync establishes
-	// the session. With InOrder the session is established by Process, after the held packets have gone up (see HeldStore).
+	// An acknowledgement of a data packet is taken when its tag is the tag of the sender's current session. A sync is never acknowledged
+	// this way: its acknowledgement carries the receiver's boot value (see ReceiveSyncAcknowledgement), so a sync slot is not settled here.
 	void ReceiveAcknowledgement(uint8 tag, uint16 sequence) {
 		if (tag != peer.tag) {
 			return;
 		}
 
 		Slot* slot = FindPending(sequence);
-		if (slot != nullptr) {
+		if (slot != nullptr && !slot->sync) {
 			slot->state = SlotState::acked;
-			if (slot->sync) {
-				if constexpr (InOrder) {
-					held.syncAcked = true;
-				} else {
-					peer.established = true;
-				}
-			}
+		}
+	}
+
+
+	// The acknowledgement of a sync names the plain tag of the sync and its number, and carries the receiver's boot value. It is taken while
+	// the sync waits: the session's tag becomes the one bound to that receiver, and the session is established (with InOrder, in Process,
+	// once the held packets have gone up: see HeldStore). An acknowledgement that finds no waiting sync changes nothing.
+	void ReceiveSyncAcknowledgement(uint8 tag, uint16 sequence, uint16 receiverBoot) {
+		if (tag != peer.tag) {
+			return;
+		}
+
+		Slot* slot = FindPending(sequence);
+		if (slot == nullptr || !slot->sync) {
+			return;
+		}
+
+		slot->state = SlotState::acked;
+		peer.tag = ReliableWire::BoundTagOf(peer.bootValue, peer.counter, receiverBoot);
+		if constexpr (InOrder) {
+			held.syncAcked = true;
+		} else {
+			peer.established = true;
 		}
 	}
 
@@ -978,7 +1031,7 @@ private:
 		peer.open = true;
 		peer.heldBoot = boot;
 		peer.heldCounter = counter;
-		peer.receiveTag = ReliableWire::TagOf(boot, counter);
+		peer.receiveTag = ReliableWire::BoundTagOf(boot, counter, peer.bootValue);
 		peer.base = sequence;
 		peer.seen = 0;
 		peer.owesResync = false;
@@ -999,7 +1052,7 @@ private:
 		if (peer.open && boot == peer.heldBoot) {
 			uint8 distance = static_cast<uint8>(counter - peer.heldCounter);
 			if (distance == 0) {
-				PushOwed(sequence, peer.receiveTag);
+				OweSyncAcknowledgement(sequence, ReliableWire::TagOf(boot, counter));
 				return false;
 			}
 
@@ -1033,7 +1086,8 @@ private:
 			return false;
 		}
 
-		if (!peer.open || tag != peer.receiveTag) {
+		// A sync has just opened the session with its own tag, which is checked against its boot value and counter in Take.
+		if (!sync && (!peer.open || tag != peer.receiveTag)) {
 			peer.owesResync = true;
 			peer.resyncTag = tag;
 			return false;
@@ -1053,7 +1107,12 @@ private:
 				}
 			}
 
-			PushOwed(sequence, tag);
+			if (sync) {
+				OweSyncAcknowledgement(sequence, tag);
+			} else {
+				PushOwed(sequence, tag);
+			}
+
 			if constexpr (TracksAhead) {
 				uint32 bit = 1u << ahead;
 				if ((peer.seen & bit) != 0) {
@@ -1236,6 +1295,25 @@ private:
 		slot->dueUs = lastNowUs;
 		slot->state = SlotState::pending;
 		peer.inFlight++;
+	}
+
+
+	// Sends the owed acknowledgement of a sync: the flags, the tag and number of the sync, and the boot value of this receiver. It is sent
+	// alone, and kept until the link takes it.
+	void FlushSyncAcknowledgement(const Outbox& outbox) {
+		if (!peer.owesSyncAck) {
+			return;
+		}
+
+		std::array<uint8, 6> reply = {static_cast<uint8>(ControlFlag | AcknowledgesFlag), peer.syncAckTag, 0, 0, 0, 0};
+		PutSequence(reply.data() + 2, peer.syncAckSequence);
+		PutLe16(reply.data() + 2 + SeqBytes(), peer.bootValue);
+		std::size_t length = 4 + SeqBytes();
+		// A busy outbox, and one that answers noConnection while the connection is down under Fail, keep the acknowledgement owed (see Outbox).
+		ResultStatus status = outbox.Send(std::span<const uint8>(reply.data(), length));
+		if (status != ResultStatus::busy && status != ResultStatus::noConnection) {
+			peer.owesSyncAck = false;
+		}
 	}
 
 

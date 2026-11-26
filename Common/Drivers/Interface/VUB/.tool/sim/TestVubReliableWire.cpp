@@ -8,7 +8,7 @@
 
 // The bytes of the delivery header, checked against the layout of the wiki page (Layer/VUB::Reliable): flags first, then for a sequenced
 // packet its tag, its number and the window base delta, for a sync the boot value and the session counter, and for an acknowledgement its
-// tag and number. The tests give the boot value 0x1234 with SetSession, so the first session has counter 0 and tag 0x34. The
+// tag and number. The tests give the boot value 0x1234 with SetSession, so the first session has counter 0 and tag 0x65. The
 // expected bytes below are written by hand from that layout.
 
 
@@ -33,7 +33,7 @@ void EstablishSession(PacketLine& line, Stack& near, Stack& far) {
 }
 
 
-// The sync: flags 0x05 (sequenced, sync), the tag 0x34 (counter 0 plus the boot value's low byte), the number 0x012C (the first number of
+// The sync: flags 0x05 (sequenced, sync), the tag 0x65 (counter 0 plus the mixed byte 0x65 of the boot value), the number 0x012C (the first number of
 // the boot: 0x1234 * 0x9E37 = 0x0B40012C, low 16 bits 0x012C), the base delta 0x00, the boot value 0x1234 little-endian, and the counter
 // 0x00. It carries no payload.
 void TestSyncPacketBytes() {
@@ -50,13 +50,14 @@ void TestSyncPacketBytes() {
 	ReliableCapture capture;
 	line.DeliverToB(capture);
 	SIM_EXPECT(capture.count == 1);
-	std::array<uint8, 8> sync = {0x05, 0x34, 0x2C, 0x01, 0x00, 0x34, 0x12, 0x00};
+	std::array<uint8, 8> sync = {0x05, 0x65, 0x2C, 0x01, 0x00, 0x34, 0x12, 0x00};
 	SIM_EXPECT(CaptureIs(capture, 0, sync));
 }
 
 
 // After the sync is acknowledged the window base is the first data number of the session, 0x012D, so the first data packet has delta 0.
-// The second one, sent while the first is unacknowledged, has delta 1: its base is the first packet's number.
+// The second one, sent while the first is unacknowledged, has delta 1: its base is the first packet's number. The far side has the boot
+// value 0x5656, as in the examples of the wiki page.
 void TestSequencedPacketBytes() {
 	ResetReliableState();
 	testNowUs = 0x1234;
@@ -64,7 +65,7 @@ void TestSequencedPacketBytes() {
 	ReliableWire near(line.a);
 	GiveSession(near);
 	ReliableWire far(line.b);
-	GiveSession(far);
+	GiveSession(far, 0x5656);
 	near.Process();
 	far.Process();
 	ReliableCapture discard;
@@ -78,11 +79,12 @@ void TestSequencedPacketBytes() {
 	ReliableCapture capture;
 	line.DeliverToB(capture);
 	SIM_EXPECT(capture.count == 2);
-	// Flags 0x01, tag 0x34, number 0x012D, delta 0x00, then the payload.
-	std::array<uint8, 8> firstExpected = {0x01, 0x34, 0x2D, 0x01, 0x00, 0x11, 0x00, 0x22};
+	// Flags 0x01, tag 0x83 (the session tag 0x65 bound to the far side's boot value 0x5656, whose mixed byte is 0x1E: 0x65 + 0x1E), number
+	// 0x012D, delta 0x00, then the payload.
+	std::array<uint8, 8> firstExpected = {0x01, 0x83, 0x2D, 0x01, 0x00, 0x11, 0x00, 0x22};
 	SIM_EXPECT(CaptureIs(capture, 0, firstExpected));
-	// Flags 0x01, tag 0x34, number 0x012E, delta 0x01 (the first packet's number is the base), then the payload.
-	std::array<uint8, 7> secondExpected = {0x01, 0x34, 0x2E, 0x01, 0x01, 0x33, 0x00};
+	// Flags 0x01, tag 0x83, number 0x012E, delta 0x01 (the first packet's number is the base), then the payload.
+	std::array<uint8, 7> secondExpected = {0x01, 0x83, 0x2E, 0x01, 0x01, 0x33, 0x00};
 	SIM_EXPECT(CaptureIs(capture, 1, secondExpected));
 }
 
@@ -110,7 +112,8 @@ void TestBareAckBytes() {
 
 	ReliableCapture toNear;
 	line.DeliverToA(toNear);
-	std::array<uint8, 4> ack = {0x12, 0x34, 0x2C, 0x01};
+	// The acknowledgement of a sync carries the far side's boot value 0x1234 after its number.
+	std::array<uint8, 6> ack = {0x12, 0x65, 0x2C, 0x01, 0x34, 0x12};
 	SIM_EXPECT(toNear.count == 1);
 	SIM_EXPECT(CaptureIs(toNear, 0, ack));
 
@@ -129,13 +132,13 @@ void TestResyncRequestBytes() {
 	ReliableWire far(line.b);
 	GiveSession(far);
 	far.Process();
-	std::array<uint8, 8> data = {0x01, 0x34, 0x2D, 0x01, 0x00, 0x11, 0x00, 0x22};
+	std::array<uint8, 8> data = {0x01, 0x65, 0x2D, 0x01, 0x00, 0x11, 0x00, 0x22};
 	far.FeedPacket(std::span<const uint8>(data.data(), data.size()));
 	far.Process();
 	SIM_EXPECT(testDelivered[0x11] == 0);
 	ReliableCapture toNear;
 	line.DeliverToA(toNear);
-	std::array<uint8, 2> resync = {0x08, 0x34};
+	std::array<uint8, 2> resync = {0x08, 0x65};
 	SIM_EXPECT(toNear.count == 1);
 	SIM_EXPECT(CaptureIs(toNear, 0, resync));
 }
@@ -206,7 +209,7 @@ void TestAcknowledgementRidesOnReply() {
 	ReliableCapture toNear;
 	line.DeliverToA(toNear);
 	SIM_EXPECT(toNear.count == 1);
-	std::array<uint8, 6> reply = {0x02, 0x34, 0x2D, 0x01, 0xCD, 0x00};
+	std::array<uint8, 6> reply = {0x02, 0xCA, 0x2D, 0x01, 0xCD, 0x00};
 	SIM_EXPECT(CaptureIs(toNear, 0, reply));
 }
 
@@ -227,16 +230,18 @@ void TestSyncAndSequencedPacketsWithAcknowledgementBytes() {
 	ReliableCapture discard;
 	line.DeliverToB(discard);
 	// The near side's session is acknowledged by hand: a bare acknowledgement of its sync, number 0x012C.
-	std::array<uint8, 4> syncAck = {0x12, 0x34, 0x2C, 0x01};
+	// The acknowledgement of the sync from a far side with boot value 0x5656 (its mixed byte is 0x1E, so the data of the near side has the tag
+	// 0x65 + 0x1E = 0x83).
+	std::array<uint8, 6> syncAck = {0x12, 0x65, 0x2C, 0x01, 0x56, 0x56};
 	near.FeedPacket(std::span<const uint8>(syncAck.data(), syncAck.size()));
 	near.Process();
 	SIM_EXPECT(near.Send(std::span<const uint8>(payload.data(), payload.size())) == ResultStatus::ok);
 	near.Process();
 	line.DeliverToB(discard);
 
-	// Flags 0x07: the sync (tag 0x56, number 0xA07A, the first number of boot 0x5656, delta 0x00, boot 0x5656, counter 0x00), acknowledging the
-	// near side's first packet (tag 0x34, number 0x012D).
-	std::array<uint8, 11> farSync = {0x07, 0x56, 0x7A, 0xA0, 0x00, 0x56, 0x56, 0x00, 0x34, 0x2D, 0x01};
+	// Flags 0x07: the sync (tag 0x1E, number 0xA07A, the first number of boot 0x5656, delta 0x00, boot 0x5656, counter 0x00), acknowledging the
+	// near side's first packet (tag 0x83, number 0x012D).
+	std::array<uint8, 11> farSync = {0x07, 0x1E, 0x7A, 0xA0, 0x00, 0x56, 0x56, 0x00, 0x83, 0x2D, 0x01};
 	near.FeedPacket(std::span<const uint8>(farSync.data(), farSync.size()));
 	near.Process();
 	SIM_EXPECT(testStatus[9] == ResultStatus::ok);
@@ -245,19 +250,21 @@ void TestSyncAndSequencedPacketsWithAcknowledgementBytes() {
 	line.DeliverToB(owed);
 	// The sync is not passed up. The bare acknowledgement of the sync is owed, with the far side's tag.
 	SIM_EXPECT(testDelivered[0x0000] == 0);
-	std::array<uint8, 4> syncOwed = {0x12, 0x56, 0x7A, 0xA0};
+	// The acknowledgement of the far side's sync carries the near side's boot value 0x1234.
+	std::array<uint8, 6> syncOwed = {0x12, 0x1E, 0x7A, 0xA0, 0x34, 0x12};
 	SIM_EXPECT(owed.count == 1);
 	SIM_EXPECT(CaptureIs(owed, 0, syncOwed));
 
-	// Flags 0x03: a sequenced packet (tag 0x56, number 0xA07B, delta 0x00) with an acknowledgement (tag 0x34, number 0x012C, the near side's
-	// sync). The payload is id 7, and it is passed up.
-	std::array<uint8, 10> farData = {0x03, 0x56, 0x7B, 0xA0, 0x00, 0x34, 0x2C, 0x01, 0x07, 0x00};
+	// Flags 0x03: a sequenced packet (tag 0x83, the far sync's tag 0x1E bound to the near side's boot value 0x1234: 0x1E + 0x65, number
+	// 0xA07B, delta 0x00) with a data acknowledgement (tag 0x65, number 0x012C). A sync is never acknowledged by a data acknowledgement, so the
+	// number settles nothing. The payload is id 7, and it is passed up.
+	std::array<uint8, 10> farData = {0x03, 0x83, 0x7B, 0xA0, 0x00, 0x65, 0x2C, 0x01, 0x07, 0x00};
 	near.FeedPacket(std::span<const uint8>(farData.data(), farData.size()));
 	near.Process();
 	SIM_EXPECT(testDelivered[7] == 1);
 	ReliableCapture answer;
 	line.DeliverToB(answer);
-	std::array<uint8, 4> dataOwed = {0x12, 0x56, 0x7B, 0xA0};
+	std::array<uint8, 4> dataOwed = {0x12, 0x83, 0x7B, 0xA0};
 	SIM_EXPECT(answer.count == 1);
 	SIM_EXPECT(CaptureIs(answer, 0, dataOwed));
 }
@@ -279,13 +286,13 @@ void TestEightBitBytes() {
 	ReliableCapture toFar;
 	line.DeliverToB(toFar);
 	// One byte of number: the sync is numbered 0x2C, the low byte of 0x012C.
-	std::array<uint8, 7> sync = {0x05, 0x34, 0x2C, 0x00, 0x34, 0x12, 0x00};
+	std::array<uint8, 7> sync = {0x05, 0x65, 0x2C, 0x00, 0x34, 0x12, 0x00};
 	SIM_EXPECT(CaptureIs(toFar, 0, sync));
 	far.FeedPacket(std::span<const uint8>(toFar.packets[0].data(), toFar.lengths[0]));
 	far.Process();
 	ReliableCapture toNear;
 	line.DeliverToA(toNear);
-	std::array<uint8, 3> ack = {0x12, 0x34, 0x2C};
+	std::array<uint8, 5> ack = {0x12, 0x65, 0x2C, 0x34, 0x12};
 	SIM_EXPECT(CaptureIs(toNear, 0, ack));
 }
 
@@ -301,12 +308,12 @@ void TestMalformedHeadersAreRefused() {
 	near.Process();
 	std::array<std::array<uint8, 9>, 8> bad = {{
 		{0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-		{0x05, 0x34, 0x2C, 0x01, 0x00, 0x34, 0x12, 0x00, 0xAA},
-		{0x08, 0x34, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+		{0x05, 0x65, 0x2C, 0x01, 0x00, 0x34, 0x12, 0x00, 0xAA},
+		{0x08, 0x65, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
 		{0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-		{0x01, 0x34, 0x2D, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00},
-		{0x12, 0x34, 0x2C, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00},
-		{0x05, 0x34, 0x2C, 0x01, 0x00, 0x34, 0x12, 0x00, 0x00},
+		{0x01, 0x65, 0x2D, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00},
+		{0x12, 0x65, 0x2C, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00},
+		{0x05, 0x65, 0x2C, 0x01, 0x00, 0x34, 0x12, 0x00, 0x00},
 		{0x05, 0x35, 0x2C, 0x01, 0x00, 0x34, 0x12, 0x00, 0x00},
 	}};
 	std::array<std::size_t, 8> lengths = {1, 9, 3, 2, 4, 5, 7, 8};

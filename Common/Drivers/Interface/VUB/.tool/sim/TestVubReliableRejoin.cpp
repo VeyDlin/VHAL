@@ -386,21 +386,25 @@ void Scenario(const char* name, bool restartPc) {
 	SIM_EXPECT(first.sendOk == 100);
 	SIM_EXPECT(first.echoOk == 100);
 	SIM_EXPECT(first.echoesInTwice == 0);
-	// The PC restarted: every payload it sends after the restart is delivered, and every echo reaches it.
-	// The board restarted: the PC's packets that the rebuilt board refuses are reset (the page's rule for a receiver that lost its
-	// session, see the existing restart test). Every other packet is delivered once, and its echo arrives once.
+	// Every payload the board passed up is echoed once, and every echo reaches the PC.
 	SIM_EXPECT(second.sendRetry == 0);
 	SIM_EXPECT(second.echoRetry == 0);
 	SIM_EXPECT(second.echoReset == 0);
 	SIM_EXPECT(second.echoesInTwice == 0);
-	SIM_EXPECT(second.echoesIn == second.sendOk);
-	SIM_EXPECT(second.echoOk == second.sendOk);
-	SIM_EXPECT(second.deliveredOnce == second.sendOk);
+	SIM_EXPECT(second.echoesIn == second.deliveredOnce);
+	SIM_EXPECT(second.echoOk == second.deliveredOnce);
 	SIM_EXPECT(second.sendOk + second.sendReset == 100);
 	if (restartPc) {
+		// The PC restarted: every payload it sends after the restart is delivered and reported ok.
 		SIM_EXPECT(second.sendReset == 0);
+		SIM_EXPECT(second.deliveredOnce == second.sendOk);
 	} else {
-		SIM_EXPECT(second.sendReset <= 4);
+		// The board restarted. The PC's packets that the rebuilt board refuses are reset, up to a window (the page's rule for a receiver
+		// that lost its session). So are the packets of the PC's new session still in flight when the board's own sync arrives, up to a
+		// window: the board can have passed those up (Reliable.md, Limits). A payload reported ok was passed up.
+		SIM_EXPECT(second.sendOk <= second.deliveredOnce);
+		SIM_EXPECT(second.deliveredOnce <= second.sendOk + second.sendReset);
+		SIM_EXPECT(second.sendReset <= 2 * 4);
 	}
 
 	SIM_EXPECT(second.lastUs - second.firstUs <= (first.lastUs - first.firstUs) * 6 / 5 + 5000);

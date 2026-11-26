@@ -2,9 +2,28 @@
 #include "ReliableChains.h"
 #include <Drivers/Interface/VUB/TestKit/Loopback.h>
 #include <Drivers/Interface/VUB/TestKit/Wire.h>
+#include <Drivers/Interface/VUB/Transform/Crc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 #include <Utilities/DataTypes.h>
 #include <cstddef>
 #include <span>
+
+
+// The stream chain of the byte faults: the flag framing's sum and xor do not see a lost or repeated byte of value 0, so the chain checks
+// each packet with CRC-16/MODBUS, as a chain on a real stream link does.
+using ReliableStreamCrc = VUB::Stack<+[] {
+	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
+		.Layer<ReliableLayer>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(40).OnOutcome<&ReliableOutcome>().OnRestart<&ReliableRestart>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
+		.Framing<FlagFraming>()
+		.Link<ReportingStreamEnd>()
+		.MaxPayload(40)
+		.ReceiveRing(256)
+		.OnReceive<&ReliableReceive>()
+		.Clock<&TestClock>();
+}>;
 
 
 // Packets over the faulty loopback: drops, corrupted bits, duplicates and delays (which reorder). The invariant checked for every
@@ -69,9 +88,8 @@ void RunFaultyTraffic(Line& line, Stack& near, Stack& far, std::size_t total, ui
 }
 
 
-// A stream with 1 % dropped bytes and 1 % duplicated bytes. A frame with a lost or repeated byte fails the framing's checks and is
-// dropped, and the layer resends it. The stream has no delays: the check doubles cannot see two bytes swapped, so a stream whose bytes
-// reorder would hand the layer damage that looks valid. Reordering is tested on the packet line.
+// A stream with 1 % dropped bytes and 1 % duplicated bytes. A frame with a lost or repeated byte fails the CRC and is dropped, and the
+// layer resends it. Reordering is tested on the packet line.
 void TestStreamWithByteFaults() {
 	ResetReliableState();
 	VUB::Faults faults;
@@ -79,9 +97,9 @@ void TestStreamWithByteFaults() {
 	faults.dropPercent = 1;
 	faults.duplicatePercent = 1;
 	ReportingStreamLine line(faults);
-	ReliableStream near(line.a);
+	ReliableStreamCrc near(line.a);
 	GiveSession(near);
-	ReliableStream far(line.b);
+	ReliableStreamCrc far(line.b);
 	GiveSession(far);
 	near.Process();
 	far.Process();

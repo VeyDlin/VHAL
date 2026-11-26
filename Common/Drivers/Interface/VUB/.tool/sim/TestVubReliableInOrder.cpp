@@ -16,7 +16,7 @@
 // The in-order option of the delivery layer: VUB::ReliableOf with InOrder = true. A packet inside the window is held until the packets
 // before it have gone up; it is passed up from Process through the outbox's Deliver, and it is acknowledged when it goes up. The sessions
 // use the sender's numbers: the sync has the first number of its boot (0xA6E0 for boot 0x2020), and the data starts after it. The session
-// tag of boot 0x2020 is 0x20 for counter 0. The payloads are two bytes, the id, little-endian.
+// tag of boot 0x2020 is 0x46 for counter 0. The payloads are two bytes, the id, little-endian.
 
 
 using OrderLayer = VUB::ReliableOf<40, 4, true>;
@@ -203,8 +203,8 @@ void TestGivenUpGapDropsTheHeldPacketsBelowTheSenderBase() {
 	SIM_EXPECT(SendOrder(sender, 0, sWire));
 	SIM_EXPECT(SendOrder(sender, 1, sWire));
 	SIM_EXPECT(SendOrder(sender, 2, sWire));
-	// Data of number 0xA6E1, id 0: 01 20 E1 A6 00 00 00.
-	std::array<uint8, 7> first = {0x01, 0x20, 0xE1, 0xA6, 0x00, 0x00, 0x00};
+	// Data of number 0xA6E1, id 0: 01 46 E1 A6 00 00 00.
+std::array<uint8, 7> first = {0x01, 0x46, 0xE1, 0xA6, 0x00, 0x00, 0x00};
 	SIM_EXPECT(SentIs(sWire, 0, first));
 	SIM_EXPECT(CarryAt(sWire, 1, receiver));
 	SIM_EXPECT(CarryAt(sWire, 2, receiver));
@@ -223,18 +223,18 @@ void TestGivenUpGapDropsTheHeldPacketsBelowTheSenderBase() {
 	SIM_EXPECT(orderStatus[1] == ResultStatus::retryExhausted);
 	SIM_EXPECT(orderStatus[2] == ResultStatus::retryExhausted);
 
-	// Id 3 is number 0xA6E4. The sender has nothing unsettled, so its base is 0xA6E4 and the delta is 0: 01 20 E4 A6 00 03 00.
+	// Id 3 is number 0xA6E4. The sender has nothing unsettled, so its base is 0xA6E4 and the delta is 0: 01 46 E4 A6 00 03 00.
 	SIM_EXPECT(SendOrder(sender, 3, sWire));
-	std::array<uint8, 7> afterGiveUp = {0x01, 0x20, 0xE4, 0xA6, 0x00, 0x03, 0x00};
+	std::array<uint8, 7> afterGiveUp = {0x01, 0x46, 0xE4, 0xA6, 0x00, 0x03, 0x00};
 	SIM_EXPECT(SentIs(sWire, 0, afterGiveUp));
 	SIM_EXPECT(CarryAt(sWire, 0, receiver));
 	sWire.count = 0;
 	receiver.Process(1450000, OrderOutbox(rWire));
 	SIM_EXPECT(rWire.upCount == 1);
 	SIM_EXPECT(rWire.up[0] == 3);
-	// One acknowledgement, for the packet that went up: tag 0x20, number 0xA6E4.
+	// One acknowledgement, for the packet that went up: tag 0x46, number 0xA6E4.
 	SIM_EXPECT(rWire.count == 1);
-	std::array<uint8, 4> ack4 = {0x12, 0x20, 0xE4, 0xA6};
+	std::array<uint8, 4> ack4 = {0x12, 0x46, 0xE4, 0xA6};
 	SIM_EXPECT(SentIs(rWire, 0, ack4));
 	CarryAll(rWire, sender);
 	sender.Process(1450000, OrderOutbox(sWire));
@@ -278,9 +278,9 @@ void TestGapFillReleasesInOrderAndAcknowledgesEach() {
 	SIM_EXPECT(rWire.up[1] == 1);
 	SIM_EXPECT(rWire.up[2] == 2);
 	SIM_EXPECT(rWire.count == 3);
-	std::array<uint8, 4> ack1 = {0x12, 0x20, 0xE1, 0xA6};
-	std::array<uint8, 4> ack2 = {0x12, 0x20, 0xE2, 0xA6};
-	std::array<uint8, 4> ack3 = {0x12, 0x20, 0xE3, 0xA6};
+	std::array<uint8, 4> ack1 = {0x12, 0x46, 0xE1, 0xA6};
+	std::array<uint8, 4> ack2 = {0x12, 0x46, 0xE2, 0xA6};
+	std::array<uint8, 4> ack3 = {0x12, 0x46, 0xE3, 0xA6};
 	SIM_EXPECT(SentIs(rWire, 0, ack1));
 	SIM_EXPECT(SentIs(rWire, 1, ack2));
 	SIM_EXPECT(SentIs(rWire, 2, ack3));
@@ -320,8 +320,8 @@ void TestReceiverRebootClearsHeldPackets() {
 	SIM_EXPECT(CarryAt(sWire, 0, rebooted));
 	SIM_EXPECT(CarryAt(sWire, 1, rebooted));
 	rebooted.Process(1200000, OrderOutbox(rebootWire));
-	// Resync request for tag 0x20.
-	std::array<uint8, 2> resync = {0x08, 0x20};
+	// Resync request for tag 0x46.
+	std::array<uint8, 2> resync = {0x08, 0x46};
 	SIM_EXPECT(rebootWire.count == 1);
 	SIM_EXPECT(SentIs(rebootWire, 0, resync));
 	CarryAll(rebootWire, sender);
@@ -503,16 +503,16 @@ void TestSyncAckWaitsForTheHeldPacketsOfTheOldSession() {
 	peer.SetSession(0x1234);
 	SIM_EXPECT(!SendOrder(peer, 0xFFFF, pWire));
 	peer.Process(1000000, OrderOutbox(pWire));
-	// The sync of P: tag 0x34, number 0x012C, boot 0x1234, counter 0.
-	std::array<uint8, 8> pSync = {0x05, 0x34, 0x2C, 0x01, 0x00, 0x34, 0x12, 0x00};
+	// The sync of P: tag 0x65, number 0x012C, boot 0x1234, counter 0.
+	std::array<uint8, 8> pSync = {0x05, 0x65, 0x2C, 0x01, 0x00, 0x34, 0x12, 0x00};
 	SIM_EXPECT(SentIs(pWire, 0, pSync));
 	pWire.count = 0;
 
-	// The sync of D (boot 0x5656, counter 0, tag 0x56, number 0xA07A); the held packet of D (number 0xA07B, delta 0, id 7); and D's
-	// acknowledgement of P's sync (tag 0x34, number 0x012C).
-	std::array<uint8, 8> dSync = {0x05, 0x56, 0x7A, 0xA0, 0x00, 0x56, 0x56, 0x00};
-	std::array<uint8, 7> dHeld = {0x01, 0x56, 0x7B, 0xA0, 0x00, 0x07, 0x00};
-	std::array<uint8, 4> dAck = {0x12, 0x34, 0x2C, 0x01};
+	// The sync of D (boot 0x5656, counter 0, tag 0x1E, number 0xA07A); the held packet of D (number 0xA07B, delta 0, id 7), with the tag 0x83
+	// that is bound to P's boot value (0x1E + 0x65); and D's acknowledgement of P's sync (tag 0x65, number 0x012C, D's boot value 0x5656).
+	std::array<uint8, 8> dSync = {0x05, 0x1E, 0x7A, 0xA0, 0x00, 0x56, 0x56, 0x00};
+	std::array<uint8, 7> dHeld = {0x01, 0x83, 0x7B, 0xA0, 0x00, 0x07, 0x00};
+	std::array<uint8, 6> dAck = {0x12, 0x65, 0x2C, 0x01, 0x56, 0x56};
 	SIM_EXPECT(TakeRaw(peer, dSync));
 	SIM_EXPECT(TakeRaw(peer, dHeld));
 	SIM_EXPECT(TakeRaw(peer, dAck));
@@ -522,15 +522,16 @@ void TestSyncAckWaitsForTheHeldPacketsOfTheOldSession() {
 	// The held packet went up first. Its acknowledgement and the one of D's sync are sent in the order they were owed.
 	SIM_EXPECT(pWire.upCount == 1);
 	SIM_EXPECT(pWire.up[0] == 7);
-	std::array<uint8, 4> ackSync = {0x12, 0x56, 0x7A, 0xA0};
-	std::array<uint8, 4> ackHeld = {0x12, 0x56, 0x7B, 0xA0};
+	std::array<uint8, 6> ackSync = {0x12, 0x1E, 0x7A, 0xA0, 0x34, 0x12};
+	std::array<uint8, 4> ackHeld = {0x12, 0x83, 0x7B, 0xA0};
 	SIM_EXPECT(pWire.count == 2);
 	SIM_EXPECT(SentIs(pWire, 0, ackSync));
 	SIM_EXPECT(SentIs(pWire, 1, ackHeld));
 
-	// The session is established: the first packet of P's session has number 0x012D, delta 0, and goes out with the id 1.
+	// The session is established: the first packet of P's session has number 0x012D, delta 0, tag 0x83 (bound to D's boot value 0x5656),
+	// and goes out with the id 1.
 	SIM_EXPECT(SendOrder(peer, 0x0001, pWire));
-	std::array<uint8, 7> ping = {0x01, 0x34, 0x2D, 0x01, 0x00, 0x01, 0x00};
+	std::array<uint8, 7> ping = {0x01, 0x83, 0x2D, 0x01, 0x00, 0x01, 0x00};
 	SIM_EXPECT(SentIs(pWire, 2, ping));
 }
 
@@ -545,14 +546,14 @@ void TestDataQueuedInTheSyncAckDrainWaitsForTheProcess() {
 	SIM_EXPECT(!SendOrder(sender, 0xFFFF, wire));
 	sender.Process(1000000, OrderOutbox(wire));
 	wire.count = 0;
-	std::array<uint8, 4> ack = {0x12, 0x34, 0x2C, 0x01};
+	std::array<uint8, 6> ack = {0x12, 0x65, 0x2C, 0x01, 0x00, 0x00};
 	SIM_EXPECT(TakeRaw(sender, ack));
 	SIM_EXPECT(!SendOrder(sender, 0x0007, wire));
 	sender.Process(1000000, OrderOutbox(wire));
 	SIM_EXPECT(wire.count == 0);
 	SIM_EXPECT(SendOrder(sender, 0x0007, wire));
 	// Number 0x012D, delta 0, id 7.
-	std::array<uint8, 7> data = {0x01, 0x34, 0x2D, 0x01, 0x00, 0x07, 0x00};
+	std::array<uint8, 7> data = {0x01, 0x65, 0x2D, 0x01, 0x00, 0x07, 0x00};
 	SIM_EXPECT(SentIs(wire, 0, data));
 }
 
@@ -570,13 +571,13 @@ void TestHeldPacketsAboveTheSenderBaseGoUpAfterAGiveUp() {
 
 	// Id 0 (number 0x012D) is lost, and so is its resend at 1.2 s. Ids 1 and 2 (numbers 0x012E and 0x012F) are sent at 1.1 s and arrive.
 	SIM_EXPECT(SendOrder(sender, 0, sWire));
-	SIM_EXPECT(SentIs(sWire, 0, std::array<uint8, 7>{0x01, 0x34, 0x2D, 0x01, 0x00, 0x00, 0x00}));
+	SIM_EXPECT(SentIs(sWire, 0, std::array<uint8, 7>{0x01, 0x65, 0x2D, 0x01, 0x00, 0x00, 0x00}));
 	sWire.count = 0;
 	sender.Process(1100000, OrderOutbox(sWire));
 	SIM_EXPECT(SendOrder(sender, 1, sWire));
 	SIM_EXPECT(SendOrder(sender, 2, sWire));
-	SIM_EXPECT(SentIs(sWire, 0, std::array<uint8, 7>{0x01, 0x34, 0x2E, 0x01, 0x01, 0x01, 0x00}));
-	SIM_EXPECT(SentIs(sWire, 1, std::array<uint8, 7>{0x01, 0x34, 0x2F, 0x01, 0x02, 0x02, 0x00}));
+	SIM_EXPECT(SentIs(sWire, 0, std::array<uint8, 7>{0x01, 0x65, 0x2E, 0x01, 0x01, 0x01, 0x00}));
+	SIM_EXPECT(SentIs(sWire, 1, std::array<uint8, 7>{0x01, 0x65, 0x2F, 0x01, 0x02, 0x02, 0x00}));
 	SIM_EXPECT(CarryAt(sWire, 0, receiver));
 	SIM_EXPECT(CarryAt(sWire, 1, receiver));
 	sWire.count = 0;
@@ -602,7 +603,7 @@ void TestHeldPacketsAboveTheSenderBaseGoUpAfterAGiveUp() {
 	SIM_EXPECT(sWire.count == 0);
 	sender.Process(1450000, OrderOutbox(sWire));
 	SIM_EXPECT(SendOrder(sender, 3, sWire));
-	SIM_EXPECT(SentIs(sWire, 0, std::array<uint8, 7>{0x01, 0x34, 0x30, 0x01, 0x02, 0x03, 0x00}));
+	SIM_EXPECT(SentIs(sWire, 0, std::array<uint8, 7>{0x01, 0x65, 0x30, 0x01, 0x02, 0x03, 0x00}));
 	SIM_EXPECT(CarryAt(sWire, 0, receiver));
 	sWire.count = 0;
 
@@ -613,9 +614,9 @@ void TestHeldPacketsAboveTheSenderBaseGoUpAfterAGiveUp() {
 	SIM_EXPECT(rWire.up[1] == 2);
 	SIM_EXPECT(rWire.up[2] == 3);
 	SIM_EXPECT(rWire.count == 3);
-	SIM_EXPECT(SentIs(rWire, 0, std::array<uint8, 4>{0x12, 0x34, 0x2E, 0x01}));
-	SIM_EXPECT(SentIs(rWire, 1, std::array<uint8, 4>{0x12, 0x34, 0x2F, 0x01}));
-	SIM_EXPECT(SentIs(rWire, 2, std::array<uint8, 4>{0x12, 0x34, 0x30, 0x01}));
+	SIM_EXPECT(SentIs(rWire, 0, std::array<uint8, 4>{0x12, 0x65, 0x2E, 0x01}));
+	SIM_EXPECT(SentIs(rWire, 1, std::array<uint8, 4>{0x12, 0x65, 0x2F, 0x01}));
+	SIM_EXPECT(SentIs(rWire, 2, std::array<uint8, 4>{0x12, 0x65, 0x30, 0x01}));
 	CarryAll(rWire, sender);
 	sender.Process(1450000, OrderOutbox(sWire));
 	SIM_EXPECT(orderStatus[1] == ResultStatus::ok);
@@ -672,14 +673,14 @@ void TestHeldPacketBelowTheSenderBaseIsNotPassedUp() {
 	// Id 5 is number 0x0132, the sender's base, with delta 0. It arrives 12 s later.
 	sender.Process(13400000, OrderOutbox(sWire));
 	SIM_EXPECT(SendOrder(sender, 5, sWire));
-	SIM_EXPECT(SentIs(sWire, 0, std::array<uint8, 7>{0x01, 0x34, 0x32, 0x01, 0x00, 0x05, 0x00}));
+	SIM_EXPECT(SentIs(sWire, 0, std::array<uint8, 7>{0x01, 0x65, 0x32, 0x01, 0x00, 0x05, 0x00}));
 	SIM_EXPECT(CarryAt(sWire, 0, receiver));
 	sWire.count = 0;
 	receiver.Process(13400000, OrderOutbox(rWire));
 	SIM_EXPECT(rWire.upCount == 4);
 	SIM_EXPECT(rWire.up[3] == 5);
 	SIM_EXPECT(rWire.count == 1);
-	SIM_EXPECT(SentIs(rWire, 0, std::array<uint8, 4>{0x12, 0x34, 0x32, 0x01}));
+	SIM_EXPECT(SentIs(rWire, 0, std::array<uint8, 4>{0x12, 0x65, 0x32, 0x01}));
 }
 
 

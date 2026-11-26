@@ -234,8 +234,8 @@ void TestHeldSyncOfAnEarlierSessionIsIgnored() {
 	SenderLayerOf<4, 16> near;
 	near.SetSession(0x1111);
 	uint8 tagA = Establish(near, nearWire, far, farWire);
-	SIM_EXPECT(tagA == 0x11);
-	std::array<uint8, 8> syncA = {0x05, 0x11, 0xA7, 0x28, 0x00, 0x11, 0x11, 0x00};
+	SIM_EXPECT(tagA == 0xB5);
+	std::array<uint8, 8> syncA = {0x05, 0xB5, 0xA7, 0x28, 0x00, 0x11, 0x11, 0x00};
 	SIM_EXPECT(SendId(near, 1, nearWire));
 	Round(near, nearWire, far, farWire);
 	SIM_EXPECT(replayDelivered[1] == 1);
@@ -243,11 +243,11 @@ void TestHeldSyncOfAnEarlierSessionIsIgnored() {
 	std::array<uint8, 7> heldA = Copied<7>(nearWire, 0);
 	nearWire.count = 0;
 
-	// The resync for session A starts session B of the same boot: counter 1, tag 0x12.
-	std::array<uint8, 2> resyncA = {0x08, 0x11};
+	// The resync for session A starts session B of the same boot: counter 1, tag 0xB6.
+	std::array<uint8, 2> resyncA = {0x08, 0xB5};
 	SIM_EXPECT(near.Take(VUB::Meta{}, std::span<const uint8>(resyncA.data(), resyncA.size())).IsOk());
 	uint8 tagB = Establish(near, nearWire, far, farWire);
-	SIM_EXPECT(tagB == 0x12);
+	SIM_EXPECT(tagB == 0xB6);
 	SIM_EXPECT(replayRestarts == 1);
 	SIM_EXPECT(SendUntilOutcome(near, nearWire, far, farWire, 3));
 	SIM_EXPECT(replayDelivered[3] == 1);
@@ -295,9 +295,9 @@ void TestSessionsOfOneBootHaveTheirOwnTags() {
 	std::array<uint8, 2> resync2 = {0x08, tag2};
 	SIM_EXPECT(near.Take(VUB::Meta{}, std::span<const uint8>(resync2.data(), resync2.size())).IsOk());
 	uint8 tag3 = Establish(near, nearWire, far, farWire);
-	SIM_EXPECT(tag1 == 0x22);
-	SIM_EXPECT(tag2 == 0x23);
-	SIM_EXPECT(tag3 == 0x24);
+	SIM_EXPECT(tag1 == 0x6B);
+	SIM_EXPECT(tag2 == 0x6C);
+	SIM_EXPECT(tag3 == 0x6D);
 	SIM_EXPECT(replayOutcomes[10] == 1);
 	SIM_EXPECT(replayStatus[10] == ResultStatus::reset);
 
@@ -366,7 +366,7 @@ void TestOlderSyncOfTheSameBootIsIgnoredWhileLive() {
 	SIM_EXPECT(staleSync.IsOk());
 	SIM_EXPECT(!staleSync.Value().deliver);
 	far.Process(replayNowUs, ReplayOutbox(farWire));
-	// Counter reply: boot 0x4444, held counter 1 (tag 0x45). The live sender ignores it.
+	// Counter reply: boot 0x4444, held counter 1 (tag 0xD7). The live sender ignores it.
 	std::array<uint8, 4> counterReplyLive = {0x18, 0x44, 0x44, 0x01};
 	SIM_EXPECT(farWire.count == 1);
 	SIM_EXPECT(farWire.lengths[0] == 4);
@@ -384,29 +384,30 @@ void TestOlderSyncOfTheSameBootIsIgnoredWhileLive() {
 void TestSessionCounterWrapsWithSerialArithmetic() {
 	ResetReplayState();
 	ReceiverLayerOf<4, 16> far;
-	// Counter 250 (0xFA): tag 0xFA + 0x34 = 0x2E. The first number of boot 0x1234 is 0x012C (LE 2C 01).
-	std::array<uint8, 8> sync250 = {0x05, 0x2E, 0x2C, 0x01, 0x00, 0x34, 0x12, 0xFA};
+	// Counter 250 (0xFA): tag 0xFA + 0x65 = 0x5F. The first number of boot 0x1234 is 0x012C (LE 2C 01).
+	std::array<uint8, 8> sync250 = {0x05, 0x5F, 0x2C, 0x01, 0x00, 0x34, 0x12, 0xFA};
 	SIM_EXPECT(Replay(far, sync250).IsOk());
 	ReplayWire farWire{};
 	far.Process(replayNowUs, ReplayOutbox(farWire));
-	std::array<uint8, 4> ackOf250 = {0x12, 0x2E, 0x2C, 0x01};
+	// The sync's acknowledgement carries the far side's boot value, which is 0 (the far side has no SetSession).
+	std::array<uint8, 6> ackOf250 = {0x12, 0x5F, 0x2C, 0x01, 0x00, 0x00};
 	SIM_EXPECT(farWire.count == 1);
-	SIM_EXPECT(farWire.lengths[0] == 4);
-	SIM_EXPECT(Copied<4>(farWire, 0) == ackOf250);
+	SIM_EXPECT(farWire.lengths[0] == 6);
+	SIM_EXPECT(Copied<6>(farWire, 0) == ackOf250);
 	farWire.count = 0;
 
-	// Counter 4 is 10 ahead of 250 (serial): a session that the receiver reports as a restart. Tag 0x38.
-	std::array<uint8, 8> sync4 = {0x05, 0x38, 0x2C, 0x01, 0x00, 0x34, 0x12, 0x04};
+	// Counter 4 is 10 ahead of 250 (serial): a session that the receiver reports as a restart. Tag 0x69 (4 + 0x65).
+	std::array<uint8, 8> sync4 = {0x05, 0x69, 0x2C, 0x01, 0x00, 0x34, 0x12, 0x04};
 	SIM_EXPECT(Replay(far, sync4).IsOk());
 	far.Process(replayNowUs, ReplayOutbox(farWire));
 	SIM_EXPECT(replayRestarts == 1);
-	std::array<uint8, 4> ackOf4 = {0x12, 0x38, 0x2C, 0x01};
+	std::array<uint8, 6> ackOf4 = {0x12, 0x69, 0x2C, 0x01, 0x00, 0x00};
 	SIM_EXPECT(farWire.count == 1);
-	SIM_EXPECT(Copied<4>(farWire, 0) == ackOf4);
+	SIM_EXPECT(Copied<6>(farWire, 0) == ackOf4);
 	farWire.count = 0;
 
-	// Counter 200 is 196 behind 4 (serial): stale. It is ignored: no restart and no acknowledgement. Tag 0xFC.
-	std::array<uint8, 8> sync200 = {0x05, 0xFC, 0x2C, 0x01, 0x00, 0x34, 0x12, 0xC8};
+	// Counter 200 is 196 behind 4 (serial): stale. It is ignored: no restart and no acknowledgement. Tag 0x2D (200 + 0x65 = 0x12D).
+	std::array<uint8, 8> sync200 = {0x05, 0x2D, 0x2C, 0x01, 0x00, 0x34, 0x12, 0xC8};
 	SIM_EXPECT(Replay(far, sync200).IsOk());
 	SIM_EXPECT(!Replay(far, sync200).Value().deliver);
 	far.Process(replayNowUs, ReplayOutbox(farWire));
@@ -420,7 +421,7 @@ void TestSessionCounterWrapsWithSerialArithmetic() {
 
 
 // A session for each receiver reboot, 300 times, with one boot value: each session's sync carries the next counter, and its tag is the
-// counter plus the boot value's low byte, so consecutive sessions have different tags for 256 sessions.
+// counter plus the mixed byte of the boot value, so consecutive sessions have different tags for 256 sessions.
 void TestTags300SessionsOfOneBoot() {
 	ResetReplayState();
 	ReplayWire nearWire{};
@@ -437,7 +438,7 @@ void TestTags300SessionsOfOneBoot() {
 
 		SIM_EXPECT(SendUntilOutcome(near, nearWire, *far, farWire, session % 500));
 		SIM_EXPECT(replayLastSyncCounter == static_cast<uint8>(session));
-		SIM_EXPECT(replayLastSyncTag == static_cast<uint8>(session + 0x34));
+		SIM_EXPECT(replayLastSyncTag == static_cast<uint8>(session + 0x65));
 		SIM_EXPECT(replayDelivered[session % 500] >= 1);
 	}
 }

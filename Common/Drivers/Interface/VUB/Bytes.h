@@ -34,6 +34,12 @@ inline constexpr uint32 MaxTimeoutMs = 2147483;
 inline constexpr uint32 SessionStep = 0x9E37;
 
 
+// The step of the session tags: the mixed byte of a boot value is bits 8 to 15 of the boot value times this odd factor. It is not
+// SessionStep: with the same factor the mixed byte would be the high byte of the first number, and the boot values that share a tag would
+// have first numbers within 256 of each other. Boot values that follow each other give mixed bytes 0x5B or 0x5C apart (see ReliableWire::MixOf).
+inline constexpr uint32 TagStep = 0x5B37;
+
+
 // Little-endian field helpers for header and length fields. They read and write at a byte pointer, so the caller checks the bounds.
 // They are plain inline functions: every stack in an image shares the one copy.
 inline void PutLe16(uint8* at, uint16 value) {
