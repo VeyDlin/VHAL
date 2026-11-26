@@ -21,7 +21,7 @@ for source in "$simDir"/Test*.cpp; do
     name="$(basename "$source" .cpp)"
     exe="$buildDir/$name$exeSuffix"
 
-    if ! "$cxx" -std=c++20 -Wall -Wextra -Werror \
+    if ! "$cxx" -std=c++23 -Wall -Wextra -Werror \
         -I "$vhalRoot/Common" \
         -o "$exe" "$source"; then
         echo "BUILD FAILED: $name"

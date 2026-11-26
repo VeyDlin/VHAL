@@ -21,7 +21,7 @@ for source in "$simDir"/Test*.cpp; do
     name="$(basename "$source" .cpp)"
     exe="$buildDir/$name$exeSuffix"
 
-    if ! "$cxx" -std=c++20 -Wall -Wextra -Werror \
+    if ! "$cxx" -std=c++23 -Wall -Wextra -Werror \
         -I "$vhalRoot/Common" -I "$simDir" \
         -o "$exe" "$source"; then
         echo "BUILD FAILED: $name"
@@ -46,7 +46,7 @@ for mode in plain value; do
         expected="CompileTime: value failure (value 7)"
     fi
 
-    if ! "$cxx" -std=c++20 -Wall -Wextra -Werror \
+    if ! "$cxx" -std=c++23 -Wall -Wextra -Werror \
         -I "$vhalRoot/Common" -I "$simDir" \
         -o "$exe" "$simDir/RuntimeFailures/RequireRuntimeFailure.cpp"; then
         echo "BUILD FAILED: $name"
