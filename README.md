@@ -121,7 +121,7 @@ The table lists adapters selected by the current port headers, not a hardware va
 ## Requirements
 
 - Language: C++23, built with `-std=c++23`.
-- Lowest compiler: GCC 14, because ESP-IDF 5.5.2 ships GCC 14.2.
+- Lowest compiler: GCC 14 for the ESP32 toolchain, which ESP-IDF 5.5.2 ships as GCC 14.2. The Arm and host builds are verified with GCC 15.2 only.
 - STM32, ENS001 and the planned Nordic builds use the Arm GNU toolchain (`arm-none-eabi-g++`).
 
 ## Getting Started
