@@ -123,6 +123,9 @@ link with `Ready()`, the result is given to the link in the call. A stream link 
 of it, so `Send` returns `busy` while a framed packet is not complete, and `Process` writes the rest. A packet link with `Ready()` is
 asked first: `Send` returns `busy` when `Ready()` is false, and nothing is taken. The check comes before the layers run, so a layer
 does not count a packet that the link then refuses. A packet link without `Ready()` needs a queue: `SendQueue(1)` or more.
+The state of a link that reports it is read by `Process`: with no send queue, a `Send` before the first `Process` that has seen the
+link up is refused as while the link is down (`busy` under `Down::Wait`, `noConnection` under `Down::Fail`), and with a queue the
+packet waits in it. So a program that opens a link runs `Process` once before its first `Send`.
 `Process()` does the rest, in this order:
 
 1. reads the clock (`Process` reads it, and so does `Feed` in a chain whose framing uses time, see below);

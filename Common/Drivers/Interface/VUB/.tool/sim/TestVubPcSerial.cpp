@@ -319,6 +319,9 @@ inline void CheckStacksOverPairs() {
 	SIM_EXPECT(linkA.Open(nameA, settings) == ResultStatus::ok);
 	SIM_EXPECT(linkB.Open(nameB, settings) == ResultStatus::ok);
 
+	// The stacks have no send queue, so each reads its link's state in a Process before its first Send (see Send and receive in the README).
+	stackA.Process();
+	stackB.Process();
 	pairReceived = 0;
 	const std::array<uint8, 3> payload = {1, 2, 3};
 	SIM_EXPECT(stackA.Send(payload) == ResultStatus::ok);
