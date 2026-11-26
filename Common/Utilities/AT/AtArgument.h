@@ -92,12 +92,12 @@ struct AtArgument {
 	// types have no range, so the call is refused for them.
 	template<typename Number>
 	constexpr AtArgument Range(Number low, Number high) const {
-		AtRequire<"a range is for an integer argument">(AtIsRangedType<T>);
+		Require<"AT:a range is for an integer argument">(AtIsRangedType<T>);
 
 		if constexpr (AtIsRangedType<T>) {
-			AtRequire<"a range takes integers">(std::is_integral_v<Number>);
-			AtRequire<"a range bound is outside the type of the argument">(CommandFitsType<T>(low) && CommandFitsType<T>(high));
-			AtRequire<"a range has its minimum above its maximum">(low <= high);
+			Require<"AT:a range takes integers">(std::is_integral_v<Number>);
+			Require<"AT:a range bound is outside the type of the argument">(CommandFitsType<T>(low) && CommandFitsType<T>(high));
+			Require<"AT:a range has its minimum above its maximum">(low <= high);
 
 			AtArgument copy = *this;
 			copy.minimum = static_cast<int64>(low);
@@ -120,8 +120,8 @@ struct AtFieldRange {
 // Checks a value type: a string needs a capacity above zero, and every type must be one the grammar carries.
 template<typename T>
 constexpr void AtCheckType() {
-	AtRequire<"a string has a capacity of 0">(AtCapacityOf<T> > 0);
-	AtRequire<"a type that the grammar does not support">(AtIsSupported<T>);
+	Require<"AT:a string has a capacity of 0">(AtCapacityOf<T> > 0);
+	Require<"AT:a type that the grammar does not support">(AtIsSupported<T>);
 }
 
 
@@ -137,15 +137,15 @@ constexpr void AtCheckArguments(const Arguments&... arguments) {
 		if (isOptional) {
 			seenOptional = true;
 		} else {
-			AtRequire<"a required argument comes after an optional one">(!seenOptional);
+			Require<"AT:a required argument comes after an optional one">(!seenOptional);
 		}
 	}
 
 	for (std::size_t index = 0; index < names.size(); index++) {
-		AtRequire<"an argument has no name">(!names[index].empty());
+		Require<"AT:an argument has no name">(!names[index].empty());
 
 		for (std::size_t other = 0; other < index; other++) {
-			AtRequire<"two arguments of a command have the same name">(names[index] != names[other]);
+			Require<"AT:two arguments of a command have the same name">(names[index] != names[other]);
 		}
 	}
 }
@@ -156,8 +156,8 @@ constexpr void AtCheckArguments(const Arguments&... arguments) {
 template<typename T>
 constexpr AtArgument<T, true> Optional(std::string_view name) {
 	AtCheckType<T>();
-	AtRequire<"RawString is a reply value, not an argument">(!AtIsRawString<T>);
-	AtRequire<"an argument has no name">(!name.empty());
+	Require<"AT:RawString is a reply value, not an argument">(!AtIsRawString<T>);
+	Require<"AT:an argument has no name">(!name.empty());
 	return AtArgument<T, true>{name, AtLowestOf<T>(), AtHighestOf<T>()};
 }
 
@@ -199,13 +199,13 @@ constexpr AtArgument<typename Declaration::Value, false> AtNormalize(const Decla
 	constexpr bool allowed = Declaration::Kind == CommandArgumentKind::Integer || Declaration::Kind == CommandArgumentKind::Boolean ||
 		Declaration::Kind == CommandArgumentKind::Text;
 
-	AtRequire<"an AT argument is an integer, bool or String<N>">(allowed);
+	Require<"AT:an AT argument is an integer, bool or String<N>">(allowed);
 
 	if constexpr (allowed) {
-		AtRequire<"an AT argument has no default; declare it with Optional<T>">(!declaration.hasDefault);
+		Require<"AT:an AT argument has no default; declare it with Optional<T>">(!declaration.hasDefault);
 		declaration.Verify();
 		AtCheckType<T>();
-		AtRequire<"an argument has no name">(!declaration.name.empty());
+		Require<"AT:an argument has no name">(!declaration.name.empty());
 		return AtArgument<T, false>{declaration.name, AtDeclaredMinimum(declaration), AtDeclaredMaximum(declaration)};
 	} else {
 		return AtArgument<T, false>{};
