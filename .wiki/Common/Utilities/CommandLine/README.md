@@ -378,7 +378,7 @@ Limits:
 Measured on the Cortex-M4 with Arm GNU Toolchain 15.2.1, with the flags:
 
 ```
-arm-none-eabi-g++ -std=c++20 -Os -fno-exceptions -fno-rtti -mcpu=cortex-m4 -mthumb
+arm-none-eabi-g++ -std=c++23 -Os -fno-exceptions -fno-rtti -mcpu=cortex-m4 -mthumb
   -ffunction-sections -fdata-sections -Wall -Wextra -Wl,--gc-sections
   --specs=nano.specs --specs=nosys.specs
 ```

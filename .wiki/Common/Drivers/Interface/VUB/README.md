@@ -428,7 +428,7 @@ their sizes: the padding between two of them depends on the order the linker pla
 Measured with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203` on Windows 11, through Git Bash,
 with `Common/Drivers/Interface/VUB/.tool/size/size.sh`.
 
-The flags of each compile are `-std=c++20 -mcpu=cortex-m4 -mthumb -Os -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti
+The flags of each compile are `-std=c++23 -mcpu=cortex-m4 -mthumb -Os -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti
 -Wall -Wextra -Werror`, with `-mcpu=cortex-m0plus` for the M0+. Each program is linked with `-Wl,--gc-sections --specs=nano.specs
 --specs=nosys.specs`, and `arm-none-eabi-size --format=berkeley` reads it. The include paths are the script's `shim` folder (a
 stand-in for the VHAL umbrella header), the script's folder, `Common` and `Periphery`.
