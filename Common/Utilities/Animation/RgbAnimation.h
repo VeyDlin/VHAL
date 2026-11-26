@@ -134,12 +134,13 @@ public:
 
 
 private:
-	// The channels are converted to T first: a float times an IQ does not compile. For float T the conversions are no-ops.
+	// The channels are converted to T first with RealFrom, since a run-time float does not convert to an IQ. For float T the
+	// conversions are no-ops.
 	static Colors::FRgb Lerp(const Colors::FRgb& a, const Colors::FRgb& b, T t) {
 		return {
-			static_cast<float>(T(a.r) + (T(b.r) - T(a.r)) * t),
-			static_cast<float>(T(a.g) + (T(b.g) - T(a.g)) * t),
-			static_cast<float>(T(a.b) + (T(b.b) - T(a.b)) * t)
+			static_cast<float>(RealFrom<T>(a.r) + (RealFrom<T>(b.r) - RealFrom<T>(a.r)) * t),
+			static_cast<float>(RealFrom<T>(a.g) + (RealFrom<T>(b.g) - RealFrom<T>(a.g)) * t),
+			static_cast<float>(RealFrom<T>(a.b) + (RealFrom<T>(b.b) - RealFrom<T>(a.b)) * t)
 		};
 	}
 };

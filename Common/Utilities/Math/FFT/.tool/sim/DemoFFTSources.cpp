@@ -27,7 +27,7 @@ double AsDouble(T value) {
 	if constexpr (std::is_floating_point_v<T>) {
 		return static_cast<double>(value);
 	} else {
-		return value.ToDouble();
+		return static_cast<double>(value.raw) / static_cast<double>(value.one);
 	}
 }
 
@@ -72,7 +72,11 @@ void Report(const char *numberName) {
 
 	T samples[size] = {};
 	for (uint32 index = 0; index < size; index++) {
-		samples[index] = static_cast<T>(tone[index]);
+		if constexpr (IQType<T>) {
+			samples[index] = RealFrom<T>(static_cast<float>(tone[index]));
+		} else {
+			samples[index] = static_cast<T>(tone[index]);
+		}
 	}
 	fft.Analyze(samples, amplitude);
 	PrintPeak(numberName, "array", amplitude);

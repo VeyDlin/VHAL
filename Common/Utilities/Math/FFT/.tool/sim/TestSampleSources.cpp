@@ -34,7 +34,7 @@ double AsDouble(T value) {
 	if constexpr (std::is_floating_point_v<T>) {
 		return static_cast<double>(value);
 	} else {
-		return value.ToDouble();
+		return static_cast<double>(value.raw) / static_cast<double>(value.one);
 	}
 }
 
@@ -47,7 +47,11 @@ void MakeSignal(T *signal) {
 		double value = 0.3 * static_cast<double>(std::sin(angle * 5.0L))
 			+ 0.2 * static_cast<double>(std::sin(angle * 21.5L))
 			+ 0.1;
-		signal[index] = static_cast<T>(value);
+		if constexpr (IQType<T>) {
+			signal[index] = RealFrom<T>(static_cast<float>(value));
+		} else {
+			signal[index] = static_cast<T>(value);
+		}
 	}
 }
 

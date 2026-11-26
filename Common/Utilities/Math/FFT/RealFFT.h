@@ -72,7 +72,11 @@ namespace FFTDetail {
 	// The stored form of a real constant: float and double round to their own type, and an IQ takes the nearest raw value.
 	template <typename Number>
 	constexpr Number FromReal(double value) {
-		return static_cast<Number>(value);
+		if constexpr (IQType<Number>) {
+			return Number::FromRaw(IQDetail::RealToRaw(value * static_cast<double>(Number::one)));
+		} else {
+			return static_cast<Number>(value);
+		}
 	}
 
 

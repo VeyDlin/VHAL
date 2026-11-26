@@ -66,9 +66,13 @@ For FOC, `IQ<24>` is recommended (precision comparable to float, range of ±128 
 ## Construction and Conversion
 
 ```cpp
-// From float/double — implicit conversion
+// From a float or double constant — converted when the program is compiled
 iq24 a = 3.14f;
 iq24 b(1.5);
+
+// From a run-time float — FromFloat. A run-time float does not convert implicitly.
+volatile float sample = 0.25f;
+iq24 c = iq24::FromFloat(sample);
 
 // Out-of-range float/double saturate to the type's maximum or minimum; NaN converts to 0.
 iq24 big(1e30);   // raw = INT32_MAX
@@ -81,16 +85,17 @@ iq24 d = IQ<24>::FromRaw(16777216);  // = 1.0 in IQ24 (2^24 = 16777216)
 
 // Back to scalar types
 float  f = a.ToFloat();
-double d = a.ToDouble();
 int    i = a.ToInt();      // integer part (discards fractional part)
 
-// Explicit cast operators — all standard types supported
+// Explicit cast operators — integer types and float
 float  f2 = static_cast<float>(a);
 uint32 u  = static_cast<uint32>(a);
 int16  s  = static_cast<int16>(a);
 ```
 
-Converting a float or double rounds to the nearest LSB, ties away from zero: `IQ<16>(1.5 / 65536.0)` is 2 LSB and `IQ<16>(-1.5 / 65536.0)` is -2 LSB. Out-of-range values saturate, and NaN converts to 0.
+Converting a float or double rounds to the nearest LSB, ties away from zero: `IQ<16>(1.5 / 65536.0)` is 2 LSB and `IQ<16>(-1.5 / 65536.0)` is -2 LSB. Out-of-range values saturate, and NaN converts to 0. The conversion from a float or double is `consteval`: a constant converts, and a run-time value does not compile.
+
+Run-time values use `IQ<Q>::FromFloat(float)` (the same rounding and saturation) or `RealFrom<T>(value)`, which gives a float for a float `T` and an IQ for an IQ `T`. For an IQ `T` the value must be a float: `RealFrom<IQ<16>>(doubleValue)` does not compile, and `RealFrom<IQ<16>>(static_cast<float>(doubleValue))` is the explicit form. The compile error for a run-time float reads `call to consteval function 'IQ<16>(rt)' is not a constant expression`; the fix is `FromFloat`.
 
 Conversion to an integer type drops the fraction (rounding toward negative infinity) and saturates to the limits of the target type, so `static_cast<uint8>(iq16(300.0f))` is 255 and `static_cast<uint32>(iq16(-1.0f))` is 0. `ToInt()` returns the integer part as `int32`; it cannot overflow.
 
@@ -142,13 +147,19 @@ Multiplication and division round to the nearest LSB:
 
 An integer scalar (`int`, `uint8`, `int64` and the other integral types) works with `+`, `-`, `*`, `/` and the compound forms. The scalar itself is exact, and `+`, `-` and `*` are exact unless the result saturates. `/` rounds to nearest, as `IQ / IQ` does (`IQ<16>(1) / 3` is 21845 LSB). An unsigned 64-bit value above `INT64_MAX` is treated as `INT64_MAX`.
 
-A `float` or `double` scalar does not compile. The operators would have to cut it to an integer, so `2.7 * IQ(2)` would give 4.0. Convert the constant explicitly, with `IQ(value)`:
+A `float` or `double` constant works on the right of an operator, where it converts to IQ at compile time. A constant on the left does not compile, and a run-time float does not compile on either side. Put the constant on the right, and pass a run-time value through `FromFloat`:
 
 ```cpp
 iq16 x(4);
+constexpr float kScale = 2.7f;
 
-// iq16 bad = 2.7f * x;         // compile error: IQ arithmetic takes an integer scalar
-iq16 good = iq16(2.7f) * x;     // about 10.8: the constant is rounded to IQ first
+// iq16 bad = 2.7f * x;          // compile error: no match for 'operator*'
+iq16 good = x * 2.7f;            // about 10.8: the constant is rounded to IQ at compile time
+iq16 scaled = x * kScale;        // a named constant works as well
+
+volatile float runTime = 2.7f;
+// iq16 wrong = x * runTime;     // compile error: call to consteval function is not a constant expression
+iq16 fine = x * iq16::FromFloat(runTime);
 ```
 
 ## Math Functions
@@ -187,7 +198,7 @@ The 1 LSB target holds up to Q24. Above it the error grows, because the phase un
 
 The test `.tool/sim/TestTrig.cpp` uses coarser steps than the table: step 1009 over the int32 range at Q16, step 7 at Q20 and step 97 at Q24 over [-4 pi, 4 pi]. Each of its bounds is the worst error of its sweep plus 0.02 LSB, rounded up to 0.01, except the Q24 [-4 pi, 4 pi] bound, which is the exhaustive run in the table plus the same margin.
 
-**Cost.** On a Cortex-M4 at `-O2`, with `-mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16`, `SinPhase<24>` is 36 instructions and `sin(iq24)` is 44, both with no call. On a Cortex-M0+ the 64-bit products become `__aeabi_lmul`: `SinPhase<24>` is 95 instructions with 7 calls, and `sin(iq24)` is 106 with 8. No target path calls `__aeabi_ldivmod`. The table is 1 KB of flash for `LutSize` 256.
+**Cost.** On a Cortex-M4 at `-O2`, with `-mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16`, `SinPhase<24>` is 36 instructions and `sin(iq24)` is 44, both with no call. On a Cortex-M0+ the 64-bit products become `__aeabi_lmul`: `SinPhase<24>` is 95 instructions with 7 calls, and `sin(iq24)` is 106 with 8. The sine path calls no `__aeabi_ldivmod`; IQ division (`DivideRaw`) does, because it divides 64-bit values, and on a Cortex-M0+ that is a library call. The table is 1 KB of flash for `LutSize` 256.
 
 **Binary angles.** `SinPhase<Q>(uint32 phase)` and `CosPhase<Q>(uint32 phase)` take the phase directly, for code that keeps an integer angle (FOC, wave generators, oscillators). They return `IQ<Q>` with the default table size. `RadiansToPhase(double)` is a `constexpr` helper that converts an angle in radians to a phase, rounded to the nearest unit:
 

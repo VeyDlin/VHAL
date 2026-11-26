@@ -5,7 +5,7 @@
 template <RealType Type = float>
 class Termistor_GT103J1K : public ITermistor<Type> {
 protected:
-	const Type resistanceTable[99][2] = {
+	static constexpr Type resistanceTable[99][2] = {
 		{-40, 336.479f},
 		{-36, 258.838f},
 		{-32, 200.539f},

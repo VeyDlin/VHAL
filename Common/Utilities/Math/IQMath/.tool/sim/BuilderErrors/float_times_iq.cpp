@@ -1,4 +1,4 @@
-// expect: IQ arithmetic takes an integer scalar
+// expect: no match for
 #include <Utilities/Math/IQMath/IQMath.h>
 
 
