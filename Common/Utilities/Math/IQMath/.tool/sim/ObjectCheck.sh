@@ -29,7 +29,13 @@ for source in "$sampleDir"/*.cpp; do
         continue
     fi
 
-    helpers="$("$armNm" "$object" | grep -E '__aeabi_[fd]' || true)"
+    if ! symbols="$("$armNm" "$object")"; then
+        echo "NM FAILED: $name"
+        failures=$((failures + 1))
+        continue
+    fi
+
+    helpers="$(printf '%s\n' "$symbols" | grep -E '__aeabi_[fd]' || true)"
 
     case "$name" in
         control_*)
