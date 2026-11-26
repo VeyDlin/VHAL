@@ -44,6 +44,23 @@ void ObjectFollowsDefragment() {
     SIM_CHECK(*shared == 42);
 }
 
+// A SharedPtr over a heap type allocates its control block in that heap and frees it with the last copy.
+void SharedPtrOverHeapType() {
+    static uint8_t buffer[512];
+    Memory::Heap<> heap(buffer, sizeof(buffer));
+
+    {
+        Memory::SharedPtr<int, Memory::Heap<>> first = Memory::AllocateShared<int, Memory::Heap<>>(&heap, 9);
+        SIM_CHECK(static_cast<bool>(first));
+        Memory::SharedPtr<int, Memory::Heap<>> second = first;
+        SIM_CHECK(first.UseCount() == 2);
+        SIM_CHECK(*second == 9);
+        SIM_CHECK(heap.UsedBytes() > 0);
+    }
+
+    SIM_CHECK(heap.UsedBytes() == 0);
+}
+
 // An allocation the allocator refuses gives an empty SharedPtr, which tests false.
 void RefusedAllocationIsEmpty() {
     static uint8_t buffer[16];
@@ -61,5 +78,6 @@ int main() {
     CopiesShareOneObject();
     ObjectFollowsDefragment();
     RefusedAllocationIsEmpty();
+    SharedPtrOverHeapType();
     return VstdSim::Finish("TestSharedPtr");
 }

@@ -8,7 +8,8 @@
 
 namespace Memory {
 
-template<typename T>
+// AllocatorType is the heap type (Heap<>, PoolAllocator<...>) or IAllocator for run-time choice.
+template<typename T, typename AllocatorType = IAllocator>
 class SharedPtr {
 private:
     struct ControlBlock {
@@ -21,14 +22,14 @@ private:
     };
 
     Handle handle_;
-    IAllocator* allocator_ = nullptr;
+    AllocatorType* allocator_ = nullptr;
 
 public:
     SharedPtr() = default;
 
-    explicit SharedPtr(IAllocator* alloc) : allocator_(alloc) {}
+    explicit SharedPtr(std::type_identity_t<AllocatorType>* alloc) : allocator_(alloc) {}
 
-    SharedPtr(Handle handle, IAllocator* alloc)
+    SharedPtr(Handle handle, std::type_identity_t<AllocatorType>* alloc)
         : handle_(handle), allocator_(alloc) {}
 
     ~SharedPtr() {
@@ -100,11 +101,11 @@ public:
         return Get() != other.Get();
     }
 
-    template<typename U, typename... Args>
-    friend SharedPtr<U> AllocateShared(IAllocator* alloc, Args&&... args);
+    template<typename U, typename Alloc, typename... Args>
+    friend SharedPtr<U, Alloc> AllocateShared(std::type_identity_t<Alloc>* alloc, Args&&... args);
 
 private:
-    IAllocator* GetAlloc() const {
+    AllocatorType* GetAlloc() const {
         return allocator_;
     }
 
@@ -127,15 +128,16 @@ private:
     }
 };
 
-template<typename T, typename... Args>
-SharedPtr<T> AllocateShared(IAllocator* alloc, Args&&... args) {
-    Handle handle = alloc->Allocate(sizeof(typename SharedPtr<T>::ControlBlock));
-    if (!handle.IsValid()) return SharedPtr<T>(alloc);
+template<typename T, typename AllocatorType = IAllocator, typename... Args>
+SharedPtr<T, AllocatorType> AllocateShared(std::type_identity_t<AllocatorType>* alloc, Args&&... args) {
+    using CB = typename SharedPtr<T, AllocatorType>::ControlBlock;
 
-    using CB = typename SharedPtr<T>::ControlBlock;
+    Handle handle = alloc->Allocate(sizeof(CB));
+    if (!handle.IsValid()) return SharedPtr<T, AllocatorType>(alloc);
+
     new (handle.Data()) CB(static_cast<Args&&>(args)...);
 
-    return SharedPtr<T>(handle, alloc);
+    return SharedPtr<T, AllocatorType>(handle, alloc);
 }
 
 }
