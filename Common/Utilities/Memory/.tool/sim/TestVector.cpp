@@ -1,7 +1,9 @@
 #include <cstdint>
 #include <limits>
+#include <type_traits>
 #include <utility>
 #include <Utilities/Memory/Heap.h>
+#include <Utilities/Memory/PoolAllocator.h>
 #include <Utilities/Memory/Vector.h>
 #include "SimAllocator.h"
 #include "SimCheck.h"
@@ -113,6 +115,49 @@ void PushFromOwnElementAcrossGrowth() {
     SIM_CHECK(v[8] == 2);
 }
 
+// The default allocator type is IAllocator, and a heap is not an IAllocator: a Vector over a heap type calls the heap
+// directly, so the heap has no virtual table.
+void VectorDefaultsToIAllocator() {
+    static_assert(std::is_same_v<Memory::Vector<int>, Memory::Vector<int, Memory::IAllocator>>);
+    static_assert(!std::is_base_of_v<Memory::IAllocator, Memory::Heap<>>);
+    static_assert(!std::is_polymorphic_v<Memory::Heap<>>);
+}
+
+// A Vector over a heap type grows, copies and frees its buffer in that heap.
+void VectorOverHeapTypeUsesTheHeap() {
+    static uint8_t buffer[2048];
+    Memory::Heap<> heap(buffer, sizeof(buffer));
+
+    {
+        Memory::Vector<int, Memory::Heap<>> v(&heap);
+        for (int i = 0; i < 40; i++) {
+            SIM_CHECK(v.PushBack(i));
+        }
+        SIM_CHECK(v.Size() == 40);
+        SIM_CHECK(v[39] == 39);
+        SIM_CHECK(heap.UsedBytes() > 0);
+
+        Memory::Vector<int, Memory::Heap<>> copy(v);
+        SIM_CHECK(copy.Size() == 40);
+        SIM_CHECK(copy[5] == 5);
+
+        v.Erase(0);
+        SIM_CHECK(v.Size() == 39);
+        SIM_CHECK(v[0] == 1);
+    }
+
+    SIM_CHECK(heap.UsedBytes() == 0);
+}
+
+// A pool is an IAllocator, so it serves the default form, and it also serves the heap-type form.
+void VectorOverPoolAllocatorType() {
+    Memory::PoolAllocator<32, 2> pool;
+    Memory::Vector<int, Memory::PoolAllocator<32, 2>> v(&pool);
+    SIM_CHECK(v.PushBack(3));
+    SIM_CHECK(v.Size() == 1);
+    SIM_CHECK(v[0] == 3);
+}
+
 }
 
 int main() {
@@ -121,5 +166,8 @@ int main() {
     VectorAccessorsOnEmptyReturnNull();
     VectorRefusesCapacityThatOverflows();
     PushFromOwnElementAcrossGrowth();
+    VectorDefaultsToIAllocator();
+    VectorOverHeapTypeUsesTheHeap();
+    VectorOverPoolAllocatorType();
     return VstdSim::Finish("TestVector");
 }

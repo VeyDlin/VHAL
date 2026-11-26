@@ -11,7 +11,9 @@
 
 namespace Memory {
 
-template<typename T>
+// AllocatorType is the heap type (Heap<>, PoolAllocator<...>) or IAllocator for run-time choice. A heap type is called
+// directly; IAllocator costs one virtual call per operation.
+template<typename T, typename AllocatorType = IAllocator>
 class Vector {
 public:
     using ValueType = T;
@@ -22,12 +24,12 @@ private:
     Handle handle_;
     std::size_t size_ = 0;
     std::size_t capacity_ = 0;
-    IAllocator* allocator_ = nullptr;
+    AllocatorType* allocator_ = nullptr;
 
 public:
     Vector() = default;
 
-    explicit Vector(IAllocator* alloc) : allocator_(alloc) {}
+    explicit Vector(std::type_identity_t<AllocatorType>* alloc) : allocator_(alloc) {}
 
     ~Vector() {
         DestroyElements();
@@ -39,7 +41,7 @@ public:
     // the result is empty. Use an empty vector and Assign for a checked copy.
     Vector(const Vector& other) : allocator_(other.allocator_) {
         if (other.size_ > 0) {
-            IAllocator* alloc = GetAlloc();
+            AllocatorType* alloc = GetAlloc();
             if (alloc != nullptr) {
                 handle_ = alloc->Allocate(other.size_ * sizeof(T));
             }
@@ -80,7 +82,7 @@ public:
 
         // The new buffer is allocated and filled before anything of this vector is touched.
         Handle fresh;
-        IAllocator* newAlloc = nullptr;
+        AllocatorType* newAlloc = nullptr;
         if (other.size_ > 0) {
             newAlloc = other.GetAlloc();
             if (newAlloc == nullptr) {
@@ -324,7 +326,7 @@ private:
     static constexpr std::size_t kMaxCapacity = static_cast<std::size_t>(-1) / sizeof(T);
 
     // The allocator the vector was given. Returns nullptr when there is none, and then no buffer can be made.
-    IAllocator* GetAlloc() const {
+    AllocatorType* GetAlloc() const {
         return allocator_;
     }
 
@@ -362,7 +364,7 @@ private:
             newCap = minCapacity;
         }
 
-        IAllocator* alloc = GetAlloc();
+        AllocatorType* alloc = GetAlloc();
         if (alloc == nullptr) {
             return false;
         }
