@@ -234,7 +234,7 @@ public:
 	// A vendor report of bytes in and bytes out, on usage page 0xFF00 (usage 0x01 in, 0x02 out). No report ID. Every OS opens a
 	// vendor HID interface without a driver, so it is a raw data channel next to a bulk one.
 	static constexpr USBHidReportBuilder VendorRaw(uint8 bytes) {
-		Require<"a vendor report is 1 to 64 bytes">(bytes >= 1 && bytes <= USBHidMaxReportLength);
+		Require<"USB:a vendor report is 1 to 64 bytes">(bytes >= 1 && bytes <= USBHidMaxReportLength);
 		USBHidReportBuilder builder;
 		builder.UsagePage(0xFF00).Usage(0x01).Collection(USBHidCollection::Application)
 			.Usage(0x01).LogicalMinimum(0).LogicalMaximum(255).ReportSize(8).ReportCount(bytes).Input(USBHidFlags::Data | USBHidFlags::Variable)
@@ -270,8 +270,8 @@ public:
 
 	constexpr USBHidReportBuilder& Collection(USBHidCollection kind) {
 		uint8 value = static_cast<uint8>(kind);
-		Require<"a collection kind is 0 to 6 or vendor 0x80 to 0xFF">(value <= 6 || value >= 0x80);
-		Require<"collections nest at most 255 deep">(collectionDepth < 255);
+		Require<"USB:a collection kind is 0 to 6 or vendor 0x80 to 0xFF">(value <= 6 || value >= 0x80);
+		Require<"USB:collections nest at most 255 deep">(collectionDepth < 255);
 		PutUnsigned(MainType, CollectionTag, value);
 		collectionDepth++;
 		return *this;
@@ -279,7 +279,7 @@ public:
 
 
 	constexpr USBHidReportBuilder& EndCollection() {
-		Require<"EndCollection without a Collection">(collectionDepth > 0);
+		Require<"USB:EndCollection without a Collection">(collectionDepth > 0);
 		collectionDepth--;
 		// End Collection is the one item with no data byte: it has no value, so the zero-size form is the only one it has.
 		PutItem(MainType, EndCollectionTag, 0, 0);
@@ -313,7 +313,7 @@ public:
 
 	// Power of ten of the unit, -8 to 7 (HID 1.11 section 6.2.2.7).
 	constexpr USBHidReportBuilder& UnitExponent(int32 exponent) {
-		Require<"unit exponent is -8 to 7">(exponent >= -8 && exponent <= 7);
+		Require<"USB:unit exponent is -8 to 7">(exponent >= -8 && exponent <= 7);
 		PutSigned(GlobalType, UnitExponentTag, exponent);
 		return *this;
 	}
@@ -343,7 +343,7 @@ public:
 
 	// Report ID that the following reports carry. 0 is reserved, and a descriptor either uses IDs in every report or in none.
 	constexpr USBHidReportBuilder& ReportId(uint8 id) {
-		Require<"report ID 0 is reserved">(id != 0);
+		Require<"USB:report ID 0 is reserved">(id != 0);
 		PutUnsigned(GlobalType, ReportIdTag, id);
 		reportId = id;
 		return *this;
@@ -370,16 +370,16 @@ public:
 
 	// Checks the whole descriptor and returns its bytes and its report table. Called by USBHidReportDescriptor.
 	constexpr USBHidReportBuilt Build() const {
-		Require<"a collection is not closed">(collectionDepth == 0);
-		Require<"a report descriptor has at least one report">(entryCount > 0);
+		Require<"USB:a collection is not closed">(collectionDepth == 0);
+		Require<"USB:a report descriptor has at least one report">(entryCount > 0);
 		USBHidReportBuilt built;
 		built.bytes = body;
 		built.reportCount = entryCount;
 		for (std::size_t index = 0; index < entryCount; index++) {
-			Require<"a report is not a whole number of bytes">(bits[index] % 8 == 0);
+			Require<"USB:a report is not a whole number of bytes">(bits[index] % 8 == 0);
 			std::size_t idBytes = entries[index].reportId != 0 ? 1 : 0;
 			std::size_t length = idBytes + static_cast<std::size_t>(bits[index] / 8);
-			Require<"a report is at most 64 bytes, one full-speed packet">(length <= USBHidMaxReportLength);
+			Require<"USB:a report is at most 64 bytes, one full-speed packet">(length <= USBHidMaxReportLength);
 			built.reports[index] = entries[index];
 			built.reports[index].length = length;
 		}
@@ -444,15 +444,15 @@ private:
 
 
 	constexpr void AddReport(USBHidReportType type, uint8 tag, uint16 flags) {
-		Require<"ReportSize and ReportCount are set before an Input, Output or Feature item">(reportSize > 0 && reportCount > 0);
-		Require<"ReportSize is at most 32 bits">(reportSize <= 32);
+		Require<"USB:ReportSize and ReportCount are set before an Input, Output or Feature item">(reportSize > 0 && reportCount > 0);
+		Require<"USB:ReportSize is at most 32 bits">(reportSize <= 32);
 		if (reportId == 0) {
 			plainReport = true;
 		} else {
 			identifiedReport = true;
 		}
 
-		Require<"reports with and without IDs cannot be mixed in one descriptor">(!(plainReport && identifiedReport));
+		Require<"USB:reports with and without IDs cannot be mixed in one descriptor">(!(plainReport && identifiedReport));
 		PutUnsigned(MainType, tag, flags);
 		AddBits(type, reportId, static_cast<uint64>(reportSize) * reportCount);
 	}
@@ -466,7 +466,7 @@ private:
 			}
 		}
 
-		Require<"too many reports in one descriptor">(entryCount < USBHidMaxReports);
+		Require<"USB:too many reports in one descriptor">(entryCount < USBHidMaxReports);
 		entries[entryCount].type = type;
 		entries[entryCount].reportId = id;
 		bits[entryCount] = count;
