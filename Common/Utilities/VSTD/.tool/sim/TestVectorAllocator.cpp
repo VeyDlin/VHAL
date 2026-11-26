@@ -1,7 +1,8 @@
 #include <cstdint>
 #include <limits>
 #include <utility>
-#include <Utilities/VSTD/VSTD.h>
+#include <Utilities/VSTD/container/Vector.h>
+#include <Utilities/VSTD/memory/Heap.h>
 #include "SimAllocator.h"
 #include "SimCheck.h"
 

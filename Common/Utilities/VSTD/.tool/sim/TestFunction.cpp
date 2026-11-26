@@ -1,6 +1,9 @@
 #include <array>
 #include <cstdint>
-#include <Utilities/VSTD/VSTD.h>
+#include <utility>
+#include <Utilities/VSTD/container/Vector.h>
+#include <Utilities/VSTD/memory/Heap.h>
+#include <Utilities/VSTD/utility/Function.h>
 #include "SimAllocator.h"
 #include "SimCheck.h"
 
@@ -89,7 +92,7 @@ void EmptyCallableIsDefined() {
 // A callable moved out of a small buffer still works, and the source is empty afterwards.
 void SmallCallableMoves() {
     VSTD::Function<int()> f([]() { return 4; });
-    VSTD::Function<int()> g(VSTD::Move(f));
+    VSTD::Function<int()> g(std::move(f));
     SIM_CHECK(g() == 4);
     SIM_CHECK(!static_cast<bool>(f));
 }

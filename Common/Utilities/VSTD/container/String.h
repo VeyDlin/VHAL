@@ -1,9 +1,9 @@
 #pragma once
 
 #include "Vector.h"
-#include "StringView.h"
 #include <cstdint>
 #include <string.h>
+#include <string_view>
 
 namespace VSTD {
 
@@ -205,8 +205,8 @@ public:
         return true;
     }
 
-    StringView ToView() const {
-        return StringView(Data(), Length());
+    std::string_view ToView() const {
+        return std::string_view(Data(), Length());
     }
 
 

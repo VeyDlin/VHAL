@@ -1,5 +1,6 @@
 #include <cstdint>
-#include <Utilities/VSTD/VSTD.h>
+#include <Utilities/VSTD/memory/Heap.h>
+#include <Utilities/VSTD/memory/PoolAllocator.h>
 #include "SimCheck.h"
 
 namespace {

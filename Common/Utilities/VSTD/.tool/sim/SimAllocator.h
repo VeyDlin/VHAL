@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cstddef>
-#include <Utilities/VSTD/VSTD.h>
+#include <Utilities/VSTD/memory/IAllocator.h>
 
 // Forwards every call to an inner allocator and counts the calls, so a test can see which allocator served a block.
 class SimRecordingAllocator : public VSTD::IAllocator {

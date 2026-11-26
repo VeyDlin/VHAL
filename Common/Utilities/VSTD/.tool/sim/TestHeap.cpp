@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
-#include <Utilities/VSTD/VSTD.h>
+#include <Utilities/VSTD/memory/Heap.h>
 #include "SimCheck.h"
 
 namespace {
