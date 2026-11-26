@@ -10,12 +10,13 @@ namespace Memory {
 // Operations that can allocate return false when the allocator refuses memory, and then leave the string unchanged
 // (same text, still terminated). Constructors and operator+ cannot return a status: they yield an empty string
 // on failure, so use the checked member functions where the difference matters.
+template<typename AllocatorType = IAllocator>
 class String {
 public:
     static constexpr std::size_t Npos = static_cast<std::size_t>(-1);
 
 private:
-    Vector<char> data_;
+    Vector<char, AllocatorType> data_;
 
 public:
     String() = default;
@@ -24,14 +25,14 @@ public:
         SetText(str);
     }
 
-    String(const char* str, IAllocator* alloc) : data_(alloc) {
+    String(const char* str, std::type_identity_t<AllocatorType>* alloc) : data_(alloc) {
         SetText(str);
     }
 
-    explicit String(IAllocator* alloc) : data_(alloc) {}
+    explicit String(std::type_identity_t<AllocatorType>* alloc) : data_(alloc) {}
 
     String(const String& other) : data_(other.data_) {}
-    String(String&& other) noexcept : data_(static_cast<Vector<char>&&>(other.data_)) {}
+    String(String&& other) noexcept : data_(static_cast<Vector<char, AllocatorType>&&>(other.data_)) {}
 
     // Cannot report failure: use Assign for a checked copy. On failure the old text is kept.
     String& operator=(const String& other) {
@@ -40,7 +41,7 @@ public:
     }
 
     String& operator=(String&& other) noexcept {
-        data_ = static_cast<Vector<char>&&>(other.data_);
+        data_ = static_cast<Vector<char, AllocatorType>&&>(other.data_);
         return *this;
     }
 
@@ -201,7 +202,7 @@ public:
             result.data_.PushBack(d[pos + i]);
         }
         result.data_.PushBack('\0');
-        out.data_ = static_cast<Vector<char>&&>(result.data_);
+        out.data_ = static_cast<Vector<char, AllocatorType>&&>(result.data_);
         return true;
     }
 
