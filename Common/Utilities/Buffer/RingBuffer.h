@@ -125,8 +125,9 @@ public:
 
 		ElementType* items = storage.Data();
 		std::copy_n(elements.data(), firstSegment, &items[writeIndex]);
-		// The second segment is at most readIndex, which is below BufferSize, so the bound changes no value; it tells GCC the length too.
-		std::copy_n(elements.data() + firstSegment, std::min<uint32>(count - firstSegment, BufferSize), items);
+		if (count > firstSegment) {
+			std::copy_n(elements.data() + firstSegment, count - firstSegment, items);
+		}
 		size = static_cast<uint16>(size + count);
 		System::CriticalSection(false);
 
