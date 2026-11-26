@@ -1,6 +1,6 @@
 #include <Utilities/CompileTime/Require.h>
 #include <Utilities/CompileTime/TextLiteral.h>
-#include "CompileTimeError.h"
+#include <Utilities/CompileTime/.tool/sim/CompileTimeError.h>
 #include <cstdio>
 #include <string_view>
 
