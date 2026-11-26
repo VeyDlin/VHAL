@@ -1,7 +1,7 @@
 #pragma once
 #include <Utilities/DataTypes.h>
 #include <Utilities/Data/RegisterMap/RegisterBus.h>
-#include <Utilities/Data/RegisterMap/RegisterCheck.h>
+#include <Utilities/CompileTime/Require.h>
 #include <Utilities/Result/ResultStatus.h>
 #include <span>
 
@@ -26,7 +26,7 @@ struct SpiFramingBuilder {
 
 
 	constexpr SpiFramingBuilder ReadBit(uint8 position) const {
-		RegisterRequire<"the read bit is 0 to 7">(position <= 7);
+		Require<"RegisterBus:the read bit is 0 to 7">(position <= 7);
 		SpiFramingBuilder result = *this;
 		result.readBit = position;
 		return result;
@@ -34,7 +34,7 @@ struct SpiFramingBuilder {
 
 
 	constexpr SpiFramingBuilder AddressBits(uint8 count) const {
-		RegisterRequire<"address bits are 1 to 7">(count >= 1 && count <= 7);
+		Require<"RegisterBus:address bits are 1 to 7">(count >= 1 && count <= 7);
 		SpiFramingBuilder result = *this;
 		result.addressBits = count;
 		return result;
@@ -50,7 +50,7 @@ struct SpiFramingBuilder {
 
 	// The rule between the fields: the read bit does not sit inside the address bits. Called by SpiRegisterBus.
 	constexpr bool Valid() const {
-		RegisterRequire<"the read bit must not be one of the address bits">(readBit >= addressBits);
+		Require<"RegisterBus:the read bit must not be one of the address bits">(readBit >= addressBits);
 		return true;
 	}
 };
