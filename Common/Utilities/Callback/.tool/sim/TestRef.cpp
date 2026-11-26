@@ -32,6 +32,11 @@ int Use(Callback::Ref<int(int)> fn, int value) {
 }
 
 
+Callback::Ref<int(int)> MakeTwiceRef() {
+	return Twice;
+}
+
+
 struct Functor {
 	int base;
 
@@ -72,6 +77,11 @@ int main() {
 	Expect(Use(constFunctor, 4) == 40, "const functor");
 	Expect(Use(pointer, 4) == 8, "function pointer lvalue");
 	Expect(Use(Twice, 4) == 8, "bare function name");
+
+	// A function name held past the full expression that built the Ref: the function pointer is held by value.
+	Callback::Ref<int(int)> storedName = Twice;
+	Expect(storedName(4) == 8, "function name held past its full expression");
+	Expect(MakeTwiceRef()(4) == 8, "function name returned from a function");
 	Expect(Use([&captured](int value) { return captured + value; }, 4) == 7, "temporary lambda");
 
 	Callback::Ref<int(int)> empty(nullPointer);

@@ -5,7 +5,7 @@ Namespace `Callback`, in `Common/Utilities/Callback/`. Two types hold a callable
 | Type | Holds | Size | Use |
 |---|---|---|---|
 | `Callback::Delegate<R(Args...)>` | a function pointer and a context pointer | 2 words | a callback stored in an object and called later |
-| `Callback::Ref<R(Args...)>` | a reference to any callable | 2 words | a callback given to a function that calls it before it returns |
+| `Callback::Ref<R(Args...)>` | a reference to any callable, or a function pointer by value | 2 words | a callback given to a function that calls it before it returns |
 
 `std::function` is used in some adapters and utilities. See the last section.
 
@@ -54,7 +54,8 @@ A Ref accepts a lambda, a functor (by reference, `const` or not), a function poi
 
 Rules:
 
-- A Ref is valid only for the call that receives it. Do not store it in a member, return it, or keep it past the full expression that built it. The compiler does not check this. The callable it refers to must still exist during the call.
+- A Ref to a lambda or a functor is valid only for the call that receives it. Do not store it in a member, return it, or keep it past the full expression that built it. The compiler does not check this. The callable it refers to must still exist during the call.
+- A Ref made from a function pointer or a function name holds the pointer itself, so it stays valid after the full expression that built it.
 - A null function pointer makes an empty Ref, and `static_cast<bool>` gives `false`. A lambda or a functor is never empty. A function that takes a Ref and may receive an empty one checks it and returns an error.
 - A Ref is two words and holds no allocation.
 
