@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <Adapter/IAdapter.h>
 
 #define VHAL_MCPWM_ADAPTER
@@ -41,7 +42,8 @@ public:
 	virtual ResultStatus Stop() = 0;
 
 	ResultStatus SetDutyPercent(uint8 comparatorIndex, float percent) {
-		uint32 value = static_cast<uint32>((percent / 100.0f) * parameters.periodTicks);
+		float clamped = std::clamp(percent, 0.0f, 100.0f);
+		uint32 value = static_cast<uint32>((clamped / 100.0f) * parameters.periodTicks);
 		return SetCompare(comparatorIndex, value);
 	}
 
