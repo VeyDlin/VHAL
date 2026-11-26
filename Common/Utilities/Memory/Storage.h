@@ -84,13 +84,13 @@ struct FromHeap {
 
 
 	private:
+		ElementType* items;
+
+
 		static ElementType* Allocate() {
 			SystemAssert(heap.IsConstructed(), "a FromHeap container is built before its heap");
 			return static_cast<ElementType*>(heap.AllocatePinned(sizeof(ElementType) * Capacity, alignof(ElementType)));
 		}
-
-
-		ElementType* items;
 	};
 };
 
