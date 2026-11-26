@@ -21,7 +21,7 @@ for source in "$simDir"/Test*.cpp; do
     exe="$buildDir/$name$exeSuffix"
 
     # -O2 is on so that a wait loop on a variable the interrupt handlers write is not folded into one load.
-    if ! "$cxx" -std=c++20 -O2 -pthread -Wall -Wextra -Werror \
+    if ! "$cxx" -std=c++23 -O2 -pthread -Wall -Wextra -Werror \
         -I "$simDir/shim" -I "$vhalRoot/Periphery" -I "$vhalRoot/Common" \
         -o "$exe" "$source"; then
         echo "BUILD FAILED: $name"

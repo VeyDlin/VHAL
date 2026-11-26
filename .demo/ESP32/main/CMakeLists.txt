@@ -10,7 +10,7 @@ idf_component_register(
         "${VHAL_DIR}/Periphery" "${VHAL_DIR}/Common"
     REQUIRES driver esp_timer esp_system esp_hw_support freertos
 )
-target_compile_features(${COMPONENT_LIB} PRIVATE cxx_std_20)
+target_compile_features(${COMPONENT_LIB} PRIVATE cxx_std_23)
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wno-register -Wno-unused-parameter)
 
 # VHAL's FreeRTOS wrapper uses the upstream, unprefixed header names.

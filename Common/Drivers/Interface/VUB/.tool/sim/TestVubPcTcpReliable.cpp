@@ -16,8 +16,8 @@
 
 
 // The delivery layer (VUB::Reliable) over the TCP link, on 127.0.0.1. The listener and the client each carry three packets, and each packet
-// is delivered once and acknowledged. The layer's handlers are plain functions (not inline): the g++ 11 build of the core's Reliable chain
-// needs that, and the Reliable chain is otherwise the same as the COBS chain of TestVubPcTcp.cpp.
+// is delivered once and acknowledged. The layer's handlers are plain functions (not inline): some compilers need that for the core's
+// Reliable chain, and the Reliable chain is otherwise the same as the COBS chain of TestVubPcTcp.cpp.
 
 
 // The packets delivered to the receive handler, and the outcomes of the sent ones.

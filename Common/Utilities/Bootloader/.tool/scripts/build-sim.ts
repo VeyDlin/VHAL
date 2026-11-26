@@ -13,7 +13,7 @@ const isWindows: boolean = process.platform === "win32";
 const exePath: string = path.join(buildDir, isWindows ? "vboot-sim.exe" : "vboot-sim");
 
 const compilerArgs: string[] = [
-    "-std=c++20",
+    "-std=c++23",
     "-O1",
     "-Wall",
     "-Wextra",

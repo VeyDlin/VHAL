@@ -1,6 +1,6 @@
 # VSTD — Embedded C++ Standard Library
 
-Header-only C++20 standard library replacement for embedded systems (Cortex-M, ESP32). All heap-backed types use a **handle-based allocator** with optional defragmentation. Only a `Handle` stays valid across defragmentation; raw pointers do not (see [Handle-Based Indirection](#handle-based-indirection)).
+Header-only C++23 standard library replacement for embedded systems (Cortex-M, ESP32). All heap-backed types use a **handle-based allocator** with optional defragmentation. Only a `Handle` stays valid across defragmentation; raw pointers do not (see [Handle-Based Indirection](#handle-based-indirection)).
 
 ## Quick Start
 

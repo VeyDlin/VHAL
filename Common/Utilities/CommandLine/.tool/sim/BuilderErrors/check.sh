@@ -27,7 +27,7 @@ for snippet in "$dir"/*.cpp; do
         continue
     fi
 
-    if output="$("$cxx" -std=c++20 -fsyntax-only \
+    if output="$("$cxx" -std=c++23 -fsyntax-only \
         -I "$dir/../shim" -I "$vhalRoot/Periphery" -I "$vhalRoot/Common" \
         "$snippet" 2>&1)"; then
         echo "COMPILED, an error was expected: $name"

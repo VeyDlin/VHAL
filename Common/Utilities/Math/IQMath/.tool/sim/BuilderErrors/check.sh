@@ -27,7 +27,7 @@ for snippet in "$dir"/*.cpp; do
         continue
     fi
 
-    if output="$("$cxx" -std=c++20 -fsyntax-only -I "$vhalRoot/Common" "$snippet" 2>&1)"; then
+    if output="$("$cxx" -std=c++23 -fsyntax-only -I "$vhalRoot/Common" "$snippet" 2>&1)"; then
         echo "COMPILED, an error was expected: $name"
         failures=$((failures + 1))
         continue

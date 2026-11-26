@@ -34,14 +34,14 @@ if ! command -v arm-none-eabi-g++ > /dev/null 2>&1; then
 fi
 
 # The workspace sizes come from a host build of the same patterns. They count arrays of 2- and 4-byte elements, so they match the device.
-if ! "$cxx" -std=c++20 -Wall -Wextra -Werror -I "$commonDir" -o "$buildDir/FrameSizes$exeSuffix" "$simDir/FrameSizes.cpp"; then
+if ! "$cxx" -std=c++23 -Wall -Wextra -Werror -I "$commonDir" -o "$buildDir/FrameSizes$exeSuffix" "$simDir/FrameSizes.cpp"; then
     echo "BUILD FAILED: FrameSizes"
     exit 1
 fi
 
 "$buildDir/FrameSizes$exeSuffix" > "$buildDir/sizes.txt" || exit 1
 
-if ! arm-none-eabi-g++ -std=gnu++20 -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard -fno-rtti -fno-exceptions \
+if ! arm-none-eabi-g++ -std=gnu++23 -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard -fno-rtti -fno-exceptions \
     -fdata-sections -ffunction-sections -fstack-usage -O3 -Wall -Wextra -Werror -I "$commonDir" \
     -c "$simDir/FrameCaller.cpp" -o "$buildDir/FrameCaller.o"; then
     echo "BUILD FAILED: FrameCaller"

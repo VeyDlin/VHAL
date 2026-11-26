@@ -28,7 +28,7 @@ for source in "$simDir"/Test*.cpp; do
     name="$(basename "$source" .cpp)"
     exe="$buildDir/$name$exeSuffix"
 
-    if ! "$cxx" -std=c++20 -Wall -Wextra -Werror -pthread \
+    if ! "$cxx" -std=c++23 -Wall -Wextra -Werror -pthread \
         -I "$simDir/shim" -I "$vhalRoot/Periphery" -I "$vhalRoot/Common" -I "$simDir" \
         -o "$exe" "$source"; then
         echo "BUILD FAILED: $name"
@@ -47,7 +47,7 @@ if ! bash "$simDir/BuilderErrors/check.sh"; then
     failures=$((failures + 1))
 fi
 
-if ! "$cxx" -std=c++20 -Wall -Wextra -Werror -c \
+if ! "$cxx" -std=c++23 -Wall -Wextra -Werror -c \
     -I "$simDir/shim" -I "$vhalRoot/Periphery" -I "$vhalRoot/Common" \
     -o "$buildDir/ScaleSet.o" "$simDir/ScaleSet.cpp"; then
     echo "SCALE SET FAILED: host"
@@ -56,7 +56,7 @@ else
     echo "scale set compiles on the host"
 fi
 
-if ! "$cxx" -std=c++20 -Wall -Wextra -Werror -c \
+if ! "$cxx" -std=c++23 -Wall -Wextra -Werror -c \
     -I "$simDir/shim" -I "$vhalRoot/Periphery" -I "$vhalRoot/Common" \
     -o "$buildDir/DialectAll.o" "$simDir/DialectAll.cpp"; then
     echo "DIALECT SET FAILED: host (with every dialect item)"
@@ -66,7 +66,7 @@ fi
 if command -v "$armCxx" > /dev/null 2>&1; then
     echo "target compiler: $("$armCxx" --version | head -1)"
     armSize="$(dirname "$(command -v "$armCxx")")/arm-none-eabi-size"
-    if ! "$armCxx" -std=gnu++20 -fno-rtti -fno-exceptions -Wall -Wextra -Werror -fsyntax-only \
+    if ! "$armCxx" -std=gnu++23 -fno-rtti -fno-exceptions -Wall -Wextra -Werror -fsyntax-only \
         -I "$simDir/shim" -I "$vhalRoot/Periphery" -I "$vhalRoot/Common" \
         "$simDir/ScaleSet.cpp"; then
         echo "SCALE SET FAILED: target"
@@ -78,7 +78,7 @@ if command -v "$armCxx" > /dev/null 2>&1; then
     # The dialect's flash cost: the same server with no dialect item and with every item, both at -Os for Cortex-M4. The difference is
     # the dialect.
     for dialect in DialectNone DialectAll; do
-        if ! "$armCxx" -std=gnu++20 -fno-rtti -fno-exceptions -Os -mcpu=cortex-m4 -mthumb -Wall -Wextra -Werror -c \
+        if ! "$armCxx" -std=gnu++23 -fno-rtti -fno-exceptions -Os -mcpu=cortex-m4 -mthumb -Wall -Wextra -Werror -c \
             -I "$simDir/shim" -I "$vhalRoot/Periphery" -I "$vhalRoot/Common" \
             -o "$buildDir/$dialect.o" "$simDir/$dialect.cpp"; then
             echo "DIALECT SET FAILED: target $dialect"
@@ -97,7 +97,7 @@ if command -v "$armCxx" > /dev/null 2>&1; then
     # The client and the server of one five-command set, each compiled alone at -Os for Cortex-M4, so each object's text, data and bss
     # is its own side's code.
     for side in SizeServer SizeClient; do
-        if ! "$armCxx" -std=gnu++20 -fno-rtti -fno-exceptions -Os -mcpu=cortex-m4 -mthumb -Wall -Wextra -Werror -c \
+        if ! "$armCxx" -std=gnu++23 -fno-rtti -fno-exceptions -Os -mcpu=cortex-m4 -mthumb -Wall -Wextra -Werror -c \
             -I "$simDir/shim" -I "$vhalRoot/Periphery" -I "$vhalRoot/Common" -I "$simDir" \
             -o "$buildDir/$side.o" "$simDir/$side.cpp"; then
             echo "SIZE OBJECT FAILED: target $side"
@@ -109,7 +109,7 @@ if command -v "$armCxx" > /dev/null 2>&1; then
     # neither module. The calls are the same in each, except that the rows call needs the row module, and the await calls are in the object
     # with the await module only.
     for side in SizeEspAtRows SizeEspAtAwait SizeEspAtPlain; do
-        if ! "$armCxx" -std=gnu++20 -fno-rtti -fno-exceptions -Os -mcpu=cortex-m4 -mthumb -Wall -Wextra -Werror -c \
+        if ! "$armCxx" -std=gnu++23 -fno-rtti -fno-exceptions -Os -mcpu=cortex-m4 -mthumb -Wall -Wextra -Werror -c \
             -I "$simDir/shim" -I "$vhalRoot/Periphery" -I "$vhalRoot/Common" -I "$simDir" \
             -o "$buildDir/$side.o" "$simDir/$side.cpp"; then
             echo "SIZE OBJECT FAILED: target $side"

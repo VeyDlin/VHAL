@@ -18,7 +18,7 @@ fi
 buildDir="$(mktemp -d)"
 trap 'rm -rf "$buildDir"' EXIT
 
-flags=(-std=c++20 -mcpu=cortex-m4 -mthumb -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti -Wall -Wextra -Werror)
+flags=(-std=c++23 -mcpu=cortex-m4 -mthumb -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti -Wall -Wextra -Werror)
 includes=(-I "$vhalRoot/Common")
 failures=0
 

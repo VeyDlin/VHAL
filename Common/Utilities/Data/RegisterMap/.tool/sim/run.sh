@@ -16,7 +16,7 @@ case "$(uname -s)" in
     *) exeSuffix="" ;;
 esac
 
-flags=(-std=c++20 -Wall -Wextra -Werror -Wconversion -I "$vhalRoot/Common" -I "$simDir")
+flags=(-std=c++23 -Wall -Wextra -Werror -Wconversion -I "$vhalRoot/Common" -I "$simDir")
 failures=0
 
 for source in "$simDir"/Test*.cpp; do
@@ -50,7 +50,7 @@ if ! bash "$simDir/BuilderErrors/check.sh"; then
 fi
 
 unusedObject="$buildDir/UnusedDescriptor.o"
-if ! "$cxx" -std=c++20 -Os -Wall -Wextra -Werror -I "$vhalRoot/Common" -I "$simDir" -c -o "$unusedObject" "$simDir/UnusedDescriptor.cpp"; then
+if ! "$cxx" -std=c++23 -Os -Wall -Wextra -Werror -I "$vhalRoot/Common" -I "$simDir" -c -o "$unusedObject" "$simDir/UnusedDescriptor.cpp"; then
     echo "UNUSED DESCRIPTOR PROBE DOES NOT BUILD"
     failures=$((failures + 1))
 elif nm -C "$unusedObject" | grep -q "UnusedProbeDescriptor"; then

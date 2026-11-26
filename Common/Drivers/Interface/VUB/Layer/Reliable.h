@@ -62,7 +62,7 @@ namespace ReliableWire {
 }
 
 
-// The handlers of the options are held as the address of a variable that holds the function. Some compilers (g++ 11) take the address of a
+// The handlers of the options are held as the address of a variable that holds the function. Some compilers take the address of a
 // variable as a template argument, but not the address of a function, and an options value is a template argument. The variable is
 // constexpr, so a call through it is a call of the function.
 template<void (*Fn)(const Outcome&)>
@@ -105,7 +105,7 @@ struct ReliableOptions {
 
 
 // True when a handler option holds a handler. The option is passed to a function and tested there, so the test is not written against the
-// address of the holder variable at the call site: g++ 11 reports that address as never null under -Waddress.
+// address of the holder variable at the call site: some compilers report that address as never null under -Waddress.
 template<typename Pointer>
 constexpr bool HoldsHandler(Pointer pointer) {
 	return pointer != nullptr;

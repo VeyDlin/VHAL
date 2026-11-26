@@ -27,9 +27,9 @@ for snippet in "$dir"/*.cpp; do
         continue
     fi
 
-    # LC_ALL=C makes the compiler quote names with plain apostrophes (g++ 11 uses typographic quotes in a UTF-8 locale), so the expected
+    # LC_ALL=C makes the compiler quote names with plain apostrophes (GCC uses typographic quotes in a UTF-8 locale), so the expected
     # texts match on every system.
-    if output="$(LC_ALL=C "$cxx" -std=c++20 -fsyntax-only -I "$vhalRoot/Common" -I "$vhalRoot/Periphery" "$snippet" 2>&1)"; then
+    if output="$(LC_ALL=C "$cxx" -std=c++23 -fsyntax-only -I "$vhalRoot/Common" -I "$vhalRoot/Periphery" "$snippet" 2>&1)"; then
         echo "COMPILED, an error was expected: $name"
         failures=$((failures + 1))
         continue

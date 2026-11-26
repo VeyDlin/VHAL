@@ -11,7 +11,7 @@ USB interface or a HID device, so a run is done by hand, against a board that is
 
 ## Build
 
-The program needs CMake and a C++20 compiler: MinGW g++ on Windows, g++ on Linux. It links only system libraries: `winusb`, `setupapi`,
+The program needs CMake and a C++23 compiler: MinGW g++ on Windows, g++ on Linux. It links only system libraries: `winusb`, `setupapi`,
 `cfgmgr32`, `hid` and `winmm` on Windows, `libusb-1.0` on Linux. Build in a folder of your own:
 
 ```sh
@@ -330,7 +330,7 @@ device's window, which the lost acknowledgements of the PC hold. With a deadline
 an in-memory UART line, with the device on a thread of its own. It is built with g++ and no board:
 
 ```sh
-g++ -std=c++20 -Wall -Wextra -Werror -I Common -I .demo/STM32G4/Application -I Periphery -o loopback.exe Common/Drivers/Interface/VUB/.tool/board/test/TestVubBoardLoopback.cpp -lwinmm
+g++ -std=c++23 -Wall -Wextra -Werror -I Common -I .demo/STM32G4/Application -I Periphery -o loopback.exe Common/Drivers/Interface/VUB/.tool/board/test/TestVubBoardLoopback.cpp -lwinmm
 loopback.exe echo|requests LOSS SEED... [-trace]
 ```
 

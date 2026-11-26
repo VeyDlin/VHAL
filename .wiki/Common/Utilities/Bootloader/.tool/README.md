@@ -225,7 +225,7 @@ A transport that moves small packets over a link without its own framing (BLE, U
 
 ## Simulator
 
-The simulator runs the real bootloader code (`FLASHBootloader` or `AESFLASHBootloader`, `CompactStreamingProtocol`) against an in-memory flash, with the transport on its stdin and stdout. It needs `g++` with C++20 on the PATH.
+The simulator runs the real bootloader code (`FLASHBootloader` or `AESFLASHBootloader`, `CompactStreamingProtocol`) against an in-memory flash, with the transport on its stdin and stdout. It needs `g++` with C++23 on the PATH.
 
 ```
 npm run sim:build                     # writes sim/build/vboot-sim(.exe)

@@ -158,7 +158,7 @@ The codec is two functions, `DecodeBody` and `EncodeBody`, that work on a `BodyV
 its own table, and the functions are the same for all of them. A field's table entry is its width, kind, count and an accessor. Only the
 accessor is per field.
 
-Measured with `arm-none-eabi-g++ -std=c++20 -mcpu=cortex-m4 -mthumb -Os -fno-exceptions -fno-rtti` on a program that encodes and
+Measured with `arm-none-eabi-g++ -std=c++23 -mcpu=cortex-m4 -mthumb -Os -fno-exceptions -fno-rtti` on a program that encodes and
 decodes one body (`MotorStart`), and on the same program with a second body (`MotorReport`) added:
 
 | Part | One body | Two bodies |

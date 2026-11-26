@@ -2,7 +2,7 @@
 # Measures what the VUB configurations cost on a Cortex-M4 and a Cortex-M0+ target, in bytes. Each configuration is a program made of
 # one ConfigX.cpp (or ConfigCompact.cpp for the CompactStreamingProtocol comparison), SizeMain.cpp and the baseline of its link kind
 # (BaselineStream.cpp or BaselinePacket.cpp). The baseline makes the same calls with no VUB, so the cost of a configuration is the
-# program minus its baseline. Each program is compiled with arm-none-eabi-g++ -std=c++20 -Os -ffunction-sections -fdata-sections
+# program minus its baseline. Each program is compiled with arm-none-eabi-g++ -std=c++23 -Os -ffunction-sections -fdata-sections
 # -fno-exceptions -fno-rtti -Wl,--gc-sections --specs=nano.specs --specs=nosys.specs, and arm-none-eabi-size reads text, data and bss.
 # RAM is data plus bss. Prints a markdown table of the costs, then the toolchain and the baseline sizes. Exits 0 when the toolchain is
 # not on the PATH (it is a tool, not a test), and 1 when a program does not build. Works in Git Bash on Windows and on Linux or macOS.
@@ -24,7 +24,7 @@ fi
 buildDir="$(mktemp -d)"
 trap 'rm -rf "$buildDir"' EXIT
 
-flags=(-std=c++20 -mthumb -Os -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti -Wall -Wextra -Werror)
+flags=(-std=c++23 -mthumb -Os -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti -Wall -Wextra -Werror)
 linkFlags=(-Wl,--gc-sections --specs=nano.specs --specs=nosys.specs)
 includes=(-I "$sizeDir/shim" -I "$sizeDir" -I "$vhalRoot/Common" -I "$vhalRoot/Periphery")
 cpus=(cortex-m4 cortex-m0plus)

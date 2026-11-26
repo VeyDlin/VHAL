@@ -4,7 +4,7 @@ Delivery layer. Each packet carries a sequence number, the session tag of its se
 
 The layer is added with `.Layer<VUB::Reliable>()` and its options follow it: `.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).Window(4)`.
 
-`VUB::Reliable` is `VUB::ReliableOf<32, 4>`: payloads up to 32 bytes, up to 4 packets unsettled. `VUB::ReliableOf<PayloadCapacity, WindowCapacity, InOrder, options>` sets the storage. The options choose within it. The third argument turns on in-order delivery (see In order); it is `false` by default. The fourth is the value of the options, of type `VUB::ReliableOptions<PayloadCapacity, WindowCapacity>`: the stack gives each layer of a chain the options its chain sets, so they are constants of the layer and take no RAM. The default is the default options. The layer needs a clock: add `Clock<&Fn>()` to the chain. In an options value, a handler is given as `VUB::OutcomeHandler<&Fn>` or `VUB::RestartHandler<&Fn>`, the address of a variable that holds the function, because the options are a template argument and g++ 11 does not take the address of a function there. The builder's `OnOutcome` and `OnRestart` make these for a chain.
+`VUB::Reliable` is `VUB::ReliableOf<32, 4>`: payloads up to 32 bytes, up to 4 packets unsettled. `VUB::ReliableOf<PayloadCapacity, WindowCapacity, InOrder, options>` sets the storage. The options choose within it. The third argument turns on in-order delivery (see In order); it is `false` by default. The fourth is the value of the options, of type `VUB::ReliableOptions<PayloadCapacity, WindowCapacity>`: the stack gives each layer of a chain the options its chain sets, so they are constants of the layer and take no RAM. The default is the default options. The layer needs a clock: add `Clock<&Fn>()` to the chain. In an options value, a handler is given as `VUB::OutcomeHandler<&Fn>` or `VUB::RestartHandler<&Fn>`, the address of a variable that holds the function. The builder's `OnOutcome` and `OnRestart` make these for a chain.
 
 A chain with the layer, the packet link of a board, and a handler for each outcome:
 
@@ -355,17 +355,17 @@ Sim test `TestVubReliableInOrder` checks the option: the packets of a faulty lin
 
 The storage depends on the template arguments, not on the options. Each window slot holds one packet (`PayloadCapacity` plus the 11-byte header area) and its state. The owed acknowledgements take 3 bytes for each of the `2 * WindowCapacity` entries (a number and its tag, 2 bytes plus 1). The receiver keeps 4 bytes of bits for its window. The session fields (the boot value, the counters, the held boot value and the counter-reply flag) fit in the padding of the state.
 
-Sizes, measured with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203` for Cortex-M4 (`-std=c++20 -Os -mcpu=cortex-m4 -mthumb -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti`). The method: `sizeof` of each layer type, read at compile time (a declaration `Show<sizeof(T)> x;` whose error message names the value, with `arm-none-eabi-g++ -fsyntax-only`):
+Sizes, measured with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203` for Cortex-M4 (`-std=c++23 -Os -mcpu=cortex-m4 -mthumb -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti`). The method: `sizeof` of each layer type, read at compile time (a declaration `Show<sizeof(T)> x;` whose error message names the value, with `arm-none-eabi-g++ -fsyntax-only`):
 
 | Layer | `sizeof` |
 |---|---|
-| `VUB::ReliableOf<32, 4>` | 316 bytes |
-| `VUB::ReliableOf<40, 4>` | 348 bytes |
-| `VUB::ReliableOf<40, 8>` | 644 bytes |
-| `VUB::ReliableOf<40, 4, true>` | 516 bytes (+168) |
-| `VUB::ReliableOf<40, 8, true>` | 980 bytes (+336) |
+| `VUB::ReliableOf<32, 4>` | 320 bytes |
+| `VUB::ReliableOf<40, 4>` | 352 bytes |
+| `VUB::ReliableOf<40, 8>` | 648 bytes |
+| `VUB::ReliableOf<40, 4, true>` | 520 bytes (+168) |
+| `VUB::ReliableOf<40, 8, true>` | 984 bytes (+336) |
 
-The options take no RAM: a layer of a chain holds none of them. The counter reply adds no bytes. Two features keep state when they are on, and nothing when they are off: `Counted()` adds two 16-bit counts, and a layer above with `wantsOwner` adds the owner pointer. Each makes `sizeof(VUB::ReliableOf<32, 4>)` 320 bytes (316 without it).
+The options take no RAM: a layer of a chain holds none of them. The counter reply adds no bytes. Two features keep state when they are on, and nothing when they are off: `Counted()` adds two 16-bit counts, which makes `sizeof(VUB::ReliableOf<32, 4>)` 324 bytes (320 without it). A layer above with `wantsOwner` adds the owner pointer.
 
 The code is measured in the size table. Each row is a whole program minus its baseline (see the README), so the layer's code is in the
 rows with the layer:

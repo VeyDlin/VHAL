@@ -115,4 +115,4 @@ auto hmac224 = HMAC<28>::Compute(key, message);  // Truncated to 28 bytes
 
 - `SHA256` -- from `Utilities/Crypto/SHA/SHA256.h`, used internally for hashing
 - `VHAL.h` -- provides `uint8` type alias
-- C++20 -- requires `<span>`, `<string_view>`, `<array>`, `<algorithm>`
+- C++23 -- requires `<span>`, `<string_view>`, `<array>`, `<algorithm>`

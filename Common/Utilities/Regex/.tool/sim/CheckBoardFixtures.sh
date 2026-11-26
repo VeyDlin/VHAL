@@ -14,7 +14,7 @@ case "$(uname -s)" in
     *) exeSuffix="" ;;
 esac
 
-if ! "$cxx" -std=c++20 -Wall -Wextra -Werror -o "$buildDir/WriteBoardFixtures$exeSuffix" "$fixturesDir/WriteBoardFixtures.cpp"; then
+if ! "$cxx" -std=c++23 -Wall -Wextra -Werror -o "$buildDir/WriteBoardFixtures$exeSuffix" "$fixturesDir/WriteBoardFixtures.cpp"; then
     echo "BUILD FAILED: WriteBoardFixtures"
     exit 1
 fi

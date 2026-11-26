@@ -11,7 +11,7 @@ buildDir="$(mktemp -d)"
 trap 'rm -rf "$buildDir"' EXIT
 
 # -O0 keeps the loop as its own function. At -O2 GCC inlines the one caller into Find, and the symbol would not show.
-flags=(-std=c++20 -O0 -Wall -Wextra -Werror -fno-exceptions -fno-rtti -I "$vhalRoot/Common")
+flags=(-std=c++23 -O0 -Wall -Wextra -Werror -fno-exceptions -fno-rtti -I "$vhalRoot/Common")
 
 if ! "$cxx" "${flags[@]}" -c -o "$buildDir/matches.o" "$simDir/NotEmitted.cpp"; then
     echo "BUILD FAILED: NotEmitted.cpp (Matches only)"

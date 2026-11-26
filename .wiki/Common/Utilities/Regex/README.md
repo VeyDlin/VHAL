@@ -78,7 +78,7 @@ bool IsStatusLine(std::string_view line) {
 
 The program is in flash. A pattern costs 6 bytes per instruction, 32 bytes per distinct character class, and 8 bytes for the failure record, rounded up to a multiple of 4. The `View` of a pattern is 16 bytes. A pattern that no code uses costs nothing.
 
-Measured on the Cortex-M4 target (`arm-none-eabi-g++ -std=gnu++20 -mcpu=cortex-m4 -mthumb -O3`, the sizes read from the ELF symbols):
+Measured on the Cortex-M4 target (`arm-none-eabi-g++ -std=gnu++23 -mcpu=cortex-m4 -mthumb -O3`, the sizes read from the ELF symbols):
 
 | Pattern | Instructions | Classes | Groups | Image (flash) | Plain stack | Captures stack |
 |---|---|---|---|---|---|---|

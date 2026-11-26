@@ -16,7 +16,7 @@ case "$(uname -s)" in
     *) exeSuffix="" ;;
 esac
 
-flags=(-std=c++20 -Wall -Wextra -Werror -Wconversion -I "$vhalRoot/Common" -I "$simDir")
+flags=(-std=c++23 -Wall -Wextra -Werror -Wconversion -I "$vhalRoot/Common" -I "$simDir")
 failures=0
 
 for source in "$simDir"/Test*.cpp; do

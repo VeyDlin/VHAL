@@ -18,7 +18,7 @@ case "$(uname -s)" in
 esac
 
 failures=0
-commonFlags=(-std=c++20 -Wall -Wextra -Werror -I "$vhalRoot/Common")
+commonFlags=(-std=c++23 -Wall -Wextra -Werror -I "$vhalRoot/Common")
 
 headerSource="$buildDir/HeaderAlone.cpp"
 printf '%s\n' '#include <Utilities/Encoding/COBS/Cobs.h>' > "$headerSource"

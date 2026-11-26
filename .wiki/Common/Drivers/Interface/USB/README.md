@@ -246,9 +246,9 @@ Run them from the `.tool/sim` folder:
 sh run.sh
 ```
 
-- Needs a g++ with C++20. The tests were run with g++ 15.2. Set `CXX` to use another compiler.
+- Needs a g++ with C++23. The tests were run with g++ 15.2. Set `CXX` to use another compiler.
 - Works in Git Bash on Windows, and on Linux and macOS.
-- Each `Test*.cpp` is built with `-std=c++20 -Wall -Wextra -Werror` and run. The script exits non-zero when a test does not build or a check fails.
+- Each `Test*.cpp` is built with `-std=c++23 -Wall -Wextra -Werror` and run. The script exits non-zero when a test does not build or a check fails.
 - Build output goes to a temporary folder outside the repository.
 
 `run.sh` builds and runs the 60 test files (`Test*.cpp`), then runs the 91 builder error snippets in `.tool/sim/BuilderErrors/` through `BuilderErrors/check.sh`. Each snippet is a compile-error check with its expected message. The MS OS 2.0 check is covered on its [page](Descriptor/MsOs20/README.md).
