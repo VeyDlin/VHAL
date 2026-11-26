@@ -928,7 +928,7 @@ protected:
 	            }
 
 	            case ACI_CMD_GET_BATTERY_LEVEL: {
-	              float batteryLevel = aciEvt->params.cmd_rsp.params.get_battery_level.battery_level * 0.00352;
+	              float batteryLevel = aciEvt->params.cmd_rsp.params.get_battery_level.battery_level * 0.00352f;
 	#ifdef NRF_8001_DEBUG
 	              System::console << Console::debug << "Battery level = " << batteryLevel << Console::endl;
 	#endif
@@ -939,7 +939,7 @@ protected:
 	            }
 
 	            case ACI_CMD_GET_TEMPERATURE: {
-	              float temperature = aciEvt->params.cmd_rsp.params.get_temperature.temperature_value / 4.0;
+	              float temperature = aciEvt->params.cmd_rsp.params.get_temperature.temperature_value / 4.0f;
 	#ifdef NRF_8001_DEBUG
 	              System::console << Console::debug << "Temperature = " << temperature << Console::endl;
 	#endif
