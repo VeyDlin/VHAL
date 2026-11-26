@@ -36,7 +36,7 @@ for snippet in "$dir"/*.cpp; do
         expectedValue="${secondLine#// expect-value: }"
     fi
 
-    if output="$("$cxx" -std=c++20 -fsyntax-only -fno-exceptions -fno-rtti \
+    if output="$("$cxx" -std=c++23 -fsyntax-only -fno-exceptions -fno-rtti \
         -I "$vhalRoot/Common" \
         "$snippet" 2>&1)"; then
         echo "COMPILED, an error was expected: $name"

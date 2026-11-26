@@ -32,7 +32,7 @@ for page in "$wikiDir"/*.md; do
     for ((index = 1; index <= blockCount; index++)); do
         snippet="$buildDir/$pageName-$index.cpp"
         snippets=$((snippets + 1))
-        if ! "$cxx" -std=c++20 -fsyntax-only -Wall -Wextra -Werror -fno-exceptions -fno-rtti -I "$vhalRoot/Common" "$snippet"; then
+        if ! "$cxx" -std=c++23 -fsyntax-only -Wall -Wextra -Werror -fno-exceptions -fno-rtti -I "$vhalRoot/Common" "$snippet"; then
             echo "SNIPPET FAILED: $pageName.md, C++ block $index"
             failures=$((failures + 1))
         fi

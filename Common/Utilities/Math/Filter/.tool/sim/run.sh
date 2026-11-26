@@ -20,7 +20,7 @@ for source in "$simDir"/Test*.cpp; do
     name="$(basename "$source" .cpp)"
     exe="$buildDir/$name$exeSuffix"
 
-    if ! "$cxx" -std=c++20 -Wall -Wextra -Werror \
+    if ! "$cxx" -std=c++23 -Wall -Wextra -Werror \
         -I "$vhalRoot/Common" \
         -o "$exe" "$source"; then
         echo "BUILD FAILED: $name"
@@ -38,7 +38,7 @@ for source in "$simDir"/Reject*.cpp; do
     name="$(basename "$source" .cpp)"
     log="$buildDir/$name.log"
 
-    if "$cxx" -std=c++20 -fsyntax-only -I "$vhalRoot/Common" "$source" > "$log" 2>&1; then
+    if "$cxx" -std=c++23 -fsyntax-only -I "$vhalRoot/Common" "$source" > "$log" 2>&1; then
         echo "REJECT COMPILED: $name"
         failures=$((failures + 1))
     elif ! grep -q "RangeAtLeast" "$log"; then

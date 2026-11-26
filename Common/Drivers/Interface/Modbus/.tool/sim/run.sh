@@ -25,7 +25,7 @@ for source in "$simDir"/Test*.cpp; do
     name="$(basename "$source" .cpp)"
     exe="$buildDir/$name$exeSuffix"
 
-    if ! "$cxx" -std=c++20 -Wall -Wextra -Werror ${CXXFLAGS:-} \
+    if ! "$cxx" -std=c++23 -Wall -Wextra -Werror ${CXXFLAGS:-} \
         -I "$simDir/shim" -I "$vhalRoot/Periphery" -I "$vhalRoot/Common" -I "$simDir" \
         -o "$exe" "$source"; then
         echo "BUILD FAILED: $name"
@@ -43,7 +43,7 @@ done
 # by name, because ModbusMaster.h and ModbusSlave.h in the same folder belong to the existing RTU code and are not checked here.
 for header in "$modbusDir"/*.h "$modbusDir"/Pdu/*.h \
     "$modbusDir/RTU/RtuFramer.h" "$modbusDir/RTU/RtuTiming.h" "$modbusDir/RTU/RtuTransport.h"; do
-    if ! "$cxx" -std=c++20 -Wall -Wextra -Werror -fsyntax-only \
+    if ! "$cxx" -std=c++23 -Wall -Wextra -Werror -fsyntax-only \
         -I "$simDir/shim" -I "$vhalRoot/Periphery" -I "$vhalRoot/Common" \
         -include "$header" -x c++ /dev/null; then
         echo "HEADER DOES NOT COMPILE ALONE: ${header#"$vhalRoot"/}"

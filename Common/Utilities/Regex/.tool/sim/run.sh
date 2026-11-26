@@ -20,8 +20,8 @@ case "$(uname -s)" in
     *) exeSuffix="" ;;
 esac
 
-deviceFlags=(-std=c++20 -Wall -Wextra -Werror -fno-exceptions -fno-rtti)
-hostFlags=(-std=c++20 -Wall -Wextra -Werror)
+deviceFlags=(-std=c++23 -Wall -Wextra -Werror -fno-exceptions -fno-rtti)
+hostFlags=(-std=c++23 -Wall -Wextra -Werror)
 includes=(-I "$vhalRoot/Common")
 failures=0
 

@@ -15,7 +15,7 @@ sizeTool="${SIZE:-arm-none-eabi-size}"
 buildDir="$(mktemp -d)"
 trap 'rm -rf "$buildDir"' EXIT
 
-flags=(-std=gnu++20 -mcpu=cortex-m4 -mthumb -fno-rtti -fno-exceptions -Os -Wall -Wextra -Werror)
+flags=(-std=gnu++23 -mcpu=cortex-m4 -mthumb -fno-rtti -fno-exceptions -Os -Wall -Wextra -Werror)
 failures=0
 
 printf '%-22s %8s %8s %8s\n' probe text data bss

@@ -5,7 +5,7 @@
 // on a thread of its own, and the run is the one vubcheck prints.
 //
 // Build with g++ (the board's include roots, and winmm for the timer period on Windows):
-//   g++ -std=c++20 -Wall -Wextra -Werror -I Common -I .demo/STM32G4/Application -I Periphery -o loopback.exe TestVubBoardLoopback.cpp -lwinmm
+//   g++ -std=c++23 -Wall -Wextra -Werror -I Common -I .demo/STM32G4/Application -I Periphery -o loopback.exe TestVubBoardLoopback.cpp -lwinmm
 // Run: loopback.exe echo|requests LOSS SEED...
 // Each run prints the summary line of vubcheck; the last line is the total. The exit code is 0 when every run passes.
 #include "../src/Run.h"

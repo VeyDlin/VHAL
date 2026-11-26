@@ -20,7 +20,7 @@ for source in "$simDir"/Test*.cpp; do
     name="$(basename "$source" .cpp)"
     exe="$buildDir/$name$exeSuffix"
 
-    if ! "$cxx" -std=c++20 -Wall -Wextra -Werror \
+    if ! "$cxx" -std=c++23 -Wall -Wextra -Werror \
         -I "$simDir/shim" -I "$vhalRoot/Periphery" -I "$vhalRoot/Common" -I "$simDir" \
         -I "$vhalRoot/Common/Drivers/Interface/USB/.tool/common" -I "$vhalRoot/.demo/STM32G4/Application" \
         -o "$exe" "$source"; then

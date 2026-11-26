@@ -53,7 +53,7 @@ for source in "$simDir"/Test*.cpp; do
         linkFlags+=("-l$lib")
     done
 
-    if ! "$cxx" -std=c++20 -Wall -Wextra -Werror ${CXXFLAGS:-} ${extraFlags[@]+"${extraFlags[@]}"} \
+    if ! "$cxx" -std=c++23 -Wall -Wextra -Werror ${CXXFLAGS:-} ${extraFlags[@]+"${extraFlags[@]}"} \
         -I "$vhalRoot/Common" -I "$simDir" \
         -I "$vhalRoot/Periphery/Adapter/.tool/sim/shim" -I "$vhalRoot/Periphery" \
         -o "$exe" "$source" ${linkFlags[@]+"${linkFlags[@]}"}; then
@@ -73,7 +73,7 @@ done
 # runs on: Windows or Linux. The microcontroller links take System.h from Periphery, through the host shim the tests use.
 shopt -s nullglob
 for header in "$vubDir"/*.h "$vubDir"/{TestKit,Link,Framing,Transform,Engine,Layer,PC,Requests}/*.h; do
-    if ! "$cxx" -std=c++20 -Wall -Wextra -Werror -fsyntax-only \
+    if ! "$cxx" -std=c++23 -Wall -Wextra -Werror -fsyntax-only \
         -I "$vhalRoot/Common" -I "$vhalRoot/Periphery/Adapter/.tool/sim/shim" -I "$vhalRoot/Periphery" \
         -include "$header" -x c++ /dev/null; then
         echo "HEADER DOES NOT COMPILE ALONE: ${header#"$vhalRoot"/}"

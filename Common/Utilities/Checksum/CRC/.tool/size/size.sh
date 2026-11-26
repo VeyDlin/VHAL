@@ -24,7 +24,7 @@ fi
 buildDir="$(mktemp -d)"
 trap 'rm -rf "$buildDir"' EXIT
 
-flags=(-std=c++20 -mthumb -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti -Wall -Wextra -Werror)
+flags=(-std=c++23 -mthumb -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti -Wall -Wextra -Werror)
 linkFlags=(-Wl,--gc-sections --specs=nano.specs --specs=nosys.specs)
 includes=(-I "$sizeDir" -I "$vhalRoot/Common")
 cpus=(cortex-m4 cortex-m0plus)
