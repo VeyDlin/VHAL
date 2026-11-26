@@ -1,6 +1,7 @@
 #include <Utilities/Callback/Ref.h>
 #include <cstddef>
 #include <cstdio>
+#include <memory>
 
 namespace {
 
@@ -81,6 +82,25 @@ int main() {
 
 	Callback::Ref<int(int)> fromLambda(lambda);
 	Expect(static_cast<bool>(fromLambda), "lambda is never empty");
+
+	{
+		Callback::Ref<int(int)> source(lambda);
+		Callback::Ref<int(int)> copied(source);
+		Expect(copied(4) == 12, "copy of a Ref calls the callable");
+	}
+
+	{
+		const Callback::Ref<int(int)> constSource(lambda);
+		Callback::Ref<int(int)> constCopied(constSource);
+		Expect(constCopied(4) == 12, "copy of a const Ref calls the callable");
+	}
+
+	{
+		std::unique_ptr<Callback::Ref<int(int)>> source = std::make_unique<Callback::Ref<int(int)>>(lambda);
+		Callback::Ref<int(int)> copied(*source);
+		source.reset();
+		Expect(copied(4) == 12, "copy of a Ref outlives the Ref it was copied from");
+	}
 
 	int value = 1;
 	Callback::Ref<void(int&)> increment(AddOne);

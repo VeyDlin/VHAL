@@ -18,6 +18,7 @@ public:
 	// Any callable object (lambda, functor), by reference. Function pointers take the overload below.
 	template<typename Callable>
 		requires(!std::is_pointer_v<std::remove_cvref_t<Callable>>
+			&& !std::is_same_v<std::remove_cvref_t<Callable>, Ref>
 			&& std::is_invocable_r_v<Result, std::remove_reference_t<Callable>&, Arguments...>)
 	constexpr Ref(Callable&& callable)
 		: object(const_cast<void*>(static_cast<const void*>(&callable)))
