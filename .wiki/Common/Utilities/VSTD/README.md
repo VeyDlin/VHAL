@@ -480,28 +480,7 @@ VSTD::Function<int()> fn3(&pool, [big]() { return big[0]; });
 - Calling an empty `Function` returns a value-initialized result (`0` for `int`), and does nothing for `void`. So the result type must be default constructible and not a reference. Any other result type makes a call to the `Function` fail to compile.
 - A callable must be aligned no more than `std::max_align_t` to fit the small buffer, and no more than a pointer to be stored in a block. An over-aligned callable fails to compile.
 
-### Delegate
-
-Zero-allocation callback. Stores a function pointer + void* context. No heap, no SBO.
-
-```cpp
-// Free function
-VSTD::Delegate<int(int)> d = VSTD::Delegate<int(int)>::Bind<&MyFunc>();
-
-// Member function
-MyClass obj;
-auto d2 = VSTD::Delegate<void()>::Bind<MyClass, &MyClass::DoWork>(&obj);
-
-// Const member function
-auto d3 = VSTD::Delegate<int()>::Bind<MyClass, &MyClass::GetValue>(&obj);
-
-// Raw function pointer + context
-auto d4 = VSTD::Delegate<void()>::FromRaw(myStub, context);
-
-d2();             // call
-bool ok = static_cast<bool>(d2);   // true if bound
-d2.Reset();       // unbind
-```
+Callbacks without allocation (`Callback::Delegate`, `Callback::Ref`) are documented on the [Callback](../Callback/README.md) page.
 
 ## Core Utilities
 
