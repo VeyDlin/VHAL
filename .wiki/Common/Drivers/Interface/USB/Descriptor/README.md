@@ -291,10 +291,10 @@ using Usb = USBDescriptors<[] {
 GCC 15 reports (the first line of the diagnostic):
 
 ```text
-error: call to non-'constexpr' function 'void DescriptorError() [with TextLiteral<...auto...> Message = TextLiteral<50>{"bMaxPower counts 2 mA steps, so the value is even"}]'
+error: call to non-'constexpr' function 'void CompileTimeError() [with TextLiteral<...auto...> Message = TextLiteral<56>{"USB: bMaxPower counts 2 mA steps, so the value is even"}]'
 ```
 
-The lines after it trace the instantiations back to the chain, and point at the `MaxPowerMilliamps(101)` call. The message is the text the rule gives, so the diagnostic names the rule that failed. Other rules give their own message, such as `"VendorId is required"`, `"an endpoint number is above EndpointNumberLimit"` or `"MsOs20VendorCode is required when a function asks for WinUSB"`. Only GCC has been checked this way.
+The lines after it trace the instantiations back to the chain, and point at the `MaxPowerMilliamps(101)` call. The message is the text the rule gives, prefixed with `USB: `, so the diagnostic names the rule that failed. Other rules give their own message, such as `"USB: VendorId is required"`, `"USB: an endpoint number is above EndpointNumberLimit"` or `"USB: MsOs20VendorCode is required when a function asks for WinUSB"`. Only GCC has been checked this way.
 
 The rule checks sit in `.tool/sim/BuilderErrors/`: one snippet per rule, each with its expected message on its first line. `run.sh` fails when a snippet compiles or reports another message.
 
@@ -321,8 +321,7 @@ Each builder is `constexpr`. Its result is an array of bytes, in flash when the 
 
 ### How the Checks Work
 
-- The fluent builder checks each rule with `Require<"reason">(condition)`. The reason is a template argument, so the compiler error line carries it. A false condition calls a function that is declared, never defined, so a constant expression that reaches it does not compile.
-- The positional builders check with `USBDescriptorRequire(condition, reason)`. A false condition calls `USBDescriptorRejected(reason)`, also declared and never defined. Their reason is printed in a note, not in the error line.
+- The fluent and the positional builders check each rule with `Require<"USB: reason">(condition)` from `Utilities/CompileTime/Require.h`. The reason is a template argument, so the compiler error line carries it. A false condition calls a function that is declared, never defined, so a constant expression that reaches it does not compile.
 - A call that is not a constant expression can fail at link time, because the failing branch refers to an undefined function unless the optimiser removes it. Always assign the result to a `constexpr` or `inline constexpr` variable, so the checks run at compile time.
 - The composition checks are `static_assert`s. Each names the rule that failed.
 - No value has a default. The application gives VID, PID, bcdDevice, strings and the serial number.
