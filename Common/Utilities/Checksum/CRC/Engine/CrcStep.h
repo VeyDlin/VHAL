@@ -32,7 +32,7 @@ constexpr std::array<CrcValue<Parameters.width>, (std::size_t(1) << Bits)> CrcMa
 			table[index] = static_cast<CrcValue<Parameters.width>>(remainder);
 		} else {
 			constexpr Register polynomial = static_cast<Register>(Parameters.polynomial << offset);
-			Register remainder = static_cast<Register>(index << (registerBits - Bits));
+			Register remainder = static_cast<Register>(static_cast<Register>(index) << (registerBits - Bits));
 			for (uint8 step = 0; step < Bits; step++) {
 				const bool feedback = ((remainder >> (registerBits - 1)) & 1) != 0;
 				remainder <<= 1;
