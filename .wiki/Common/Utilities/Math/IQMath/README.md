@@ -95,7 +95,7 @@ int16  s  = static_cast<int16>(a);
 
 Converting a float or double rounds to the nearest LSB, ties away from zero: `IQ<16>(1.5 / 65536.0)` is 2 LSB and `IQ<16>(-1.5 / 65536.0)` is -2 LSB. Out-of-range values saturate, and NaN converts to 0. The conversion from a float or double is `consteval`: a constant converts, and a run-time value does not compile.
 
-Run-time values use `IQ<Q>::FromFloat(float)` (the same rounding and saturation) or `RealFrom<T>(value)`, which gives a float for a float `T` and an IQ for an IQ `T`. The compile error for a run-time float reads `call to consteval function 'IQ<16>(rt)' is not a constant expression`; the fix is `FromFloat`.
+Run-time values use `IQ<Q>::FromFloat(float)` (the same rounding and saturation) or `RealFrom<T>(value)`, which gives a float for a float `T` and an IQ for an IQ `T`. For an IQ `T` the value must be a float: `RealFrom<IQ<16>>(doubleValue)` does not compile, and `RealFrom<IQ<16>>(static_cast<float>(doubleValue))` is the explicit form. The compile error for a run-time float reads `call to consteval function 'IQ<16>(rt)' is not a constant expression`; the fix is `FromFloat`.
 
 Conversion to an integer type drops the fraction (rounding toward negative infinity) and saturates to the limits of the target type, so `static_cast<uint8>(iq16(300.0f))` is 255 and `static_cast<uint32>(iq16(-1.0f))` is 0. `ToInt()` returns the integer part as `int32`; it cannot overflow.
 

@@ -316,8 +316,9 @@ concept RealType = std::is_floating_point_v<T> || IQType<T>;
 
 
 // A run-time real value in the type T. A float or double is converted to T; an IQ takes the nearest raw value. An IQ takes a
-// double through float, so the value keeps 24 significant bits before it is rounded to the raw value.
+// float only, as IQ::FromFloat does: a double is a compile error for an IQ, so a run-time double is not rounded to a raw value.
 template<RealType T, std::floating_point F>
+requires (!IQType<T> || std::is_same_v<F, float>)
 constexpr T RealFrom(F value) {
 	if constexpr (IQType<T>) {
 		return T::FromFloat(static_cast<float>(value));
