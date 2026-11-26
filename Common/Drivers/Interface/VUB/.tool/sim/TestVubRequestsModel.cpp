@@ -41,8 +41,8 @@
 //   - a handler on the responder side runs at most once per request, except after a restart of the responder or on a duplicating line for
 //     an unsequenced packet; a request the requester closed does not run after every copy of it could still be on the line;
 //   - a final belongs to the request of its number and tag (its reply body names the record, and the ok status is done);
-//   - interim replies come in rising order, none after the final, and with Reliable in order every interim sent is delivered before the ok
-//     final;
+//   - interim replies come in rising order, none after the final, and no more of them than were sent (with Reliable in order an interim
+//     that goes up goes up before the final, but one whose tries are all lost is given up and does not go up, see In order in Reliable.md);
 //   - a responder sends at most one final per ticket; a ticket call after its end answers notAvailable;
 //   - a cancel handler runs at most once per ticket, and never for a ticket that already had its final;
 //   - a ping has one result, never operationCancelled; its round trip starts at a round of its side and lasts no longer than the time since
@@ -614,19 +614,21 @@ inline ModelRecord* ModelServe(const ModelBody& body, uint8 kind) {
 	// An unsequenced packet (a Fire, a plain event) has no duplicate check below the layer on a duplicating line, so it may run once per copy.
 	// A plain request on a path with no Reliable below may run again for a copy that comes after its ticket closed: the layer keeps no
 	// record of a closed ticket, and a plain request closes at once. A call with a ticket is told apart while its ticket is open (see the
-	// list in ModelTellsApart), so it may not run again. A responder that was rebuilt may run a request again: the design does not say how a
-	// new session treats a copy of an old packet.
+	// list in ModelTellsApart), so it may not run again. A responder that was rebuilt may run a request again: on a line that copies or
+	// reorders, an old packet goes up in a new session when the two sessions' tags are equal (Reliable.md, Limits), and that can come at any
+	// time after the request closed.
 	bool unsequenced = kind == KindKick || kind == KindNotice;
 	bool pathCopy = !modelReliableChain && (kind == KindPlain || kind == KindCall) && modelDuplicates;
 	bool repeatAllowed = record.responderRebuilt || (unsequenced && modelDuplicates) || pathCopy;
 	// A copy that runs again opens a ticket of its own, so the one final and the one cancel of the ticket start again.
-	if (pathCopy && record.served >= 1) {
+	if ((pathCopy || record.responderRebuilt) && record.served >= 1) {
 		record.responderFinal = false;
 		record.cancelRuns = 0;
 	}
 
 	ModelCheck(record.served == 1 || repeatAllowed, "a handler ran twice for one request");
-	ModelCheck(!(modelHoldsClosed && record.finalSeen && !record.acceptedDown && ModelLateRun(record)), "a request the requester closed ran after no copy of it could still be on the line");
+	ModelCheck(record.responderRebuilt || !(modelHoldsClosed && record.finalSeen && !record.acceptedDown && ModelLateRun(record)),
+		"a request the requester closed ran after no copy of it could still be on the line");
 	return &record;
 }
 
@@ -894,10 +896,9 @@ void CallFinal(const VUB::Final<ModelStatus, ModelReply>& reply) {
 	}
 
 	ModelCheck(reply.body.id == record->id && made, "an ok final has a reply body other than the ones the responder made");
+	// An interim that Reliable gives up (all its tries lost) does not go up, also in order: the held packets behind it are dropped when the
+	// sender's base moves past them. So the in-order chains get the same bound as the others.
 	ModelCheck(record->interimsSeen <= record->interimsSent, "more interim replies arrived than were sent");
-	if constexpr (Chain::inOrder) {
-		ModelCheck(record->interimsSeen == record->interimsSent, "an ok final arrived before its interim replies, on an in-order link");
-	}
 }
 
 
@@ -1438,6 +1439,8 @@ void ModelIssuePing(std::size_t side, uint16 padding) {
 	ping.queuedUs = modelNowUs;
 	modelTotals.pings++;
 	modelSentToward[1 - side]++;
+	// The peer's layer answers the ping, so its reply counts toward this side's late replies when the ping has ended first.
+	modelRepliesToward[side]++;
 }
 
 
