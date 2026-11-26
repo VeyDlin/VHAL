@@ -1,6 +1,6 @@
 #pragma once
 #include "CommandArgument.h"
-#include "CommandCheck.h"
+#include <Utilities/CompileTime/Require.h>
 #include "CommandNameTree.h"
 #include "CommandPack.h"
 #include "CommandSetBuilder.h"
@@ -83,7 +83,7 @@ constexpr void CommandAddArgument(const Declaration& declaration, CommandBuild& 
 
 	CommandRequireName(declaration.name);
 	declaration.Verify();
-	CommandRequire<"the command set has too many arguments for the builder">(build.argument < CommandMaxArguments);
+	Require<"CommandLine:the command set has too many arguments for the builder">(build.argument < CommandMaxArguments);
 
 	CommandArgumentInfo info = CommandDescribe(declaration);
 
@@ -99,7 +99,7 @@ constexpr void CommandAddArgument(const Declaration& declaration, CommandBuild& 
 		info.root = build.tree.AddRoot();
 
 		for (std::size_t index = 0; index < declaration.values.size(); index++) {
-			CommandRequire<"duplicate enum names">(build.tree.Insert(info.root, declaration.values[index].name, static_cast<uint16>(index)));
+			Require<"CommandLine:duplicate enum names">(build.tree.Insert(info.root, declaration.values[index].name, static_cast<uint16>(index)));
 		}
 	}
 
@@ -110,9 +110,9 @@ constexpr void CommandAddArgument(const Declaration& declaration, CommandBuild& 
 
 template<typename Handler, typename... Arguments>
 constexpr void CommandAddItem(const CommandItem<Handler, Arguments...>& item, CommandBuild& build) {
-	CommandRequire<"the command set has too many commands and groups for the builder">(build.entry < CommandMaxEntries);
-	CommandRequire<"the command set has too many arguments for the builder">(build.argument + sizeof...(Arguments) <= CommandMaxArguments);
-	CommandRequire<"duplicate names at one level">(build.tree.Insert(build.root, item.name, static_cast<uint16>(build.entry)));
+	Require<"CommandLine:the command set has too many commands and groups for the builder">(build.entry < CommandMaxEntries);
+	Require<"CommandLine:the command set has too many arguments for the builder">(build.argument + sizeof...(Arguments) <= CommandMaxArguments);
+	Require<"CommandLine:duplicate names at one level">(build.tree.Insert(build.root, item.name, static_cast<uint16>(build.entry)));
 
 	CommandRecord record;
 	record.firstArgument = static_cast<uint16>(build.argument);
@@ -134,8 +134,8 @@ constexpr void CommandAddItem(const CommandItem<Handler, Arguments...>& item, Co
 
 template<typename Set>
 constexpr void CommandAddItem(const GroupItem<Set>& item, CommandBuild& build) {
-	CommandRequire<"the command set has too many commands and groups for the builder">(build.entry < CommandMaxEntries);
-	CommandRequire<"duplicate names at one level">(build.tree.Insert(build.root, item.name, static_cast<uint16>(build.entry)));
+	Require<"CommandLine:the command set has too many commands and groups for the builder">(build.entry < CommandMaxEntries);
+	Require<"CommandLine:duplicate names at one level">(build.tree.Insert(build.root, item.name, static_cast<uint16>(build.entry)));
 
 	build.level.entries[build.entry] = CommandEntryInfo{item.name, item.help, static_cast<uint16>(build.group), true};
 	build.group++;

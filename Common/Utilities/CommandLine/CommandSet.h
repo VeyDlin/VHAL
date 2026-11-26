@@ -1,6 +1,6 @@
 #pragma once
 #include "CommandArgument.h"
-#include "CommandCheck.h"
+#include <Utilities/CompileTime/Require.h>
 #include "CommandLevel.h"
 #include "CommandNameTree.h"
 #include "CommandPack.h"
