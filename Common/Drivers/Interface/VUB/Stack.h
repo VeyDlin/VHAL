@@ -586,7 +586,7 @@ private:
 	};
 
 
-	// The bits of the layers whose send from its Process was refused as busy and not yet cleared (see layerHolds).
+	// The bits of the layers whose send from their Process was refused as busy, until each layer's next Process (see layerHolds).
 	struct HoldState {
 		HoldMask busy = 0;
 	};
@@ -754,8 +754,7 @@ private:
 	}
 
 
-	// Whether a layer's send from its Process was refused as busy and the bit is not cleared yet: the application's packets wait for it (see
-	// layerHolds).
+	// Whether a layer's bit is set: a send from its Process was refused as busy, and the application's packets wait for it (see layerHolds).
 	bool LayerHolding() const {
 		if constexpr (layerHolds) {
 			return holdState.Get().busy != 0;
