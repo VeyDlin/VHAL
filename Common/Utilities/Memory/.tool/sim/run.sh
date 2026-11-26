@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds every host test of VSTD and runs it with g++. Exits non-zero when a test fails to build or fails.
+# Builds every host test of the Memory module and runs it with g++. Exits non-zero when a test fails to build or fails.
 # Works in Git Bash on Windows and on Linux or macOS. Build output goes to a temporary directory outside the repository.
 set -u
 
