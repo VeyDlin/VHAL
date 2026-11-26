@@ -104,7 +104,7 @@ constexpr std::array<uint8, 9> MakeUSBMidiOutJack(uint8 jackType, uint8 jackId, 
 // The class-specific MS bulk data endpoint descriptor (section 6.2.2) for a bulk endpoint: bNumEmbMIDIJack and the IDs of the
 // embedded jacks it carries. The array has room for the largest cable count; the descriptor is its first 4 + count bytes.
 constexpr std::array<uint8, 4 + USBMidiMaxCables> MakeUSBMidiEndpointJacks(const std::array<uint8, USBMidiMaxCables>& jackIds, uint8 count) {
-	Require<"USB:USB: a MIDI endpoint lists 1 to 16 embedded jacks">(count >= 1 && count <= USBMidiMaxCables);
+	Require<"USB: a MIDI endpoint lists 1 to 16 embedded jacks">(count >= 1 && count <= USBMidiMaxCables);
 	std::array<uint8, 4 + USBMidiMaxCables> bytes{};
 	bytes[0] = static_cast<uint8>(4 + count);
 	bytes[1] = USBMidiClassSpecificEndpoint;
