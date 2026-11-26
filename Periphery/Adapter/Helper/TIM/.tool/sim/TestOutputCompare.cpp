@@ -299,8 +299,8 @@ void SameRegisterCases() {
 						TIMOutputCompareHelper<IQ<24>> iq24Helper(iq24Adapter, ATIM::ChannelOption::Ch1);
 
 						floatHelper.SetFrequencyInfo({ .frequencyHz = static_cast<float>(targetHz), .duty = static_cast<float>(dutyPercent) });
-						iq16Helper.SetFrequencyInfo({ .frequencyHz = RealFrom<IQ<16>>(targetHz), .duty = RealFrom<IQ<16>>(dutyPercent) });
-						iq24Helper.SetFrequencyInfo({ .frequencyHz = RealFrom<IQ<24>>(targetHz), .duty = RealFrom<IQ<24>>(dutyPercent) });
+						iq16Helper.SetFrequencyInfo({ .frequencyHz = RealFrom<IQ<16>>(static_cast<float>(targetHz)), .duty = RealFrom<IQ<16>>(static_cast<float>(dutyPercent)) });
+						iq24Helper.SetFrequencyInfo({ .frequencyHz = RealFrom<IQ<24>>(static_cast<float>(targetHz)), .duty = RealFrom<IQ<24>>(static_cast<float>(dutyPercent)) });
 
 						ExpectSameRegisters(iq16Adapter, iq24Adapter, "iq16 and iq24 registers", __LINE__);
 
