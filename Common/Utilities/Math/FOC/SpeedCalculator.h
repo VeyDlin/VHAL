@@ -44,7 +44,7 @@ public:
     // silently to the top of the format, and the speed then reads low with no other sign.
     // The caller must pick fb and Ts so that K1 fits.
     static T ComputeK1(SetupReal<T> baseFrequency, SetupReal<T> samplingPeriod) {
-    	return RealFrom<T>(SetupReal<T>(1) / (baseFrequency * samplingPeriod));
+		return RealFrom<T>(SetupReal<T>(1) / (baseFrequency * samplingPeriod));
     }
 
 
