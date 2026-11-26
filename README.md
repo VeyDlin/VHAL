@@ -2,7 +2,7 @@
 
 [![Documentation](https://img.shields.io/badge/docs-veydlin.github.io%2FVHAL-blue)](https://veydlin.github.io/VHAL/)
 
-VHAL is a C++20 multiplatform HAL library for embedded MCUs. Write your application logic once — switch between STM32, ESP32, or custom silicon by changing one config file.
+VHAL is a C++23 multiplatform HAL library for embedded MCUs. Write your application logic once — switch between STM32, ESP32, or custom silicon by changing one config file.
 
 Supported platforms: **STM32**, **ESP32**, **ENS001**
 
@@ -117,6 +117,12 @@ The table lists adapters selected by the current port headers, not a hardware va
 | STM32F4 | UART, SPI, I2C, ADC, TIM, GPIO, DAC, IWDG, FLASH |
 | ENS001 | UART, SPI, I2C, ADC, TIM, GPIO, IWDG, FLASH, COMP, WaveGenerator, Boost, PGA, PMU |
 | ESP32 | UART, SPI, I2C, ADC, DAC, I2S, GPIO, GPTimer, LEDC, MCPWM, DSI, PPA, LDO, IWDG, WiFi, Socket, BLE |
+
+## Requirements
+
+- Language: C++23, built with `-std=c++23`.
+- Lowest compiler: GCC 14, because ESP-IDF 5.5.2 ships GCC 14.2.
+- STM32, ENS001 and the planned Nordic builds use the Arm GNU toolchain (`arm-none-eabi-g++`).
 
 ## Getting Started
 
