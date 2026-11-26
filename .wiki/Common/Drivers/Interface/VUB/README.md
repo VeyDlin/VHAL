@@ -414,13 +414,13 @@ The row with `SendQueue(4)` and `CountDrops()` is the same chain as the row abov
 | (d) (b) + CRC-16/MODBUS, table engine named | 1228 | 392 | 1472 | 392 |
 | (e) stream link, length prefix 1, CRC-8 bitwise | 652 | 404 | 908 | 404 |
 | (f) stream link, gap framing, CRC-16 table | 2292 | 1448 | 2392 | 1448 |
-| (g) (c) + VUB::Reliable (Retries 3, Window 4) | 3236 | 788 | 3644 | 788 |
-| (h) (g) with the in-order option | 3724 | 924 | 4192 | 924 |
-| (i) COBS, CRC-8, VUB::ReliableOf window 1, Retries 3 | 2840 | 588 | 3244 | 588 |
+| (g) (c) + VUB::Reliable (Retries 3, Window 4) | 3512 | 796 | 3996 | 796 |
+| (h) (g) with the in-order option | 3980 | 932 | 4512 | 932 |
+| (i) COBS, CRC-8, VUB::ReliableOf window 1, Retries 3 | 3120 | 592 | 3576 | 592 |
 | breakdown of (i): the same without VUB::ReliableOf | 692 | 392 | 944 | 392 |
 | CompactStreamingProtocol<20, 4> (bootloader use) | 2056 | 1116 | 2636 | 1116 |
-| (j) stream link, COBS, CRC-16/MODBUS (default engine), VUB::KeepAlive (default times) | 1404 | 456 | 1728 | 456 |
-| (k) (g) + VUB::KeepAlive (default times) | 3944 | 816 | 4388 | 816 |
+| (j) stream link, COBS, CRC-16/MODBUS (default engine), VUB::KeepAlive (default times) | 1444 | 460 | 1776 | 460 |
+| (k) (g) + VUB::KeepAlive (default times) | 4280 | 820 | 4796 | 820 |
 
 On Cortex-M0+, the text of rows (g), (i) and (k) can move by 4 bytes with the link order of two functions. The functions themselves keep
 their sizes: the padding between two of them depends on the order the linker places them in.
@@ -477,11 +477,11 @@ the wire that has not been fed. Every fragment and every acknowledgement goes th
 - Configuration (i) uses the default ring of 256 bytes. The protocol's ring is 80 bytes. A bootloader that sets `ReceiveRing` smaller
   is not measured here.
 
-Against the protocol, configuration (i) is 936 bytes larger in text on the M4 (3228 against 2292) and 824 bytes larger on the M0+
-(3704 against 2880). Its RAM is 204 bytes smaller on the M4 (912 against 1116) and on the M0+ (912 against 1116). A stack with the
+Against the protocol, configuration (i) is 1064 bytes larger in text on the M4 (3120 against 2056) and 940 bytes larger on the M0+
+(3576 against 2636). Its RAM is 524 bytes smaller on the M4 (592 against 1116) and on the M0+ (592 against 1116). A stack with the
 protocol's properties is meant to be no larger than the protocol on the same target, so configuration (i) does not meet that goal in text.
-The breakdown row shows where the text goes: without `VUB::ReliableOf`, configuration (i) is 1104 bytes of text on the M4, and the layer
-adds 2124 bytes. The layer carries what the protocol does not: sequence numbers with sessions and a sync, a window, a ring of owed
+The breakdown row shows where the text goes: without `VUB::ReliableOf`, configuration (i) is 692 bytes of text on the M4, and the layer
+adds 2428 bytes. The layer carries what the protocol does not: sequence numbers with sessions and a sync, a window, a ring of owed
 acknowledgements, retries with timeouts, and outcome reporting (see [VUB::Reliable](Layer/Reliable)). The measurement gives the size of
 the layer as a whole; it does not split the layer's code further.
 
@@ -896,7 +896,7 @@ Packet 0 is taken and reaches the handler at once. Packet 1 was held, and `Proce
 then `0x11`. A second early packet, while one is held, is refused by `Take` with `busy`, which counts it under `layerError`. The release
 of a held packet counts nothing; a block above that refuses it counts its own drop.
 
-Measured: the text of a probe of the test kit's chains, none of which has a `passesUp` layer, is 26 bytes smaller than the same chains on a stack with the passesUp support. The probe was built with `arm-none-eabi-g++` 15.2, `-Os`, Cortex-M4, and sized with `arm-none-eabi-size`.
+Measured: the text of a probe of the test kit's chains, none of which has a `passesUp` layer, is 26 bytes smaller than the same chains on a stack with the passesUp support. The probe was built with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203`, `-Os`, Cortex-M4, and sized with `arm-none-eabi-size`.
 
 ### Options
 
@@ -1437,7 +1437,7 @@ using GuardedBoard = VUB::Stack<+[] {
 
 The host tests (`Common/Drivers/Interface/VUB/.tool/sim/run.sh`) pass with g++ 11.4 (Ubuntu 22.04, under WSL) and g++ 15.2 (MinGW, on
 Windows 11). The header checks and the builder error snippets run with both. The microcontroller headers are checked alone with
-`arm-none-eabi-g++` 15.2 (Arm GNU Toolchain 15.2.Rel1), and the size table is measured with it. Other compilers, clang++ among them, are
+`arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203`, and the size table is measured with it. Other compilers, clang++ among them, are
 not tested.
 
 ## Status

@@ -51,8 +51,8 @@ costs are measured on Cortex-M4 and M0+ with [`size.sh`](../README#measured-conf
 
 | Added to COBS over a stream link | Text, M4 | Text, M0+ | RAM, M4 and M0+ |
 |---|---:|---:|---:|
-| `VUB::Crc<Checksum::Crc16Modbus>` (the bitwise engine, the default) | 196 | 200 | 80 |
-| `VUB::Crc<Checksum::Crc16Modbus::With<Checksum::CrcTable>>` (the table engine) | 700 | 704 | 80 |
+| `VUB::Crc<Checksum::Crc16Modbus>` (the bitwise engine, the default) | 176 | 136 | 36 |
+| `VUB::Crc<Checksum::Crc16Modbus::With<Checksum::CrcTable>>` (the table engine) | 680 | 640 | 36 |
 
 The table engine costs 256 entries of the width in bytes in flash, 512 bytes for width 16, and the rest of its code. The bitwise engine has
 no table. The RAM is the same for both: the transform holds no data, and the stack's buffers take the CRC's growth.

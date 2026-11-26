@@ -355,7 +355,7 @@ Sim test `TestVubReliableInOrder` checks the option: the packets of a faulty lin
 
 The storage depends on the template arguments, not on the options. Each window slot holds one packet (`PayloadCapacity` plus the 11-byte header area) and its state. The owed acknowledgements take 3 bytes for each of the `2 * WindowCapacity` entries (a number and its tag, 2 bytes plus 1). The receiver keeps 4 bytes of bits for its window. The session fields (the boot value, the counters, the held boot value and the counter-reply flag) fit in the padding of the state.
 
-Sizes, measured with arm-none-eabi-g++ 15.2.1 for Cortex-M4 (`-std=c++20 -Os -mcpu=cortex-m4 -mthumb -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti`). The method: `sizeof` of each layer type, read at compile time (a declaration `Show<sizeof(T)> x;` whose error message names the value, with `arm-none-eabi-g++ -fsyntax-only`):
+Sizes, measured with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203` for Cortex-M4 (`-std=c++20 -Os -mcpu=cortex-m4 -mthumb -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti`). The method: `sizeof` of each layer type, read at compile time (a declaration `Show<sizeof(T)> x;` whose error message names the value, with `arm-none-eabi-g++ -fsyntax-only`):
 
 | Layer | `sizeof` |
 |---|---|
@@ -372,10 +372,10 @@ rows with the layer:
 
 | Row | text M4 | RAM M4 |
 |---|---:|---:|
-| (g) (c) + `VUB::Reliable` (Retries 3, Window 4) | 4136 | 1116 |
-| (h) (g) with the in-order option | 4436 | 1252 |
-| (i) COBS, CRC-8, `VUB::ReliableOf` window 1, Retries 3 | 3236 | 912 |
-| (k) (g) + `VUB::KeepAlive` (default times) | 5184 | 1400 |
+| (g) (c) + `VUB::Reliable` (Retries 3, Window 4) | 3512 | 796 |
+| (h) (g) with the in-order option | 3980 | 932 |
+| (i) COBS, CRC-8, `VUB::ReliableOf` window 1, Retries 3 | 3120 | 592 |
+| (k) (g) + `VUB::KeepAlive` (default times) | 4280 | 820 |
 
 The options are template arguments of the stored layer, so an option that is off is compiled out: with `BackoffMaxMs` 0 the backoff code
 is not in the image, with `SequenceBits` 16 the 8-bit branches are not, and without a handler the handler calls are not. The figures are

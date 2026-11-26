@@ -891,7 +891,7 @@ The rules of the layer's stack, which the stack checks when it is built, have th
 
 ## Size
 
-Each size is measured with `arm-none-eabi-g++` 15.2 (`-Os`, `--gc-sections`, nano specs). Text is flash, and RAM is data plus bss.
+Each size is measured with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203` (`-Os`, `--gc-sections`, nano specs). Text is flash, and RAM is data plus bss.
 
 The layer rows are measured by `.tool/size/size.sh`, row by row. Each row is the same chain without the layer (the row's baseline) and the same
 chain with the layer. The difference is in bytes. The chains are CRC-16/MODBUS over COBS over a stream link, the same without the CRC
@@ -899,19 +899,21 @@ transform, and `VUB::ReliableOf<40, 4>` over the CRC and COBS.
 
 | Layer on the chain | Role | Send sites | M4 text | M4 RAM | M0+ text | M0+ RAM |
 |---|---|---:|---:|---:|---:|---:|
-| CRC-16/MODBUS over COBS | responder: one command, `Tickets(1)`, `Refusals(2)` | 0 | 1404 | 40 | 1432 | 40 |
-| CRC-16/MODBUS over COBS | requester: `Open(2)` | 1 | 1484 | 40 | 1536 | 40 |
-| CRC-16/MODBUS over COBS | requester: `Open(2)` | 4 | 1928 | 40 | 1972 | 40 |
-| CRC-16/MODBUS over COBS | both: `Open(2)`, `Tickets(1)`, `Refusals(2)` | 1 | 2404 | 76 | 2460 | 76 |
-| COBS over a stream link | responder | 0 | 1380 | 120 | 1392 | 120 |
-| COBS over a stream link | requester | 1 | 1484 | 120 | 1524 | 120 |
-| COBS over a stream link | both | 1 | 2400 | 156 | 2432 | 156 |
-| `ReliableOf<40, 4>` over CRC and COBS | responder | 0 | 1596 | 44 | 1612 | 44 |
-| `ReliableOf<40, 4>` over CRC and COBS | requester | 1 | 1896 | 44 | 1940 | 44 |
-| `ReliableOf<40, 4>` over CRC and COBS | both | 1 | 2792 | 84 | 2824 | 84 |
+| CRC-16/MODBUS over COBS | responder: one command, `Tickets(1)`, `Refusals(2)` | 0 | 1368 | 84 | 1384 | 84 |
+| CRC-16/MODBUS over COBS | requester: `Open(2)` | 1 | 1512 | 84 | 1536 | 84 |
+| CRC-16/MODBUS over COBS | requester: `Open(2)` | 4 | 1940 | 84 | 1968 | 84 |
+| CRC-16/MODBUS over COBS | both: `Open(2)`, `Tickets(1)`, `Refusals(2)` | 1 | 2424 | 120 | 2464 | 120 |
+| COBS over a stream link | responder | 0 | 1356 | 80 | 1344 | 80 |
+| COBS over a stream link | requester | 1 | 1460 | 80 | 1484 | 80 |
+| COBS over a stream link | both | 1 | 2364 | 116 | 2384 | 116 |
+| `ReliableOf<40, 4>` over CRC and COBS | responder | 0 | 1584 | 44 | 1572 | 44 |
+| `ReliableOf<40, 4>` over CRC and COBS | requester | 1 | 1960 | 44 | 1960 | 44 |
+| `ReliableOf<40, 4>` over CRC and COBS | both | 1 | 2856 | 84 | 2848 | 84 |
 
 With no cancellable command in the set, the three chains keep the values of the table above in each role. The RAM of each role is the same on
-Cortex-M4 and Cortex-M0+. The text is larger on Cortex-M0+.
+Cortex-M4 and Cortex-M0+. The text is larger on Cortex-M0+ in the CRC-16/MODBUS roles and in the COBS requester and both roles. In the COBS responder and the
+`ReliableOf` responder and both roles the text is smaller on Cortex-M0+ (1356 against 1344, 1584 against 1572, 2856 against 2848), and in the
+`ReliableOf` requester it is the same on both (1960).
 
 ### Cancel
 
@@ -939,7 +941,7 @@ padding, so the responder row has no RAM cost there.
 ### Events and counters
 
 Measured as differences against the same program with no event declared and no counter. The layer is on `VUB::ReliableOf<40, 4>` over
-CRC-16/MODBUS and COBS, with arm-none-eabi-g++ 15.2, `-Os`, and nano specs. The emit-only row against a program with no send includes the
+CRC-16/MODBUS and COBS, with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203`, `-Os`, and nano specs. The emit-only row against a program with no send includes the
 application-side send entry of the layer above Reliable and the body encoder, which any `Send` needs too. The row for a program that already
 sends measures the emit alone.
 
@@ -981,28 +983,28 @@ named.
 
 | Health, next to ping and the served command | M4 text | M4 RAM | M0+ text | M0+ RAM |
 |---|---:|---:|---:|---:|
-| asks: `.Health<HealthBody>()` | +280 | +0 | +276 | +0 |
-| answers: `.AnswerHealth<HealthBody, &Fill>()` | +588 | +12 | +536 | +12 |
-| both | +776 | +12 | +716 | +12 |
+| asks: `.Health<HealthBody>()` | +276 | +0 | +272 | +0 |
+| answers: `.AnswerHealth<HealthBody, &Fill>()` | +604 | +12 | +528 | +12 |
+| both | +788 | +12 | +704 | +12 |
 
 A program with no requester has no send path for a built-in request. Its first built-in request pays for that path: the slots of `Open(2)`,
 the queue and send of a built-in request, and the encoding of the request. Measured on a served command with the counters, asking for health
-is +1100 bytes of text and +40 bytes of RAM on M4 (+1156 and +40 on M0+). The rows above already include that path in a program that sends
+is +1156 bytes of text and +40 bytes of RAM on M4 (+1224 and +40 on M0+). The rows above already include that path in a program that sends
 pings.
 
 ### Concurrent
 
-The concurrent rows are in `.tool/size/size.sh`, measured with `arm-none-eabi-g++` 15.2 (`-Os`, nano specs) by `ConfigConcurrent.cpp`. The
+The concurrent rows are in `.tool/size/size.sh`, measured with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203` (`-Os`, nano specs) by `ConfigConcurrent.cpp`. The
 program is CRC-16/MODBUS over COBS over the stream link of `SizeWire.h`, with the port's section (the nesting helper with PRIMASK) and the
 tick and RTOS handle of the port. The base of each row is the same program with no layer and no `Concurrent()`.
 
 | Program (difference to no layer) | M4 text | M4 RAM | M0+ text | M0+ RAM |
 |---|---:|---:|---:|---:|
-| requester, `Open(2)`, plain | 1620 | 84 | 1604 | 84 |
-| requester, `Open(2)`, `Pending(4)`, `Awaitable()`, `Concurrent()` | 2132 | 148 | 2192 | 148 |
-| responder, `Tickets(1)`, `Refusals(2)`, plain | 1416 | 84 | 1404 | 84 |
-| responder, the same, `Pending(4)`, `Awaitable()`, `Concurrent()` | 1636 | 92 | 1628 | 92 |
-| `Await` of one request: the requester with the call, minus the requester without it | 444 | 4 | 464 | 4 |
+| requester, `Open(2)`, plain | 1644 | 84 | 1644 | 84 |
+| requester, `Open(2)`, `Pending(4)`, `Awaitable()`, `Concurrent()` | 2164 | 148 | 2248 | 148 |
+| responder, `Tickets(1)`, `Refusals(2)`, plain | 1444 | 84 | 1440 | 84 |
+| responder, the same, `Pending(4)`, `Awaitable()`, `Concurrent()` | 1664 | 92 | 1664 | 92 |
+| `Await` of one request: the requester with the call, minus the requester without it | 460 | 4 | 460 | 4 |
 
 The concurrent rows have `Concurrent()` but no staging ring: the requests go through the layer's handle, and the program does not call `Send`
 from another task. A stack that also takes `Send` from another task adds `StageQueue(n)` and its ring (see
