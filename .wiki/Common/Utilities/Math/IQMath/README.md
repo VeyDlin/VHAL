@@ -198,7 +198,7 @@ The 1 LSB target holds up to Q24. Above it the error grows, because the phase un
 
 The test `.tool/sim/TestTrig.cpp` uses coarser steps than the table: step 1009 over the int32 range at Q16, step 7 at Q20 and step 97 at Q24 over [-4 pi, 4 pi]. Each of its bounds is the worst error of its sweep plus 0.02 LSB, rounded up to 0.01, except the Q24 [-4 pi, 4 pi] bound, which is the exhaustive run in the table plus the same margin.
 
-**Cost.** On a Cortex-M4 at `-O2`, with `-mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16`, `SinPhase<24>` is 36 instructions and `sin(iq24)` is 44, both with no call. On a Cortex-M0+ the 64-bit products become `__aeabi_lmul`: `SinPhase<24>` is 95 instructions with 7 calls, and `sin(iq24)` is 106 with 8. No target path calls `__aeabi_ldivmod`. The table is 1 KB of flash for `LutSize` 256.
+**Cost.** On a Cortex-M4 at `-O2`, with `-mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16`, `SinPhase<24>` is 36 instructions and `sin(iq24)` is 44, both with no call. On a Cortex-M0+ the 64-bit products become `__aeabi_lmul`: `SinPhase<24>` is 95 instructions with 7 calls, and `sin(iq24)` is 106 with 8. The sine path calls no `__aeabi_ldivmod`; IQ division (`DivideRaw`) does, because it divides 64-bit values, and on a Cortex-M0+ that is a library call. The table is 1 KB of flash for `LutSize` 256.
 
 **Binary angles.** `SinPhase<Q>(uint32 phase)` and `CosPhase<Q>(uint32 phase)` take the phase directly, for code that keeps an integer angle (FOC, wave generators, oscillators). They return `IQ<Q>` with the default table size. `RadiansToPhase(double)` is a `constexpr` helper that converts an angle in radians to a phase, rounded to the nearest unit:
 
