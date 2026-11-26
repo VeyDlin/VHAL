@@ -63,7 +63,7 @@ struct OomHandler {
 };
 
 // The header of a block: 12 bytes on a 32-bit target. The data starts dataOffset bytes after the header. The offset
-// is chosen when the block is placed and is set again when the block is moved, so the data keeps its alignment. A
+// is chosen when the block is placed and chosen again when the block changes position, so the data keeps its alignment. A
 // free block has no entry, and its dataOffset is the size of the header.
 struct BlockHeader {
 	Entry*       entry;
@@ -218,8 +218,8 @@ public:
 		LockPolicy::Unlock();
 	}
 
-	// Moves the first movable block that sits behind a free block down over that free block. A pinned block is never
-	// moved, and the free space in front of it stays where it is. Returns false when no block can move.
+	// Moves the first movable block that sits behind a free block down over that free block. A pinned block never
+	// changes position, and the free space in front of it stays where it is. Returns false when no block can move.
 	bool DefragStep() {
 		std::size_t offset = 0;
 		while (offset + kHeaderSize <= dataTop) {
@@ -297,8 +297,8 @@ public:
 		return unallocated + freeInBlocks;
 	}
 
-	// False when the heap object was not constructed, which a static object in another unit can see before the
-	// constructor has run. Always true when NDEBUG is defined.
+	// False when the heap object was not constructed, which a static object in another unit can see while its
+	// constructor has not run. Always true when NDEBUG is defined.
 	bool IsConstructed() const {
 #ifndef NDEBUG
 		return magic == kMagic;
@@ -337,7 +337,7 @@ private:
 		return hdr->dataOffset + hdr->size;
 	}
 
-	// Starts the heap at the first address that aligns entries. Bytes before that address are not used.
+	// Starts the heap at the first address that aligns entries. Bytes at lower addresses than that are not used.
 	void AdoptBuffer(std::uint8_t* buf, std::size_t size) {
 		std::size_t misalignment = reinterpret_cast<std::uintptr_t>(buf) % kEntryAlignment;
 		std::size_t skip = misalignment == 0 ? 0 : kEntryAlignment - misalignment;
@@ -390,7 +390,7 @@ private:
 	}
 
 	// Offset of the block that ends where the block at target starts, or NoBlock for the first block. Walks the
-	// blocks from the start, so it costs one step per block before target.
+	// blocks from the start, so it costs one step per block up to target.
 	std::size_t PreviousBlockOffset(std::size_t target) const {
 		std::size_t previous = NoBlock;
 		std::size_t offset = 0;
@@ -573,7 +573,7 @@ private:
 		return entry;
 	}
 
-	// The caller holds the lock. Called for a block that has just become free. Merges it with a free block before it
+	// The caller holds the lock. Called for a block that has just become free. Merges it with a free block that precedes it
 	// and with the free blocks after it. A free block that ends the used region returns its space to the tail.
 	void MergeFreeBlock(std::size_t offset) {
 		std::size_t previous = PreviousBlockOffset(offset);
@@ -606,7 +606,7 @@ private:
 			return false;
 		}
 
-		// A remainder too small for a header joins the moved block.
+		// A remainder too small for a header joins the block.
 		std::size_t leftover = regionLen - newTotal;
 		std::size_t usedSize = blockHdr->size;
 		if (leftover <= kHeaderSize) {
