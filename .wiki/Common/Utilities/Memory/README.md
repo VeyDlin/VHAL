@@ -68,7 +68,7 @@ heap.ReleasePinned(storage);                                  // the only way to
 
 Rules:
 - The alignment is a power of two, up to 64 bytes. Another value is refused with `nullptr` or an invalid handle.
-- `Defragment()` and `DefragStep()` never move a pinned block. A pinned block stops the defragmenter: the free space in front of it stays where it is.
+- `Defragment()` and `DefragStep()` never move a pinned block. The defragmenter skips a pinned block: the free space in front of it stays where it is, and the blocks behind it can still move.
 - `ReleasePinned()` ignores a pointer that is not a pinned block.
 - A refused request for a pinned block calls the out-of-memory policy, as a movable request does.
 
@@ -102,7 +102,7 @@ Object sizes, Cortex-M0+ and Cortex-M4F (`arm-none-eabi-g++` 15.2, `-std=c++20 -
 
 | Type | `VSTD` | `Memory` |
 |---|---|---|
-| `Heap<>` | 64 B | 24 B |
+| `Heap<>` | 64 B | 24 B with debug checks, 20 B with `NDEBUG` |
 | `BlockHeader` | 12 B | 12 B |
 | `Handle` | 8 B | 8 B |
 | `Entry` | 16 B | 16 B |
