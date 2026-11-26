@@ -322,7 +322,7 @@ struct FieldsBuilder {
 
 	template<auto Member>
 	constexpr FieldsBuilder<T, Count + 1> Field() const {
-		Require<"VUB:a required field follows an Optional field: Optional fields come last">(!hasOptional);
+		Require<"VUB: a required field follows an Optional field: Optional fields come last">(!hasOptional);
 		return Append<Member, false>();
 	}
 

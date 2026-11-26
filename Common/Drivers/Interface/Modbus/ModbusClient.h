@@ -57,7 +57,7 @@ public:
 
 public:
 	constexpr ClientBuilder SlaveAddress(uint8 address) const {
-		Require<"Modbus:slave address must be 1 to 247 (0 is broadcast: use Broadcast())">(address >= 1 && address <= 247);
+		Require<"Modbus: slave address must be 1 to 247 (0 is broadcast: use Broadcast())">(address >= 1 && address <= 247);
 
 		ClientBuilder next = *this;
 		next.slaveAddress = address;
@@ -66,8 +66,8 @@ public:
 
 
 	constexpr ClientBuilder Timeout(uint32 milliseconds) const {
-		Require<"Modbus:timeout must be above 0 ms">(milliseconds > 0);
-		Require<"Modbus:timeout must be at most 4294967 ms (the wait is in microseconds, 32 bits)">(milliseconds <= 4294967);
+		Require<"Modbus: timeout must be above 0 ms">(milliseconds > 0);
+		Require<"Modbus: timeout must be at most 4294967 ms (the wait is in microseconds, 32 bits)">(milliseconds <= 4294967);
 
 		ClientBuilder next = *this;
 		next.timeoutMs = milliseconds;

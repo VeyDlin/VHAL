@@ -158,7 +158,7 @@ public:
 
 	// The LANGID of the string descriptor 0. Defaults to 0x0409 (English, United States). Zero names no language.
 	constexpr USBDeviceBuilder& Language(uint16 value) {
-		Require<"USB:language ID 0 names no language">(value != 0);
+		Require<"USB: language ID 0 names no language">(value != 0);
 		languageId = value;
 		return *this;
 	}
@@ -166,7 +166,7 @@ public:
 
 	// Highest endpoint number the device uses, 1 to 15. Some controllers have fewer endpoints; the default is the USB limit.
 	constexpr USBDeviceBuilder& EndpointNumberLimit(uint8 value) {
-		Require<"USB:EndpointNumberLimit is 1 to 15">(value >= 1 && value <= USBEndpoint::MaxNumber);
+		Require<"USB: EndpointNumberLimit is 1 to 15">(value >= 1 && value <= USBEndpoint::MaxNumber);
 		endpointLimit = value;
 		return *this;
 	}
@@ -187,7 +187,7 @@ public:
 
 
 	constexpr USBDeviceBuilder& SerialNumber(std::string_view text) {
-		Require<"USB:the serial number is given once">(!serialSet && !serialRuntime);
+		Require<"USB: the serial number is given once">(!serialSet && !serialRuntime);
 		serialIndex = USBInternString(strings, stringCount, text);
 		serialSet = true;
 		return *this;
@@ -196,8 +196,8 @@ public:
 
 	// Reserves iSerialNumber with an empty placeholder string. The application supplies the real descriptor before Start().
 	constexpr USBDeviceBuilder& SerialNumberAtRuntime() {
-		Require<"USB:the serial number is given once">(!serialSet && !serialRuntime);
-		Require<"USB:too many strings in one device">(stringCount < USBMaxStrings);
+		Require<"USB: the serial number is given once">(!serialSet && !serialRuntime);
+		Require<"USB: too many strings in one device">(stringCount < USBMaxStrings);
 		strings[stringCount] = std::string_view();
 		stringCount++;
 		serialIndex = stringCount;
@@ -219,8 +219,8 @@ public:
 	// scheme. The builder requires bcdUSB 0x0210 or later for WebUSB, the USB 2.1 version that Chrome's guide gives for the BOS. The
 	// WebUSB specification itself sets no minimum.
 	constexpr USBDeviceBuilder& WebUsb(uint8 code, std::string_view landingPage) {
-		Require<"USB:WebUsb is given once">(!webUsbSet);
-		Require<"USB:WebUsb needs a landing page URL">(!landingPage.empty());
+		Require<"USB: WebUsb is given once">(!webUsbSet);
+		Require<"USB: WebUsb needs a landing page URL">(!landingPage.empty());
 		webUsbVendorCode = code;
 		webUsbLandingPage = landingPage;
 		webUsbSet = true;
@@ -231,15 +231,15 @@ public:
 	// Joins a configuration: its strings are numbered after the device's, its string references are rewritten to the global
 	// numbers, and its functions and endpoints are kept. Exactly one configuration is allowed.
 	constexpr USBDeviceBuilder& Configuration(const USBConfigurationBuilder& source) {
-		Require<"USB:a device has one configuration">(!configurationSet);
-		Require<"USB:a configuration has a maximum power">(source.maxPowerSet);
-		Require<"USB:a configuration has at least one interface">(source.interfaceCount >= 1);
+		Require<"USB: a device has one configuration">(!configurationSet);
+		Require<"USB: a configuration has a maximum power">(source.maxPowerSet);
+		Require<"USB: a configuration has at least one interface">(source.interfaceCount >= 1);
 		configuration = source;
 		configurationSet = true;
 
 		// A run-time string that no descriptor carries could never be read by the host, so it is refused.
 		for (std::size_t runtime = 0; runtime < source.runtimeStringCount; runtime++) {
-			Require<"USB:a run-time string is written into a descriptor">(RuntimeStringWritten(source, runtime));
+			Require<"USB: a run-time string is written into a descriptor">(RuntimeStringWritten(source, runtime));
 		}
 
 		std::array<std::size_t, USBMaxStrings + 1> mapping{};
@@ -258,14 +258,14 @@ public:
 
 	// Checks the rules that join the parts and builds every part. USBDescriptors calls this once, in a constant expression.
 	constexpr USBDescriptorParts Build() const {
-		Require<"USB:VendorId is required">(vendorSet);
-		Require<"USB:ProductId is required">(productSet);
-		Require<"USB:DeviceRelease is required">(releaseSet);
-		Require<"USB:Manufacturer is required">(manufacturerSet);
-		Require<"USB:Product is required">(productNameSet);
-		Require<"USB:SerialNumber or SerialNumberAtRuntime is required">(serialSet || serialRuntime);
-		Require<"USB:a device has a configuration">(configurationSet);
-		Require<"USB:an endpoint number is above EndpointNumberLimit">(configuration.highestEndpointNumber <= endpointLimit);
+		Require<"USB: VendorId is required">(vendorSet);
+		Require<"USB: ProductId is required">(productSet);
+		Require<"USB: DeviceRelease is required">(releaseSet);
+		Require<"USB: Manufacturer is required">(manufacturerSet);
+		Require<"USB: Product is required">(productNameSet);
+		Require<"USB: SerialNumber or SerialNumberAtRuntime is required">(serialSet || serialRuntime);
+		Require<"USB: a device has a configuration">(configurationSet);
+		Require<"USB: an endpoint number is above EndpointNumberLimit">(configuration.highestEndpointNumber <= endpointLimit);
 
 		std::size_t winUsbCount = 0;
 		std::size_t winUsbFeatures = 0;
@@ -277,8 +277,8 @@ public:
 			}
 		}
 
-		Require<"USB:MsOs20VendorCode is required when a function asks for WinUSB">(winUsbCount == 0 || vendorCodeSet);
-		Require<"USB:MsOs20VendorCode needs a function that asks for WinUSB">(!vendorCodeSet || winUsbCount > 0);
+		Require<"USB: MsOs20VendorCode is required when a function asks for WinUSB">(winUsbCount == 0 || vendorCodeSet);
+		Require<"USB: MsOs20VendorCode needs a function that asks for WinUSB">(!vendorCodeSet || winUsbCount > 0);
 
 		bool bos = vendorCodeSet || usb2Extension || webUsbSet;
 		uint16 bcdUSB = usbVersion;
@@ -286,8 +286,8 @@ public:
 			bcdUSB = bos ? 0x0210 : 0x0200;
 		}
 
-		Require<"USB:WebUsb needs bcdUSB 0x0210 or later">(!webUsbSet || bcdUSB >= 0x0210);
-		Require<"USB:a device with a BOS has bcdUSB 0x0201 or later">(!bos || bcdUSB >= 0x0201);
+		Require<"USB: WebUsb needs bcdUSB 0x0210 or later">(!webUsbSet || bcdUSB >= 0x0210);
+		Require<"USB: a device with a BOS has bcdUSB 0x0201 or later">(!bos || bcdUSB >= 0x0201);
 
 		bool associated = configuration.associated;
 		USBDescriptorParts parts;
@@ -369,7 +369,7 @@ private:
 		}
 
 		std::size_t total = 9 + body.size;
-		Require<"USB:bMaxPower is at most 500 mA">(configuration.maxPower <= 250);
+		Require<"USB: bMaxPower is at most 500 mA">(configuration.maxPower <= 250);
 		uint8 attributes = 0x80;
 		if (configuration.selfPowered) {
 			attributes |= 0x40;
@@ -394,7 +394,7 @@ private:
 	// The language descriptor, then the device's strings in the order they were numbered, then the run-time placeholders. Each
 	// placeholder is an empty string descriptor until SetRuntimeString() replaces it before Start().
 	constexpr void BuildStrings(USBDescriptorParts& parts) const {
-		Require<"USB:too many strings in one device">(stringCount + configuration.runtimeStringCount <= USBMaxStrings);
+		Require<"USB: too many strings in one device">(stringCount + configuration.runtimeStringCount <= USBMaxStrings);
 		parts.stringOffsets[0] = 0;
 		parts.strings.Append(MakeUSBLanguageIdDescriptor(languageId));
 		for (std::size_t index = 0; index < stringCount; index++) {
@@ -463,7 +463,7 @@ private:
 			setSize += 8 * BuiltWinUsbFunctions();
 		}
 
-		Require<"USB:the MS OS 2.0 set is at most 65535 bytes">(setSize <= 0xFFFF);
+		Require<"USB: the MS OS 2.0 set is at most 65535 bytes">(setSize <= 0xFFFF);
 		parts.msOs20Set.Put16(10);
 		parts.msOs20Set.Put16(static_cast<uint16>(USBMsOs20DescriptorType::SetHeader));
 		parts.msOs20Set.Put16(static_cast<uint16>(USBMsOs20WindowsVersion & 0xFFFF));

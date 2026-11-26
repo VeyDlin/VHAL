@@ -78,8 +78,8 @@ public:
 
 	// Address of the interrupt IN endpoint. Without it the configuration builder assigns the number.
 	constexpr USBHidBuilder& In(uint8 address) {
-		Require<"USB:In() needs an IN address (bit 7 set)">(USBEndpoint::IsIn(address));
-		Require<"USB:endpoint 0 belongs to the control pipe">(USBEndpoint::Number(address) != 0);
+		Require<"USB: In() needs an IN address (bit 7 set)">(USBEndpoint::IsIn(address));
+		Require<"USB: endpoint 0 belongs to the control pipe">(USBEndpoint::Number(address) != 0);
 		inAddress = address;
 		return *this;
 	}
@@ -94,8 +94,8 @@ public:
 
 	// An interrupt OUT endpoint with the given address.
 	constexpr USBHidBuilder& Out(uint8 address) {
-		Require<"USB:Out() needs an OUT address (bit 7 clear)">(!USBEndpoint::IsIn(address));
-		Require<"USB:endpoint 0 belongs to the control pipe">(USBEndpoint::Number(address) != 0);
+		Require<"USB: Out() needs an OUT address (bit 7 clear)">(!USBEndpoint::IsIn(address));
+		Require<"USB: endpoint 0 belongs to the control pipe">(USBEndpoint::Number(address) != 0);
 		outAddress = address;
 		hasOut = true;
 		return *this;
@@ -104,7 +104,7 @@ public:
 
 	// Polling interval of both interrupt endpoints, 1 to 255 ms. Default 1.
 	constexpr USBHidBuilder& IntervalMs(uint8 milliseconds) {
-		Require<"USB:an interrupt interval is 1 to 255 ms">(milliseconds >= 1);
+		Require<"USB: an interrupt interval is 1 to 255 ms">(milliseconds >= 1);
 		intervalMs = milliseconds;
 		return *this;
 	}
@@ -112,7 +112,7 @@ public:
 
 	// Packet size of both interrupt endpoints, 1 to 64. Default: the largest report of each direction.
 	constexpr USBHidBuilder& PacketSize(uint16 bytes) {
-		Require<"USB:a packet size is 1 to 64 bytes">(bytes >= 1 && bytes <= 64);
+		Require<"USB: a packet size is 1 to 64 bytes">(bytes >= 1 && bytes <= 64);
 		packetSize = bytes;
 		return *this;
 	}
@@ -126,14 +126,14 @@ public:
 
 
 	constexpr std::size_t InterfaceCount() const {
-		Require<"USB:a HID interface needs a report descriptor: call Report()">(hasReport);
-		Require<"USB:a HID interface sends at least one input report">(report.MaxLength(USBHidReportType::Input) > 0);
+		Require<"USB: a HID interface needs a report descriptor: call Report()">(hasReport);
+		Require<"USB: a HID interface sends at least one input report">(report.MaxLength(USBHidReportType::Input) > 0);
 		if (bootKeyboard) {
-			Require<"USB:a boot keyboard sends an 8-byte input report without a report ID">(report.InputLength(0) >= 8);
+			Require<"USB: a boot keyboard sends an 8-byte input report without a report ID">(report.InputLength(0) >= 8);
 		}
 
 		if (bootMouse) {
-			Require<"USB:a boot mouse sends a 3-byte input report without a report ID">(report.InputLength(0) >= 3);
+			Require<"USB: a boot mouse sends a 3-byte input report without a report ID">(report.InputLength(0) >= 3);
 		}
 
 		return 1;
@@ -212,18 +212,18 @@ private:
 	constexpr uint16 InPacketSize() const {
 		std::size_t largest = report.MaxLength(USBHidReportType::Input);
 		uint16 size = packetSize != 0 ? packetSize : static_cast<uint16>(largest);
-		Require<"USB:the packet size holds the largest input report">(size >= largest);
-		Require<"USB:a packet size is 1 to 64 bytes">(size >= 1 && size <= 64);
+		Require<"USB: the packet size holds the largest input report">(size >= largest);
+		Require<"USB: a packet size is 1 to 64 bytes">(size >= 1 && size <= 64);
 		return size;
 	}
 
 
 	constexpr uint16 OutPacketSize() const {
 		std::size_t largest = report.MaxLength(USBHidReportType::Output);
-		Require<"USB:OutEndpoint() needs an output report">(largest >= 1);
+		Require<"USB: OutEndpoint() needs an output report">(largest >= 1);
 		uint16 size = packetSize != 0 ? packetSize : static_cast<uint16>(largest);
-		Require<"USB:the packet size holds the largest output report">(size >= largest);
-		Require<"USB:a packet size is 1 to 64 bytes">(size >= 1 && size <= 64);
+		Require<"USB: the packet size holds the largest output report">(size >= largest);
+		Require<"USB: a packet size is 1 to 64 bytes">(size >= 1 && size <= 64);
 		return size;
 	}
 };

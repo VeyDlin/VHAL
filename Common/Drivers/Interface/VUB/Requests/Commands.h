@@ -331,8 +331,8 @@ struct OpenCommand {
 
 	// The deadlines are kept in microseconds and compared as a signed 32-bit difference, so a timeout is at most 2147483 ms.
 	constexpr OpenCommand ReplyTimeoutMs(uint32 ms) const {
-		Require<"VUB:ReplyTimeoutMs must be above 0">(ms > 0);
-		Require<"VUB:ReplyTimeoutMs must be at most 2147483 (the deadlines are signed 32-bit microsecond counts)">(ms <= MaxTimeoutMs);
+		Require<"VUB: ReplyTimeoutMs must be above 0">(ms > 0);
+		Require<"VUB: ReplyTimeoutMs must be at most 2147483 (the deadlines are signed 32-bit microsecond counts)">(ms <= MaxTimeoutMs);
 		OpenCommand next = *this;
 		next.options.replyTimeoutMs = ms;
 		return next;
@@ -341,8 +341,8 @@ struct OpenCommand {
 
 	// The same limit as ReplyTimeoutMs.
 	constexpr OpenCommand TicketTimeoutMs(uint32 ms) const {
-		Require<"VUB:TicketTimeoutMs must be above 0">(ms > 0);
-		Require<"VUB:TicketTimeoutMs must be at most 2147483 (the deadlines are signed 32-bit microsecond counts)">(ms <= MaxTimeoutMs);
+		Require<"VUB: TicketTimeoutMs must be above 0">(ms > 0);
+		Require<"VUB: TicketTimeoutMs must be at most 2147483 (the deadlines are signed 32-bit microsecond counts)">(ms <= MaxTimeoutMs);
 		OpenCommand next = *this;
 		next.options.ticketTimeoutMs = ms;
 		return next;

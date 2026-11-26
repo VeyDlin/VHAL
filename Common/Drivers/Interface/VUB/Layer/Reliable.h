@@ -163,7 +163,7 @@ public:
 		// Resends after the first timeout, up to this many times. 0 gives up at the first timeout. With the in-order option 0 is refused:
 		// a held packet is acknowledged only when it goes up, so it would be given up ahead of its gap filling.
 		constexpr Step Retries(uint8 count) const {
-			Require<"VUB:Retries(0) with the in-order option: a held packet is given up before its gap fills">(count >= 1 || !InOrder);
+			Require<"VUB: Retries(0) with the in-order option: a held packet is given up before its gap fills">(count >= 1 || !InOrder);
 			Options next = this->LastOptions();
 			next.retries = count;
 			return Step(this->WithLastOptions(next));
@@ -172,7 +172,7 @@ public:
 
 		// The timeout of a packet until its first resend, in milliseconds.
 		constexpr Step TimeoutMs(uint16 milliseconds) const {
-			Require<"VUB:TimeoutMs() is zero">(milliseconds > 0);
+			Require<"VUB: TimeoutMs() is zero">(milliseconds > 0);
 			Options next = this->LastOptions();
 			next.timeoutMs = milliseconds;
 			return Step(this->WithLastOptions(next));
@@ -182,7 +182,7 @@ public:
 		// The packets that may be unacknowledged at once. The receiver accepts packets this far ahead of its oldest gap. The default is 4,
 		// or WindowCapacity when that is smaller: with WindowCapacity 1 the window is 1.
 		constexpr Step Window(uint8 count) const {
-			Require<"VUB:Window() is zero, or larger than the layer's WindowCapacity or 32">(
+			Require<"VUB: Window() is zero, or larger than the layer's WindowCapacity or 32">(
 				count >= 1 && count <= WindowCapacity && count <= 32);
 			Options next = this->LastOptions();
 			next.window = count;
@@ -192,7 +192,7 @@ public:
 
 		// The width of the sequence and acknowledgement numbers: 8 or 16 bits. Use 8 only on a path that keeps the send order.
 		constexpr Step SequenceBits(uint8 bits) const {
-			Require<"VUB:SequenceBits() is not 8 or 16">(bits == 8 || bits == 16);
+			Require<"VUB: SequenceBits() is not 8 or 16">(bits == 8 || bits == 16);
 			Options next = this->LastOptions();
 			next.sequenceBits = bits;
 			return Step(this->WithLastOptions(next));
@@ -209,7 +209,7 @@ public:
 
 		// The largest payload the layer sends. A larger payload is refused with messageTooLong.
 		constexpr Step PayloadBytes(uint16 bytes) const {
-			Require<"VUB:PayloadBytes() is larger than the layer's PayloadCapacity">(bytes <= PayloadCapacity);
+			Require<"VUB: PayloadBytes() is larger than the layer's PayloadCapacity">(bytes <= PayloadCapacity);
 			Options next = this->LastOptions();
 			next.payloadBytes = bytes;
 			return Step(this->WithLastOptions(next));
@@ -258,7 +258,7 @@ public:
 	// wanted when the packet is due to be sent again. A handler the application gave this layer is refused, since the layer above takes them.
 	template<typename Above>
 	static constexpr Options OwnedBy(Options value) {
-		Require<"VUB:the layer below a layer with wantsOwner has an OnOutcome or OnRestart: the layer with wantsOwner takes them, remove the handler">(
+		Require<"VUB: the layer below a layer with wantsOwner has an OnOutcome or OnRestart: the layer with wantsOwner takes them, remove the handler">(
 			!HoldsHandler(value.outcomeFn) && !HoldsHandler(value.restartFn) && !HoldsHandler(value.restartOwnerFn));
 		value.wantsOwner = true;
 		value.outcomeFn = &OutcomeHandler<&Above::DeliveryOutcome>;

@@ -200,8 +200,8 @@ private:
 public:
 	// The microphone path with 1 or 2 channels. Given once. Required for a microphone.
 	constexpr USBAudioBuilder& Microphone(uint8 channels) {
-		Require<"USB:the microphone is given once">(microphone.channels == 0);
-		Require<"USB:a path has 1 or 2 channels">(channels == 1 || channels == 2);
+		Require<"USB: the microphone is given once">(microphone.channels == 0);
+		Require<"USB: a path has 1 or 2 channels">(channels == 1 || channels == 2);
 		microphone.channels = channels;
 		return *this;
 	}
@@ -209,7 +209,7 @@ public:
 
 	// A sampling rate of the microphone: 16000, 32000 or 48000, each once. Without any the microphone runs at 48 kHz.
 	constexpr USBAudioBuilder& MicrophoneRate(uint32 rate) {
-		Require<"USB:MicrophoneRate needs Microphone() first">(microphone.channels != 0);
+		Require<"USB: MicrophoneRate needs Microphone() first">(microphone.channels != 0);
 		AddRate(microphone, rate);
 		return *this;
 	}
@@ -217,7 +217,7 @@ public:
 
 	// Volume control (master channel, -60 dB to 0 dB) of the microphone's feature unit.
 	constexpr USBAudioBuilder& MicrophoneVolume() {
-		Require<"USB:MicrophoneVolume needs Microphone() first">(microphone.channels != 0);
+		Require<"USB: MicrophoneVolume needs Microphone() first">(microphone.channels != 0);
 		microphone.volume = true;
 		return *this;
 	}
@@ -225,7 +225,7 @@ public:
 
 	// Mute control (master channel) of the microphone's feature unit.
 	constexpr USBAudioBuilder& MicrophoneMute() {
-		Require<"USB:MicrophoneMute needs Microphone() first">(microphone.channels != 0);
+		Require<"USB: MicrophoneMute needs Microphone() first">(microphone.channels != 0);
 		microphone.mute = true;
 		return *this;
 	}
@@ -233,9 +233,9 @@ public:
 
 	// Address of the microphone's isochronous IN endpoint. Without it the configuration builder assigns the number.
 	constexpr USBAudioBuilder& MicrophoneAddress(uint8 address) {
-		Require<"USB:MicrophoneAddress needs Microphone() first">(microphone.channels != 0);
-		Require<"USB:MicrophoneAddress needs an IN address (bit 7 set)">(USBEndpoint::IsIn(address));
-		Require<"USB:endpoint 0 belongs to the control pipe">(USBEndpoint::Number(address) != 0);
+		Require<"USB: MicrophoneAddress needs Microphone() first">(microphone.channels != 0);
+		Require<"USB: MicrophoneAddress needs an IN address (bit 7 set)">(USBEndpoint::IsIn(address));
+		Require<"USB: endpoint 0 belongs to the control pipe">(USBEndpoint::Number(address) != 0);
 		microphone.address = address;
 		return *this;
 	}
@@ -243,7 +243,7 @@ public:
 
 	// The microphone's AudioStreaming interface string.
 	constexpr USBAudioBuilder& MicrophoneName(std::string_view text) {
-		Require<"USB:MicrophoneName needs Microphone() first">(microphone.channels != 0);
+		Require<"USB: MicrophoneName needs Microphone() first">(microphone.channels != 0);
 		microphone.name = text;
 		return *this;
 	}
@@ -251,8 +251,8 @@ public:
 
 	// The speaker path with 1 or 2 channels. Given once. Required for a speaker.
 	constexpr USBAudioBuilder& Speaker(uint8 channels) {
-		Require<"USB:the speaker is given once">(speaker.channels == 0);
-		Require<"USB:a path has 1 or 2 channels">(channels == 1 || channels == 2);
+		Require<"USB: the speaker is given once">(speaker.channels == 0);
+		Require<"USB: a path has 1 or 2 channels">(channels == 1 || channels == 2);
 		speaker.channels = channels;
 		return *this;
 	}
@@ -260,7 +260,7 @@ public:
 
 	// A sampling rate of the speaker: 16000, 32000 or 48000, each once. Without any the speaker runs at 48 kHz.
 	constexpr USBAudioBuilder& SpeakerRate(uint32 rate) {
-		Require<"USB:SpeakerRate needs Speaker() first">(speaker.channels != 0);
+		Require<"USB: SpeakerRate needs Speaker() first">(speaker.channels != 0);
 		AddRate(speaker, rate);
 		return *this;
 	}
@@ -268,7 +268,7 @@ public:
 
 	// Volume control (master channel, -60 dB to 0 dB) of the speaker's feature unit.
 	constexpr USBAudioBuilder& SpeakerVolume() {
-		Require<"USB:SpeakerVolume needs Speaker() first">(speaker.channels != 0);
+		Require<"USB: SpeakerVolume needs Speaker() first">(speaker.channels != 0);
 		speaker.volume = true;
 		return *this;
 	}
@@ -276,7 +276,7 @@ public:
 
 	// Mute control (master channel) of the speaker's feature unit.
 	constexpr USBAudioBuilder& SpeakerMute() {
-		Require<"USB:SpeakerMute needs Speaker() first">(speaker.channels != 0);
+		Require<"USB: SpeakerMute needs Speaker() first">(speaker.channels != 0);
 		speaker.mute = true;
 		return *this;
 	}
@@ -284,9 +284,9 @@ public:
 
 	// Address of the speaker's isochronous OUT endpoint. Without it the configuration builder assigns the number.
 	constexpr USBAudioBuilder& SpeakerAddress(uint8 address) {
-		Require<"USB:SpeakerAddress needs Speaker() first">(speaker.channels != 0);
-		Require<"USB:SpeakerAddress needs an OUT address (bit 7 clear)">(!USBEndpoint::IsIn(address));
-		Require<"USB:endpoint 0 belongs to the control pipe">(USBEndpoint::Number(address) != 0);
+		Require<"USB: SpeakerAddress needs Speaker() first">(speaker.channels != 0);
+		Require<"USB: SpeakerAddress needs an OUT address (bit 7 clear)">(!USBEndpoint::IsIn(address));
+		Require<"USB: endpoint 0 belongs to the control pipe">(USBEndpoint::Number(address) != 0);
 		speaker.address = address;
 		return *this;
 	}
@@ -294,7 +294,7 @@ public:
 
 	// The speaker's AudioStreaming interface string.
 	constexpr USBAudioBuilder& SpeakerName(std::string_view text) {
-		Require<"USB:SpeakerName needs Speaker() first">(speaker.channels != 0);
+		Require<"USB: SpeakerName needs Speaker() first">(speaker.channels != 0);
 		speaker.name = text;
 		return *this;
 	}
@@ -308,7 +308,7 @@ public:
 
 
 	constexpr std::size_t InterfaceCount() const {
-		Require<"USB:an audio function has a microphone or a speaker">(HasMicrophone() || HasSpeaker());
+		Require<"USB: an audio function has a microphone or a speaker">(HasMicrophone() || HasSpeaker());
 		return 1 + StreamingCount();
 	}
 
@@ -319,7 +319,7 @@ public:
 
 
 	constexpr USBEndpointRequest Endpoint(std::size_t index) const {
-		Require<"USB:endpoint index is outside the function">(index < EndpointCount());
+		Require<"USB: endpoint index is outside the function">(index < EndpointCount());
 		bool microphoneEndpoint = HasMicrophone() && index == 0;
 		const PathSettings& path = microphoneEndpoint ? microphone : speaker;
 		USBEndpointRequest request;
@@ -454,12 +454,12 @@ private:
 
 	// Adds a rate to a path. Only the three rates of the specification are accepted, each once.
 	static constexpr void AddRate(PathSettings& path, uint32 rate) {
-		Require<"USB:a sample rate is 16000, 32000 or 48000">(rate == 16000 || rate == 32000 || rate == 48000);
+		Require<"USB: a sample rate is 16000, 32000 or 48000">(rate == 16000 || rate == 32000 || rate == 48000);
 		for (std::size_t index = 0; index < path.rateCount; index++) {
-			Require<"USB:a sample rate is listed once">(path.rates[index] != rate);
+			Require<"USB: a sample rate is listed once">(path.rates[index] != rate);
 		}
 
-		Require<"USB:a path lists at most 3 sample rates">(path.rateCount < USBAudioMaxRates);
+		Require<"USB: a path lists at most 3 sample rates">(path.rateCount < USBAudioMaxRates);
 		path.rates[path.rateCount] = rate;
 		path.rateCount++;
 	}

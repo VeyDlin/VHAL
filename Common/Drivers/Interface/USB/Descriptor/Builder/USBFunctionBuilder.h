@@ -76,7 +76,7 @@ struct USBPatchList {
 
 
 	constexpr void Add(std::size_t offset, std::size_t local) {
-		Require<"USB:too many string references in one configuration">(count < USBMaxPatches);
+		Require<"USB: too many string references in one configuration">(count < USBMaxPatches);
 		entries[count] = USBStringPatch{ offset, local };
 		count++;
 	}
@@ -128,14 +128,14 @@ public:
 
 	// Interface number of the function's index-th interface (0 based within the function).
 	constexpr uint8 InterfaceNumber(std::size_t index) const {
-		Require<"USB:interface index is outside the function">(index < slot.interfaceCount);
+		Require<"USB: interface index is outside the function">(index < slot.interfaceCount);
 		return static_cast<uint8>(slot.firstInterface + index);
 	}
 
 
 	// Address of the index-th endpoint request, as the configuration resolved it.
 	constexpr uint8 EndpointAddress(std::size_t index) const {
-		Require<"USB:endpoint index is outside the function">(index < slot.endpointCount);
+		Require<"USB: endpoint index is outside the function">(index < slot.endpointCount);
 		return slot.addresses[index];
 	}
 
@@ -163,10 +163,10 @@ public:
 		uint8 protocol,
 		std::size_t stringIndex)
 	{
-		Require<"USB:alternate 0 is written by Interface()">(alternateSetting != 0);
-		Require<"USB:an alternate setting follows its alternate 0 directly">(index == openIndex);
-		Require<"USB:an alternate setting is given once">(alternateSetting != lastAlternate);
-		Require<"USB:alternate settings are listed in ascending order">(alternateSetting > lastAlternate);
+		Require<"USB: alternate 0 is written by Interface()">(alternateSetting != 0);
+		Require<"USB: an alternate setting follows its alternate 0 directly">(index == openIndex);
+		Require<"USB: an alternate setting is given once">(alternateSetting != lastAlternate);
+		Require<"USB: alternate settings are listed in ascending order">(alternateSetting > lastAlternate);
 		WriteInterface(index, alternateSetting, interfaceClass, subClass, protocol, stringIndex);
 		lastAlternate = alternateSetting;
 	}
@@ -174,7 +174,7 @@ public:
 
 	// Endpoint descriptor of the index-th endpoint request, with the address the configuration resolved.
 	constexpr void Endpoint(std::size_t index) {
-		Require<"USB:endpoint index is outside the function">(index < slot.endpointCount);
+		Require<"USB: endpoint index is outside the function">(index < slot.endpointCount);
 		const USBEndpointRequest& request = slot.requests[index];
 		body.Append(MakeUSBEndpointDescriptor(
 			slot.addresses[index],
@@ -191,7 +191,7 @@ public:
 	// with the address the configuration resolved. Used by USB-MIDI for its bulk endpoints and by USB Audio for its endpoints, which
 	// are isochronous or bulk.
 	constexpr void AudioEndpoint(std::size_t index) {
-		Require<"USB:endpoint index is outside the function">(index < slot.endpointCount);
+		Require<"USB: endpoint index is outside the function">(index < slot.endpointCount);
 		const USBEndpointRequest& request = slot.requests[index];
 		body.Append(MakeUSBAudioEndpointDescriptor(
 			slot.addresses[index],
@@ -217,10 +217,10 @@ public:
 	// the byte 0.
 	constexpr void RawWithString(std::span<const uint8> bytes, std::size_t stringOffset, std::size_t stringIndex) {
 		CheckRaw(bytes);
-		Require<"USB:the string index byte is inside the descriptor">(stringOffset < bytes.size());
-		Require<"USB:the string index byte is given as 0 and filled in by the configuration">(bytes[stringOffset] == 0);
+		Require<"USB: the string index byte is inside the descriptor">(stringOffset < bytes.size());
+		Require<"USB: the string index byte is given as 0 and filled in by the configuration">(bytes[stringOffset] == 0);
 		if (stringIndex != USBNoString) {
-			Require<"USB:string index is outside the function">(stringIndex < slot.stringCount);
+			Require<"USB: string index is outside the function">(stringIndex < slot.stringCount);
 			patches.Add(body.size + stringOffset, slot.strings[stringIndex]);
 		}
 
@@ -234,9 +234,9 @@ public:
 	// the order the class reserved them. The class cannot read the index in Emit(); the function gets it from its layout.
 	constexpr void RawWithRuntimeString(std::span<const uint8> bytes, std::size_t stringOffset, std::size_t runtimeIndex) {
 		CheckRaw(bytes);
-		Require<"USB:the run-time string index byte is inside the descriptor">(stringOffset < bytes.size());
-		Require<"USB:the run-time string index byte is given as 0 and filled in by the device">(bytes[stringOffset] == 0);
-		Require<"USB:run-time string index is outside the function">(runtimeIndex < slot.runtimeCount);
+		Require<"USB: the run-time string index byte is inside the descriptor">(stringOffset < bytes.size());
+		Require<"USB: the run-time string index byte is given as 0 and filled in by the device">(bytes[stringOffset] == 0);
+		Require<"USB: run-time string index is outside the function">(runtimeIndex < slot.runtimeCount);
 		runtimePatches.Add(body.size + stringOffset, slot.runtimeStart + runtimeIndex);
 		body.Append(bytes);
 	}
@@ -254,7 +254,7 @@ private:
 		std::size_t stringIndex)
 	{
 		if (stringIndex != USBNoString) {
-			Require<"USB:string index is outside the function">(stringIndex < slot.stringCount);
+			Require<"USB: string index is outside the function">(stringIndex < slot.stringCount);
 			patches.Add(body.size + 8, slot.strings[stringIndex]);
 		}
 
@@ -264,10 +264,10 @@ private:
 
 	// The rules Raw() and RawWithString() share: the size, bLength and the structural types.
 	static constexpr void CheckRaw(std::span<const uint8> bytes) {
-		Require<"USB:a descriptor is 2 to 255 bytes">(bytes.size() >= 2 && bytes.size() <= 255);
-		Require<"USB:bLength must equal the size of the descriptor">(static_cast<std::size_t>(bytes[0]) == bytes.size());
+		Require<"USB: a descriptor is 2 to 255 bytes">(bytes.size() >= 2 && bytes.size() <= 255);
+		Require<"USB: bLength must equal the size of the descriptor">(static_cast<std::size_t>(bytes[0]) == bytes.size());
 		uint8 type = bytes[1];
-		Require<"USB:structural descriptors come from the emitter's Interface() and Endpoint()">(
+		Require<"USB: structural descriptors come from the emitter's Interface() and Endpoint()">(
 			type != static_cast<uint8>(USBDescriptorType::Configuration)
 			&& type != static_cast<uint8>(USBDescriptorType::Interface)
 			&& type != static_cast<uint8>(USBDescriptorType::Endpoint)

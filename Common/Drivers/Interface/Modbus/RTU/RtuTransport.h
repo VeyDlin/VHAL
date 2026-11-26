@@ -32,7 +32,7 @@ public:
 
 public:
 	constexpr RtuBuilder Turnaround(uint8 characters) const {
-		Require<"RTU:turnaround must be under 3.5 character times">(characters <= 3);
+		Require<"RTU: turnaround must be under 3.5 character times">(characters <= 3);
 
 		RtuBuilder next = *this;
 		next.turnaroundCharacters = characters;
@@ -56,7 +56,7 @@ public:
 
 
 	constexpr bool Check() const {
-		Require<"RTU:clock is missing: add Clock<&Fn>() to the RtuBuilder">(clockFn != nullptr);
+		Require<"RTU: clock is missing: add Clock<&Fn>() to the RtuBuilder">(clockFn != nullptr);
 		return true;
 	}
 };

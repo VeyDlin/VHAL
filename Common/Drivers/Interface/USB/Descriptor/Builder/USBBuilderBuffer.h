@@ -27,7 +27,7 @@ struct USBBuildBuffer {
 
 
 	constexpr void Put(uint8 value) {
-		Require<"USB:descriptor is larger than the builder capacity">(size < USBBuildCapacity);
+		Require<"USB: descriptor is larger than the builder capacity">(size < USBBuildCapacity);
 		bytes[size] = value;
 		size++;
 	}
@@ -51,7 +51,7 @@ struct USBBuildBuffer {
 // mismatch is a builder bug and is reported.
 template<std::size_t Size>
 constexpr std::array<uint8, Size> USBBuildExact(const USBBuildBuffer& buffer) {
-	Require<"USB:builder output does not match its size">(buffer.size == Size);
+	Require<"USB: builder output does not match its size">(buffer.size == Size);
 	std::array<uint8, Size> exact{};
 	for (std::size_t index = 0; index < Size; index++) {
 		exact[index] = buffer.bytes[index];
@@ -65,8 +65,8 @@ constexpr std::array<uint8, Size> USBBuildExact(const USBBuildBuffer& buffer) {
 // TextLiteral template argument: valid UTF-8, no surrogates, at most 126 UTF-16 code units.
 constexpr void USBBuildStringDescriptor(std::string_view text, USBBuildBuffer& buffer) {
 	USBUtf16Count count = USBCountUtf16Units(text.data(), text.size());
-	Require<"USB:string is not valid UTF-8">(count.valid);
-	Require<"USB:a string descriptor holds at most 126 UTF-16 code units">(count.units <= 126);
+	Require<"USB: string is not valid UTF-8">(count.valid);
+	Require<"USB: a string descriptor holds at most 126 UTF-16 code units">(count.units <= 126);
 	buffer.Put(static_cast<uint8>(2 + 2 * count.units));
 	buffer.Put(static_cast<uint8>(USBDescriptorType::String));
 	buffer.size = USBEncodeUtf16(text.data(), text.size(), buffer.bytes, buffer.size);
