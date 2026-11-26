@@ -1,4 +1,5 @@
 #pragma once
+#include <Drivers/Interface/VUB/Bytes.h>
 #include <Drivers/Interface/VUB/TestKit/Random.h>
 #include <Utilities/DataTypes.h>
 #include <array>
@@ -20,6 +21,9 @@ struct Faults {
 	uint32 maxDelayUs = 0;
 	uint32 outageEveryUs = 0;
 	uint32 outageForUs = 0;
+	// With keepsOrder, an item never becomes due ahead of the item pushed before it: the due time of an item is the later of its own and
+	// the last one's. Without it each item is delayed on its own, so a later item can be delivered first.
+	bool keepsOrder = false;
 };
 
 
@@ -51,7 +55,7 @@ public:
 			return true;
 		}
 
-		if (nowUs >= changeUs) {
+		if (Due(nowUs, changeUs)) {
 			up = !up;
 			changeUs = nowUs + (up ? 1 + random.Below(everyUs) : forUs);
 		}
@@ -67,6 +71,22 @@ private:
 	uint32 changeUs;
 	bool up = true;
 };
+
+
+// The due time of an item pushed now with the delay drawn for it. With keepsOrder the due time is the later of that and the last item's, so
+// an item is never delivered before the item pushed before it. Times are compared as differences, so the 32-bit wrap does not change the order.
+inline uint32 KeptDueUs(const Faults& faults, bool& hasLast, uint32& lastDueUs, uint32 dueUs) {
+	if (faults.keepsOrder) {
+		if (hasLast && static_cast<int32>(lastDueUs - dueUs) > 0) {
+			dueUs = lastDueUs;
+		}
+
+		lastDueUs = dueUs;
+		hasLast = true;
+	}
+
+	return dueUs;
+}
 
 
 // One direction of a byte-stream line. Push takes the bytes a sender wrote; Deliver hands the bytes that are due at the wire's time to
@@ -122,11 +142,11 @@ public:
 		while (true) {
 			std::size_t best = Capacity;
 			for (std::size_t index = 0; index < Capacity; index++) {
-				if (!items[index].used || items[index].dueUs > now) {
+				if (!items[index].used || static_cast<int32>(items[index].dueUs - now) > 0) {
 					continue;
 				}
 
-				if (best == Capacity || items[index].dueUs < items[best].dueUs ||
+				if (best == Capacity || static_cast<int32>(items[index].dueUs - items[best].dueUs) < 0 ||
 					(items[index].dueUs == items[best].dueUs && items[index].sequence < items[best].sequence)) {
 					best = index;
 				}
@@ -160,7 +180,8 @@ private:
 	void Store(uint8 value) {
 		for (std::size_t index = 0; index < Capacity; index++) {
 			if (!items[index].used) {
-				items[index] = Item{value, now + random.Below(faults.maxDelayUs + 1), nextSequence, true};
+				uint32 dueUs = KeptDueUs(faults, hasLast, lastDueUs, now + random.Below(faults.maxDelayUs + 1));
+				items[index] = Item{value, dueUs, nextSequence, true};
 				nextSequence++;
 				return;
 			}
@@ -175,6 +196,8 @@ private:
 	std::array<Item, Capacity> items{};
 	uint32 now = 0;
 	uint32 nextSequence = 0;
+	bool hasLast = false;
+	uint32 lastDueUs = 0;
 	WireCounts counts;
 	bool down = false;
 };
@@ -225,11 +248,11 @@ public:
 		while (true) {
 			std::size_t best = Capacity;
 			for (std::size_t index = 0; index < Capacity; index++) {
-				if (!items[index].used || items[index].dueUs > now) {
+				if (!items[index].used || static_cast<int32>(items[index].dueUs - now) > 0) {
 					continue;
 				}
 
-				if (best == Capacity || items[index].dueUs < items[best].dueUs ||
+				if (best == Capacity || static_cast<int32>(items[index].dueUs - items[best].dueUs) < 0 ||
 					(items[index].dueUs == items[best].dueUs && items[index].sequence < items[best].sequence)) {
 					best = index;
 				}
@@ -284,7 +307,7 @@ private:
 				counts.corrupted++;
 			}
 
-			item.dueUs = now + random.Below(faults.maxDelayUs + 1);
+			item.dueUs = KeptDueUs(faults, hasLast, lastDueUs, now + random.Below(faults.maxDelayUs + 1));
 			item.sequence = nextSequence;
 			item.used = true;
 			nextSequence++;
@@ -300,6 +323,8 @@ private:
 	std::array<Item, Capacity> items{};
 	uint32 now = 0;
 	uint32 nextSequence = 0;
+	bool hasLast = false;
+	uint32 lastDueUs = 0;
 	WireCounts counts;
 	bool down = false;
 };

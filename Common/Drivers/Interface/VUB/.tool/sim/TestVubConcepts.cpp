@@ -43,16 +43,6 @@ struct NoNextLayer {
 };
 
 
-struct SyncEngine {
-	static constexpr bool synchronous = true;
-};
-
-
-struct AsyncEngine {
-	static constexpr bool synchronous = false;
-};
-
-
 // A link with a stream form and no traits: it is not a link at all.
 struct NoTraitsLink {
 	Result<std::size_t> Write(std::span<const uint8> bytes) {
@@ -83,9 +73,6 @@ static_assert(VUB::LinkBlock<StreamLink>);
 static_assert(VUB::LinkBlock<PacketLink>);
 static_assert(!VUB::LinkBlock<NoTraitsLink>);
 static_assert(!VUB::LinkBlock<int>);
-
-static_assert(VUB::EngineBlock<SyncEngine>);
-static_assert(!VUB::EngineBlock<AsyncEngine>);
 
 
 void TestConceptsAccept() {

@@ -1,4 +1,5 @@
 #pragma once
+#include <Drivers/Interface/VUB/Bytes.h>
 #include <Drivers/Interface/VUB/LinkTraits.h>
 #include <Drivers/Interface/VUB/Receiver.h>
 #include <System/System.h>
@@ -127,9 +128,7 @@ public:
 			return static_cast<std::size_t>(0);
 		}
 
-		for (std::size_t index = 0; index < count; index++) {
-			txBuffer[index] = bytes[index];
-		}
+		CopyBytes(bytes.data(), count, txBuffer.data());
 
 		if (!hooked) {
 			InstallCallbacks();

@@ -16,24 +16,25 @@ an STM32G431 and a PC.
 
 ## The chain
 
-A chain is written from the application down to the link:
+A chain is written from the application down to the link. The smallest chain is a link, a payload size and a receive handler. The
+link `BoardLink` and the handler `OnPacket` are defined under [Writing a block](#writing-a-block):
 
 ```cpp
 using Board = VUB::Stack<+[] {
 	return VUB::Builder()
-		.Transform<SumCheck>()
 		.Link<BoardLink>()
 		.MaxPayload(32)
 		.OnReceive<&OnPacket>();
 }>;
 ```
 
-The application sends into the top, and the link is the last block. A block that is not in the chain has no code and no RAM.
+The application sends into the top, and the link is the last block. Each further call adds one feature; the table under
+[The builder](#the-builder) gives what each call adds, its default and its RAM. A feature that is not in the chain has no code and no RAM.
 
 ## Names
 
 Every type of VUB is in the namespace `VUB`, and the pages name each type with it: `VUB::Stack`, `VUB::Reliable`,
-`VUB::Crc16Modbus`. Inside the builder's lambda, `using namespace VUB;` shortens the chain. Write it there or in a `.cpp` file, not in
+`VUB::Crc`. Inside the builder's lambda, `using namespace VUB;` shortens the chain. Write it there or in a `.cpp` file, not in
 a header, so the short names do not reach the files that include the header:
 
 ```cpp
@@ -41,7 +42,7 @@ using Board = VUB::Stack<+[] {
 	using namespace VUB;
 	return Builder()
 		.Layer<Reliable>().Retries(3).TimeoutMs(200)
-		.Transform<Crc16Modbus>()
+		.Transform<Crc<Checksum::Crc16Modbus>>()
 		.Link<BoardLink>()
 		.MaxPayload(32)
 		.OnReceive<&OnPacket>()
@@ -49,22 +50,22 @@ using Board = VUB::Stack<+[] {
 }>;
 ```
 
-`Crc` is also the class of the shared CRC library (`Utilities/Checksum/CRC/Crc.h`). In a file that includes both, the short name
-`Crc` is ambiguous, so the transform is written `VUB::Crc`. The presets, such as `Crc16Modbus`, have no such clash.
+The CRC transform takes a CRC type of the shared CRC library (`Utilities/Checksum/CRC/Crc.h`), a `Checksum::Crc`. The library's presets, such
+as `Checksum::Crc16Modbus`, are in `Utilities/Checksum/CRC/Preset/`. The library's class and the transform are both named `Crc`, so a file
+that includes both writes the transform as `VUB::Crc` and the library's class as `Checksum::Crc`.
 
-## The five kinds
+## The four kinds
 
 | Kind | Concept | What it does | Members the concept needs |
 |---|---|---|---|
 | Link | `VUB::StreamLink`, `VUB::PacketLink` | the wire at the bottom | `traits`; `Write(span)` returning `Result<size_t>` (a byte stream), or `Send(span)` returning `ResultStatus` (whole packets). Optional, not both: `SetReceiver(Receiver)` for a link that receives in an interrupt (`VUB::ReceivingLink`), or `Poll(Receiver)` for a link that is polled from `Process` (`VUB::PollingLink`); see [receiving from a link](#receiving-from-a-link) |
 | Framing | `VUB::FramingBlock` | finds packet boundaries in a byte stream | `usesTime`, `Growth(length)`, `Frame(meta, packet, out)`, `Push(byte, out, length)`; with `usesTime`: `Push(byte, nowUs, out, length)`, `Poll(nowUs, out, length)`, `Ready(nowUs)` and `Sent(nowUs, count)` (see [gap framing](Framing/Gap)) |
 | Transform | `VUB::TransformBlock` | one packet into another, and back | `growth`, `fingerprint`, `Encode(meta, in, out)`, `Decode(meta, packet)` |
-| Engine | `VUB::EngineBlock`, `VUB::EngineFor` | computes what a transform describes (a CRC, AES) | `synchronous`; `Supports<Algorithm>()` and `Run<Algorithm>(data)` for `VUB::EngineFor` (see [engines](Engine/README)) |
 | Layer | `VUB::LayerBlock` | a header, state, time; may send packets of its own and make bulk packets | `header`, `fingerprint`, `usesTime`, `makesBulk`, `Add`, `Take`, `Process`, and `Next` when `makesBulk` is true |
 
 A block that misses a member is a compile error. The message names the concept it does not satisfy, for example `the transform does not satisfy VUB::TransformBlock`, and the concept's notes follow it.
 
-The link has two optional members, and the stack has no code for one it does not use. A link with `SetReceiver` feeds its data from an interrupt; a link with `Poll` is polled for its data by `Process`. A link with both is a compile error (see [receiving from a link](#receiving-from-a-link)).
+The link has three optional members, and the stack has no code for one it does not use. A link with `SetReceiver` feeds its data from an interrupt; a link with `Poll` is polled for its data by `Process`. A link with both is a compile error (see [receiving from a link](#receiving-from-a-link)). A packet link with `bool Ready() const` says whether its next `Send` will be taken; the stack asks it before a layer runs on a packet, so a chain on that link can have no send queue (see [Send and receive](#send-and-receive)).
 
 ## The builder
 
@@ -81,18 +82,27 @@ The options value of a block is passed to the block's constructor when the stack
 constructor. A block given options that does not declare `Configured` must have a constructor that takes them; otherwise the chain does
 not compile. A block given no options is default-constructed.
 
-Settings are set anywhere in the chain:
+Each call adds one feature. The table gives what it adds, its default, and the RAM it costs. The settings may be given anywhere in the chain.
 
-| Method | Meaning | Default |
-|---|---|---|
-| `MaxPayload(bytes)` | the largest application payload | required |
-| `ReceiveRing(bytes)` | bytes the receive ring holds (byte-stream links) | 256 |
-| `ReceiveQueue(packets)` | packets the receive queue holds (packet links) | 4 |
-| `SendQueue(packets)` | packets held for the link while it is busy | 4 |
-| `PerProcess(packets)` | most packets one `Process` call sends | 8 |
-| `Clock<&Fn>()` | the clock, a function returning microseconds as `uint32` | required when a block uses time |
-| `OnReceive<&Fn>()` | the receive handler, `void(const VUB::Meta&, std::span<const uint8>)` | required |
-| `WhileDown(policy)` | what the packets do while the connection is down: `VUB::Down::Wait` or `VUB::Down::Fail` (see [Link state](#link-state)) | `Wait` |
+| Call | What it adds | Default | RAM |
+|---|---|---|---|
+| `.Link<T>()` | the wire at the bottom; required, and the last block | required | the link's own members |
+| `.Framing<T>()` | packet boundaries in a byte stream; one, right above a stream link | none; required on a stream link | the framing's buffers, sized by its growth |
+| `.Transform<T>()` | a change of each packet, with its growth | none | the transform's buffers, sized by its growth |
+| `.Layer<T>()` | a layer with a header, state or time | none | the layer's own state and its packet buffers |
+| `MaxPayload(bytes)` | the largest application payload | required | every packet buffer is sized from it, with the headers and growths of the blocks |
+| `ReceiveRing(bytes)` | the receive ring of a byte-stream link | 256 bytes | the ring's bytes; a packet link has none |
+| `ReceiveQueue(packets)` | the receive queue of a packet link | 4 packets | packets times the link's `MaxPacket`; a byte-stream link has none |
+| `MaxReceive(bytes)` | the largest payload the stack receives; a byte-stream link's receive buffer holds one packet of this size | `MaxPayload` | the receive buffer of a byte-stream link |
+| `SendQueue(packets)` | packets held for the link while it is busy (see [Send and receive](#send-and-receive)) | 0 where a stream link, or a packet link with `Ready()` and no bulk layer, allows it; otherwise 1 | the packets, each as large as the largest packet; none when 0 |
+| `Concurrent()` | `Send` from another task, and the critical sections that guard the shared state (see [Concurrent](#concurrent-the-concurrent-option-and-the-concurrent-flag)) | off | no storage; the code of the sections, only in a concurrent chain |
+| `StageQueue(packets)` | the staging ring that another task's `Send` fills; needs `Concurrent()` | 0, which gives no ring | `(packets + 1) * (MaxPayload + 3) + 4` bytes, rounded up to an even count |
+| `CountDrops()` | the drop counters and `Drops()` (see [Drop counters](#drop-counters)) | off | 16 bytes: eight 16-bit counters |
+| `HighWater()` | the highest fill of the receive ring and of the control queue, for a layer that reads them (see [Counters](#counters-usescounters-counted-and-highwater)) | off | 2 bytes |
+| `PerProcess(packets)` | the most packets one `Process` call sends | 8 | none |
+| `Clock<&Fn>()` | the clock, a function returning microseconds as `uint32` | required when a block uses time | none |
+| `OnReceive<&Fn>()` | the receive handler, `void(const VUB::Meta&, std::span<const uint8>)` | required | none |
+| `WhileDown(policy)` | what the packets do while the connection is down: `VUB::Down::Wait` or `VUB::Down::Fail` (see [Link state](#link-state)) | `Wait` | none; `Fail` needs a link that reports its state or a layer that reports its peer |
 
 The builder checks: one link, the link last; a byte-stream link has one framing right above it, a packet link has none; a link has
 traits with `Framed()` only when it is a packet link, `HalfDuplex()` or `FullDuplex()`, and a non-zero `MaxPacket(n)`; the packet built
@@ -107,18 +117,37 @@ calls `WithLastOptions`. A user block does not need this.
 
 ## Send and receive
 
-`Send(payload, meta)` encodes at once: the payload goes through the layers and transforms, from the top down, and the result is put
-in the control queue. `Process()` does the rest, in this order:
+`Send(payload, meta)` encodes at once: the payload goes through the layers and transforms, from the top down. With a send queue
+(`SendQueue(n)`, n of one or more) the result is put in the queue. With no send queue, the default on a stream link and on a packet
+link with `Ready()`, the result is given to the link in the call. A stream link keeps the framed packet until the link has taken all
+of it, so `Send` returns `busy` while a framed packet is not complete, and `Process` writes the rest. A packet link with `Ready()` is
+asked first: `Send` returns `busy` when `Ready()` is false, and nothing is taken. The check comes before the layers run, so a layer
+does not count a packet that the link then refuses. A packet link without `Ready()` needs a queue: `SendQueue(1)` or more.
+The state of a link that reports it is read by `Process`: with no send queue, a `Send` before the first `Process` that has seen the
+link up is refused as while the link is down (`busy` under `Down::Wait`, `noConnection` under `Down::Fail`), and with a queue the
+packet waits in it. So a program that opens a link runs `Process` once before its first `Send`.
+`Process()` does the rest, in this order:
 
 1. reads the clock (`Process` reads it, and so does `Feed` in a chain whose framing uses time, see below);
-2. polls the link, when the link has `Poll` (see [receiving from a link](#receiving-from-a-link));
-3. takes the received bytes or packets, and decodes them from the bottom up: framing, transforms and layers (each layer removes its
-   header), then the handler;
-4. calls every layer's `Process(now, outbox)`, which may queue packets of its own, or pass a packet up (see [passing a packet up](#passing-a-packet-up-from-process));
-5. sends.
+2. with a staging ring and a send queue (a concurrent chain), moves the staged packets into the send queue;
+3. polls the link, when the link has `Poll` (see [receiving from a link](#receiving-from-a-link));
+4. samples the link's state, when the link reports one or a layer reports its peer (see [Link state](#link-state));
+5. takes the received bytes or packets from the receive ring or queue, and decodes them from the bottom up: framing, transforms and
+   layers (each layer removes its header), then the handler;
+6. calls every layer's `Process(now, outbox)`, which may queue packets of its own, or pass a packet up (see [passing a packet up](#passing-a-packet-up-from-process));
+7. applies the change of the connection, when the link has a state;
+8. with a staging ring and no send queue, moves the staged packets to the link in this call;
+9. sends.
 
 `Feed(byte)` (byte-stream link) and `FeedPacket(packet)` (packet link) are called from the receive interrupt. They store the data;
-everything else runs in `Process`. A chain whose framing uses time stores the time of each byte in `Feed`, so the clock is read there too.
+everything else runs in `Process`. `Send` runs the chain at once, so it is called from the task that calls `Process`. On a chain built
+with `Concurrent()` and `StageQueue(n)`, `Send` from another task stages the payload, and `Process` runs the chain. A concurrent chain
+without `StageQueue(n)` has no staging ring, and its `Send` does not compile: the message says so.
+
+A layer that the application sends through is reached with `HandleAt<I>()`, or with `Requests()` for the layer that declares
+`requestsLayer` (see "Optional members" under "Writing a block"). The handle's send enters the blocks below its layer, and it returns a
+refusal to the caller without counting it. On a chain built with `Concurrent()` the handle's send refuses with `notSupported`: a layer keeps
+what the application gives it and sends from its own `Process`. A chain whose framing uses time stores the time of each byte in `Feed`, so the clock is read there too.
 
 `Find<Block>()` returns the block of that type in the chain, for the settings that change at run time, such as the gap framing's baud
 rate: `stack.Find<VUB::Gap>().SetBaud(19200)`. A chain without that block does not compile the call. A chain with two blocks of that type
@@ -228,8 +257,8 @@ Polled polled(pollLink);
 ```
 
 A chain whose link has neither member is the same size as a chain without the receiver. Measured with `sizeof` on g++ (x86-64), the
-packet stack of the link with neither member is 656 bytes and the stream stack 952 bytes (`TestVubReceiver.cpp` checks both). With
-`size.sh`, every row of the [size table](#size) is unchanged.
+packet stack of the link with neither member is 656 bytes and the stream stack 952 bytes (`TestVubReceiver.cpp` checks both). The rows of
+the [size table](#size) are measured by `size.sh`.
 
 ## Backpressure and order
 
@@ -240,10 +269,14 @@ packet for that reason.
   `Process`.
 - A packet link's `Send` returns `ok` when it took the packet, and `busy` when it has no room for it. The stack keeps the packet and
   tries again on the next `Process`. Any other status is an error: the packet is dropped and counted as `sendError`.
+- A layer's packet that the link refuses as busy (a keep-alive ping, a resend, an acknowledgement, a response sent from `Process`) goes
+  before the next packet of the application. While the layer's send is held, the application's `Send` returns `busy`; `Process` clears
+  the hold at its start, before the layers run, so the hold lasts one `Process` at most. A chain with no layer has no hold.
 - `Process` keeps sending while the link accepts, up to `PerProcess` packets, so one call can move many packets. A packet that the
   framing or the link refuses with an error counts toward `PerProcess` as well, so a bulk layer that always has data cannot hold a call.
 - `Send` and the layers' `Process` queue packets on the control lane, up to `SendQueue` packets. When the queue is full, `Send` returns
-  `busy` and nothing is queued; the caller sends again.
+  `busy` and nothing is queued; the caller sends again. With no send queue (the default on a stream link and on a packet link with
+  `Ready()`), the packet goes to the link in the call, and `busy` is returned, with nothing taken, while the link cannot take it.
 - In a chain with a layer that reports its peer, a layer's own packets (from its `Process` or its outbox) have a second queue of the same
   size, the own lane. The outbox's `Send` returns `busy` when that queue is full, and the layer keeps the packet and sends it again on the
   next `Process`. Any other chain puts the layers' packets on the control lane.
@@ -265,7 +298,7 @@ stack treats it as a change of the connection. The keep-alive for a link that ca
 
 A layer that declares `reportsPeer` must be the lowest layer of the chain: no other layer is below it, though transforms and the framing
 may be. A chain holds one such layer. The builder refuses a reporting layer with another layer below it, with the message "a layer that
-declares reportsPeer must be the lowest layer of the chain", and a second reporting layer, with "two layers declare reportsPeer". The
+declares reportsPeer must be the lowest layer of the chain: it is a hop-level block, below every other layer", and a second reporting layer, with the message "two layers declare reportsPeer: the stack keeps one peer state, and a second layer would overwrite the first". The
 reason for the first: the layer's pings go through the layers below it. Above a delivery layer such as [VUB::Reliable](Layer/Reliable),
 the pings go through a layer that holds back sending while the connection is down, so after a lost first session neither end can send its
 ping, and both wait. Below it, the pings go out, and the delivery layer sees only the application's packets. The reason for the second: the
@@ -293,9 +326,12 @@ its state the answer is always true. A chain whose layers do not ask is unchange
   application's frame is not sent: it waits, and goes from its first byte when the peer is up.
 - `WhileDown` sets what happens to the packets waiting to be sent:
   - `Wait` (the default): they stay queued. `Send` queues until the queue is full, then returns `busy`, and the packets go in order
-    after the connection is up. A layer's own packet waits the same way while the link is down.
-  - `Fail`: the queued packets are dropped and counted under `linkDown`, and `Send` returns `noConnection` while the connection is
-    down. When the peer goes down, the application's queued packets are dropped and the layers' own packets are kept; when the link goes
+    after the connection is up. A layer's own packet waits the same way while the link is down. With no send queue, `Send` returns
+    `busy` while the connection is down, and takes nothing. Under a requests layer on Reliable, the
+    copies of its packets that wait when the connection returns are dropped, with the part of a frame that was written, since Reliable sends each packet that is still wanted (see
+    [Requests](Layer/Requests#loss-restart-and-link-down)); the other packets keep their order.
+  - `Fail`: the queued packets are dropped (counted under `linkDown` with `CountDrops()`), and `Send` returns `noConnection` while the
+    connection is down. With no send queue the packets are not queued, so only `Send` changes: it returns `noConnection`. When the peer goes down, the application's queued packets are dropped and the layers' own packets are kept; when the link goes
     down, the layers' own packets are dropped too. A layer's own packet gets `noConnection` only while the link is down. A refused
     `Send` is not counted: the caller has the status.
 - `WhileDown(VUB::Down::Fail)` needs something that can report the connection down: a link with `ReportsState()`, or a layer with
@@ -319,13 +355,15 @@ number and is not acknowledged (see [VUB::Reliable](Layer/Reliable)).
 
 ## Drop counters
 
-Every packet or byte the stack discards is counted under one reason. `Drops()` returns a copy of the counters:
+Every packet or byte the stack discards is counted under one reason, on a stack built with `CountDrops()`. `Drops()` returns a copy of the
+counters. A stack without `CountDrops()` keeps no counter, no code counts, and `Drops()` is not a member: a call to it does not compile.
+`Counters()` on such a stack gives zero drops.
 
 | Field | A packet or byte dropped because |
 |---|---|
 | `ringFull` | the receive interrupt found the ring full (byte-stream link) |
 | `queueFull` | the receive interrupt found the queue full (packet link) |
-| `tooLong` | a frame or packet did not fit in the receive buffer (the link's `MaxPacket`) |
+| `tooLong` | a frame or packet did not fit in the receive buffer (the packet of `MaxReceive` on a byte-stream link, the link's `MaxPacket` on a packet link) |
 | `framingError` | the bytes did not form a frame, or the frame's checks failed |
 | `transformError` | a transform's `Decode` returned an error, or its `Encode` failed for a packet with no caller (see below) |
 | `layerError` | a layer's `Take` returned an error, or a layer's `Add` or `Next` failed for a packet with no caller, or a layer's packet from `Process` was too long, or a packet it passed up with `Deliver` was too long |
@@ -341,6 +379,12 @@ raise the count.
 
 The counters are 16-bit and stop at 65535.
 
+A layer that declares `usesCounters` reads them with `Counters()`, with the two counts of Reliable (`resends` and `peerRestarts`, when the
+Reliable is `Counted()`) and the high-water marks of the stack (`highWaterRing` and `highWaterControl`, when the chain is `HighWater()`).
+`Counters()` returns a `VUB::StackCounters`, which holds these fields with the `drops` of `Drops()`. The marks are the highest fill of the
+receive ring (on a packet link, of the receive queue) and of the control queue, and they stop at 255. See "Optional members" under
+"Writing a block".
+
 ## Size
 
 A block or an option that is not in the chain has no RAM. The buffers are sized at compile time from the chain: the packet size is the
@@ -349,30 +393,37 @@ payload plus the layer headers and transform growths, and the framed size adds t
 empty type. The code that works on the buffers is plain inline functions on spans and indexes, shared by every stack in one image.
 
 The defaults take most of the RAM of a small chain: the receive queue holds `ReceiveQueue` packets of the link's `MaxPacket` bytes, and
-the ring holds `ReceiveRing` bytes. A bootloader sets `ReceiveQueue(1)` or a smaller ring. The costs of the configurations on the target
-are in the table below.
+the ring holds `ReceiveRing` bytes. A byte-stream link's receive buffer is the packet of `MaxReceive` (`MaxPayload` by default), not the
+link's `MaxPacket`. A send queue is built when the chain needs one or asks for one with `SendQueue(n)`, and the drop counters of `CountDrops()` are
+built only when a chain asks for them. A bootloader sets `ReceiveQueue(1)` or a smaller ring. The costs of the configurations on the target are in the table below.
 
 ### Measured configurations
 
 Each row is one program built for a Cortex-M4 and a Cortex-M0+, minus its baseline. The costs are in bytes. Text is the flash of the
-code and read-only data. RAM is the data and bss of the program. Every configuration has `MaxPayload(32)` and the default queues and
-ring, and a link with `MaxPacket(64)`.
+code and read-only data. RAM is the data and bss of the program. Every configuration has `MaxPayload(32)`, the default ring, and a link
+with `MaxPacket(64)`. The queues are the defaults of the chain: no send queue on a stream link, and no drop counters unless the row says so.
+The row with `SendQueue(4)` and `CountDrops()` is the same chain as the row above it with those two calls added.
 
 | Configuration | M4 text | M4 RAM | M0+ text | M0+ RAM |
 |---|---:|---:|---:|---:|
-| (a) packet link only | 676 | 616 | 956 | 616 |
-| (b) stream link, COBS | 932 | 620 | 1212 | 620 |
-| (c) (b) + CRC-16/MODBUS table | 1624 | 700 | 1912 | 700 |
-| (d) (b) + CRC-16/MODBUS bitwise | 1144 | 700 | 1432 | 700 |
-| (e) stream link, length prefix 1, CRC-8 bitwise | 1056 | 672 | 1348 | 672 |
-| (f) stream link, gap framing, CRC-16 table | 2716 | 1720 | 2868 | 1720 |
-| (g) (c) + VUB::Reliable (Retries 3, Window 4) | 4136 | 1116 | 4612 | 1116 |
-| (h) (g) with the in-order option | 4436 | 1252 | 4952 | 1252 |
-| (i) COBS, CRC-8, VUB::ReliableOf window 1, Retries 3 | 3236 | 912 | 3708 | 912 |
-| breakdown of (i): the same without VUB::ReliableOf | 1096 | 692 | 1388 | 692 |
-| CompactStreamingProtocol<20, 4> (bootloader use) | 2292 | 1116 | 2880 | 1116 |
-| (j) stream link, COBS, CRC-16/MODBUS table, VUB::KeepAlive (default times) | 2604 | 932 | 2956 | 932 |
-| (k) (g) + VUB::KeepAlive (default times) | 5184 | 1400 | 5680 | 1400 |
+| (a) packet link only | 452 | 492 | 716 | 492 |
+| (b) stream link, COBS | 548 | 356 | 832 | 356 |
+| (c) (b) + CRC-16/MODBUS, default engine (bitwise) | 724 | 392 | 968 | 392 |
+| (b) with CRC-16, nothing else | 724 | 392 | 968 | 392 |
+| (b) with CRC-16, SendQueue(4) and CountDrops() | 988 | 604 | 1252 | 604 |
+| (d) (b) + CRC-16/MODBUS, table engine named | 1228 | 392 | 1472 | 392 |
+| (e) stream link, length prefix 1, CRC-8 bitwise | 652 | 404 | 908 | 404 |
+| (f) stream link, gap framing, CRC-16 table | 2292 | 1448 | 2392 | 1448 |
+| (g) (c) + VUB::Reliable (Retries 3, Window 4) | 3512 | 796 | 3996 | 796 |
+| (h) (g) with the in-order option | 3980 | 932 | 4512 | 932 |
+| (i) COBS, CRC-8, VUB::ReliableOf window 1, Retries 3 | 3120 | 592 | 3576 | 592 |
+| breakdown of (i): the same without VUB::ReliableOf | 692 | 392 | 944 | 392 |
+| CompactStreamingProtocol<20, 4> (bootloader use) | 2056 | 1116 | 2636 | 1116 |
+| (j) stream link, COBS, CRC-16/MODBUS (default engine), VUB::KeepAlive (default times) | 1444 | 460 | 1776 | 460 |
+| (k) (g) + VUB::KeepAlive (default times) | 4280 | 820 | 4796 | 820 |
+
+On Cortex-M0+, the text of rows (g), (i) and (k) can move by 4 bytes with the link order of two functions. The functions themselves keep
+their sizes: the padding between two of them depends on the order the linker places them in.
 
 Measured with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203` on Windows 11, through Git Bash,
 with `Common/Drivers/Interface/VUB/.tool/size/size.sh`.
@@ -426,11 +477,11 @@ the wire that has not been fed. Every fragment and every acknowledgement goes th
 - Configuration (i) uses the default ring of 256 bytes. The protocol's ring is 80 bytes. A bootloader that sets `ReceiveRing` smaller
   is not measured here.
 
-Against the protocol, configuration (i) is 944 bytes larger in text on the M4 (3236 against 2292) and 828 bytes larger on the M0+
-(3708 against 2880). Its RAM is 204 bytes smaller on the M4 (912 against 1116) and on the M0+ (912 against 1116). The design asks for
-a stack with the protocol's properties to be no larger than the protocol on the same target, so configuration (i) does not meet it in text.
-The breakdown row shows where the text goes: without `VUB::ReliableOf`, configuration (i) is 1096 bytes of text on the M4, and the layer
-adds 2140 bytes. The layer carries what the protocol does not: sequence numbers with sessions and a sync, a window, a ring of owed
+Against the protocol, configuration (i) is 1064 bytes larger in text on the M4 (3120 against 2056) and 940 bytes larger on the M0+
+(3576 against 2636). Its RAM is 524 bytes smaller on the M4 (592 against 1116) and on the M0+ (592 against 1116). A stack with the
+protocol's properties is meant to be no larger than the protocol on the same target, so configuration (i) does not meet that goal in text.
+The breakdown row shows where the text goes: without `VUB::ReliableOf`, configuration (i) is 692 bytes of text on the M4, and the layer
+adds 2428 bytes. The layer carries what the protocol does not: sequence numbers with sessions and a sync, a window, a ring of owed
 acknowledgements, retries with timeouts, and outcome reporting (see [VUB::Reliable](Layer/Reliable)). The measurement gives the size of
 the layer as a whole; it does not split the layer's code further.
 
@@ -714,8 +765,8 @@ using Watched = VUB::Stack<+[] {
 ### Passing a packet up from Process
 
 A layer that holds packets, for in-order delivery, releases them from `Process` with `outbox.Deliver(packet)`. The packet is the one the
-layer would pass up: its header removed, as its `Take` left it. It goes through the blocks above the layer, as a packet the layer had
-just taken, and reaches the receive handler once. A block above that refuses it counts the drop as it counts a received packet.
+layer would pass up: its header removed, as its `Take` left it. It goes through the blocks above the layer, as a packet the layer has
+taken, and reaches the receive handler once. A block above that refuses it counts the drop as it counts a received packet.
 `Deliver` is for `Process`; `Take` passes a packet up by returning it. A layer that calls `Deliver` declares `passesUp = true`. A chain
 whose layers do not declare it has no code for it.
 
@@ -845,7 +896,7 @@ Packet 0 is taken and reaches the handler at once. Packet 1 was held, and `Proce
 then `0x11`. A second early packet, while one is held, is refused by `Take` with `busy`, which counts it under `layerError`. The release
 of a held packet counts nothing; a block above that refuses it counts its own drop.
 
-Measured: the text of a probe of the test kit's chains, none of which has a `passesUp` layer, is 26 bytes smaller than the same chains on a stack with the passesUp support. The probe was built with `arm-none-eabi-g++` 15.2, `-Os`, Cortex-M4, and sized with `arm-none-eabi-size`.
+Measured: the text of a probe of the test kit's chains, none of which has a `passesUp` layer, is 26 bytes smaller than the same chains on a stack with the passesUp support. The probe was built with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203`, `-Os`, Cortex-M4, and sized with `arm-none-eabi-size`.
 
 ### Options
 
@@ -1004,17 +1055,397 @@ using ConfiguredBoard = VUB::Stack<+[] {
 }>;
 ```
 
+### Optional members
+
+A layer declares these members to use a feature of the stack. Each one is off when the layer does not declare it, and then the stack
+builds no code and keeps no RAM for it. The snippets of this section are compiled by the wiki test (`TestVubWikiExamples.cpp`). They
+use these three definitions, a packet link that takes every packet at once, its handler and its clock:
+
+```cpp
+struct OptionalLink {
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64).FullDuplex();
+
+	ResultStatus Send(std::span<const uint8> packet) {
+		(void)packet;
+		return ResultStatus::ok;
+	}
+};
+
+void OptionalPacket(const VUB::Meta&, std::span<const uint8> payload) {
+	(void)payload;
+}
+
+uint32 OptionalNow() {
+	return 0;
+}
+```
+
+#### Sending from the application: Handle and requestsLayer
+
+A layer that the application sends through declares a nested type `Handle`, constructible from the layer and an `Outbox`. The stack
+builds the outbox with `LayerOutbox<I>()`: its send enters the blocks below the layer at index `I`, from the caller's context, and it
+does not run the layer's own `Add`, so a layer with a header writes the header in its handle. A refusal (`busy`, `messageTooLong`,
+`noConnection`) goes back to the caller and is not counted as a drop. The outbox is for a stack that is not concurrent: `LayerOutbox<I>()`
+is a compile error on a chain built with `Concurrent()` (the message begins "LayerOutbox is for a stack that is not concurrent"), because
+its send takes the control queue from the caller's context while `Process` uses that queue without a lock. `HandleAt<I>()` gives the handle
+of the layer at `I`, and `Requests()` gives the handle of the first layer that declares `static constexpr bool requestsLayer = true`. On a
+chain built with `Concurrent()` the handle still exists, and its send refuses with `notSupported`: the layer sends from its own `Process`. A chain without such a layer
+does not compile where `Requests()` is called.
+
+```cpp
+// The relay: a layer without a header, so its handle sends the payload as it is. The handle is the relay's requests handle.
+struct Relay {
+	static constexpr std::size_t header = 0;
+	static constexpr uint32 fingerprint = 0x52454C59;
+	static constexpr bool usesTime = false;
+	static constexpr bool makesBulk = false;
+	static constexpr bool requestsLayer = true;
+
+	struct Handle {
+		Handle(Relay& owner, VUB::Outbox sender) : layer(owner), outbox(sender) {
+		}
+
+		ResultStatus Send(std::span<const uint8> payload) const {
+			return outbox.Send(payload);
+		}
+
+		Relay& layer;
+		VUB::Outbox outbox;
+	};
+
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = in[index];
+		}
+
+		return in.size();
+	}
+
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
+	}
+
+	void Process(uint32, const VUB::Outbox&) {
+	}
+};
+
+using RelayBoard = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Layer<Relay>()
+		.Link<OptionalLink>()
+		.MaxPayload(32)
+		.OnReceive<&OptionalPacket>()
+		.Clock<&OptionalNow>();
+}>;
+
+void SendThroughRelay(RelayBoard& board) {
+	std::array<uint8, 2> hello = {1, 2};
+	board.Requests().Send(std::span<const uint8>(hello.data(), hello.size()));
+	board.Process();
+}
+```
+
+#### The owner of the layer below: wantsOwner
+
+A layer that declares `static constexpr bool wantsOwner = true` sits directly above a `VUB::Reliable`. The builder gives Reliable two
+static functions of the layer: `static void DeliveryOutcome(const VUB::Outcome&)`, called for each outcome, and
+`static void DeliveryRestart(void*)`, called when the peer restarts. The stack stores the address of the layer in Reliable when it is
+built, so `Outcome::owner` and the argument of the restart are that address, and two stacks in one program do not share a handler. The
+stack must therefore stay where it was built: the address is taken at construction, and a copy or a move of the stack would leave the
+owner pointing at the old one.
+A layer above with `wantsOwner` takes both handlers, so the application's `OnOutcome` and `OnRestart` on that Reliable do not compile.
+`OnRestartOwner<&Fn>()` is the restart with the owner pointer for a Reliable with no such layer above it; there the owner is null.
+
+A layer above with `wantsOwner` may also declare `static bool DeliveryWanted(void* owner, std::span<const uint8> payload)`. Reliable asks
+it before a data packet is sent again: when the answer is no, the packet is not sent, and its outcome is `operationCancelled`. The Reliable
+layer's outcomes list has the rule. The first send of a packet is not asked about, and with no `DeliveryWanted` above, Reliable has no
+check and no code for it.
+
+A layer that works with and without an owner below it declares `static constexpr bool ownerOptional = true`, so a block below that takes
+no owner (a framing, a link) is no compile error. It reads what is below it through an options member `bool ownerBelow = false`: the
+builder sets it to true when the block below takes the owner, so the layer knows at compile time whether its outcomes exist. A layer
+without `ownerOptional` above a block that takes no owner does not compile.
+
+```cpp
+// A layer above Reliable that counts the outcomes of its packets and the restarts, through its owner pointer.
+struct Owned {
+	static constexpr std::size_t header = 0;
+	static constexpr uint32 fingerprint = 0x4F574E31;
+	static constexpr bool usesTime = false;
+	static constexpr bool makesBulk = false;
+	static constexpr bool wantsOwner = true;
+	static constexpr bool requestsLayer = true;
+
+	struct Handle {
+		Handle(Owned& owner, VUB::Outbox sender) : layer(owner), outbox(sender) {
+		}
+
+		ResultStatus Send(std::span<const uint8> payload) const {
+			return outbox.Send(payload);
+		}
+
+		Owned& layer;
+		VUB::Outbox outbox;
+	};
+
+	static void DeliveryOutcome(const VUB::Outcome& outcome) {
+		Owned* self = static_cast<Owned*>(outcome.owner);
+		if (outcome.status == ResultStatus::ok) {
+			self->acknowledged++;
+		}
+	}
+
+	static void DeliveryRestart(void* owner) {
+		static_cast<Owned*>(owner)->restarts++;
+	}
+
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = in[index];
+		}
+
+		return in.size();
+	}
+
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
+	}
+
+	void Process(uint32, const VUB::Outbox&) {
+	}
+
+	uint32 acknowledged = 0;
+	uint32 restarts = 0;
+};
+
+using OwnedBoard = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Layer<Owned>()
+		.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).PayloadBytes(32)
+		.Link<OptionalLink>()
+		.MaxPayload(32)
+		.OnReceive<&OptionalPacket>()
+		.Clock<&OptionalNow>();
+}>;
+```
+
+#### The largest packet: largestPacket
+
+A layer that sends packets of at most `N` bytes to the layer below declares `static constexpr std::size_t largestPacket = N`. Reliable
+exposes its capacity as `payloadCapacity`. When the layer directly above a Reliable declares `largestPacket`, the builder requires
+`largestPacket <= payloadCapacity`, and the message shows `largestPacket`: that is the `PayloadCapacity` to give `VUB::ReliableOf`.
+
+```cpp
+// A layer whose packets are at most 40 bytes. Over Reliable it needs a payload capacity of 40, so the Reliable is ReliableOf<40, 4>.
+struct Bulky {
+	static constexpr std::size_t header = 0;
+	static constexpr std::size_t largestPacket = 40;
+	static constexpr uint32 fingerprint = 0x42554C4B;
+	static constexpr bool usesTime = false;
+	static constexpr bool makesBulk = false;
+
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = in[index];
+		}
+
+		return in.size();
+	}
+
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
+	}
+
+	void Process(uint32, const VUB::Outbox&) {
+	}
+};
+
+using BulkyBoard = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Layer<Bulky>()
+		.Layer<VUB::ReliableOf<40, 4>>()
+		.Link<OptionalLink>()
+		.MaxPayload(40)
+		.OnReceive<&OptionalPacket>()
+		.Clock<&OptionalNow>();
+}>;
+```
+
+#### Counters: usesCounters, Counted and HighWater
+
+A layer that reads the stack's counters declares `static constexpr bool usesCounters = true` and takes `const VUB::CountingOutbox&` in
+`Process`. Its `Counters()` returns a `VUB::StackCounters`: the drop counters (`drops`), Reliable's resends and peer restarts (`resends`
+and `peerRestarts`), and the highest fill of the receive ring and of the control queue (`highWaterRing` and `highWaterControl`, saturating
+at 255). Reliable keeps its two counts when the layer is `Counted()`, which is 4 bytes of RAM, and the stack keeps its marks when the
+chain is `HighWater()`, which is 2 bytes. A part that is off reads zero. The layers above a layer are processed first, so the counts a
+layer reads in its `Process` are those of the previous call.
+
+```cpp
+// A layer that keeps the resends of the Reliable layer below it and the highest control queue fill.
+struct Watch {
+	static constexpr std::size_t header = 0;
+	static constexpr uint32 fingerprint = 0x57415443;
+	static constexpr bool usesTime = false;
+	static constexpr bool makesBulk = false;
+	static constexpr bool usesCounters = true;
+
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = in[index];
+		}
+
+		return in.size();
+	}
+
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
+	}
+
+	void Process(uint32, const VUB::CountingOutbox& outbox) {
+		VUB::StackCounters counters = outbox.Counters();
+		resends = counters.resends;
+		queueHighWater = counters.highWaterControl;
+	}
+
+	uint16 resends = 0;
+	uint8 queueHighWater = 0;
+};
+
+using WatchedBoard = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Layer<Watch>()
+		.Layer<VUB::ReliableOf<32, 4>>().Counted()
+		.Link<OptionalLink>()
+		.MaxPayload(32)
+		.OnReceive<&OptionalPacket>()
+		.Clock<&OptionalNow>()
+		.HighWater();
+}>;
+```
+
+A layer that sends these counters on, such as a requests layer with `AnswerHealth`, declares `static constexpr bool needsCounters = true`. The stack then refuses the chain unless it is `CountDrops()` and `HighWater()`, and, when the block below takes the owner (Reliable), unless that block is `Counted()`. The layer's own `Counted()` is a rule of the layer itself: its refusals, late replies and lost events are the counts the reply carries.
+
+#### Concurrent: the Concurrent option and the concurrent flag
+
+`Concurrent()` on the builder lets the application send from another task while `Process` runs, with `StageQueue(n)` for the staging
+ring. The send from that task copies the payload into a staging ring, under a short critical section (`System::CriticalSection`), and
+returns. `Process` moves the staged packets on at its start, in its own context, oldest first: to the send queue, or to the link in the
+call on a stack with no send queue. Then it runs as it does on any stack. Only the short pushes and pops of
+the staging ring are in a critical section; the receive handlers, the links and the layers' `Process` run outside any section.
+
+`Send` on a concurrent stack returns `ok` when the payload is staged, so the encode and the queueing happen in `Process`, and a refusal
+there is counted in `Drops()` and is not returned to the sender. It returns `busy` when the staging ring is full, and the payload is not
+taken: the sender sends it again. `messageTooLong` and `noConnection` (under `Fail`) are returned at once, as on any stack.
+
+`StageQueue(packets)` sets the size of the staging ring. It is 0 by default: a concurrent stack without `StageQueue(n)` has no staging ring
+and no code for one, its layers still get the concurrent flag, and its `Send` does not compile. The ring takes the largest payload
+(`MaxPayload`) per packet, so its RAM is `(packets + 1) * (MaxPayload() + 3) + 4` bytes, rounded up to an even count. A stack without
+`Concurrent()` has no staging ring, and no code for it.
+
+A layer that guards its own shared state the same way declares an options member `bool concurrent = false`, with a `Step` and
+`Configured` (see Two ways to take options). The stack sets the member from `Concurrent()`, and the layer reads it as a constant:
+`static constexpr bool concurrent = Value.concurrent`. A chain without `Concurrent()` builds no section, and a layer with no `concurrent`
+member is given nothing.
+
+```cpp
+// A layer whose shared count changes in a critical section when the stack is concurrent. Its options carry the flag.
+struct GuardOptions {
+	bool concurrent = false;
+};
+
+template<GuardOptions Value = GuardOptions{}>
+struct Guarded {
+	using Options = GuardOptions;
+
+	template<Options value>
+	using Configured = Guarded<value>;
+
+	template<typename Builder>
+	struct Step : Builder {
+		explicit constexpr Step(const Builder& base) : Builder(base) {
+		}
+	};
+
+	static constexpr bool concurrent = Value.concurrent;
+	static constexpr std::size_t header = 0;
+	static constexpr uint32 fingerprint = 0x47554152;
+	static constexpr bool usesTime = false;
+	static constexpr bool makesBulk = false;
+
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = in[index];
+		}
+
+		return in.size();
+	}
+
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
+	}
+
+	void Process(uint32, const VUB::Outbox&) {
+	}
+
+	// Called from an application task. The count changes inside a critical section when the stack is concurrent.
+	void Increment() {
+		if constexpr (concurrent) {
+			System::CriticalSection(true);
+		}
+
+		count++;
+		if constexpr (concurrent) {
+			System::CriticalSection(false);
+		}
+	}
+
+	uint32 count = 0;
+};
+
+using GuardedBoard = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Layer<Guarded<>>()
+		.Link<OptionalLink>()
+		.MaxPayload(8)
+		.OnReceive<&OptionalPacket>()
+		.Clock<&OptionalNow>()
+		.Concurrent();
+}>;
+```
+
 ## Compilers
 
 The host tests (`Common/Drivers/Interface/VUB/.tool/sim/run.sh`) pass with g++ 11.4 (Ubuntu 22.04, under WSL) and g++ 15.2 (MinGW, on
 Windows 11). The header checks and the builder error snippets run with both. The microcontroller headers are checked alone with
-`arm-none-eabi-g++` 15.2 (Arm GNU Toolchain 15.2.Rel1), and the size table is measured with it. Other compilers, clang++ among them, are
+`arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203`, and the size table is measured with it. Other compilers, clang++ among them, are
 not tested.
 
 ## Status
 
 Built: the core, the link state, the test kit, the host tests, the built-in blocks (CRC, COBS, length prefix, gap framing, delivery,
-keep-alive), the size table, the links on a microcontroller and on a PC, and the board check on the STM32G431 over UART, USB CDC and
-USB bulk.
+keep-alive), the requests layer (requests with a typed body and one final reply, interim replies, cancel, `Fire`, `NoReply` commands,
+the handlers of the commands a device serves, events, counters, ping, health, and `Await` on a concurrent stack; see Layer/Requests),
+the size table, the links on a microcontroller and on a PC, and the board check on the STM32G431 over UART, USB CDC and USB bulk.
 
-Not built: requests and health, addressing, large data, encryption and the CRC engine, values and subscriptions, and the SPI links.
+Not built: addressing, large data, encryption, values and subscriptions, and the SPI links. The CRC engines are the shared library's
+(see the [CRC](../../../Utilities/Checksum/CRC/Crc) page).

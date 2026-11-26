@@ -244,12 +244,14 @@ void TestResetDropsPartialFrame() {
 }
 
 
-// Growth is the COBS worst case plus the delimiter: n + n / 254 + 2. The frames above fit it: 254 bytes give 256, 255 give 258.
+// Growth is what the frame adds to the packet: n / 254 + 1 code bytes at most, and the delimiter. The frames above fit it: 254 bytes give
+// 256, 255 give 258.
 void TestGrowth() {
-	SIM_EXPECT(VUB::Cobs::Growth(254) == 257);
-	SIM_EXPECT(VUB::Cobs::Growth(255) == 258);
+	SIM_EXPECT(VUB::Cobs::Growth(254) == 3);
+	SIM_EXPECT(VUB::Cobs::Growth(255) == 3);
 	SIM_EXPECT(VUB::Cobs::Growth(0) == 2);
-	SIM_EXPECT(VUB::Cobs::Growth(1) == 3);
+	SIM_EXPECT(VUB::Cobs::Growth(1) == 2);
+	SIM_EXPECT(VUB::Cobs::Growth(508) == 4);
 }
 
 
@@ -267,7 +269,7 @@ void TestLeadingDelimiterByHand() {
 		SIM_EXPECT(frame[index] == expected[index]);
 	}
 
-	SIM_EXPECT(VUB::CobsFlushed::Growth(1) == 4);
+	SIM_EXPECT(VUB::CobsFlushed::Growth(1) == 3);
 }
 
 

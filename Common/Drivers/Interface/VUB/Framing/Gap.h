@@ -1,5 +1,6 @@
 #pragma once
 #include <Drivers/Interface/VUB/Blocks.h>
+#include <Drivers/Interface/VUB/Bytes.h>
 #include <Drivers/Interface/VUB/Meta.h>
 #include <Drivers/Interface/VUB/Require.h>
 #include <Utilities/DataTypes.h>
@@ -136,10 +137,7 @@ public:
 			return ResultStatus::messageTooLong;
 		}
 
-		for (std::size_t index = 0; index < in.size(); index++) {
-			out[index] = in[index];
-		}
-
+		CopyBytes(in.data(), in.size(), out.data());
 		return in.size();
 	}
 
@@ -211,7 +209,7 @@ public:
 		}
 
 		uint32 start = nowUs;
-		if (haveTx && AtLeast(nowUs, txEndUs, 0)) {
+		if (haveTx && Due(txEndUs, nowUs)) {
 			start = txEndUs;
 		}
 

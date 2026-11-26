@@ -6,6 +6,7 @@
 #include <Drivers/Interface/VUB/TestKit/Contracts.h>
 #include <Drivers/Interface/VUB/TestKit/Loopback.h>
 #include <Drivers/Interface/VUB/Transform/Crc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -13,6 +14,7 @@
 #include <cstddef>
 #include <optional>
 #include <span>
+#include <tuple>
 
 
 // Every code snippet of the VUB wiki compiles here. The snippets are copied from .wiki/Common/Drivers/Interface/VUB/README.md, in the
@@ -73,6 +75,7 @@ void OnPacket(const VUB::Meta&, std::span<const uint8> payload) {
 
 using Board = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Transform<SumCheck>()
 		.Link<BoardLink>()
 		.MaxPayload(32)
@@ -96,6 +99,19 @@ bool CheckContract() {
 }  // namespace WikiWriting
 
 
+// The smallest chain of the wiki's The chain section: a link, a payload size and a receive handler.
+namespace WikiSmallest {
+using WikiWriting::BoardLink;
+using WikiWriting::OnPacket;
+
+using Board = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Link<BoardLink>()
+		.MaxPayload(32)
+		.OnReceive<&OnPacket>();
+}>;
+}  // namespace WikiSmallest
+
 // The chain shape of the wiki. It uses the types of the Writing a block snippets.
 namespace WikiChain {
 using WikiWriting::BoardLink;
@@ -104,6 +120,7 @@ using WikiWriting::SumCheck;
 
 using Board = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Transform<SumCheck>()
 		.Link<BoardLink>()
 		.MaxPayload(32)
@@ -125,8 +142,9 @@ uint32 BoardClockUs() {
 using Board = VUB::Stack<+[] {
 	using namespace VUB;
 	return Builder()
+		.CountDrops()
 		.Layer<Reliable>().Retries(3).TimeoutMs(200)
-		.Transform<Crc16Modbus>()
+		.Transform<Crc<Checksum::Crc16Modbus>>()
 		.Link<BoardLink>()
 		.MaxPayload(32)
 		.OnReceive<&OnPacket>()
@@ -196,6 +214,7 @@ struct XorKey {
 
 using Board = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Transform<XorKey>().Key(0x5A)
 		.Link<BoardLink>()
 		.MaxPayload(32)
@@ -260,6 +279,7 @@ struct XorKeyOf {
 
 using ConfiguredBoard = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Transform<XorKeyOf<>>().Key(0x5A)
 		.Link<BoardLink>()
 		.MaxPayload(32)
@@ -304,6 +324,7 @@ struct UsbLink {
 
 using Usb = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Link<UsbLink>()
 		.MaxPayload(32)
 		.WhileDown(VUB::Down::Fail)
@@ -392,6 +413,7 @@ struct LineFraming {
 
 using Lines = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Framing<LineFraming>()
 		.Link<VUB::StreamEnd<64, 512, true>>()
 		.MaxPayload(32)
@@ -459,6 +481,7 @@ inline uint32 Now() {
 
 using Watched = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<PeerWatch>()
 		.Link<VUB::PacketEnd<64, 512>>()
 		.MaxPayload(32)
@@ -476,6 +499,7 @@ using WikiLine = VUB::PacketLine<64, 512, true>;
 
 using Near = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Link<VUB::PacketEnd<64, 512, true>>()
 		.MaxPayload(32)
 		.WhileDown(VUB::Down::Fail)
@@ -609,6 +633,7 @@ struct InOrderLink {
 
 using InOrderStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<InOrder>()
 		.Link<InOrderLink>()
 		.MaxPayload(8)
@@ -694,6 +719,7 @@ void OnReceived(const VUB::Meta&, std::span<const uint8>) {
 
 using Uart = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Framing<VUB::Cobs>()
 		.Link<UartLink>()
 		.MaxPayload(32)
@@ -704,6 +730,7 @@ using Uart = VUB::Stack<+[] {
 
 using Polled = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Link<PollLink>()
 		.MaxPayload(32)
 		.ReceiveQueue(2)
@@ -735,6 +762,313 @@ void ReceiveSample() {
 }  // namespace WikiReceive
 
 
+// The optional members of a layer (the "Optional members" section of the wiki page). The definitions are those of the section.
+namespace WikiOptional {
+struct OptionalLink {
+	static constexpr VUB::LinkTraits traits = VUB::LinkTraits().Framed().MaxPacket(64).FullDuplex();
+
+	ResultStatus Send(std::span<const uint8> packet) {
+		(void)packet;
+		return ResultStatus::ok;
+	}
+};
+
+void OptionalPacket(const VUB::Meta&, std::span<const uint8> payload) {
+	(void)payload;
+}
+
+uint32 OptionalNow() {
+	return 0;
+}
+
+
+// The relay: a layer without a header, so its handle sends the payload as it is. The handle is the relay's requests handle.
+struct Relay {
+	static constexpr std::size_t header = 0;
+	static constexpr uint32 fingerprint = 0x52454C59;
+	static constexpr bool usesTime = false;
+	static constexpr bool makesBulk = false;
+	static constexpr bool requestsLayer = true;
+
+	struct Handle {
+		Handle(Relay& owner, VUB::Outbox sender) : layer(owner), outbox(sender) {
+		}
+
+		ResultStatus Send(std::span<const uint8> payload) const {
+			return outbox.Send(payload);
+		}
+
+		Relay& layer;
+		VUB::Outbox outbox;
+	};
+
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = in[index];
+		}
+
+		return in.size();
+	}
+
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
+	}
+
+	void Process(uint32, const VUB::Outbox&) {
+	}
+};
+
+using RelayBoard = VUB::Stack<+[] {
+	return VUB::Builder()
+		.CountDrops()
+		.Layer<Relay>()
+		.Link<OptionalLink>()
+		.MaxPayload(32)
+		.OnReceive<&OptionalPacket>()
+		.Clock<&OptionalNow>();
+}>;
+
+void SendThroughRelay(RelayBoard& board) {
+	std::array<uint8, 2> hello = {1, 2};
+	board.Requests().Send(std::span<const uint8>(hello.data(), hello.size()));
+	board.Process();
+}
+
+
+// A layer above Reliable that counts the outcomes of its packets and the restarts, through its owner pointer.
+struct Owned {
+	static constexpr std::size_t header = 0;
+	static constexpr uint32 fingerprint = 0x4F574E31;
+	static constexpr bool usesTime = false;
+	static constexpr bool makesBulk = false;
+	static constexpr bool wantsOwner = true;
+	static constexpr bool requestsLayer = true;
+
+	struct Handle {
+		Handle(Owned& owner, VUB::Outbox sender) : layer(owner), outbox(sender) {
+		}
+
+		ResultStatus Send(std::span<const uint8> payload) const {
+			return outbox.Send(payload);
+		}
+
+		Owned& layer;
+		VUB::Outbox outbox;
+	};
+
+	static void DeliveryOutcome(const VUB::Outcome& outcome) {
+		Owned* self = static_cast<Owned*>(outcome.owner);
+		if (outcome.status == ResultStatus::ok) {
+			self->acknowledged++;
+		}
+	}
+
+	static void DeliveryRestart(void* owner) {
+		static_cast<Owned*>(owner)->restarts++;
+	}
+
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = in[index];
+		}
+
+		return in.size();
+	}
+
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
+	}
+
+	void Process(uint32, const VUB::Outbox&) {
+	}
+
+	uint32 acknowledged = 0;
+	uint32 restarts = 0;
+};
+
+using OwnedBoard = VUB::Stack<+[] {
+	return VUB::Builder()
+		.CountDrops()
+		.Layer<Owned>()
+		.Layer<VUB::Reliable>().Retries(3).TimeoutMs(200).PayloadBytes(32)
+		.Link<OptionalLink>()
+		.MaxPayload(32)
+		.OnReceive<&OptionalPacket>()
+		.Clock<&OptionalNow>();
+}>;
+
+
+// A layer whose packets are at most 40 bytes. Over Reliable it needs a payload capacity of 40, so the Reliable is ReliableOf<40, 4>.
+struct Bulky {
+	static constexpr std::size_t header = 0;
+	static constexpr std::size_t largestPacket = 40;
+	static constexpr uint32 fingerprint = 0x42554C4B;
+	static constexpr bool usesTime = false;
+	static constexpr bool makesBulk = false;
+
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = in[index];
+		}
+
+		return in.size();
+	}
+
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
+	}
+
+	void Process(uint32, const VUB::Outbox&) {
+	}
+};
+
+using BulkyBoard = VUB::Stack<+[] {
+	return VUB::Builder()
+		.CountDrops()
+		.Layer<Bulky>()
+		.Layer<VUB::ReliableOf<40, 4>>()
+		.Link<OptionalLink>()
+		.MaxPayload(40)
+		.OnReceive<&OptionalPacket>()
+		.Clock<&OptionalNow>();
+}>;
+
+
+// A layer that keeps the resends of the Reliable layer below it and the highest control queue fill.
+struct Watch {
+	static constexpr std::size_t header = 0;
+	static constexpr uint32 fingerprint = 0x57415443;
+	static constexpr bool usesTime = false;
+	static constexpr bool makesBulk = false;
+	static constexpr bool usesCounters = true;
+
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = in[index];
+		}
+
+		return in.size();
+	}
+
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
+	}
+
+	void Process(uint32, const VUB::CountingOutbox& outbox) {
+		VUB::StackCounters counters = outbox.Counters();
+		resends = counters.resends;
+		queueHighWater = counters.highWaterControl;
+	}
+
+	uint16 resends = 0;
+	uint8 queueHighWater = 0;
+};
+
+using WatchedBoard = VUB::Stack<+[] {
+	return VUB::Builder()
+		.CountDrops()
+		.Layer<Watch>()
+		.Layer<VUB::ReliableOf<32, 4>>().Counted()
+		.Link<OptionalLink>()
+		.MaxPayload(32)
+		.OnReceive<&OptionalPacket>()
+		.Clock<&OptionalNow>()
+		.HighWater();
+}>;
+
+
+// A layer whose shared count changes in a critical section when the stack is concurrent. Its options carry the flag.
+struct GuardOptions {
+	bool concurrent = false;
+};
+
+template<GuardOptions Value = GuardOptions{}>
+struct Guarded {
+	using Options = GuardOptions;
+
+	template<Options value>
+	using Configured = Guarded<value>;
+
+	template<typename Builder>
+	struct Step : Builder {
+		explicit constexpr Step(const Builder& base) : Builder(base) {
+		}
+	};
+
+	static constexpr bool concurrent = Value.concurrent;
+	static constexpr std::size_t header = 0;
+	static constexpr uint32 fingerprint = 0x47554152;
+	static constexpr bool usesTime = false;
+	static constexpr bool makesBulk = false;
+
+	Result<std::size_t> Add(const VUB::Meta&, std::span<const uint8> in, std::span<uint8> out) {
+		if (out.size() < in.size()) {
+			return ResultStatus::invalidParameter;
+		}
+
+		for (std::size_t index = 0; index < in.size(); index++) {
+			out[index] = in[index];
+		}
+
+		return in.size();
+	}
+
+	Result<VUB::Taken> Take(const VUB::Meta&, std::span<const uint8>) {
+		return VUB::Taken{0, true};
+	}
+
+	void Process(uint32, const VUB::Outbox&) {
+	}
+
+	// Called from an application task. The count changes inside a critical section when the stack is concurrent.
+	void Increment() {
+		if constexpr (concurrent) {
+			System::CriticalSection(true);
+		}
+
+		count++;
+		if constexpr (concurrent) {
+			System::CriticalSection(false);
+		}
+	}
+
+	uint32 count = 0;
+};
+
+using GuardedBoard = VUB::Stack<+[] {
+	return VUB::Builder()
+		.CountDrops()
+		.Layer<Guarded<>>()
+		.Link<OptionalLink>()
+		.MaxPayload(8)
+		.OnReceive<&OptionalPacket>()
+		.Clock<&OptionalNow>()
+		.Concurrent();
+}>;
+
+static_assert(std::tuple_element_t<0, GuardedBoard::Storage>::concurrent);
+static_assert(std::tuple_element_t<0, WatchedBoard::Storage>::usesCounters);
+static_assert(WatchedBoard::count == 3);
+static_assert(BulkyBoard::count == 3);
+static_assert(OwnedBoard::count == 3);
+}  // namespace WikiOptional
+
 int main() {
 	WikiReceive::ReceiveSample();
 	SIM_EXPECT(WikiWriting::CheckContract());
@@ -746,5 +1080,9 @@ int main() {
 	WikiOutage::RebootPattern();
 	WikiOutage::OutageSample();
 	WikiDeliver::CheckInOrder();
+	WikiOptional::OptionalLink relayLink;
+	WikiOptional::RelayBoard relayBoard(relayLink);
+	WikiOptional::SendThroughRelay(relayBoard);
+	SIM_EXPECT(relayBoard.Drops().layerError == 0);
 	return SimFinish("TestVubWikiExamples");
 }

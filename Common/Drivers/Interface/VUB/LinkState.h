@@ -49,7 +49,6 @@ struct LinkRecord {
 	bool peerUp = true;
 	bool connected = false;
 	uint16 downs = 0;
-	uint16 dropped = 0;
 
 
 	// Records what the link reports. Called from the link's interrupt: the stack acts on it in Process. The state is written ahead of a

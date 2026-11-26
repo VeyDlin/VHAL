@@ -15,8 +15,8 @@
 
 // The in-order option of the delivery layer: VUB::ReliableOf with InOrder = true. A packet inside the window is held until the packets
 // before it have gone up; it is passed up from Process through the outbox's Deliver, and it is acknowledged when it goes up. The sessions
-// use the sender's numbers: the sync is number 0, the data starts at 1. The session tag of boot 0x2020 is 0x20 for counter 0. The
-// payloads are two bytes, the id, little-endian.
+// use the sender's numbers: the sync has the first number of its boot (0xA6E0 for boot 0x2020), and the data starts after it. The session
+// tag of boot 0x2020 is 0x46 for counter 0. The payloads are two bytes, the id, little-endian.
 
 
 using OrderLayer = VUB::ReliableOf<40, 4, true>;
@@ -188,10 +188,11 @@ void EstablishOrder(Sender& sender, OrderSide& sWire, Receiver& receiver, OrderS
 }
 
 
-// The first test: the packets of ids 0 to 2 are numbers 1 to 3. The packet of id 0 is lost, and its resends too. Ids 1 and 2 arrive and
-// wait for it. The sender gives up on ids 0 to 2 at 1.4 s, and sends id 3 (number 4) at 1.45 s, with the window base 4 in its delta. The
-// receiver then passes up ids 1, 2 and 3 in order, and acknowledges each of them when it goes up.
-void TestHeldPacketsGoUpAfterTheSenderGivesUpTheGap() {
+// The packets of ids 0 to 2 are numbers 0xA6E1 to 0xA6E3 (the first number of boot 0x2020 is 0xA6E0). The packet of id 0 is lost, and its
+// resends too. Ids 1 and 2 arrive and wait for it. The sender gives up on ids 0 to 2 at 1.4 s, and sends id 3 (number 0xA6E4) at 1.45 s,
+// with its window base 0xA6E4 in the delta. The base of the receiver moves to that number, so ids 1 and 2, held below it, are dropped: the
+// sender has given them up, so they are not acknowledged and do not go up. Only id 3 goes up, and only its acknowledgement is sent.
+void TestGivenUpGapDropsTheHeldPacketsBelowTheSenderBase() {
 	ResetOrderState();
 	OrderSide sWire{};
 	OrderSide rWire{};
@@ -202,8 +203,8 @@ void TestHeldPacketsGoUpAfterTheSenderGivesUpTheGap() {
 	SIM_EXPECT(SendOrder(sender, 0, sWire));
 	SIM_EXPECT(SendOrder(sender, 1, sWire));
 	SIM_EXPECT(SendOrder(sender, 2, sWire));
-	// Data of number 1, id 0: 01 20 01 00 00 00 00.
-	std::array<uint8, 7> first = {0x01, 0x20, 0x01, 0x00, 0x00, 0x00, 0x00};
+	// Data of number 0xA6E1, id 0: 01 46 E1 A6 00 00 00.
+std::array<uint8, 7> first = {0x01, 0x46, 0xE1, 0xA6, 0x00, 0x00, 0x00};
 	SIM_EXPECT(SentIs(sWire, 0, first));
 	SIM_EXPECT(CarryAt(sWire, 1, receiver));
 	SIM_EXPECT(CarryAt(sWire, 2, receiver));
@@ -222,31 +223,25 @@ void TestHeldPacketsGoUpAfterTheSenderGivesUpTheGap() {
 	SIM_EXPECT(orderStatus[1] == ResultStatus::retryExhausted);
 	SIM_EXPECT(orderStatus[2] == ResultStatus::retryExhausted);
 
-	// Id 3 is number 4. The sender has nothing unsettled, so its base is 4 and the delta is 0: 01 20 04 00 00 03 00.
+	// Id 3 is number 0xA6E4. The sender has nothing unsettled, so its base is 0xA6E4 and the delta is 0: 01 46 E4 A6 00 03 00.
 	SIM_EXPECT(SendOrder(sender, 3, sWire));
-	std::array<uint8, 7> afterGiveUp = {0x01, 0x20, 0x04, 0x00, 0x00, 0x03, 0x00};
+	std::array<uint8, 7> afterGiveUp = {0x01, 0x46, 0xE4, 0xA6, 0x00, 0x03, 0x00};
 	SIM_EXPECT(SentIs(sWire, 0, afterGiveUp));
 	SIM_EXPECT(CarryAt(sWire, 0, receiver));
 	sWire.count = 0;
 	receiver.Process(1450000, OrderOutbox(rWire));
-	SIM_EXPECT(rWire.upCount == 3);
-	SIM_EXPECT(rWire.up[0] == 1);
-	SIM_EXPECT(rWire.up[1] == 2);
-	SIM_EXPECT(rWire.up[2] == 3);
-	// One acknowledgement for each packet that went up, each alone: tag 0x20, numbers 2, 3 and 4.
-	SIM_EXPECT(rWire.count == 3);
-	std::array<uint8, 4> ack2 = {0x12, 0x20, 0x02, 0x00};
-	std::array<uint8, 4> ack3 = {0x12, 0x20, 0x03, 0x00};
-	std::array<uint8, 4> ack4 = {0x12, 0x20, 0x04, 0x00};
-	SIM_EXPECT(SentIs(rWire, 0, ack2));
-	SIM_EXPECT(SentIs(rWire, 1, ack3));
-	SIM_EXPECT(SentIs(rWire, 2, ack4));
+	SIM_EXPECT(rWire.upCount == 1);
+	SIM_EXPECT(rWire.up[0] == 3);
+	// One acknowledgement, for the packet that went up: tag 0x46, number 0xA6E4.
+	SIM_EXPECT(rWire.count == 1);
+	std::array<uint8, 4> ack4 = {0x12, 0x46, 0xE4, 0xA6};
+	SIM_EXPECT(SentIs(rWire, 0, ack4));
 	CarryAll(rWire, sender);
 	sender.Process(1450000, OrderOutbox(sWire));
-	// Id 3 is acknowledged, so it is ok. Ids 1 and 2 were given up before their acknowledgements came, so they stay retryExhausted:
-	// they were passed up, which the outcome allows.
+	// Id 3 is acknowledged, so it is ok. Ids 0, 1 and 2 were given up, so they stay retryExhausted and are not passed up.
 	SIM_EXPECT(orderStatus[3] == ResultStatus::ok);
 	SIM_EXPECT(orderStatus[1] == ResultStatus::retryExhausted);
+	SIM_EXPECT(orderStatus[2] == ResultStatus::retryExhausted);
 	SIM_EXPECT(orderOutcomes[0] == 1);
 	SIM_EXPECT(orderOutcomes[1] == 1);
 	SIM_EXPECT(orderOutcomes[2] == 1);
@@ -283,9 +278,9 @@ void TestGapFillReleasesInOrderAndAcknowledgesEach() {
 	SIM_EXPECT(rWire.up[1] == 1);
 	SIM_EXPECT(rWire.up[2] == 2);
 	SIM_EXPECT(rWire.count == 3);
-	std::array<uint8, 4> ack1 = {0x12, 0x20, 0x01, 0x00};
-	std::array<uint8, 4> ack2 = {0x12, 0x20, 0x02, 0x00};
-	std::array<uint8, 4> ack3 = {0x12, 0x20, 0x03, 0x00};
+	std::array<uint8, 4> ack1 = {0x12, 0x46, 0xE1, 0xA6};
+	std::array<uint8, 4> ack2 = {0x12, 0x46, 0xE2, 0xA6};
+	std::array<uint8, 4> ack3 = {0x12, 0x46, 0xE3, 0xA6};
 	SIM_EXPECT(SentIs(rWire, 0, ack1));
 	SIM_EXPECT(SentIs(rWire, 1, ack2));
 	SIM_EXPECT(SentIs(rWire, 2, ack3));
@@ -325,8 +320,8 @@ void TestReceiverRebootClearsHeldPackets() {
 	SIM_EXPECT(CarryAt(sWire, 0, rebooted));
 	SIM_EXPECT(CarryAt(sWire, 1, rebooted));
 	rebooted.Process(1200000, OrderOutbox(rebootWire));
-	// Resync request for tag 0x20.
-	std::array<uint8, 2> resync = {0x08, 0x20};
+	// Resync request for tag 0x46.
+	std::array<uint8, 2> resync = {0x08, 0x46};
 	SIM_EXPECT(rebootWire.count == 1);
 	SIM_EXPECT(SentIs(rebootWire, 0, resync));
 	CarryAll(rebootWire, sender);
@@ -490,12 +485,215 @@ void TestEightBitNumbersWrapInOrder() {
 }
 
 
+// Hands raw packet bytes to the layer, and returns whether the layer took them.
+template<typename Layer, std::size_t Size>
+bool TakeRaw(Layer& to, const std::array<uint8, Size>& packet) {
+	return to.Take(VUB::Meta{}, std::span<const uint8>(packet.data(), packet.size())).IsOk();
+}
+
+
+// A held packet of a session that the peer has left must not go up when the peer's session is established: the sync's acknowledgement
+// establishes the session only after the held packets have gone up. The peer P (boot 0x1234, number 0x012C for its sync) gets the sync of
+// boot 0x5656 (number 0xA07A), a packet of its old session (number 0xA07B, id 7, held) and the acknowledgement of P's sync, all in one
+// drain. Until P's Process has passed the held packet up, P's Send is busy, so no packet of the new session goes out before it.
+void TestSyncAckWaitsForTheHeldPacketsOfTheOldSession() {
+	ResetOrderState();
+	OrderSide pWire{};
+	OrderLayer peer{};
+	peer.SetSession(0x1234);
+	SIM_EXPECT(!SendOrder(peer, 0xFFFF, pWire));
+	peer.Process(1000000, OrderOutbox(pWire));
+	// The sync of P: tag 0x65, number 0x012C, boot 0x1234, counter 0.
+	std::array<uint8, 8> pSync = {0x05, 0x65, 0x2C, 0x01, 0x00, 0x34, 0x12, 0x00};
+	SIM_EXPECT(SentIs(pWire, 0, pSync));
+	pWire.count = 0;
+
+	// The sync of D (boot 0x5656, counter 0, tag 0x1E, number 0xA07A); the held packet of D (number 0xA07B, delta 0, id 7), with the tag 0x83
+	// that is bound to P's boot value (0x1E + 0x65); and D's acknowledgement of P's sync (tag 0x65, number 0x012C, D's boot value 0x5656).
+	std::array<uint8, 8> dSync = {0x05, 0x1E, 0x7A, 0xA0, 0x00, 0x56, 0x56, 0x00};
+	std::array<uint8, 7> dHeld = {0x01, 0x83, 0x7B, 0xA0, 0x00, 0x07, 0x00};
+	std::array<uint8, 6> dAck = {0x12, 0x65, 0x2C, 0x01, 0x56, 0x56};
+	SIM_EXPECT(TakeRaw(peer, dSync));
+	SIM_EXPECT(TakeRaw(peer, dHeld));
+	SIM_EXPECT(TakeRaw(peer, dAck));
+	SIM_EXPECT(!SendOrder(peer, 0x0001, pWire));
+	peer.Process(1000000, OrderOutbox(pWire));
+
+	// The held packet went up first. Its acknowledgement and the one of D's sync are sent in the order they were owed.
+	SIM_EXPECT(pWire.upCount == 1);
+	SIM_EXPECT(pWire.up[0] == 7);
+	std::array<uint8, 6> ackSync = {0x12, 0x1E, 0x7A, 0xA0, 0x34, 0x12};
+	std::array<uint8, 4> ackHeld = {0x12, 0x83, 0x7B, 0xA0};
+	SIM_EXPECT(pWire.count == 2);
+	SIM_EXPECT(SentIs(pWire, 0, ackSync));
+	SIM_EXPECT(SentIs(pWire, 1, ackHeld));
+
+	// The session is established: the first packet of P's session has number 0x012D, delta 0, tag 0x83 (bound to D's boot value 0x5656),
+	// and goes out with the id 1.
+	SIM_EXPECT(SendOrder(peer, 0x0001, pWire));
+	std::array<uint8, 7> ping = {0x01, 0x83, 0x2D, 0x01, 0x00, 0x01, 0x00};
+	SIM_EXPECT(SentIs(pWire, 2, ping));
+}
+
+
+// A data packet queued in the drain of the sync's acknowledgement is busy until the Process after it; the packet then goes out with the
+// number after the sync.
+void TestDataQueuedInTheSyncAckDrainWaitsForTheProcess() {
+	ResetOrderState();
+	OrderSide wire{};
+	OrderLayer sender{};
+	sender.SetSession(0x1234);
+	SIM_EXPECT(!SendOrder(sender, 0xFFFF, wire));
+	sender.Process(1000000, OrderOutbox(wire));
+	wire.count = 0;
+	std::array<uint8, 6> ack = {0x12, 0x65, 0x2C, 0x01, 0x00, 0x00};
+	SIM_EXPECT(TakeRaw(sender, ack));
+	SIM_EXPECT(!SendOrder(sender, 0x0007, wire));
+	sender.Process(1000000, OrderOutbox(wire));
+	SIM_EXPECT(wire.count == 0);
+	SIM_EXPECT(SendOrder(sender, 0x0007, wire));
+	// Number 0x012D, delta 0, id 7.
+	std::array<uint8, 7> data = {0x01, 0x65, 0x2D, 0x01, 0x00, 0x07, 0x00};
+	SIM_EXPECT(SentIs(wire, 0, data));
+}
+
+
+// The packet that is due to go up in order is held by the receiver with the packets above it, and its sender has given up on the gap below
+// it. The held packets above the sender's base go up in order, once the sender's base has moved past the gap.
+void TestHeldPacketsAboveTheSenderBaseGoUpAfterAGiveUp() {
+	ResetOrderState();
+	OrderSide sWire{};
+	OrderSide rWire{};
+	RetryOnceSender sender;
+	OrderLayer receiver{};
+	sender.SetSession(0x1234);
+	EstablishOrder(sender, sWire, receiver, rWire, 1000000);
+
+	// Id 0 (number 0x012D) is lost, and so is its resend at 1.2 s. Ids 1 and 2 (numbers 0x012E and 0x012F) are sent at 1.1 s and arrive.
+	SIM_EXPECT(SendOrder(sender, 0, sWire));
+	SIM_EXPECT(SentIs(sWire, 0, std::array<uint8, 7>{0x01, 0x65, 0x2D, 0x01, 0x00, 0x00, 0x00}));
+	sWire.count = 0;
+	sender.Process(1100000, OrderOutbox(sWire));
+	SIM_EXPECT(SendOrder(sender, 1, sWire));
+	SIM_EXPECT(SendOrder(sender, 2, sWire));
+	SIM_EXPECT(SentIs(sWire, 0, std::array<uint8, 7>{0x01, 0x65, 0x2E, 0x01, 0x01, 0x01, 0x00}));
+	SIM_EXPECT(SentIs(sWire, 1, std::array<uint8, 7>{0x01, 0x65, 0x2F, 0x01, 0x02, 0x02, 0x00}));
+	SIM_EXPECT(CarryAt(sWire, 0, receiver));
+	SIM_EXPECT(CarryAt(sWire, 1, receiver));
+	sWire.count = 0;
+	receiver.Process(1100000, OrderOutbox(rWire));
+	SIM_EXPECT(rWire.count == 0);
+	SIM_EXPECT(rWire.upCount == 0);
+
+	// The resend of id 0 at 1.2 s is lost. Ids 1 and 2 are resent at 1.3 s: they are copies of held packets, and are not acknowledged.
+	sender.Process(1200000, OrderOutbox(sWire));
+	SIM_EXPECT(sWire.count == 1);
+	sWire.count = 0;
+	sender.Process(1300000, OrderOutbox(sWire));
+	SIM_EXPECT(sWire.count == 2);
+	SIM_EXPECT(CarryAt(sWire, 0, receiver));
+	SIM_EXPECT(CarryAt(sWire, 1, receiver));
+	sWire.count = 0;
+	receiver.Process(1300000, OrderOutbox(rWire));
+	SIM_EXPECT(rWire.count == 0);
+
+	// At 1.4 s the sender gives up on id 0. Its base is then number 0x012E (id 1), and id 3 (number 0x0130) at 1.45 s has delta 2.
+	sender.Process(1400000, OrderOutbox(sWire));
+	SIM_EXPECT(orderStatus[0] == ResultStatus::retryExhausted);
+	SIM_EXPECT(sWire.count == 0);
+	sender.Process(1450000, OrderOutbox(sWire));
+	SIM_EXPECT(SendOrder(sender, 3, sWire));
+	SIM_EXPECT(SentIs(sWire, 0, std::array<uint8, 7>{0x01, 0x65, 0x30, 0x01, 0x02, 0x03, 0x00}));
+	SIM_EXPECT(CarryAt(sWire, 0, receiver));
+	sWire.count = 0;
+
+	// The base moves to number 0x012E: ids 1, 2 and 3 go up in order, and each is acknowledged when it goes up.
+	receiver.Process(1450000, OrderOutbox(rWire));
+	SIM_EXPECT(rWire.upCount == 3);
+	SIM_EXPECT(rWire.up[0] == 1);
+	SIM_EXPECT(rWire.up[1] == 2);
+	SIM_EXPECT(rWire.up[2] == 3);
+	SIM_EXPECT(rWire.count == 3);
+	SIM_EXPECT(SentIs(rWire, 0, std::array<uint8, 4>{0x12, 0x65, 0x2E, 0x01}));
+	SIM_EXPECT(SentIs(rWire, 1, std::array<uint8, 4>{0x12, 0x65, 0x2F, 0x01}));
+	SIM_EXPECT(SentIs(rWire, 2, std::array<uint8, 4>{0x12, 0x65, 0x30, 0x01}));
+	CarryAll(rWire, sender);
+	sender.Process(1450000, OrderOutbox(sWire));
+	SIM_EXPECT(orderStatus[1] == ResultStatus::ok);
+	SIM_EXPECT(orderStatus[2] == ResultStatus::ok);
+	SIM_EXPECT(orderStatus[3] == ResultStatus::ok);
+	SIM_EXPECT(orderStatus[0] == ResultStatus::retryExhausted);
+}
+
+
+// A held packet below the sender's base is dropped when the base moves past it: the sender has given up on it, so it is not acknowledged
+// and it does not go up. Number 0x0130 (id 3) is lost and given up, number 0x0131 (id 4) is held behind it; the sender gives up on id 4 too,
+// and its next packet, 12 s later, carries the base 0x0132. Id 4 does not go up then: only id 5 does.
+void TestHeldPacketBelowTheSenderBaseIsNotPassedUp() {
+	ResetOrderState();
+	OrderSide sWire{};
+	OrderSide rWire{};
+	RetryOnceSender sender;
+	OrderLayer receiver{};
+	sender.SetSession(0x1234);
+	EstablishOrder(sender, sWire, receiver, rWire, 1000000);
+
+	// Ids 0 to 2 (numbers 0x012D to 0x012F) go up and are acknowledged.
+	for (uint16 id = 0; id < 3; id++) {
+		SIM_EXPECT(SendOrder(sender, id, sWire));
+	}
+
+	for (std::size_t index = 0; index < 3; index++) {
+		SIM_EXPECT(CarryAt(sWire, index, receiver));
+	}
+
+	receiver.Process(1000000, OrderOutbox(rWire));
+	SIM_EXPECT(rWire.upCount == 3);
+	CarryAll(rWire, sender);
+	sender.Process(1000000, OrderOutbox(sWire));
+	sWire.count = 0;
+
+	// Id 3 (number 0x0130) is lost. Id 4 (number 0x0131) arrives and is held behind it.
+	SIM_EXPECT(SendOrder(sender, 3, sWire));
+	sWire.count = 0;
+	SIM_EXPECT(SendOrder(sender, 4, sWire));
+	SIM_EXPECT(CarryAt(sWire, 0, receiver));
+	sWire.count = 0;
+	receiver.Process(1000000, OrderOutbox(rWire));
+	SIM_EXPECT(rWire.count == 0);
+
+	// The resends of ids 3 and 4 at 1.2 s are lost, and at 1.4 s the sender gives up on both.
+	sender.Process(1200000, OrderOutbox(sWire));
+	SIM_EXPECT(sWire.count == 2);
+	sWire.count = 0;
+	sender.Process(1400000, OrderOutbox(sWire));
+	SIM_EXPECT(orderStatus[3] == ResultStatus::retryExhausted);
+	SIM_EXPECT(orderStatus[4] == ResultStatus::retryExhausted);
+
+	// Id 5 is number 0x0132, the sender's base, with delta 0. It arrives 12 s later.
+	sender.Process(13400000, OrderOutbox(sWire));
+	SIM_EXPECT(SendOrder(sender, 5, sWire));
+	SIM_EXPECT(SentIs(sWire, 0, std::array<uint8, 7>{0x01, 0x65, 0x32, 0x01, 0x00, 0x05, 0x00}));
+	SIM_EXPECT(CarryAt(sWire, 0, receiver));
+	sWire.count = 0;
+	receiver.Process(13400000, OrderOutbox(rWire));
+	SIM_EXPECT(rWire.upCount == 4);
+	SIM_EXPECT(rWire.up[3] == 5);
+	SIM_EXPECT(rWire.count == 1);
+	SIM_EXPECT(SentIs(rWire, 0, std::array<uint8, 4>{0x12, 0x65, 0x32, 0x01}));
+}
+
+
 int main() {
 	TestEightBitNumbersWrapInOrder();
-	TestHeldPacketsGoUpAfterTheSenderGivesUpTheGap();
+	TestGivenUpGapDropsTheHeldPacketsBelowTheSenderBase();
 	TestGapFillReleasesInOrderAndAcknowledgesEach();
 	TestReceiverRebootClearsHeldPackets();
 	TestPayloadLargerThanCapacityIsNotHeld();
 	TestFaultyLineComesUpInOrderEachOnce();
+	TestSyncAckWaitsForTheHeldPacketsOfTheOldSession();
+	TestDataQueuedInTheSyncAckDrainWaitsForTheProcess();
+	TestHeldPacketsAboveTheSenderBaseGoUpAfterAGiveUp();
+	TestHeldPacketBelowTheSenderBaseIsNotPassedUp();
 	return SimFinish("TestVubReliableInOrder");
 }

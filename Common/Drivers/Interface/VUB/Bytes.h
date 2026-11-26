@@ -1,7 +1,43 @@
 #pragma once
 #include <Utilities/DataTypes.h>
+#include <cstddef>
 
 namespace VUB {
+
+
+// Copies count bytes. The bytes are copied in rising order, so the two ranges may not overlap unless to is below from.
+inline void CopyBytes(const uint8* from, std::size_t count, uint8* to) {
+	for (std::size_t index = 0; index < count; index++) {
+		to[index] = from[index];
+	}
+}
+
+
+// True when the clock has reached due. The difference is taken as a signed 32-bit count of microseconds, so a clock that wraps around 2^32
+// still compares right, as long as the two times are less than 2^31 microseconds apart.
+inline bool Due(uint32 nowUs, uint32 dueUs) {
+	return static_cast<int32>(nowUs - dueUs) >= 0;
+}
+
+
+// The microseconds in a millisecond: the clocks of the layers count in microseconds, and their timeouts are given in milliseconds.
+inline constexpr uint32 UsPerMs = 1000;
+
+
+// The longest timeout in milliseconds. The deadlines are signed 32-bit counts of microseconds, so a timeout above this would wrap.
+inline constexpr uint32 MaxTimeoutMs = 2147483;
+
+
+// The step of the session numbers: the first number of a session is the boot value times this odd factor, so boot values that follow each
+// other give first numbers far apart. Each layer keeps its own width and its own use of the value (see RequesterOf::SetSession and
+// ReliableWire::FirstOf).
+inline constexpr uint32 SessionStep = 0x9E37;
+
+
+// The step of the session tags: the mixed byte of a boot value is bits 8 to 15 of the boot value times this odd factor. It is not
+// SessionStep: with the same factor the mixed byte would be the high byte of the first number, and the boot values that share a tag would
+// have first numbers within 256 of each other. Boot values that follow each other give mixed bytes 0x5B or 0x5C apart (see ReliableWire::MixOf).
+inline constexpr uint32 TagStep = 0x5B37;
 
 
 // Little-endian field helpers for header and length fields. They read and write at a byte pointer, so the caller checks the bounds.

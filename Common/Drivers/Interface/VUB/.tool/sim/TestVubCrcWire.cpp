@@ -6,12 +6,25 @@
 #include <Drivers/Interface/VUB/Transform/Crc.h>
 #include <Drivers/Interface/VUB/Stack.h>
 #include <Drivers/Interface/VUB/Meta.h>
+#include <Utilities/Checksum/CRC/Crc.h>
+#include <Utilities/Checksum/CRC/Engine/CrcTable.h>
+#include <Utilities/Checksum/CRC/Preset/Crc5Usb.h>
+#include <Utilities/Checksum/CRC/Preset/Crc8Smbus.h>
+#include <Utilities/Checksum/CRC/Preset/Crc12Umts.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Riello.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Tms37157.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Usb.h>
+#include <Utilities/Checksum/CRC/Preset/Crc24OpenPgp.h>
+#include <Utilities/Checksum/CRC/Preset/Crc32IsoHdlc.h>
+#include <Utilities/Checksum/CRC/Preset/Crc64Ecma182.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
 #include <array>
 #include <cstddef>
 #include <span>
+#include <type_traits>
 
 
 // The nine check bytes "123456789", and the packet a CRC-16/MODBUS transform makes of them. The catalogue's check value of MODBUS is
@@ -19,9 +32,20 @@
 const std::array<uint8, 9> digits = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39};
 
 
+// A CRC parameter set that is not a preset: reflectIn differs from reflectOut, and the initial value is not symmetric. Its check value
+// is the CRC of the digits, 4574.
+inline constexpr Checksum::CrcParameters customParameters = Checksum::CrcParameters()
+	.Width(16)
+	.Polynomial(0x1021)
+	.Initial(0x1D0F)
+	.FinalXor(0x00FF)
+	.ReflectIn()
+	.Check(0x4574);
+
+
 // Encode of the digits by hand: the nine bytes, then 37 4B (the check value 4B37, low byte first).
 void TestModbusEncodesLowByteFirst() {
-	VUB::Crc16Modbus transform;
+	VUB::Crc<Checksum::Crc16Modbus> transform;
 	VUB::Meta meta{};
 	std::array<uint8, 11> wire{};
 	Result<std::size_t> encoded = transform.Encode(meta, std::span<const uint8>(digits.data(), digits.size()), wire);
@@ -34,7 +58,7 @@ void TestModbusEncodesLowByteFirst() {
 
 // The high byte first variant sends the same CRC as 4B 37.
 void TestModbusEncodesHighByteFirst() {
-	VUB::Crc16ModbusHighByteFirst transform;
+	VUB::Crc<Checksum::Crc16Modbus, VUB::CrcOrder::highByteFirst> transform;
 	VUB::Meta meta{};
 	std::array<uint8, 11> wire{};
 	SIM_EXPECT(transform.Encode(meta, std::span<const uint8>(digits.data(), digits.size()), wire).IsOk());
@@ -43,9 +67,9 @@ void TestModbusEncodesHighByteFirst() {
 }
 
 
-// The CRC-8 preset of the digits is F4, one byte.
+// The CRC-8 of the digits is F4, one byte.
 void TestCrc8SmbusEncodes() {
-	VUB::Crc8Smbus transform;
+	VUB::Crc<Checksum::Crc8Smbus> transform;
 	VUB::Meta meta{};
 	std::array<uint8, 10> wire{};
 	SIM_EXPECT(transform.Encode(meta, std::span<const uint8>(digits.data(), digits.size()), wire).IsOk());
@@ -54,9 +78,9 @@ void TestCrc8SmbusEncodes() {
 }
 
 
-// The CRC-32 preset of the digits is CBF43926, low byte first: 26 39 F4 CB.
+// The CRC-32 of the digits is CBF43926, low byte first: 26 39 F4 CB.
 void TestCrc32IsoHdlcEncodes() {
-	VUB::Crc32IsoHdlc transform;
+	VUB::Crc<Checksum::Crc32IsoHdlc> transform;
 	VUB::Meta meta{};
 	std::array<uint8, 13> wire{};
 	SIM_EXPECT(transform.Encode(meta, std::span<const uint8>(digits.data(), digits.size()), wire).IsOk());
@@ -65,9 +89,70 @@ void TestCrc32IsoHdlcEncodes() {
 }
 
 
+// A CRC of 12 bits takes two bytes: the check value of CRC-12/UMTS is 0DAF, so low byte first the bytes are AF 0D, and high byte first
+// they are 0D AF.
+void TestTwelveBitCrcTakesTwoBytes() {
+	VUB::Meta meta{};
+	VUB::Crc<Checksum::Crc12Umts> lowFirst;
+	std::array<uint8, 11> wire{};
+	SIM_EXPECT(lowFirst.Encode(meta, std::span<const uint8>(digits.data(), digits.size()), wire).IsOk());
+	const std::array<uint8, 11> lowExpected = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0xAF, 0x0D};
+	SIM_EXPECT(wire == lowExpected);
+
+	VUB::Crc<Checksum::Crc12Umts, VUB::CrcOrder::highByteFirst> highFirst;
+	std::array<uint8, 11> highWire{};
+	SIM_EXPECT(highFirst.Encode(meta, std::span<const uint8>(digits.data(), digits.size()), highWire).IsOk());
+	const std::array<uint8, 11> highExpected = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x0D, 0xAF};
+	SIM_EXPECT(highWire == highExpected);
+}
+
+
+// A CRC of 5 bits takes one byte: the check value of CRC-5/USB is 19.
+void TestFiveBitCrcTakesOneByte() {
+	VUB::Crc<Checksum::Crc5Usb> transform;
+	VUB::Meta meta{};
+	std::array<uint8, 10> wire{};
+	SIM_EXPECT(transform.Encode(meta, std::span<const uint8>(digits.data(), digits.size()), wire).IsOk());
+	const std::array<uint8, 10> expected = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x19};
+	SIM_EXPECT(wire == expected);
+	SIM_EXPECT(VUB::Crc<Checksum::Crc5Usb>::growth == 1);
+}
+
+
+// A CRC of 24 bits takes three bytes: the check value of CRC-24/OPENPGP is 21CF02, so the bytes are 02 CF 21, or 21 CF 02 high byte first.
+void TestTwentyFourBitCrcTakesThreeBytes() {
+	VUB::Meta meta{};
+	VUB::Crc<Checksum::Crc24OpenPgp> lowFirst;
+	std::array<uint8, 12> wire{};
+	SIM_EXPECT(lowFirst.Encode(meta, std::span<const uint8>(digits.data(), digits.size()), wire).IsOk());
+	const std::array<uint8, 12> lowExpected = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x02, 0xCF, 0x21};
+	SIM_EXPECT(wire == lowExpected);
+
+	VUB::Crc<Checksum::Crc24OpenPgp, VUB::CrcOrder::highByteFirst> highFirst;
+	std::array<uint8, 12> highWire{};
+	SIM_EXPECT(highFirst.Encode(meta, std::span<const uint8>(digits.data(), digits.size()), highWire).IsOk());
+	const std::array<uint8, 12> highExpected = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x21, 0xCF, 0x02};
+	SIM_EXPECT(highWire == highExpected);
+}
+
+
+// A CRC of 64 bits takes eight bytes: the check value of CRC-64/ECMA-182 is 6C40DF5F0B497347, low byte first from 47 to 6C.
+void TestSixtyFourBitCrcTakesEightBytes() {
+	VUB::Crc<Checksum::Crc64Ecma182> transform;
+	VUB::Meta meta{};
+	std::array<uint8, 17> wire{};
+	SIM_EXPECT(transform.Encode(meta, std::span<const uint8>(digits.data(), digits.size()), wire).IsOk());
+	const std::array<uint8, 17> expected = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x47, 0x73, 0x49, 0x0B, 0x5F, 0xDF, 0x40, 0x6C};
+	SIM_EXPECT(wire == expected);
+	SIM_EXPECT(VUB::Crc<Checksum::Crc64Ecma182>::growth == 8);
+	SIM_EXPECT(Checksum::Crc64Ecma182::Calculate(digits) == 0x6C40DF5F0B497347);
+	SIM_EXPECT(transform.Decode(meta, std::span<uint8>(wire.data(), wire.size())).IsOk());
+}
+
+
 // Decode of the wire bytes by hand gives the digits back, in place, and the length of the body.
 void TestModbusDecodesWireBytes() {
-	VUB::Crc16Modbus transform;
+	VUB::Crc<Checksum::Crc16Modbus> transform;
 	VUB::Meta meta{};
 	std::array<uint8, 11> wire = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x37, 0x4B};
 	Result<std::size_t> decoded = transform.Decode(meta, std::span<uint8>(wire.data(), wire.size()));
@@ -81,7 +166,7 @@ void TestModbusDecodesWireBytes() {
 
 // The same bytes read as high byte first carry 374B, not 4B37: a crcError, and the byte order is part of the wire.
 void TestModbusByteOrderIsChecked() {
-	VUB::Crc16ModbusHighByteFirst transform;
+	VUB::Crc<Checksum::Crc16Modbus, VUB::CrcOrder::highByteFirst> transform;
 	VUB::Meta meta{};
 	std::array<uint8, 11> wire = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x37, 0x4B};
 	Result<std::size_t> decoded = transform.Decode(meta, std::span<uint8>(wire.data(), wire.size()));
@@ -92,7 +177,7 @@ void TestModbusByteOrderIsChecked() {
 
 // One changed payload byte is a crcError, and a packet shorter than the CRC is an invalid data error.
 void TestDamagedPacketsAreRefused() {
-	VUB::Crc16Modbus transform;
+	VUB::Crc<Checksum::Crc16Modbus> transform;
 	VUB::Meta meta{};
 	std::array<uint8, 11> wire = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x37, 0x4B};
 	wire[4] = 0x25;
@@ -107,31 +192,66 @@ void TestDamagedPacketsAreRefused() {
 }
 
 
-// The contract passes for the presets with the table engine, and for one of them with the bitwise engine.
+// The contract passes for the presets with the bitwise engine (the default), and for one of them with the table engine.
 void TestPresetsPassContract() {
-	VUB::Crc16Modbus modbus;
+	VUB::Crc<Checksum::Crc16Modbus> modbus;
 	SIM_EXPECT(VUB::CheckTransform(modbus, 7, 500, 40));
-	VUB::Crc<VUB::Crc16Modbus::parameters, VUB::CrcBitwise> modbusBitwise;
-	SIM_EXPECT(VUB::CheckTransform(modbusBitwise, 8, 500, 40));
-	VUB::Crc8Smbus smbus;
+	VUB::Crc<Checksum::Crc16Modbus::With<Checksum::CrcTable>> modbusTable;
+	SIM_EXPECT(VUB::CheckTransform(modbusTable, 8, 500, 40));
+	VUB::Crc<Checksum::Crc8Smbus> smbus;
 	SIM_EXPECT(VUB::CheckTransform(smbus, 9, 500, 40));
-	VUB::Crc32IsoHdlc isoHdlc;
+	VUB::Crc<Checksum::Crc32IsoHdlc> isoHdlc;
 	SIM_EXPECT(VUB::CheckTransform(isoHdlc, 10, 500, 255));
-	VUB::Crc16ModbusHighByteFirst modbusHighFirst;
+	VUB::Crc<Checksum::Crc16Modbus, VUB::CrcOrder::highByteFirst> modbusHighFirst;
 	SIM_EXPECT(VUB::CheckTransform(modbusHighFirst, 11, 500, 40));
-	VUB::Crc16Riello riello;
+	VUB::Crc<Checksum::Crc16Riello> riello;
 	SIM_EXPECT(VUB::CheckTransform(riello, 12, 500, 40));
 }
 
 
-// The custom set of the presets test, high byte first: 45 74 after the digits. The bytes come from the reference's CRC 4574.
+// The custom set, high byte first: 45 74 after the digits. The bytes come from the reference's CRC 4574.
 void TestCustomHighByteFirstEncodes() {
-	VUB::CrcHighByteFirst<VUB::CrcParameters().Width(16).Polynomial(0x1021).Initial(0x1D0F).FinalXor(0x00FF).ReflectIn().Check(0x4574)> transform;
+	VUB::Crc<Checksum::Crc<customParameters>, VUB::CrcOrder::highByteFirst> transform;
 	VUB::Meta meta{};
 	std::array<uint8, 11> wire{};
 	SIM_EXPECT(transform.Encode(meta, std::span<const uint8>(digits.data(), digits.size()), wire).IsOk());
 	const std::array<uint8, 11> expected = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x45, 0x74};
 	SIM_EXPECT(wire == expected);
+}
+
+
+// The custom set, low byte first, encoded and decoded by hand: the digits, then 4574 low byte first (74 45).
+void TestCustomTransformEncodesAndDecodes() {
+	VUB::Crc<Checksum::Crc<customParameters>> transform;
+	VUB::Meta meta{};
+	std::array<uint8, 11> wire{};
+	Result<std::size_t> encoded = transform.Encode(meta, std::span<const uint8>(digits.data(), digits.size()), wire);
+	SIM_EXPECT(encoded.IsOk());
+	const std::array<uint8, 11> expected = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x74, 0x45};
+	SIM_EXPECT(wire == expected);
+	Result<std::size_t> decoded = transform.Decode(meta, std::span<uint8>(wire.data(), wire.size()));
+	SIM_EXPECT(decoded.IsOk());
+	SIM_EXPECT(decoded.Value() == 9);
+}
+
+
+// A transform holds no state: the CRC type and the byte order are template arguments, so no CRC transform has a member. Each is empty.
+void TestTransformsHoldNoState() {
+	SIM_EXPECT(std::is_empty_v<VUB::Crc<Checksum::Crc16Modbus>>);
+	SIM_EXPECT((std::is_empty_v<VUB::Crc<Checksum::Crc16Modbus, VUB::CrcOrder::highByteFirst>>));
+	SIM_EXPECT((std::is_empty_v<VUB::Crc<Checksum::Crc16Modbus::With<Checksum::CrcTable>>>));
+	SIM_EXPECT(std::is_empty_v<VUB::Crc<Checksum::Crc<customParameters>>>);
+	SIM_EXPECT(std::is_empty_v<VUB::Crc<Checksum::Crc8Smbus>>);
+}
+
+
+// The byte order is part of the wire, so it is part of the fingerprint: the two orders of one CRC differ, and so do two CRCs of one order.
+void TestFingerprintsDifferByParametersAndOrder() {
+	SIM_EXPECT((VUB::Crc<Checksum::Crc16Modbus>::fingerprint != VUB::Crc<Checksum::Crc16Modbus, VUB::CrcOrder::highByteFirst>::fingerprint));
+	SIM_EXPECT((VUB::Crc<Checksum::Crc16Modbus>::fingerprint != VUB::Crc<Checksum::Crc16Usb>::fingerprint));
+	SIM_EXPECT((VUB::Crc<Checksum::Crc16Tms37157>::fingerprint != VUB::Crc<Checksum::Crc16Riello>::fingerprint));
+	SIM_EXPECT((VUB::Crc<Checksum::Crc<customParameters>>::fingerprint != VUB::Crc<Checksum::Crc<customParameters>, VUB::CrcOrder::highByteFirst>::fingerprint));
+	SIM_EXPECT((VUB::Crc<Checksum::Crc16Modbus, VUB::CrcOrder::highByteFirst>::fingerprint != VUB::Crc<Checksum::Crc16Usb, VUB::CrcOrder::highByteFirst>::fingerprint));
 }
 
 
@@ -142,7 +262,8 @@ using CrcStreamEnd = VUB::StreamEnd<64, 512>;
 
 using CrcStream = VUB::Stack<+[] {
 	return VUB::Builder()
-		.Transform<VUB::Crc16Modbus>()
+		.CountDrops()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Framing<FlagFraming>()
 		.Link<CrcStreamEnd>()
 		.MaxPayload(40)
@@ -199,7 +320,8 @@ void TestFaultyLoopbackNeverDeliversCorruptedPayloads() {
 // packets the handler gets are whole. Every packet the wire delivers ends in the handler or in one counted reason.
 using CrcPacketStack = VUB::Stack<+[] {
 	return VUB::Builder()
-		.Transform<VUB::Crc16Modbus>()
+		.CountDrops()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Link<PacketEnd>()
 		.MaxPayload(40)
 		.ReceiveQueue(4)
@@ -281,7 +403,8 @@ void TestWrongCrcIsCountedAsTransformError() {
 // A chain with the high byte first variant puts 4B 37 after the digits on the wire; the byte after the flag is the first digit.
 using HighFirstStream = VUB::Stack<+[] {
 	return VUB::Builder()
-		.Transform<VUB::Crc16ModbusHighByteFirst>()
+		.CountDrops()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus, VUB::CrcOrder::highByteFirst>>()
 		.Framing<FlagFraming>()
 		.Link<CrcStreamEnd>()
 		.MaxPayload(40)
@@ -316,6 +439,10 @@ int main() {
 	TestModbusEncodesHighByteFirst();
 	TestCrc8SmbusEncodes();
 	TestCrc32IsoHdlcEncodes();
+	TestTwelveBitCrcTakesTwoBytes();
+	TestFiveBitCrcTakesOneByte();
+	TestTwentyFourBitCrcTakesThreeBytes();
+	TestSixtyFourBitCrcTakesEightBytes();
 	TestModbusDecodesWireBytes();
 	TestModbusByteOrderIsChecked();
 	TestDamagedPacketsAreRefused();
@@ -325,5 +452,8 @@ int main() {
 	TestWrongCrcIsCountedAsTransformError();
 	TestChainByteOrderReachesTheWire();
 	TestCustomHighByteFirstEncodes();
+	TestCustomTransformEncodesAndDecodes();
+	TestTransformsHoldNoState();
+	TestFingerprintsDifferByParametersAndOrder();
 	return SimFinish("TestVubCrcWire");
 }

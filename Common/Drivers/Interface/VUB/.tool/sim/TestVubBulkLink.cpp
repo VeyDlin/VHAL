@@ -173,6 +173,8 @@ void TestPollReadsUpToRoom() {
 
 using BulkStackA = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Framing<VUB::Cobs>()
 		.Link<BulkLinkType>()
 		.MaxPayload(32)
@@ -182,6 +184,8 @@ using BulkStackA = VUB::Stack<+[] {
 
 using BulkStackB = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Framing<VUB::Cobs>()
 		.Link<BulkLinkType>()
 		.MaxPayload(32)
@@ -226,6 +230,8 @@ void TestStacksExchangeOverBulkWithFullQueues() {
 // The delivery layer over the bulk link.
 using ReliableBulkStackA = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(40)
 		.Framing<VUB::Cobs>()
 		.Link<BulkLinkType>()
@@ -237,6 +243,8 @@ using ReliableBulkStackA = VUB::Stack<+[] {
 
 using ReliableBulkStackB = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(40)
 		.Framing<VUB::Cobs>()
 		.Link<BulkLinkType>()

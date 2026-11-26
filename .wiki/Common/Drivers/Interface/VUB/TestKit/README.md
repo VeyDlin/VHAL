@@ -70,7 +70,9 @@ VUB::WireCounts Run() {
 
 `Run()` returns the counts of the wire that carries the packets from `a` to `b`, and `received` holds the payloads the receiver got. Each item is
 dropped, corrupted (one bit flipped), duplicated or delayed by a random amount up to `maxDelayUs`, so the items can
-arrive out of the order they were sent in. The same seed gives the same faults, and the same output on each run. The rates are the configured percentages over
+arrive out of the order they were sent in. `keepsOrder = true` in `Faults` keeps the order: an item is never due before the item pushed
+before it, so the items arrive in the order they were sent with the same delays. The same seed gives the same faults, and the same output on each run.
+Due times are compared as differences, so a delay that crosses the 32-bit clock wrap is handled. The rates are the configured percentages over
 many items (the tests check 10, 20 and 15 percent over 10000 and 20000 items within 1.5 points). A packet is never cut short: a packet
 longer than the wire's packet size is not stored, and it is counted as overflowed. `Counts()` on a wire says how many items it dropped,
 corrupted, duplicated and delivered, so a test can check that every packet is either handled or counted.
@@ -85,7 +87,7 @@ repeats.
 
 ```cpp
 bool RunChecks() {
-	VUB::Crc8Smbus transform;
+	VUB::Crc<Checksum::Crc8Smbus> transform;
 	bool transformOk = VUB::CheckTransform(transform, 7, 500, 40);
 
 	VUB::Cobs framing;
@@ -211,7 +213,8 @@ std::array<bool, 2> Run() {
 }
 ```
 
-With `WhileDown(VUB::Down::Fail)` the packets the near stack has queued while the line is down are dropped and counted as `linkDown`. The
+With `WhileDown(VUB::Down::Fail)` the packets the near stack has queued while the line is down are dropped. With `CountDrops()` on the chain
+they are counted as `linkDown`. The
 [link state](../README#link-state) section has the rules.
 
 ## What the checks do not do

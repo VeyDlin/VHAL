@@ -4,12 +4,13 @@
 #include <Drivers/Interface/VUB/Layer/Reliable.h>
 #include <Drivers/Interface/VUB/Transform/Crc.h>
 #include <Drivers/Interface/VUB/Stack.h>
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
 
 
 using SizeStack = VUB::Stack<+[] {
 	return VUB::Builder()
 		.Layer<VUB::ReliableOf<32, 4, true>>().Retries(3).Window(4)
-		.Transform<VUB::Crc16Modbus>()
+		.Transform<VUB::Crc<Checksum::Crc16Modbus>>()
 		.Framing<VUB::Cobs>()
 		.Link<SizeStreamLink>()
 		.MaxPayload(32)

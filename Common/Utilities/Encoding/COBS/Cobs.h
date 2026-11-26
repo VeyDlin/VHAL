@@ -125,6 +125,13 @@ public:
 			return ResultStatus::messageTooLong;
 		}
 
+		return EncodeUnchecked(in, out);
+	}
+
+
+	// Encodes in into out as Encode does, without the check: the caller has checked that out holds EncodedSize(in.size()) bytes. Returns the
+	// frame length, delimiter included.
+	static constexpr std::size_t EncodeUnchecked(std::span<const uint8> in, std::span<uint8> out) {
 		// The code of the open block is written when the block ends. A block that a code of 255 ends has no zero after it, so the slot of
 		// the next block is reserved only when a byte follows.
 		std::size_t position = 1;

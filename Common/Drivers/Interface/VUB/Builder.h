@@ -113,6 +113,49 @@ struct BlockEntry {
 			return false;
 		}
 	}
+
+
+	// Whether the block is a layer that takes the owner of the block below it (wantsOwner = true): the block below gets the layer's address.
+	static constexpr bool WantsOwner() {
+		if constexpr (Kind == BlockKind::layer) {
+			if constexpr (requires { Block::wantsOwner; }) {
+				return Block::wantsOwner;
+			} else {
+				return false;
+			}
+		} else {
+			return false;
+		}
+	}
+
+
+	// Whether the block is a layer that works with and without the owner of the block below it (ownerOptional = true): a block below that takes
+	// no owner is no error.
+	static constexpr bool OwnerOptional() {
+		if constexpr (Kind == BlockKind::layer) {
+			if constexpr (requires { Block::ownerOptional; }) {
+				return Block::ownerOptional;
+			} else {
+				return false;
+			}
+		} else {
+			return false;
+		}
+	}
+
+
+	// Whether the block is the requests layer of the chain (requestsLayer = true): Stack::Requests() gives its handle.
+	static constexpr bool RequestsLayer() {
+		if constexpr (Kind == BlockKind::layer) {
+			if constexpr (requires { Block::requestsLayer; }) {
+				return Block::requestsLayer;
+			} else {
+				return false;
+			}
+		} else {
+			return false;
+		}
+	}
 };
 
 
@@ -170,15 +213,28 @@ using StoredElement = std::conditional_t<(Index < std::tuple_size_v<Storage>),
 // The settings of a chain that are not blocks. They are checked when the stack is instantiated.
 struct Settings {
 	std::size_t maxPayload = 0;
+	// MaxReceive(): the largest payload the stack receives. Zero is MaxPayload.
+	std::size_t maxReceive = 0;
 	std::size_t receiveRing = 256;
 	std::size_t receiveQueue = 4;
-	std::size_t sendQueue = 4;
+	// SendQueue(): the packets the send side holds while the link is busy. It is read through SendQueueOf, which gives the value when none is given.
+	bool sendQueueGiven = false;
+	std::size_t sendQueue = 0;
+	// StageQueue(): the packets another task may stage while Process runs. A concurrent stack without it has no staging ring.
+	std::size_t stageQueue = 0;
 	std::size_t perProcess = 8;
 	uint32 (*clockFn)() = nullptr;
 	bool hasClock = false;
 	void (*receiveFn)(const Meta&, std::span<const uint8>) = nullptr;
 	bool hasReceive = false;
 	Down whileDown = Down::Wait;
+	// Concurrent(): Send from another task stages the payload in a ring under a short critical section, Process sends it, and the layers that
+	// take options with a concurrent member are given the flag.
+	bool concurrent = false;
+	// HighWater(): the stack keeps the highest fill of its receive ring and of its control queue.
+	bool highWater = false;
+	// CountDrops(): the stack counts what it discards, and Drops() reads the counts. Without it no counter and no counting code is built.
+	bool countDrops = false;
 };
 
 
@@ -442,6 +498,15 @@ public:
 	}
 
 
+	// The largest payload the stack receives, in bytes. The receive buffer of a byte-stream link holds the packet bound of this payload, so a
+	// frame longer than it counts as too long. Zero is MaxPayload, the default. A packet link keeps the MaxPacket of its traits.
+	constexpr Builder MaxReceive(std::size_t bytes) const {
+		Builder next = *this;
+		next.settings.maxReceive = bytes;
+		return next;
+	}
+
+
 	// The bytes a byte-stream link's receive ring holds.
 	constexpr Builder ReceiveRing(std::size_t bytes) const {
 		Builder next = *this;
@@ -458,10 +523,14 @@ public:
 	}
 
 
-	// The packets the send side holds while the link is busy. Send returns busy when they are full.
+	// The packets the send side holds while the link is busy. Send returns busy when they are full. Zero holds none: a packet is given to the
+	// link in the call, and a stream link keeps the framed packet in the framing's buffer. Zero is allowed on a stream link and on a packet
+	// link that has Ready(); a packet link without it needs one or more, and so does a chain with a bulk layer. Without this call the stack
+	// takes the smallest value that works.
 	constexpr Builder SendQueue(std::size_t packets) const {
 		Builder next = *this;
 		next.settings.sendQueue = packets;
+		next.settings.sendQueueGiven = true;
 		return next;
 	}
 
@@ -489,6 +558,45 @@ public:
 	constexpr Builder WhileDown(Down policy) const {
 		Builder next = *this;
 		next.settings.whileDown = policy;
+		return next;
+	}
+
+
+	// The stack may be used from another task while its Process runs. Send from that task copies the payload into a staging ring, under a
+	// short critical section (System::CriticalSection), and returns; Process moves the staged packets on, in its own context. A layer that
+	// takes options with a concurrent member is given the flag, so its own shared state can be guarded the same way. Without this call no
+	// critical section and no staging ring is built.
+	constexpr Builder Concurrent() const {
+		Builder next = *this;
+		next.settings.concurrent = true;
+		return next;
+	}
+
+
+	// The packets a concurrent stack holds for Process while another task sends: Send returns busy when they are full. The staging ring
+	// takes the largest payload per packet, so its RAM is (packets + 1) * (MaxPayload() + 3) + 4 bytes, rounded up to an even count. Without
+	// this call a concurrent stack has no staging ring; its Send is then a compile error, and its layers still get the concurrent flag.
+	constexpr Builder StageQueue(std::size_t packets) const {
+		Builder next = *this;
+		next.settings.stageQueue = packets;
+		return next;
+	}
+
+
+	// The highest fill of the receive ring and of the control queue, kept by the stack and given through Outbox::Counters() to a layer
+	// that declares usesCounters. Without this call no high-water code or RAM is built.
+	constexpr Builder HighWater() const {
+		Builder next = *this;
+		next.settings.highWater = true;
+		return next;
+	}
+
+
+	// The stack counts the packets and bytes it discards, under their reasons, and Drops() reads the counts. A layer that declares
+	// needsCounters needs this call. Without it no counter is kept, no code counts, and Drops() is not a member.
+	constexpr Builder CountDrops() const {
+		Builder next = *this;
+		next.settings.countDrops = true;
 		return next;
 	}
 
@@ -560,6 +668,23 @@ public:
 	}
 
 
+	// Whether a layer or a transform is at a block index of this parity (0 or 1). The step at an index writes into the buffer of its parity.
+	static constexpr bool HasStepOfParity(std::size_t parity) {
+		std::size_t index = 0;
+		bool found = false;
+		((found = found || ((Entries::kind == BlockKind::layer || Entries::kind == BlockKind::transform) && index % 2 == parity), index++), ...);
+		return found;
+	}
+
+
+	// The number of layers: each one sends from its Process, so a chain with a layer keeps a bit per layer for a busy send (see the stack).
+	static constexpr std::size_t LayerCount() {
+		std::size_t total = 0;
+		((total += Entries::kind == BlockKind::layer ? 1 : 0), ...);
+		return total;
+	}
+
+
 	// The number of layers that make bulk packets.
 	static constexpr std::size_t BulkCount() {
 		std::size_t total = 0;
@@ -596,6 +721,31 @@ public:
 	}
 
 
+	// Whether a layer of the chain declares that it takes the owner of the block below it (wantsOwner).
+	static constexpr bool WantsOwners() {
+		return (false || ... || Entries::WantsOwner());
+	}
+
+
+	// Whether each block of the chain, in chain order, is the requests layer (requestsLayer).
+	static constexpr std::array<bool, count> RequestsFlags() {
+		return std::array<bool, count>{Entries::RequestsLayer()...};
+	}
+
+
+	// The position of the requests layer, the first block that declares requestsLayer, or count when there is none.
+	static constexpr std::size_t RequestsIndex() {
+		const std::array<bool, count> flags = RequestsFlags();
+		for (std::size_t index = 0; index < count; index++) {
+			if (flags[index]) {
+				return index;
+			}
+		}
+
+		return count;
+	}
+
+
 	static constexpr LinkTraits ChainLinkTraits() {
 		return TraitsOf<LinkType>();
 	}
@@ -614,6 +764,39 @@ public:
 		std::size_t bound = PacketBound(values);
 		((bound = Entries::FrameAdd(bound)), ...);
 		return bound;
+	}
+
+
+	// The largest payload the stack receives: MaxReceive, or MaxPayload when it is not given.
+	static constexpr std::size_t ReceivePayload(const Settings& values) {
+		return values.maxReceive > 0 ? values.maxReceive : values.maxPayload;
+	}
+
+
+	// The largest received packet on a byte-stream link: the packet bound of the receive payload.
+	static constexpr std::size_t ReceiveBound(const Settings& values) {
+		Settings received = values;
+		received.maxPayload = ReceivePayload(values);
+		return PacketBound(received);
+	}
+
+
+	// Whether the chain can send with no send queue: a stream link, whose framing holds the packet being written, or a packet link that has
+	// Ready(), which the stack asks before a layer takes the packet. A chain with a bulk layer always needs a queue: its bulk packets follow
+	// each other, so the application would never find the link free.
+	static constexpr bool NoQueueFits() {
+		return BulkCount() == 0 && (StreamLink<LinkType> || (PacketLink<LinkType> && ReadyLink<LinkType>));
+	}
+
+
+	// The send queue of the chain: the value given by SendQueue(), or when none is given the smallest that works, which is zero where
+	// NoQueueFits and one elsewhere.
+	static constexpr std::size_t SendQueueOf(const Settings& values) {
+		if (values.sendQueueGiven) {
+			return values.sendQueue;
+		}
+
+		return NoQueueFits() ? 0 : 1;
 	}
 
 
@@ -699,8 +882,14 @@ public:
 		Require<"the receive ring holds at most 65535 bytes: its indexes are 16-bit">(values.receiveRing <= 65535);
 		Require<"ReceiveQueue() is zero">(values.receiveQueue > 0);
 		Require<"the receive queue holds at most 65535 packets: its indexes are 16-bit">(values.receiveQueue <= 65535);
-		Require<"SendQueue() is zero">(values.sendQueue > 0);
-		Require<"the send queue holds at most 65535 packets: its indexes are 16-bit">(values.sendQueue <= 65535);
+		Require<"a chain with a bulk layer needs a send queue: bulk packets follow each other, so the application never finds the link free: add SendQueue(1) or more">(
+			!values.sendQueueGiven || values.sendQueue > 0 || BulkCount() == 0);
+		Require<"a packet link with no Ready() needs a send queue: add SendQueue(1) or more">(
+			!values.sendQueueGiven || values.sendQueue > 0 || NoQueueFits());
+		Require<"the send queue holds at most 65535 packets: its indexes are 16-bit">(SendQueueOf(values) <= 65535);
+		Require<"the staging queue holds at most 65535 packets: its indexes are 16-bit">(values.stageQueue <= 65535);
+		Require<"the largest received packet of 65536 bytes or more does not fit the 16-bit lengths: lower MaxReceive or MaxPayload">(
+			ReceiveBound(values) <= 65535);
 		Require<"MaxPayload() is not given or is zero: set the largest application payload">(values.maxPayload > 0);
 		Require<"OnReceive<&Fn>() is missing: the receive handler takes each packet">(values.hasReceive);
 		Require<"PerProcess() is zero">(values.perProcess > 0);

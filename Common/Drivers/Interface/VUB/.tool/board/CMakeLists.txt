@@ -14,10 +14,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # The Common folder is the include root of the library headers. DemoProducts.h, the identities of the demo, is in the USB tool folder.
 get_filename_component(VUBCHECK_COMMON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../.." ABSOLUTE)
 get_filename_component(VUBCHECK_IDS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../USB/.tool/common" ABSOLUTE)
+# The core's Stack.h includes System/System.h, which is in the Periphery folder.
+get_filename_component(VUBCHECK_PERIPHERY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../Periphery" ABSOLUTE)
 
 add_executable(vubcheck src/main.cpp)
 
-target_include_directories(vubcheck PRIVATE ${VUBCHECK_COMMON_DIR} ${VUBCHECK_IDS_DIR})
+target_include_directories(vubcheck PRIVATE ${VUBCHECK_COMMON_DIR} ${VUBCHECK_IDS_DIR} ${VUBCHECK_PERIPHERY_DIR})
 target_compile_options(vubcheck PRIVATE -Wall -Wextra)
 
 if(WIN32)

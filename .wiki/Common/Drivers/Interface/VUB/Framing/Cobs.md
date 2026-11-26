@@ -1,7 +1,9 @@
 # VUB::Cobs
 
 COBS framing as Cheshire and Baker describe it. A frame is the packet with its zero bytes taken out, and it ends with a zero byte.
-Header: `Common/Drivers/Interface/VUB/Framing/Cobs.h`. The codec of the same scheme, without the VUB framing, is [Cobs](../../../../Utilities/Encoding/COBS/Cobs.md).
+Header: `Common/Drivers/Interface/VUB/Framing/Cobs.h`. The frames are made and read by the shared codec, `Encoding::Cobs`
+([Cobs](../../../../Utilities/Encoding/COBS/Cobs.md)); this framing adds the stack's rules on top of it: the growth of a frame, the refusal
+of an empty packet, and the status of a frame.
 
 ## Wire format
 
@@ -27,10 +29,10 @@ The last block of a frame has no zero after it. Examples, written by hand:
 
 ## Growth
 
-`Growth(n) = n + n / 254 + 2`: one code byte at least, one more for each 254 bytes, and the delimiter. The bound is exact for a packet
+`Growth(n) = n / 254 + 2`: one code byte at least, one more for each 254 bytes, and the delimiter. The bound is exact for a packet
 of 255 bytes, and one more than needed for 254 bytes (256 bytes sent, 257 reserved).
 
-With the leading delimiter, `VUB::CobsFlushed`, the bound is one more: `Growth(n) = n + n / 254 + 3`.
+With the leading delimiter, `VUB::CobsFlushed`, the bound is one more: `Growth(n) = n / 254 + 3`.
 
 ## Leading delimiter
 

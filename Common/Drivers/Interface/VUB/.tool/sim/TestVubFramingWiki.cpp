@@ -31,6 +31,7 @@ void OnPacket(const VUB::Meta&, std::span<const uint8> payload) {
 
 using Device = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Framing<VUB::Cobs>()
 		.Link<Uart>()
 		.MaxPayload(64)
@@ -68,6 +69,7 @@ void OnPacket(const VUB::Meta&, std::span<const uint8> payload) {
 
 using Device = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Framing<VUB::LengthPrefix<1>>()
 		.Link<Uart>()
 		.MaxPayload(64)
@@ -111,6 +113,7 @@ uint32 MicrosecondClock() {
 
 using Device = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Framing<VUB::Gap>()
 		.GapCharacters(35, 9600)
 		.Link<Uart>()
@@ -145,7 +148,7 @@ void Run() {
 
 
 // Growth is a compile-time check as well as a value, so the wiki's growth figures are checked in constant expressions.
-static_assert(VUB::Cobs::Growth(3) == 5);
+static_assert(VUB::Cobs::Growth(3) == 2);
 static_assert(VUB::LengthPrefix<1>::Growth(3) == 3);
 static_assert(VUB::Gap::Growth(3) == 0);
 

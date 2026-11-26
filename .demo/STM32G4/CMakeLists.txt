@@ -66,6 +66,19 @@ set(VHAL_CPU_FLAGS "-mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb")
 # The demo chosen with VHAL_DEMO. Application.cpp picks its entry point with this define.
 add_compile_definitions(VHAL_DEMO_${VHAL_DEMO})
 
+# The mode of the VUB demo. Echo (the default) is the link check of the four stacks, and it is the image without any requests code.
+# Requests is the requests demo: a simulated actuator on the UART and the CDC serial port (vubcheck --requests). The mode is a compile
+# definition, so each image holds only its own code.
+if(VHAL_DEMO STREQUAL "Vub")
+    set(VHAL_VUB_MODE Echo CACHE STRING "Mode of the VUB demo: Echo (the link check) or Requests (the requests demo)")
+    set_property(CACHE VHAL_VUB_MODE PROPERTY STRINGS Echo Requests)
+    if(VHAL_VUB_MODE STREQUAL "Requests")
+        add_compile_definitions(VHAL_VUB_REQUESTS)
+    elseif(NOT VHAL_VUB_MODE STREQUAL "Echo")
+        message(FATAL_ERROR "VHAL_VUB_MODE=${VHAL_VUB_MODE} is not a mode. Choose Echo or Requests")
+    endif()
+endif()
+
 include(${VHAL_DIR}/vhal.cmake)
 
 # --- Target ---

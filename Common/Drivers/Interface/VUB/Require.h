@@ -1,5 +1,6 @@
 #pragma once
 #include <Utilities/TextLiteral.h>
+#include <cstddef>
 
 namespace VUB {
 
@@ -15,6 +16,21 @@ template<TextLiteral Message>
 constexpr void Require(bool condition) {
 	if (!condition) {
 		CheckFailed<Message>();
+	}
+}
+
+
+// A failed check that shows a number: the value is a template argument of the diagnostic, so the message can name the value to set.
+// Declared, never defined, as CheckFailed.
+template<TextLiteral Message, std::size_t Value>
+void CheckFailedValue();
+
+
+// Calls CheckFailedValue<Message, Value>() when the condition does not hold. Used only inside constant expressions.
+template<TextLiteral Message, std::size_t Value>
+constexpr void RequireValue(bool condition) {
+	if (!condition) {
+		CheckFailedValue<Message, Value>();
 	}
 }
 

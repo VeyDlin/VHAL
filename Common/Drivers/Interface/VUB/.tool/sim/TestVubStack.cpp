@@ -398,6 +398,8 @@ void TestStreamFaultsOnlyWholePackets() {
 // one, and it is counted as a send error.
 using RefusingStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<TestLayer>(TestLayerOptions{0, true, 1000})
 		.Transform<XorTransform>()
 		.Framing<BulkRefusingFraming>()
@@ -465,6 +467,8 @@ struct OversizeLayer {
 
 using OversizeStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<OversizeLayer>()
 		.Link<PacketEnd>()
 		.MaxPayload(40)
@@ -570,6 +574,8 @@ struct OwnRefuseLayer {
 
 using OwnSendStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<OwnSendLayer>()
 		.Layer<OwnRefuseLayer>()
 		.Link<PacketEnd>()

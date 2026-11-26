@@ -1,6 +1,7 @@
 #pragma once
 #include <Drivers/Interface/VUB/Blocks.h>
 #include <Drivers/Interface/VUB/Builder.h>
+#include <Drivers/Interface/VUB/Bytes.h>
 #include <Drivers/Interface/VUB/Drops.h>
 #include <Drivers/Interface/VUB/LinkState.h>
 #include <Drivers/Interface/VUB/LinkTraits.h>
@@ -9,6 +10,7 @@
 #include <Drivers/Interface/VUB/Require.h>
 #include <Drivers/Interface/VUB/Ring.h>
 #include <Drivers/Interface/VUB/Storage.h>
+#include <System/System.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -19,6 +21,87 @@
 #include <utility>
 
 namespace VUB {
+
+
+// The options that have a concurrent member: a layer that reads the chain's Concurrent() flag has one.
+template<typename Options>
+concept HasConcurrentMember = requires(Options& options) {
+	options.concurrent;
+};
+
+
+// The options that have an ownerBelow member: a layer that works with and without the owner of its outcomes reads there whether the block
+// below it takes the owner (ownerOptional on the layer).
+template<typename Options>
+concept HasOwnerBelowMember = requires(Options& options) {
+	options.ownerBelow;
+};
+
+
+// A block that takes the owner of the layer above it: its Options can be wired with OwnedBy<Above>.
+template<typename Block, typename Above>
+concept TakesOwnerOf = requires(typename Block::Options options) {
+	Block::template OwnedBy<Above>(options);
+};
+
+
+// A block that counts resends and peer restarts, as Reliable does when it is Counted().
+template<typename Block>
+concept ReportsCounts = requires(const Block& block) {
+	block.Resends();
+	block.PeerRestarts();
+};
+
+
+// A block that resends its packets when the connection returns, because the layer above asks whether they are still wanted (Reliable with
+// DeliveryWanted above it). The stack marks the copies it queues for it, and drops the marked copies when the connection returns.
+template<typename Block>
+concept ResendsWanted = requires {
+	requires Block::resendsWanted;
+};
+
+
+// Raises a high-water value to fill, saturating at 255. Called from the receive interrupt for the receive ring, so the value is volatile.
+inline void RaiseHighWater(volatile uint8& high, std::size_t fill) {
+	uint8 level = fill > 255 ? static_cast<uint8>(255) : static_cast<uint8>(fill);
+	if (level > high) {
+		high = level;
+	}
+}
+
+
+// The options of entry Index of a chain, with what the chain gives them: a layer whose options have a concurrent member gets the chain's
+// Concurrent() flag, and one whose options have an ownerBelow member gets whether the block below it takes the owner of a layer above it.
+template<std::size_t Index, typename Chain>
+constexpr typename std::tuple_element_t<Index, typename Chain::Tuple>::OptionsType WiredOptionsOf(const Chain& chain) {
+	using Entry = std::tuple_element_t<Index, typename Chain::Tuple>;
+	typename Entry::OptionsType value = ListAt<Index>(chain.entries).options;
+	if constexpr (Entry::kind == BlockKind::layer && HasOwnerBelowMember<decltype(value)>) {
+		if constexpr (Index + 1 < std::tuple_size_v<typename Chain::Tuple>) {
+			using Below = std::tuple_element_t<Index + 1, typename Chain::Tuple>;
+			value.ownerBelow = TakesOwnerOf<typename Below::BlockType, typename Entry::BlockType>;
+		}
+	}
+
+	if constexpr (Entry::kind == BlockKind::layer && HasConcurrentMember<decltype(value)>) {
+		value.concurrent = chain.settings.concurrent;
+	}
+
+	return value;
+}
+
+
+// The options of a block below a layer that wants the owner of its outcomes: the block that declares OwnedBy takes the handlers of that
+// layer. AboveStored is the type the stack stores for the layer above, since the owner is that object: a layer stored as its Configured
+// alias is another type than the one in the chain.
+template<typename Entry, typename AboveStored, bool AboveWantsOwner>
+constexpr typename Entry::OptionsType OwnedOptionsOf(typename Entry::OptionsType value) {
+	if constexpr (AboveWantsOwner && TakesOwnerOf<typename Entry::BlockType, AboveStored>) {
+		value = Entry::BlockType::template OwnedBy<AboveStored>(value);
+	}
+
+	return value;
+}
 
 
 // A stack built from a chain. Make is a captureless lambda that returns the Builder of the chain:
@@ -36,14 +119,17 @@ namespace VUB {
 //
 // The stack is given its link object: Link link(uart); Link stack(link);
 //
-// Send encodes a packet at once, through the layers and transforms, into the control queue. Process reads the clock, takes the bytes
-// and packets received, decodes them up the chain, runs every layer's Process, and then sends: the layers' own packets first, then the
-// control packets, then the bulk packets of a layer's Next, while the link accepts, at most PerProcess packets a call. A packet the link
-// refuses is kept for the next call; nothing is dropped for a busy link. A layer may pass a packet up from its Process, through its outbox
-// (Deliver): the packet goes through the blocks above the layer, and on to the receive handler.
+// Send encodes a packet at once, through the layers and transforms. With a send queue (SendQueue(n), n of one or more) the packet is queued;
+// without one (the default on a stream link and on a packet link with Ready()) the packet is given to the link in the call, and busy is
+// returned, with nothing taken, while the link cannot take it. Process reads the clock, takes the bytes and packets received, decodes them
+// up the chain, runs every layer's Process, and then sends: the layers' own packets first, then the control packets, then the bulk packets
+// of a layer's Next, while the link accepts, at most PerProcess packets a call. A packet the link refuses is kept for the next call;
+// nothing is dropped for a busy link. A layer may pass a packet up from its Process, through its outbox (Deliver): the packet goes through
+// the blocks above the layer, and on to the receive handler.
 //
-// Feed (a byte-stream link) and FeedPacket (a packet link) are called from the receive interrupt. Everything else runs in one context:
-// Send, Process and Drops. Another task calling Send needs a lock of its own.
+// Feed (a byte-stream link) and FeedPacket (a packet link) are called from the receive interrupt. Send, Process and Drops run in one
+// context. A concurrent stack (Concurrent()) also takes Send from another task: that Send copies the payload into a staging ring under a
+// short critical section, and Process moves the staged packets on, in its own context. Nothing else of Process runs in a critical section.
 //
 // How a link hands its data over. A link with SetReceiver gets a Receiver in its constructor, and feeds it from its interrupt; the stack
 // takes it back in its destructor, so such a stack is not copyable. A link with Poll is polled by Process ahead of the drain, and feeds the
@@ -86,9 +172,29 @@ public:
 	static_assert(checked, "the chain was not checked");
 
 
-	// The options of entry Index of the chain, as a constant value.
+	// The stored type of the layer above entry Index, and whether it wants the owner of the outcomes below it. Entry 0 has no layer above.
+	template<std::size_t Index, bool HasAbove = (Index > 0)>
+	struct AboveStoredOf {
+		using type = None;
+		static constexpr bool wantsOwner = false;
+	};
+
+
 	template<std::size_t Index>
-	static constexpr auto OptionsAt = ListAt<Index>(built.entries).options;
+	struct AboveStoredOf<Index, true> {
+		using type = typename StoredOf<std::tuple_element_t<Index - 1, Tuple>, WiredOptionsOf<Index - 1>(built)>::type;
+		static constexpr bool wantsOwner = std::tuple_element_t<Index - 1, Tuple>::WantsOwner();
+	};
+
+
+	// The options of entry Index of the chain, as a constant value, with the chain's wiring (WiredOptionsOf) and the owner of the layer above
+	// (OwnedOptionsOf).
+	template<std::size_t Index>
+	static constexpr typename std::tuple_element_t<Index, Tuple>::OptionsType OptionsAt = OwnedOptionsOf<
+		std::tuple_element_t<Index, Tuple>,
+		typename AboveStoredOf<Index>::type,
+		AboveStoredOf<Index>::wantsOwner
+	>(WiredOptionsOf<Index>(built));
 
 
 	// The type stored for entry Index. A block that declares Configured is stored as that alias, with its options as constants; any other
@@ -104,6 +210,90 @@ public:
 	using Storage = decltype(StorageOf(std::make_index_sequence<count>{}));
 
 
+	// The largest packet a layer declares must fit the payload capacity of the block directly below it, when that block declares one (the
+	// Reliable layer does). Both are read from the types the stack stores, since an option can change either one. The message shows the
+	// largest packet, the value to set as the capacity.
+	template<std::size_t Index>
+	static consteval void CheckPayloadFit() {
+		using AboveType = StoredAt<Index>;
+		using BelowType = StoredAt<Index + 1>;
+		if constexpr (requires { AboveType::largestPacket; } && requires { BelowType::payloadCapacity; }) {
+			constexpr std::size_t need = AboveType::largestPacket;
+			constexpr std::size_t capacity = BelowType::payloadCapacity;
+			RequireValue<"the largest requests packet does not fit Reliable's payload: raise PayloadCapacity to the value shown", need>(
+				need <= capacity);
+		}
+	}
+
+
+	template<std::size_t... Index>
+	static consteval bool CheckPayloadFits(std::index_sequence<Index...>) {
+		(CheckPayloadFit<Index>(), ...);
+		return true;
+	}
+
+
+	static constexpr bool payloadsFit = CheckPayloadFits(std::make_index_sequence<(count > 0 ? count - 1 : 0)>{});
+	static_assert(payloadsFit, "the payloads of the chain were not checked");
+
+
+	template<std::size_t... Index>
+	static constexpr bool AnyResendsWanted(std::index_sequence<Index...>) {
+		return (false || ... || ResendsWanted<StoredAt<Index>>);
+	}
+
+
+	// Whether a layer of the chain resends its packets when the connection returns (see ResendsWanted). A chain without one has no code for it.
+	static constexpr bool resendsWanted = AnyResendsWanted(std::make_index_sequence<count>{});
+
+
+	// Whether the layer at Index reads the stack's counters (usesCounters = true). It is read from the type the stack stores, since an
+	// option can turn it on.
+	template<std::size_t Index>
+	static consteval bool LayerUsesCounters() {
+		using LayerType = StoredAt<Index>;
+		if constexpr (requires { LayerType::usesCounters; }) {
+			return LayerType::usesCounters;
+		} else {
+			return false;
+		}
+	}
+
+
+	// A layer that declares needsCounters = true sends the stack's counters on, so each of them must be kept: the stack must be HighWater(),
+	// and a block below it that takes its owner (the Reliable layer) must be Counted(). It is read from the stored type too.
+	template<std::size_t Index>
+	static consteval void CheckCounters() {
+		using LayerType = StoredAt<Index>;
+		if constexpr (requires { LayerType::needsCounters; }) {
+			if constexpr (LayerType::needsCounters) {
+				Require<"a layer of the chain sends the drop counts (Requests with AnswerHealth does): add CountDrops() to the stack">(
+					built.settings.countDrops);
+				Require<"a layer of the chain sends the high-water marks (Requests with AnswerHealth does): add HighWater() to the stack">(
+					built.settings.highWater);
+				if constexpr (Index + 1 < count) {
+					using Below = std::tuple_element_t<Index + 1, Tuple>;
+					if constexpr (TakesOwnerOf<typename Below::BlockType, LayerType>) {
+						Require<"a layer of the chain sends Reliable's counters (Requests with AnswerHealth does): add Counted() to the Reliable layer">(
+							ReportsCounts<StoredAt<Index + 1>>);
+					}
+				}
+			}
+		}
+	}
+
+
+	template<std::size_t... Index>
+	static consteval bool CheckAllCounters(std::index_sequence<Index...>) {
+		(CheckCounters<Index>(), ...);
+		return true;
+	}
+
+
+	static constexpr bool countersKept = CheckAllCounters(std::make_index_sequence<count>{});
+	static_assert(countersKept, "the counters of the chain were not checked");
+
+
 	static constexpr LinkTraits linkTraits = Builder::ChainLinkTraits();
 	static constexpr bool streamLink = Builder::IsStreamLink();
 	static constexpr bool linkReports = linkTraits.reportsState;
@@ -116,20 +306,42 @@ public:
 	static constexpr std::size_t framedBytes = Builder::FramedBound(built.settings);
 	static constexpr std::size_t framingIndex = Builder::FramingIndex();
 	static constexpr bool hasFraming = framingIndex < count;
+	// A stream chain with a framing and a layer that resends its packets keeps the mark of the frame being written.
+	static constexpr bool framesResent = resendsWanted && streamLink && hasFraming;
 	using FramingEntry = std::tuple_element_t<(framingIndex < count ? framingIndex : 0), Tuple>;
 	// A framing that uses time gets the time of each received byte, and the ring keeps it. Any other chain keeps no time.
 	static constexpr bool framingTimed = streamLink && FramingUsesTime<hasFraming, FramingEntry>::value;
-	static constexpr bool hasSteps = Builder::StepCount() > 0;
 	static constexpr bool hasBulk = Builder::BulkCount() > 0;
-	static constexpr std::size_t receiveBytes = linkTraits.maxPacket;
+	// A stream link receives into a buffer of the largest received packet; a packet link keeps the MaxPacket of its traits.
+	static constexpr std::size_t receiveBytes = streamLink ? Builder::ReceiveBound(built.settings) : linkTraits.maxPacket;
 	static constexpr std::size_t receiveStart = streamLink ? (count >= 2 ? count - 2 : 0) : (count >= 1 ? count - 1 : 0);
-	static constexpr std::size_t sendSlots = built.settings.sendQueue + 1;
+	// The send queue: zero is no queue, and the packets are given to the link in the call (see Send).
+	static constexpr std::size_t sendQueue = Builder::SendQueueOf(built.settings);
+	static constexpr bool sendQueued = sendQueue > 0;
+	static constexpr std::size_t sendSlots = sendQueue + 1;
 	static constexpr std::size_t ringSlots = built.settings.receiveRing + 1;
 	static constexpr std::size_t receiveSlots = built.settings.receiveQueue + 1;
 	static constexpr std::size_t perProcess = built.settings.perProcess;
 	static constexpr void (*receiveFn)(const Meta&, std::span<const uint8>) = built.settings.receiveFn;
 	static constexpr uint32 (*clockFn)() = built.settings.clockFn;
 	static constexpr bool hasClock = built.settings.hasClock;
+	static constexpr bool concurrent = built.settings.concurrent;
+	// The staging ring exists only on a concurrent stack that has a StageQueue.
+	static constexpr std::size_t stageQueue = built.settings.stageQueue;
+	static constexpr bool stageQueued = concurrent && stageQueue > 0;
+	static constexpr std::size_t stageSlots = stageQueue + 1;
+	// A chain with a layer keeps one bit per layer (HoldMask). A layer's send that the link refused as busy sets the layer's bit. While a bit
+	// is set, the application's packets wait, and so do the sends of the layers above the layer of that bit. ProcessLayers clears a layer's
+	// bit ahead of the layer's Process, so a bit holds for one Process at most.
+	static constexpr bool layerHolds = Builder::LayerCount() > 0;
+	static constexpr std::size_t layerCount = Builder::LayerCount();
+	// The smallest unsigned type with a bit for each layer of the chain. The top layer has bit 0; the layers below a layer have higher bits.
+	using HoldMask = std::conditional_t<(layerCount <= 8), uint8, std::conditional_t<(layerCount <= 16), uint16, uint32>>;
+	static constexpr std::size_t stageBytes = built.settings.maxPayload;
+	static constexpr bool highWater = built.settings.highWater;
+	static constexpr bool countDrops = built.settings.countDrops;
+	static constexpr bool wantsOwners = Builder::WantsOwners();
+	static constexpr std::size_t requestsIndex = Builder::RequestsIndex();
 
 
 	explicit Stack(LinkType& linkObject) : link(&linkObject), detach(link), receiverDetach(link), blocks(MakeBlocks(std::make_index_sequence<count>{})) {
@@ -147,37 +359,44 @@ public:
 		if constexpr (linkReceives) {
 			link->SetReceiver(MakeReceiver());
 		}
+
+		if constexpr (wantsOwners) {
+			SetOwners<0>();
+		}
 	}
 
 
 	// Encodes one payload and queues it. Returns ok when it is queued, busy when the control queue is full (the payload is not queued and
 	// nothing is counted: the caller sends it again), messageTooLong when it is larger than MaxPayload, noConnection while the
 	// connection is down under the Fail option, or the status of a block that refused it.
+	//
+	// On a concurrent stack the call may come from another task. There ok means the payload is staged: the encode and the queueing happen
+	// in Process, and a refusal there is counted in Drops() and not returned. Busy means the staging ring is full, and the payload is not
+	// taken. The size and the connection are checked here as well.
 	ResultStatus Send(std::span<const uint8> payload, const Meta& meta = Meta()) {
-		if (payload.size() > built.settings.maxPayload) {
-			return ResultStatus::messageTooLong;
+		if constexpr (!concurrent) {
+			return SendLocked(payload, meta);
+		} else if constexpr (stageQueued) {
+			return StageSend(payload, meta);
+		} else {
+			// The message stands alone: no staging helper is instantiated without a staging ring.
+			static_assert(stageQueued, "Send from another task needs StageQueue(n): add it to the builder");
+			return ResultStatus::notSupported;
 		}
-
-		if constexpr (hasLinkState) {
-			if (whileDown == Down::Fail && !LinkUp()) {
-				return ResultStatus::noConnection;
-			}
-		}
-
-		if (QueueFull(control.indexes, sendSlots)) {
-			return ResultStatus::busy;
-		}
-
-		return SendFrom<0>(payload, meta, Lane::control, true);
 	}
 
 
-	// The main loop call. Reads the clock, polls the link if it has Poll, applies the link's state, takes the received bytes and packets up
-	// the chain, runs the layers' Process, and sends.
+	// The main loop call. Reads the clock, moves the staged packets (a concurrent stack with a staging ring), polls the link if it has Poll,
+	// applies the link's state, takes the received bytes and packets up the chain, runs the layers' Process, and sends. The receive handlers
+	// and the layers run outside any critical section.
 	void Process() {
 		uint32 now = 0;
 		if constexpr (hasClock) {
 			now = clockFn();
+		}
+
+		if constexpr (stageQueued && sendQueued) {
+			DrainStaged(now);
 		}
 
 		if constexpr (linkPolled) {
@@ -199,6 +418,11 @@ public:
 			ApplyConnection(now, false, linkRecord.Get().linkUp);
 		}
 
+		// Without a send queue the staged packets go to the link in this call, so they wait for the connection as it is now applied.
+		if constexpr (stageQueued && !sendQueued) {
+			DrainStaged(now);
+		}
+
 		Egress(now);
 	}
 
@@ -206,15 +430,18 @@ public:
 	// Takes one received byte. Called from the receive interrupt of a byte-stream link. A full ring drops the byte and counts it. A
 	// framing that uses time gets the time of the byte from the clock, here, so the byte keeps the time it arrived at.
 	void Feed(uint8 byte) requires (streamLink) {
+		bool stored = false;
 		if constexpr (framingTimed) {
 			uint32 stamp = clockFn();
-			if (!TimedRingPush(ring.indexes, ring.Span(), stamps.Span(), byte, stamp)) {
-				CountIsr(ringFullIsr);
-			}
+			stored = TimedRingPush(ring.indexes, ring.Span(), stamps.Span(), byte, stamp);
 		} else {
-			if (!ByteRingPush(ring.indexes, ring.Span(), byte)) {
-				CountIsr(ringFullIsr);
-			}
+			stored = ByteRingPush(ring.indexes, ring.Span(), byte);
+		}
+
+		if (stored) {
+			NoteReceiveFill();
+		} else {
+			DropIsr(&DropState::ringFullIsr);
 		}
 	}
 
@@ -237,25 +464,27 @@ public:
 	void FeedPacket(std::span<const uint8> packet) requires (!streamLink) {
 		ResultStatus status = QueuePush(rxQueue.indexes, rxQueue.View(), packet, 0);
 		if (status == ResultStatus::messageTooLong) {
-			CountIsr(tooLongIsr);
+			DropIsr(&DropState::tooLongIsr);
 		} else if (status == ResultStatus::busy) {
-			CountIsr(queueFullIsr);
+			DropIsr(&DropState::queueFullIsr);
+		}
+
+		if (status == ResultStatus::ok) {
+			NoteReceiveFill();
 		}
 	}
 
 
-	// A copy of the counters.
-	DropCounters Drops() const {
+	// A copy of the counters. Present only when the stack counts its drops (CountDrops()).
+	DropCounters Drops() const requires (countDrops) {
+		const DropState& state = drops.Get();
 		DropCounters snapshot;
-		static_cast<DropCounts&>(snapshot) = drops;
-		snapshot.ringFull = ringFullIsr;
-		snapshot.queueFull = queueFullIsr;
-		uint32 tooLongTotal = static_cast<uint32>(drops.tooLong) + tooLongIsr;
+		static_cast<DropCounts&>(snapshot) = state;
+		snapshot.ringFull = state.ringFullIsr;
+		snapshot.queueFull = state.queueFullIsr;
+		uint32 tooLongTotal = static_cast<uint32>(state.tooLong) + state.tooLongIsr;
 		snapshot.tooLong = tooLongTotal > 65535 ? 65535 : static_cast<uint16>(tooLongTotal);
-		if constexpr (hasLinkState) {
-			snapshot.linkDown = linkRecord.Get().dropped;
-		}
-
+		snapshot.linkDown = state.linkDown;
 		return snapshot;
 	}
 
@@ -273,7 +502,56 @@ public:
 	}
 
 
+	// The outbox of the layer at Index for the application, from its own context (not from Process). Its send enters the blocks below the
+	// layer, at Index + 1, and runs them down to the control queue. A refusal goes back to the caller and is not counted as a drop, so the
+	// caller keeps the packet and sends it again. The layer's Process gets its own outbox, which also has LinkUp.
+	// On a concurrent stack a layer sends from its own Process, with the outbox that Process is given. The application-side outbox is for a
+	// stack that is not concurrent: its send runs in the caller's context and takes the control queue, which Process uses without a lock,
+	// so it is refused here. An application on a concurrent stack sends through Stack::Send.
+	template<std::size_t Index>
+	Outbox LayerOutbox() {
+		static_assert(Index < count, "the chain has no block at this index");
+		static_assert(std::tuple_element_t<(Index < count ? Index : 0), Tuple>::kind == BlockKind::layer,
+			"LayerOutbox is for a layer: the block at this index is not a layer");
+		static_assert(!concurrent, "LayerOutbox is for a stack that is not concurrent: on a concurrent stack a layer sends from its own Process, and the application sends through Stack::Send");
+		return Outbox(this, &Stack::template AppSendThunk<Index + 1>, PeerFor<Index>(), DeliverFor<Index>(), LinkFor<Index>());
+	}
+
+
+	// The handle of the layer at Index: the layer's nested type Handle, built from the layer and an application-side outbox. On a stack
+	// that is not concurrent the outbox is LayerOutbox. On a concurrent stack it refuses every send with notSupported: a layer on a
+	// concurrent stack keeps what the application gives it and sends from its own Process. A layer declares Handle when the application
+	// sends through it.
+	template<std::size_t Index>
+	auto HandleAt() {
+		static_assert(Index < count, "the chain has no block at this index");
+		static_assert(requires { typename StoredAt<(Index < count ? Index : 0)>::Handle; },
+			"the layer has no Handle: declare a nested type Handle, constructible from the layer and its Outbox");
+		using HandleType = typename StoredAt<(Index < count ? Index : 0)>::Handle;
+		if constexpr (concurrent) {
+			return HandleType(std::get<(Index < count ? Index : 0)>(blocks),
+				Outbox(this, &Stack::RefusedSendThunk, PeerFor<Index>(), DeliverFor<Index>(), LinkFor<Index>()));
+		} else {
+			return HandleType(std::get<(Index < count ? Index : 0)>(blocks), LayerOutbox<(Index < count ? Index : 0)>());
+		}
+	}
+
+
+	// The handle of the first layer that declares requestsLayer = true. Without one the chain is refused here.
+	auto Requests() {
+		static_assert(requestsIndex < count, "the chain has no requests layer: a layer declares static constexpr bool requestsLayer = true");
+		return HandleAt<(requestsIndex < count ? requestsIndex : 0)>();
+	}
+
+
 private:
+	// The high-water marks of the stack. Only the receive interrupt writes the ring's mark, and only the send side writes the control queue's.
+	struct HighWaterState {
+		volatile uint8 ring = 0;
+		volatile uint8 control = 0;
+	};
+
+
 	struct FramedState {
 		uint16 length = 0;
 		uint16 sent = 0;
@@ -282,10 +560,44 @@ private:
 	};
 
 
+	// The bulk slot of the stack holds one packet at a time: the held packet, which waits for the link in the held buffer, or a pulled packet,
+	// which a block below its producer refused as busy and which stays in the pulled buffer. The pulled packet keeps its length and flags
+	// here, and the slot holds pulledSlot plus the index of its producer, so the packet is offered again at its producer.
 	struct HeldState {
+		static constexpr uint8 emptySlot = 0;
+		static constexpr uint8 heldSlot = 1;
+		static constexpr uint8 pulledSlot = 2;
+
+
 		uint16 length = 0;
 		uint8 flags = 0;
-		bool valid = false;
+		uint8 slot = emptySlot;
+	};
+
+
+	// Whether the frame being written carries a packet that a layer below sends again (see ResentBelowFlag). Only a stream chain with such a
+	// layer keeps the mark; any other chain has an empty member.
+	struct FrameMark {
+		bool resent = false;
+	};
+
+
+	struct NoFrameMark {
+	};
+
+
+	// The bits of the layers whose send from their Process was refused as busy, until each layer's next Process (see layerHolds).
+	struct HoldState {
+		HoldMask busy = 0;
+	};
+
+
+	// The drop counts of the stack, with the counts the receive interrupt writes. Only a stack with CountDrops() has them.
+	struct DropState : DropCounts {
+		uint16 linkDown = 0;
+		volatile uint16 ringFullIsr = 0;
+		volatile uint16 queueFullIsr = 0;
+		volatile uint16 tooLongIsr = 0;
 	};
 
 
@@ -293,24 +605,181 @@ private:
 	[[no_unique_address]] Detach<linkReports, LinkType> detach;
 	[[no_unique_address]] ReceiverDetach<linkReceives, LinkType> receiverDetach;
 	[[no_unique_address]] Storage blocks;
-	[[no_unique_address]] Buffer<hasSteps, packetBytes, 1> sendA;
-	[[no_unique_address]] Buffer<hasSteps, packetBytes, 2> sendB;
+	[[no_unique_address]] Buffer<Builder::HasStepOfParity(0), packetBytes, 1> sendA;
+	[[no_unique_address]] Buffer<Builder::HasStepOfParity(1), packetBytes, 2> sendB;
 	[[no_unique_address]] Buffer<hasBulk, packetBytes, 3> pulled;
 	[[no_unique_address]] Buffer<hasBulk, packetBytes, 4> held;
 	[[no_unique_address]] State<hasBulk, HeldState, 5> heldState;
 	[[no_unique_address]] Buffer<streamLink && hasFraming, framedBytes, 6> framed;
 	[[no_unique_address]] State<streamLink && hasFraming, FramedState, 7> framedState;
-	[[no_unique_address]] QueueStorage<true, sendSlots, packetBytes, 8> control;
-	[[no_unique_address]] QueueStorage<peersReport, sendSlots, packetBytes, 14> ownQueue;
+	[[no_unique_address]] std::conditional_t<framesResent, FrameMark, NoFrameMark> frameMark{};
+	[[no_unique_address]] QueueStorage<sendQueued, sendSlots, packetBytes, 8> control;
+	[[no_unique_address]] QueueStorage<stageQueued, stageSlots, stageBytes, 16> staged;
+	[[no_unique_address]] QueueStorage<peersReport && sendQueued, sendSlots, packetBytes, 14> ownQueue;
 	[[no_unique_address]] Buffer<true, receiveBytes, 9> rx;
 	[[no_unique_address]] RingStorage<streamLink, ringSlots, 10> ring;
 	[[no_unique_address]] StampStorage<framingTimed, ringSlots, 13> stamps;
 	[[no_unique_address]] QueueStorage<!streamLink, receiveSlots, receiveBytes, 11> rxQueue;
 	[[no_unique_address]] State<hasLinkState, LinkRecord, 12> linkRecord;
-	DropCounts drops;
-	volatile uint16 ringFullIsr = 0;
-	volatile uint16 queueFullIsr = 0;
-	volatile uint16 tooLongIsr = 0;
+	[[no_unique_address]] State<countDrops, DropState, 17> drops;
+	[[no_unique_address]] State<layerHolds, HoldState, 18> holdState;
+	[[no_unique_address]] State<highWater, HighWaterState, 15> highWaterState;
+
+
+	// Counts one packet or byte the stack discarded, under its reason. A stack without CountDrops() counts nothing.
+	void Drop([[maybe_unused]] uint16 DropCounts::* field) {
+		if constexpr (countDrops) {
+			CountDrop(drops.Get().*field);
+		}
+	}
+
+
+	// Counts one byte or packet that the receive interrupt could not store, under its reason. A stack without CountDrops() counts nothing.
+	void DropIsr([[maybe_unused]] volatile uint16 DropState::* field) {
+		if constexpr (countDrops) {
+			CountIsr(drops.Get().*field);
+		}
+	}
+
+
+	// Counts the packets and bytes that a down discarded, or that were queued when the connection went down under Fail.
+	void DropLinkDown([[maybe_unused]] std::size_t amount) {
+		if constexpr (countDrops) {
+			AddDrops(drops.Get().linkDown, amount);
+		}
+	}
+
+
+	// The time of the call, from the clock. Zero on a chain without one, which has no time to read.
+	uint32 ReadNow() {
+		if constexpr (hasClock) {
+			return clockFn();
+		} else {
+			return 0;
+		}
+	}
+
+
+	// Whether a packet with no queue may be given to the link now, checked before any layer runs on it: the connection, the framed packet
+	// in progress and the gap of a stream link, and the link's Ready() of a packet link. An application packet waits for the connection
+	// under Down::Wait and is refused with noConnection under Down::Fail. A layer's own packet goes while only the peer is down.
+	ResultStatus DirectAdmit(bool own, uint32 now) {
+		if constexpr (hasLinkState) {
+			const LinkRecord& record = linkRecord.Get();
+			bool up = own ? record.linkUp : record.connected;
+			// What the link has reported counts as well: a fall that Process has not read, or a link that reports itself down, refuses
+			// the packet at once. A return is not used until Process reads it. A link that does not report has nothing to read.
+			bool reported = !linkReports || (record.reportedUp && record.reportedFalls == record.seenFalls);
+			if (!up || !reported) {
+				return whileDown == Down::Fail ? ResultStatus::noConnection : ResultStatus::busy;
+			}
+		}
+
+		if constexpr (streamLink && hasFraming) {
+			if (framedState.Get().valid) {
+				return ResultStatus::busy;
+			}
+
+			if constexpr (framingTimed) {
+				if (!std::get<framingIndex>(blocks).Ready(now)) {
+					return ResultStatus::busy;
+				}
+			}
+		} else if constexpr (ReadyLink<LinkType>) {
+			if (!link->Ready()) {
+				return ResultStatus::busy;
+			}
+		}
+
+		return ResultStatus::ok;
+	}
+
+
+	// The check of a packet from the application (Send, AppSend) before any layer runs: the send queue when there is one, otherwise the
+	// direct check.
+	ResultStatus AdmitApplication() {
+		if constexpr (sendQueued) {
+			if constexpr (hasLinkState) {
+				if (whileDown == Down::Fail && !LinkUp()) {
+					return ResultStatus::noConnection;
+				}
+			}
+
+			if (LayerHolding()) {
+				return ResultStatus::busy;
+			}
+
+			if (QueueFull(control.indexes, sendSlots)) {
+				return ResultStatus::busy;
+			}
+
+			return ResultStatus::ok;
+		} else {
+			ResultStatus admit = DirectAdmit(false, ReadNow());
+			if (admit != ResultStatus::ok) {
+				return admit;
+			}
+
+			return LayerHolding() ? ResultStatus::busy : ResultStatus::ok;
+		}
+	}
+
+
+	// The number of layers above entry Index of the chain. It is the layer's bit number.
+	template<std::size_t Index>
+	static constexpr std::size_t LayersAbove() {
+		if constexpr (Index == 0) {
+			return 0;
+		} else {
+			using Above = std::tuple_element_t<Index - 1, Tuple>;
+			return LayersAbove<Index - 1>() + (Above::kind == BlockKind::layer ? 1 : 0);
+		}
+	}
+
+
+	// The bit of the layer at entry Index.
+	template<std::size_t Index>
+	static constexpr HoldMask LayerBit() {
+		return static_cast<HoldMask>(static_cast<uint32>(1) << LayersAbove<Index>());
+	}
+
+
+	// The bits of the layers below the layer at entry Index: the layers that come after it in the chain. A send of that layer waits while one
+	// of these bits is set.
+	template<std::size_t Index>
+	static constexpr HoldMask LayersBelowBits() {
+		uint64 all = (static_cast<uint64>(1) << layerCount) - 1;
+		uint64 upTo = (static_cast<uint64>(1) << (LayersAbove<Index>() + 1)) - 1;
+		return static_cast<HoldMask>(all & ~upTo);
+	}
+
+
+	// Whether a layer's bit is set: a send from its Process was refused as busy, and the application's packets wait for it (see layerHolds).
+	bool LayerHolding() const {
+		if constexpr (layerHolds) {
+			return holdState.Get().busy != 0;
+		} else {
+			return false;
+		}
+	}
+
+
+	// Gives a finished packet to the link in the call, with no send queue. A framed stream packet is written at once; the rest of it, when
+	// the link takes part of it, is written by Process. A packet link refuses with busy when the link does.
+	ResultStatus SendDirect(std::span<const uint8> packet, uint8 flags, bool own) {
+		uint32 now = ReadNow();
+		if (!Offer(packet, flags, now, own)) {
+			return ResultStatus::busy;
+		}
+
+		if constexpr (streamLink && hasFraming) {
+			if (framedState.Get().valid) {
+				WriteFramed(now);
+			}
+		}
+
+		return ResultStatus::ok;
+	}
 
 
 	// The step with index From is applied to packet and its result goes into a step buffer, alternating between the two buffers. The
@@ -329,7 +798,7 @@ private:
 				Result<std::size_t> added = std::get<From>(blocks).Add(meta, packet, out);
 				if (added.IsErr()) {
 					if (!caller && added.Error() != ResultStatus::busy) {
-						CountDrop(drops.layerError);
+						Drop(&DropCounts::layerError);
 					}
 
 					return added.Error();
@@ -337,19 +806,19 @@ private:
 
 				if (added.Value() > out.size()) {
 					if (!caller) {
-						CountDrop(drops.layerError);
+						Drop(&DropCounts::layerError);
 					}
 
 					return ResultStatus::messageTooLong;
 				}
 
-				return SendFrom<From + 1>(out.first(added.Value()), meta, lane, caller);
+				return SendFrom<From + 1>(out.first(added.Value()), ResentMeta<From>(meta), lane, caller);
 			} else if constexpr (Entry::kind == BlockKind::transform) {
 				std::span<uint8> out = StepBuffer<From>();
 				Result<std::size_t> encoded = std::get<From>(blocks).Encode(meta, packet, out);
 				if (encoded.IsErr()) {
 					if (!caller && encoded.Error() != ResultStatus::busy) {
-						CountDrop(drops.transformError);
+						Drop(&DropCounts::transformError);
 					}
 
 					return encoded.Error();
@@ -357,7 +826,7 @@ private:
 
 				if (encoded.Value() > out.size()) {
 					if (!caller) {
-						CountDrop(drops.transformError);
+						Drop(&DropCounts::transformError);
 					}
 
 					return ResultStatus::messageTooLong;
@@ -371,6 +840,21 @@ private:
 	}
 
 
+	// The meta of a packet that the layer at From added. A packet of a layer that resends its packets when the connection returns is marked,
+	// unless it needs no acknowledgement: such a packet is not kept by the layer, so it is not sent again by it.
+	template<std::size_t From>
+	static Meta ResentMeta(const Meta& meta) {
+		Meta marked = meta;
+		if constexpr (ResendsWanted<StoredAt<From>>) {
+			if ((meta.flags & Meta::NoAcknowledgeFlag) == 0) {
+				marked.flags = static_cast<uint8>(marked.flags | Meta::ResentBelowFlag);
+			}
+		}
+
+		return marked;
+	}
+
+
 	template<std::size_t From>
 	std::span<uint8> StepBuffer() {
 		if constexpr (From % 2 == 0) {
@@ -381,27 +865,261 @@ private:
 	}
 
 
-	// Puts a finished packet on its lane: a queue, or the one bulk slot. The own lane is used only by a chain that has an own queue.
-	ResultStatus Stage(std::span<const uint8> packet, const Meta& meta, Lane lane) {
-		if constexpr (peersReport) {
-			if (lane == Lane::own) {
-				return QueuePush(ownQueue.indexes, ownQueue.View(), packet, meta.flags);
+	// The body of Send. Runs in the critical section of a concurrent stack.
+	ResultStatus SendLocked(std::span<const uint8> payload, const Meta& meta) {
+		if (payload.size() > built.settings.maxPayload) {
+			return ResultStatus::messageTooLong;
+		}
+
+		ResultStatus admit = AdmitApplication();
+		if (admit != ResultStatus::ok) {
+			return admit;
+		}
+
+		return SendFrom<0>(payload, meta, Lane::control, true);
+	}
+
+
+	// The send of a handle's outbox on a concurrent stack: the layer keeps what it is given and sends from its own Process.
+	static ResultStatus RefusedSendThunk(void*, std::span<const uint8>, const Meta&) {
+		return ResultStatus::notSupported;
+	}
+
+
+	// The application-side send into the blocks from From on: the packet enters at From, from the caller's context. A refusal goes back to
+	// the caller and none is counted. Only a stack that is not concurrent has one (LayerOutbox).
+	template<std::size_t From>
+	static ResultStatus AppSendThunk(void* owner, std::span<const uint8> packet, const Meta& meta) {
+		Stack* self = static_cast<Stack*>(owner);
+		return self->template AppSend<From>(packet, meta);
+	}
+
+
+	template<std::size_t From>
+	ResultStatus AppSend(std::span<const uint8> packet, const Meta& meta) {
+		if (packet.size() > packetBytes) {
+			return ResultStatus::messageTooLong;
+		}
+
+		ResultStatus admit = AdmitApplication();
+		if (admit != ResultStatus::ok) {
+			return admit;
+		}
+
+		return SendFrom<From>(packet, meta, Lane::control, true);
+	}
+
+
+	// The send of a concurrent stack. The payload is checked for its size, then copied into the staging ring under a short critical section:
+	// the ring's head is written from any task, so the push cannot run beside another push. Busy when the ring is full.
+	ResultStatus StageSend(std::span<const uint8> payload, const Meta& meta) {
+		if (payload.size() > built.settings.maxPayload) {
+			return ResultStatus::messageTooLong;
+		}
+
+		System::CriticalSection(true);
+		ResultStatus status = StagePush(payload, meta);
+		System::CriticalSection(false);
+		return status;
+	}
+
+
+	// The staging push, in the critical section of StageSend. Under Fail a down connection refuses the payload, as SendLocked does.
+	ResultStatus StagePush(std::span<const uint8> payload, const Meta& meta) {
+		if constexpr (hasLinkState) {
+			if (whileDown == Down::Fail && !LinkUp()) {
+				return ResultStatus::noConnection;
 			}
 		}
 
-		if (lane == Lane::control) {
-			return QueuePush(control.indexes, control.View(), packet, meta.flags);
+		return QueuePush(staged.indexes, staged.View(), payload, meta.flags);
+	}
+
+
+	// Moves the staged packets to the control queue, oldest first, from Process in its own context. A packet that the control queue or a
+	// layer refuses as busy stays staged for the next call. Any other refusal is counted where it happens (SendFrom counts it, since the
+	// packet has no caller), and the packet is taken out. Under Fail, a packet drained while the connection is down is dropped and counted.
+	void DrainStaged([[maybe_unused]] uint32 now) {
+		std::span<const uint8> packet;
+		uint8 flags = 0;
+		while (StagedFront(packet, flags)) {
+			if (LayerHolding()) {
+				return;
+			}
+
+			if constexpr (sendQueued) {
+				if (QueueFull(control.indexes, sendSlots)) {
+					return;
+				}
+
+				if constexpr (hasLinkState) {
+					if (whileDown == Down::Fail && !LinkUp()) {
+						StagedPop();
+						DropLinkDown(1);
+						continue;
+					}
+				}
+			} else {
+				// Without a send queue the connection is checked first: a packet staged before a down under Fail is dropped and counted.
+				if constexpr (hasLinkState) {
+					if (whileDown == Down::Fail && !linkRecord.Get().connected) {
+						StagedPop();
+						DropLinkDown(1);
+						continue;
+					}
+				}
+
+				if (DirectAdmit(false, now) != ResultStatus::ok) {
+					return;
+				}
+			}
+
+			Meta meta{};
+			meta.flags = flags;
+			if (SendFrom<0>(packet, meta, Lane::control, false) == ResultStatus::busy) {
+				return;
+			}
+
+			StagedPop();
+		}
+	}
+
+
+	// The oldest staged packet, without taking it out. Its bytes stay valid until StagedPop: a slot that is held is not written by Send.
+	// The read of the indexes is in a short critical section, since another task's push writes the head.
+	bool StagedFront(std::span<const uint8>& packet, uint8& flags) {
+		System::CriticalSection(true);
+		bool found = QueueFront(staged.indexes, staged.View(), packet, flags);
+		System::CriticalSection(false);
+		return found;
+	}
+
+
+	// Drops the oldest staged packet, in a short critical section: the tail is one of the indexes a push reads.
+	void StagedPop() {
+		System::CriticalSection(true);
+		QueuePop(staged.indexes, stageSlots);
+		System::CriticalSection(false);
+	}
+
+
+	// Gives each layer that declares wantsOwner the address of the layer, to the Reliable layer below it. The chain's options gave that
+	// layer the owner handlers (WiredOptionsOf), so its outcomes and restarts reach the layer with the owner pointer.
+	template<std::size_t Index>
+	void SetOwners() {
+		if constexpr (Index < count) {
+			using Entry = std::tuple_element_t<Index, Tuple>;
+			if constexpr (Entry::WantsOwner()) {
+				static_assert(Index + 1 < count, "a layer that declares wantsOwner has no block below it: its owner goes to the layer below");
+				if constexpr (Index + 1 < count) {
+					using Below = std::tuple_element_t<Index + 1, Tuple>;
+					static_assert(TakesOwnerOf<typename Below::BlockType, typename Entry::BlockType> || Entry::OwnerOptional(),
+						"the block below a layer that declares wantsOwner must take its owner: use VUB::Reliable");
+					if constexpr (TakesOwnerOf<typename Below::BlockType, typename Entry::BlockType>) {
+						std::get<Index + 1>(blocks).SetOwner(static_cast<void*>(&std::get<Index>(blocks)));
+					}
+				}
+			}
+
+			SetOwners<Index + 1>();
+		}
+	}
+
+
+	// The counters a layer reads through CountingOutbox::Counters. Only the outbox of a layer that declares usesCounters gets the function.
+	static StackCounters CountersThunk(void* owner) {
+		Stack* self = static_cast<Stack*>(owner);
+		return self->Snapshot();
+	}
+
+
+	// The counters as one value: the drop counters, the resends and peer restarts of the Reliable layer (zero when the chain has none, or
+	// it is not Counted), and the high-water marks (zero unless the stack is HighWater).
+	StackCounters Snapshot() const {
+		StackCounters snapshot;
+		if constexpr (countDrops) {
+			snapshot.drops = Drops();
+		}
+
+		CollectReliable<0>(snapshot);
+		if constexpr (highWater) {
+			snapshot.highWaterRing = highWaterState.Get().ring;
+			snapshot.highWaterControl = highWaterState.Get().control;
+		}
+
+		return snapshot;
+	}
+
+
+	template<std::size_t Index>
+	void CollectReliable(StackCounters& snapshot) const {
+		if constexpr (Index < count) {
+			if constexpr (ReportsCounts<StoredAt<Index>>) {
+				snapshot.resends = std::get<Index>(blocks).Resends();
+				snapshot.peerRestarts = std::get<Index>(blocks).PeerRestarts();
+			}
+
+			CollectReliable<Index + 1>(snapshot);
+		}
+	}
+
+
+	// The high-water mark of the receive side: the fill of the receive ring on a byte-stream link, of the receive queue on a packet link.
+	// Nothing is built when the stack is not HighWater().
+	void NoteReceiveFill() {
+		if constexpr (highWater) {
+			if constexpr (streamLink) {
+				RaiseHighWater(highWaterState.Get().ring, SlotsHeld(ring.indexes, ringSlots));
+			} else {
+				RaiseHighWater(highWaterState.Get().ring, SlotsHeld(rxQueue.indexes, receiveSlots));
+			}
+		}
+	}
+
+
+	// The high-water mark of the control queue, after a packet was queued (status ok). Nothing is built when the stack is not HighWater().
+	void NoteControlFill(ResultStatus status) {
+		if constexpr (highWater && sendQueued) {
+			if (status == ResultStatus::ok) {
+				RaiseHighWater(highWaterState.Get().control, SlotsHeld(control.indexes, sendSlots));
+			}
+		}
+	}
+
+
+	// Puts a finished packet on its lane: a queue, or the one bulk slot. The own lane is used only by a chain that has an own queue.
+	ResultStatus Stage(std::span<const uint8> packet, const Meta& meta, Lane lane) {
+		if constexpr (sendQueued) {
+			if constexpr (peersReport) {
+				if (lane == Lane::own) {
+					return QueuePush(ownQueue.indexes, ownQueue.View(), packet, meta.flags);
+				}
+			}
+
+			if (lane == Lane::control) {
+				if constexpr (highWater) {
+					ResultStatus status = QueuePush(control.indexes, control.View(), packet, meta.flags);
+					NoteControlFill(status);
+					return status;
+				} else {
+					return QueuePush(control.indexes, control.View(), packet, meta.flags);
+				}
+			}
+		} else {
+			if (lane == Lane::control) {
+				return SendDirect(packet, meta.flags, false);
+			}
+
+			if (lane == Lane::own) {
+				return SendDirect(packet, meta.flags, true);
+			}
 		}
 
 		if constexpr (hasBulk) {
-			std::span<uint8> slot = held.Span();
-			for (std::size_t index = 0; index < packet.size(); index++) {
-				slot[index] = packet[index];
-			}
-
+			CopyBytes(packet.data(), packet.size(), held.Span().data());
 			heldState.Get().length = static_cast<uint16>(packet.size());
 			heldState.Get().flags = meta.flags;
-			heldState.Get().valid = true;
+			heldState.Get().slot = HeldState::heldSlot;
 			return ResultStatus::ok;
 		} else {
 			return ResultStatus::notSupported;
@@ -423,12 +1141,12 @@ private:
 			if constexpr (Entry::kind == BlockKind::transform) {
 				Result<std::size_t> decoded = std::get<Below - 1>(blocks).Decode(meta, packet);
 				if (decoded.IsErr()) {
-					CountDrop(drops.transformError);
+					Drop(&DropCounts::transformError);
 					return decoded.Error();
 				}
 
 				if (decoded.Value() > packet.size()) {
-					CountDrop(drops.transformError);
+					Drop(&DropCounts::transformError);
 					return ResultStatus::invalidData;
 				}
 
@@ -436,7 +1154,7 @@ private:
 			} else if constexpr (Entry::kind == BlockKind::layer) {
 				Result<Taken> taken = std::get<Below - 1>(blocks).Take(meta, packet);
 				if (taken.IsErr()) {
-					CountDrop(drops.layerError);
+					Drop(&DropCounts::layerError);
 					return taken.Error();
 				}
 
@@ -445,7 +1163,7 @@ private:
 				}
 
 				if (taken.Value().consumed > packet.size()) {
-					CountDrop(drops.layerError);
+					Drop(&DropCounts::layerError);
 					return ResultStatus::invalidData;
 				}
 
@@ -496,10 +1214,10 @@ private:
 				ReceivePacket(rx.Span().first(length));
 				break;
 			case FrameStatus::broken:
-				CountDrop(drops.framingError);
+				Drop(&DropCounts::framingError);
 				break;
 			case FrameStatus::tooLong:
-				CountDrop(drops.tooLong);
+				Drop(&DropCounts::tooLong);
 				break;
 			case FrameStatus::pending:
 				break;
@@ -525,7 +1243,7 @@ private:
 		} else if constexpr (std::is_same_v<typename Entry::OptionsType, None>) {
 			return typename Entry::BlockType{};
 		} else {
-			return typename Entry::BlockType(ListAt<Index>(built.entries).options);
+			return typename Entry::BlockType(OptionsAt<Index>);
 		}
 	}
 
@@ -545,10 +1263,7 @@ private:
 			while (QueueFront(rxQueue.indexes, rxQueue.View(), packet, flags)) {
 				std::size_t length = packet.size();
 				std::span<uint8> slot = rx.Span();
-				for (std::size_t index = 0; index < length; index++) {
-					slot[index] = packet[index];
-				}
-
+				CopyBytes(packet.data(), length, slot.data());
 				QueuePop(rxQueue.indexes, receiveSlots);
 				ReceivePacket(slot.first(length));
 			}
@@ -566,8 +1281,25 @@ private:
 		if constexpr (Index < count) {
 			using Entry = std::tuple_element_t<Index, Tuple>;
 			if constexpr (Entry::kind == BlockKind::layer) {
-				Outbox outbox(this, &Stack::template SendThunk<Index + 1>, PeerFor<Index>(), DeliverFor<Index>(), LinkFor<Index>());
-				std::get<Index>(blocks).Process(now, outbox);
+				// The layer's bit is cleared ahead of its Process: a layer that does not send again releases the layers above it and the application.
+				if constexpr (layerHolds) {
+					holdState.Get().busy = static_cast<HoldMask>(holdState.Get().busy & ~LayerBit<Index>());
+				}
+
+				if constexpr (LayerUsesCounters<Index>()) {
+					CountingOutbox outbox(
+						this,
+						&Stack::template SendThunk<Index>,
+						PeerFor<Index>(),
+						DeliverFor<Index>(),
+						LinkFor<Index>(),
+						&Stack::CountersThunk
+					);
+					std::get<Index>(blocks).Process(now, outbox);
+				} else {
+					Outbox outbox(this, &Stack::template SendThunk<Index>, PeerFor<Index>(), DeliverFor<Index>(), LinkFor<Index>());
+					std::get<Index>(blocks).Process(now, outbox);
+				}
 			}
 
 			ProcessLayers<Index + 1>(now);
@@ -619,15 +1351,12 @@ private:
 	static ResultStatus DeliverThunk(void* owner, std::span<const uint8> packet) {
 		Stack* self = static_cast<Stack*>(owner);
 		if (packet.size() > receiveBytes) {
-			CountDrop(self->drops.layerError);
+			self->Drop(&DropCounts::layerError);
 			return ResultStatus::messageTooLong;
 		}
 
 		std::span<uint8> slot = self->rx.Span();
-		for (std::size_t index = 0; index < packet.size(); index++) {
-			slot[index] = packet[index];
-		}
-
+		CopyBytes(packet.data(), packet.size(), slot.data());
 		return self->template ReceiveBelow<Index>(slot.first(packet.size()));
 	}
 
@@ -635,32 +1364,65 @@ private:
 	// The outbox of a layer. The packet is at the layer's level, so it starts at the step after the layer. A packet with no caller: one
 	// the layer could not send is counted, and busy is not, since the layer keeps the packet and sends it again. Under Fail, a layer's
 	// packet is refused only while the link is down: a down peer does not stop it.
-	template<std::size_t From>
+	template<std::size_t Index>
 	static ResultStatus SendThunk(void* owner, std::span<const uint8> packet, const Meta& meta) {
 		Stack* self = static_cast<Stack*>(owner);
+		ResultStatus result = self->template LayerSend<Index>(packet, meta);
+		if constexpr (layerHolds) {
+			// A busy send sets the bit of the sending layer (see layerHolds).
+			if (result == ResultStatus::busy) {
+				self->holdState.Get().busy = static_cast<HoldMask>(self->holdState.Get().busy | LayerBit<Index>());
+			}
+		}
+
+		return result;
+	}
+
+
+	// The send of a layer's packet, from its outbox. The check comes before the layers below run on it: a busy queue, a frame in progress,
+	// the gap or Ready refuse the packet with nothing taken. In a chain with a layer that declares its peer (peersReport), every layer's
+	// packets go on the own lane, which is the chain's property; in any other chain they go on the control lane.
+	template<std::size_t Index>
+	ResultStatus LayerSend(std::span<const uint8> packet, const Meta& meta) {
+		// A layer below that holds its packet goes first: this layer's packet is refused with nothing taken (see layerHolds).
+		if constexpr (layerHolds) {
+			if ((holdState.Get().busy & LayersBelowBits<Index>()) != 0) {
+				return ResultStatus::busy;
+			}
+		}
+
 		if (packet.size() > packetBytes) {
-			CountDrop(self->drops.layerError);
+			Drop(&DropCounts::layerError);
 			return ResultStatus::messageTooLong;
 		}
 
 		if constexpr (hasLinkState) {
-			if (whileDown == Down::Fail && !self->linkRecord.Get().linkUp) {
+			if (whileDown == Down::Fail && !linkRecord.Get().linkUp) {
 				return ResultStatus::noConnection;
 			}
 		}
 
-		if constexpr (peersReport) {
-			if (QueueFull(self->ownQueue.indexes, sendSlots)) {
-				return ResultStatus::busy;
+		if constexpr (sendQueued) {
+			if constexpr (peersReport) {
+				if (QueueFull(ownQueue.indexes, sendSlots)) {
+					return ResultStatus::busy;
+				}
+			} else {
+				if (QueueFull(control.indexes, sendSlots)) {
+					return ResultStatus::busy;
+				}
 			}
-
-			return self->template SendFrom<From>(packet, meta, Lane::own, false);
 		} else {
-			if (QueueFull(self->control.indexes, sendSlots)) {
-				return ResultStatus::busy;
+			ResultStatus admit = DirectAdmit(peersReport, ReadNow());
+			if (admit != ResultStatus::ok) {
+				return admit;
 			}
+		}
 
-			return self->template SendFrom<From>(packet, meta, Lane::control, false);
+		if constexpr (peersReport) {
+			return SendFrom<Index + 1>(packet, meta, Lane::own, false);
+		} else {
+			return SendFrom<Index + 1>(packet, meta, Lane::control, false);
 		}
 	}
 
@@ -759,6 +1521,10 @@ private:
 
 		if (next && !record.connected) {
 			record.connected = true;
+			if constexpr (resendsWanted) {
+				DropResent();
+			}
+
 			ResetFraming();
 			TellLayers<0>(true, now);
 		}
@@ -772,7 +1538,7 @@ private:
 	void DropOnDown() {
 		LinkRecord& record = linkRecord.Get();
 		if constexpr (streamLink) {
-			AddDrops(record.dropped, ByteRingClear(ring.indexes, ringSlots));
+			DropLinkDown(ByteRingClear(ring.indexes, ringSlots));
 		}
 
 		if constexpr (streamLink && hasFraming) {
@@ -785,7 +1551,7 @@ private:
 
 				if (dropFrame) {
 					state.valid = false;
-					AddDrops(record.dropped, 1);
+					DropLinkDown(1);
 				} else {
 					state.sent = 0;
 				}
@@ -793,18 +1559,40 @@ private:
 		}
 
 		if (whileDown == Down::Fail) {
-			DropQueued(control.indexes, control.View(), sendSlots);
-			if constexpr (peersReport) {
-				if (!record.linkUp) {
-					DropQueued(ownQueue.indexes, ownQueue.View(), sendSlots);
+			if constexpr (sendQueued) {
+				DropQueued(control.indexes, control.View(), sendSlots);
+				if constexpr (peersReport) {
+					if (!record.linkUp) {
+						DropQueued(ownQueue.indexes, ownQueue.View(), sendSlots);
+					}
 				}
 			}
 
 			if constexpr (hasBulk) {
-				if (heldState.Get().valid) {
-					heldState.Get().valid = false;
-					AddDrops(record.dropped, 1);
+				if (heldState.Get().slot != HeldState::emptySlot) {
+					heldState.Get().slot = HeldState::emptySlot;
+					DropLinkDown(1);
 				}
+			}
+		}
+	}
+
+
+	// On the connection's return, ahead of the layers' OnLink. The copies that a layer below sends again are dropped from the queues, and
+	// the other packets keep their order. The layer resends each one still wanted when it is told of the return, so the copy of a packet that
+	// its requester has closed does not reach the link. A copy dropped here is not counted: the layer keeps the packet.
+	void DropResent() {
+		if constexpr (sendQueued) {
+			QueueDropFlagged(control.indexes, control.View(), sendSlots, Meta::ResentBelowFlag);
+			if constexpr (peersReport) {
+				QueueDropFlagged(ownQueue.indexes, ownQueue.View(), sendSlots, Meta::ResentBelowFlag);
+			}
+		}
+
+		// A frame part written when the connection was lost is written again from its start under Wait. A marked one is dropped instead.
+		if constexpr (framesResent) {
+			if (framedState.Get().valid && frameMark.resent) {
+				framedState.Get().valid = false;
 			}
 		}
 	}
@@ -816,7 +1604,7 @@ private:
 		uint8 flags = 0;
 		while (QueueFront(indexes, view, packet, flags)) {
 			QueuePop(indexes, slotCount);
-			AddDrops(linkRecord.Get().dropped, 1);
+			DropLinkDown(1);
 		}
 	}
 
@@ -865,13 +1653,17 @@ private:
 				meta.flags = flags;
 				Result<std::size_t> length = std::get<framingIndex>(blocks).Frame(meta, packet, framed.Span());
 				if (length.IsErr()) {
-					CountDrop(drops.sendError);
+					Drop(&DropCounts::sendError);
 					return true;
 				}
 
 				framedState.Get().length = static_cast<uint16>(length.Value());
 				framedState.Get().sent = 0;
 				framedState.Get().valid = true;
+				if constexpr (framesResent) {
+					frameMark.resent = (flags & Meta::ResentBelowFlag) != 0;
+				}
+
 				if constexpr (peersReport) {
 					framedState.Get().own = own;
 				}
@@ -885,7 +1677,7 @@ private:
 			}
 
 			if (status != ResultStatus::ok) {
-				CountDrop(drops.sendError);
+				Drop(&DropCounts::sendError);
 			}
 
 			return true;
@@ -901,7 +1693,7 @@ private:
 			std::span<const uint8> rest = std::span<const uint8>(framed.Span()).subspan(state.sent, state.length - state.sent);
 			Result<std::size_t> written = link->Write(rest);
 			if (written.IsErr()) {
-				CountDrop(drops.sendError);
+				Drop(&DropCounts::sendError);
 				state.valid = false;
 				return true;
 			}
@@ -925,7 +1717,9 @@ private:
 
 
 	// Asks the layers in chain order for their next bulk packet, at most room of them. A packet that is staged stays in the held slot,
-	// and the call returns 0 for it. The call returns the number of packets it dropped (each one counted by SendFrom or here).
+	// and the call returns 0 for it. A packet that a block below its producer refused as busy waits in the pulled slot, and the call offers
+	// it again first: no layer is asked for another packet while one waits. The call returns the number of packets it dropped (each one
+	// counted by SendFrom or here).
 	std::size_t PullBulk(std::size_t room) {
 		return PullFrom<0>(room);
 	}
@@ -938,27 +1732,68 @@ private:
 		} else {
 			using Entry = std::tuple_element_t<Index, Tuple>;
 			if constexpr (Entry::kind == BlockKind::layer && Entry::MakesBulk()) {
-				Meta meta{};
-				std::span<uint8> out = pulled.Span();
-				Result<std::size_t> produced = std::get<Index>(blocks).Next(meta, out);
-				if (produced.IsOk()) {
-					if (produced.Value() > out.size()) {
-						CountDrop(drops.layerError);
-					} else if (SendFrom<Index + 1>(out.first(produced.Value()), meta, Lane::bulk, false) == ResultStatus::ok) {
-						return 0;
+				static_assert(Index + HeldState::pulledSlot <= 255, "the chain has too many layers for the bulk slot to keep a producer's index");
+				if (heldState.Get().slot >= HeldState::pulledSlot) {
+					// The walk passes the layers below the producer of the waiting packet without asking them, and offers the packet at the producer.
+					if (heldState.Get().slot == HeldState::pulledSlot + Index) {
+						return OfferPulled<Index>(room);
+					}
+				} else {
+					Meta meta{};
+					std::span<uint8> out = pulled.Span();
+					Result<std::size_t> produced = std::get<Index>(blocks).Next(meta, out);
+					if (produced.IsOk()) {
+						if (produced.Value() > out.size()) {
+							Drop(&DropCounts::layerError);
+						} else {
+							ResultStatus status = SendFrom<Index + 1>(out.first(produced.Value()), meta, Lane::bulk, false);
+							if (status == ResultStatus::ok) {
+								return 0;
+							}
+
+							if (status == ResultStatus::busy) {
+								HeldState& waiting = heldState.Get();
+								waiting.length = static_cast<uint16>(produced.Value());
+								waiting.flags = meta.flags;
+								waiting.slot = static_cast<uint8>(HeldState::pulledSlot + Index);
+								return 0;
+							}
+						}
+
+						// The packet was dropped and counted. The layers below may still have data in this call, within the room left.
+						return room > 1 ? 1 + PullFrom<Index + 1>(room - 1) : 1;
 					}
 
-					// The packet was dropped and counted. The layers below may still have data in this call, within the room left.
-					return room > 1 ? 1 + PullFrom<Index + 1>(room - 1) : 1;
-				}
-
-				if (produced.Error() != ResultStatus::noDataAvailable) {
-					CountDrop(drops.layerError);
+					if (produced.Error() != ResultStatus::noDataAvailable) {
+						Drop(&DropCounts::layerError);
+					}
 				}
 			}
 
 			return PullFrom<Index + 1>(room);
 		}
+	}
+
+
+	// Offers the packet that waits in the pulled slot to the blocks below its producer. Busy keeps it for the next call. Any other answer takes
+	// it out: ok puts it in the held slot, and a refusal was counted by the block that gave it, so the packet is dropped.
+	template<std::size_t Index>
+	std::size_t OfferPulled(std::size_t room) {
+		HeldState& waiting = heldState.Get();
+		Meta meta{};
+		meta.flags = waiting.flags;
+		ResultStatus status = SendFrom<Index + 1>(pulled.Span().first(waiting.length), meta, Lane::bulk, false);
+		if (status == ResultStatus::busy) {
+			return 0;
+		}
+
+		// An ok answer has put the packet in the held slot, which the send above set; any other answer drops the packet, and it was counted.
+		if (status == ResultStatus::ok) {
+			return 0;
+		}
+
+		waiting.slot = HeldState::emptySlot;
+		return room > 1 ? 1 + PullFrom<Index + 1>(room - 1) : 1;
 	}
 
 
@@ -1000,15 +1835,17 @@ private:
 
 			std::span<const uint8> packet;
 			uint8 flags = 0;
-			if constexpr (peersReport) {
-				if (QueueFront(ownQueue.indexes, ownQueue.View(), packet, flags)) {
-					if (!Offer(packet, flags, now, true)) {
-						return;
-					}
+			if constexpr (sendQueued) {
+				if constexpr (peersReport) {
+					if (QueueFront(ownQueue.indexes, ownQueue.View(), packet, flags)) {
+						if (!Offer(packet, flags, now, true)) {
+							return;
+						}
 
-					QueuePop(ownQueue.indexes, sendSlots);
-					sentPackets++;
-					continue;
+						QueuePop(ownQueue.indexes, sendSlots);
+						sentPackets++;
+						continue;
+					}
 				}
 			}
 
@@ -1016,30 +1853,32 @@ private:
 				return;
 			}
 
-			if (QueueFront(control.indexes, control.View(), packet, flags)) {
-				if (!Offer(packet, flags, now, false)) {
-					return;
-				}
+			if constexpr (sendQueued) {
+				if (QueueFront(control.indexes, control.View(), packet, flags)) {
+					if (!Offer(packet, flags, now, false)) {
+						return;
+					}
 
-				QueuePop(control.indexes, sendSlots);
-				sentPackets++;
-				continue;
+					QueuePop(control.indexes, sendSlots);
+					sentPackets++;
+					continue;
+				}
 			}
 
 			if constexpr (hasBulk) {
-				if (heldState.Get().valid) {
+				if (heldState.Get().slot == HeldState::heldSlot) {
 					std::span<const uint8> bulk(held.Span().data(), heldState.Get().length);
 					if (!Offer(bulk, heldState.Get().flags, now, false)) {
 						return;
 					}
 
-					heldState.Get().valid = false;
+					heldState.Get().slot = HeldState::emptySlot;
 					sentPackets++;
 					continue;
 				}
 
 				std::size_t dropped = PullBulk(perProcess - sentPackets);
-				if (dropped == 0 && !heldState.Get().valid) {
+				if (dropped == 0 && heldState.Get().slot != HeldState::heldSlot) {
 					return;
 				}
 

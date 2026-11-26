@@ -137,6 +137,7 @@ struct PlainPacketLink {
 
 using InterruptStream = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Framing<FlagFraming>()
 		.Link<InterruptStreamLink>()
 		.MaxPayload(40)
@@ -148,6 +149,7 @@ using InterruptStream = VUB::Stack<+[] {
 
 using InterruptPacket = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Link<InterruptPacketLink>()
 		.MaxPayload(40)
 		.ReceiveQueue(2)
@@ -158,6 +160,7 @@ using InterruptPacket = VUB::Stack<+[] {
 
 using PolledStream = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Framing<FlagFraming>()
 		.Link<PolledStreamLink>()
 		.MaxPayload(40)
@@ -169,6 +172,7 @@ using PolledStream = VUB::Stack<+[] {
 
 using PolledPacket = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Link<PolledPacketLink>()
 		.MaxPayload(40)
 		.ReceiveQueue(2)
@@ -180,6 +184,7 @@ using PolledPacket = VUB::Stack<+[] {
 // Chains of a link with neither SetReceiver nor Poll: the receiver adds nothing to their size.
 using PlainPacketStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Link<PlainPacketLink>()
 		.MaxPayload(40)
 		.ReceiveQueue(4)
@@ -190,6 +195,7 @@ using PlainPacketStack = VUB::Stack<+[] {
 
 using PlainStreamStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Framing<FlagFraming>()
 		.Link<PlainStreamLink>()
 		.MaxPayload(40)
@@ -215,8 +221,8 @@ static_assert(!std::is_copy_constructible_v<InterruptStream>);
 static_assert(!std::is_copy_constructible_v<InterruptPacket>);
 
 // A chain whose link has neither member has the size it had before the receiver: its storage is not changed.
-static_assert(sizeof(PlainPacketStack) == 656);
-static_assert(sizeof(PlainStreamStack) == 952);
+static_assert(sizeof(PlainPacketStack) == 528);
+static_assert(sizeof(PlainStreamStack) == 704);
 
 static const std::array<uint8, 6> frame = {0x7E, 0x01, 0x02, 0x03, 0x03, 0x7E};
 

@@ -95,6 +95,14 @@ template<typename Link>
 concept LinkBlock = StreamLink<Link> || PacketLink<Link>;
 
 
+// A packet link that says whether its next Send will be taken: Ready() is true when Send takes the next packet. A chain on such a link needs
+// no send queue, since the stack asks Ready before a layer takes the packet. The link need not have it; a packet link without it needs a queue.
+template<typename Link>
+concept ReadyLink = requires(const Link& link) {
+	{ link.Ready() } -> std::convertible_to<bool>;
+};
+
+
 // A link with ReportsState() in its traits. SetStateSink gives the link the sink to report into; the link reports its current state
 // through the sink when it is given one. The stack gives a null sink when it is destroyed.
 template<typename Link>
@@ -198,25 +206,6 @@ concept TransformBlock = requires(
 };
 
 
-// A synchronous engine computes what a transform describes (a CRC, AES). Engines are synchronous only. Engine has no state of
-// its own: the transform calls its static members.
-template<typename Engine>
-concept EngineBlock = requires {
-	requires Engine::synchronous;
-};
-
-
-// An engine that can compute one algorithm. Algorithm is a type the transform gives, with the algorithm's parameters in
-// Algorithm::parameters (a CRC is CrcAlgorithm<parameters>). Supports<Algorithm>() says whether the engine computes it, and
-// Run<Algorithm>(data) computes it over the bytes. The builder refuses a transform whose engine does not support its algorithm: the
-// transform checks it when the transform type is instantiated.
-template<typename Engine, typename Algorithm>
-concept EngineFor = EngineBlock<Engine> && requires(std::span<const uint8> data) {
-	requires Engine::template Supports<Algorithm>();
-	{ Engine::template Run<Algorithm>(data) };
-};
-
-
 // A block with state and time. header is the number of bytes Add puts in front of a packet. Add writes header + in into out. Take
 // removes the header from a received packet, or keeps it. Process(now, outbox) runs once per Process call, and may send packets of its
 // own through the outbox. makesBulk says the layer has bulk packets: then Next gives the next one, and the stack asks for it only when
@@ -226,6 +215,9 @@ concept EngineFor = EngineBlock<Engine> && requires(std::span<const uint8> data)
 // up; the stack treats that as a change of the connection. A layer that declares passesUp = true may call outbox.Deliver(packet) from its
 // Process to pass a packet up the receive path from its own position. A layer that declares usesLinkState = true may call outbox.LinkUp()
 // from its Process to ask whether the physical link is up; on a link that does not report its state the answer is always true.
+// A layer that declares usesCounters = true reads the stack's counters from a CountingOutbox, which Process takes as const
+// CountingOutbox&; a layer that does not takes const Outbox&, which a CountingOutbox also converts to. Further optional members are
+// described on the wiki page (Optional members): wantsOwner, largestPacket, requestsLayer, and a nested Handle.
 template<typename Layer>
 concept LayerBlock = requires(
 	Layer& layer,
@@ -233,7 +225,7 @@ concept LayerBlock = requires(
 	std::span<const uint8> in,
 	std::span<uint8> out,
 	std::span<const uint8> packet,
-	const Outbox& outbox,
+	const CountingOutbox& outbox,
 	uint32 nowUs
 ) {
 	typename Constant<Layer::header>;

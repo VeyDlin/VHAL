@@ -65,11 +65,12 @@ The `hid` run opens the board's HID device on the PC. Run it only after the owne
 |---|---|---|
 | `--link uart\|cdc\|bulk\|hid` | required | the link to check |
 | `--port COMn` | required for `uart` and `cdc` | the serial port |
-| `--count N` | 200 | payloads to send, 1 to 65536 |
+| `--count N` | 200 | payloads to send (requests with `--requests`), 1 to 65536 |
 | `--seed N` | from the random device | seed of the payload sizes and contents, 0 to 4294967295; printed in the summary, so a run can be repeated |
-| `--loss K` | 0 | on the PC side, drop every K-th outgoing frame (serial and bulk) or packet (HID); a dropped frame is not sent, so the board's delivery layer must resend it. K is 0 or more |
-| `--inflight N` | 4 | payloads sent and not yet echoed at once, 1 to 4; a larger limit is refused, see Pacing |
-| `--timeout S` | 120 | seconds to wait for every echo and every outcome, 1 to 86400 (one day) |
+| `--loss K` | 0 | on the PC side, drop every K-th outgoing frame (serial and bulk) or packet (HID), except a frame that would be the fourth loss of its packet or acknowledgement (see The loss pattern); a dropped frame is not sent, so the board's delivery layer must resend it. K is 0 or more |
+| `--inflight N` | 4 | payloads sent and not yet echoed at once, 1 to 4; with `--requests`, requests open at once, 1 to 8; a larger limit is refused, see Pacing |
+| `--timeout S` | 120 | seconds to wait for every echo and every outcome (every final with `--requests`), 1 to 86400 (one day) |
+| `--requests` | off | the requests check of the next section instead of the echo check; only `uart` and `cdc` have it |
 
 Every number is decimal digits only. A sign, a space, other text or a value outside the range is a usage error: the program prints the
 usage and exits with 2, before it opens any port or device.
@@ -203,7 +204,82 @@ To read a failed run from the board: a non-zero `echoDropped` with the default `
 `outcomesFailed` means the board gave up on echoes it sent. Each run's counters are the counters since the board's last reset, so a second
 run needs the counters of the first subtracted, or a reset before it.
 
+## The requests check
+
+`vubcheck --link uart --port COMn --requests` and `vubcheck --link cdc --port COMn --requests` run the requests demo. The board must be
+built with `VHAL_VUB_MODE=Requests` (the demo's README); on the echo image the requests get no reply, and the run fails. The demo is a
+simulated actuator, and its command set is in `Common/Drivers/Interface/VUB/.tool/common/ActuatorCommands.h`, which the device and the
+PC both compile:
+
+| Command | Kind | What the device does | What the check compares |
+|---|---|---|---|
+| `ActuatorCommand::set` (0x12) | request, final | counts a set and answers at once with the token and the level | the final's token and level; a set's final is ok or busy |
+| `ActuatorCommand::sweep` (0x13) | request, interims, final, cancel | gives eight steps at most, one per step time, then the final; a cancel stops it and the final has the cancelled status; a finished sweep sends the Delivered event `sweepDone` | the interims in order (step1 to stepN); one end per sweep, done or cancelled or operationCancelled; a Delivered event for each done sweep; the cancel handler runs at most once per cancel sent; one sweep is open at a time |
+| `ActuatorEvent::note` (0x42) | plain event, PC to device | counted in the counters reply | the device's note count against the notes sent |
+| `ActuatorEvent::tick` (0x41) | plain event, device to PC | a running number every 500 ms while the requester is connected | the numbers rise by one; a gap only under `--loss` |
+| built-in ping (0xF0) | ping of the layer | answers each ping; the reply echoes the padding | each ping ok; the round trips are summarised as the lowest, average and highest |
+| `ActuatorCommand::kick` (0x14) | no reply | counts a kick | the kick's delivery outcome (ok) and the device's kick counter |
+| `ActuatorCommand::nudge` (0x15) | fire | counts a nudge; no packet is resent | the device's nudge counter against the nudges sent |
+| `ActuatorCommand::hang` (0x16) | request, final | counts the request and never finishes it; the ticket times out after 300 ms | the final is a timeout or busy; the device's hang counter |
+| `ActuatorCommand::absent` (0x7F) | request, final | not served by the device | the final is notSupported |
+| `ActuatorCommand::counters` (0x17) | request, final | answers the device's counters | read before and after the run; the difference is compared |
+
+Each run draws its requests from `--seed`: sets 30 %, sweeps 15 %, kicks 15 %, nudges 15 %, hangs 10 % and absent requests 15 %. A sweep
+is sent only when no other sweep is open, so its interims are its own. A third of the sweeps are cancelled, one twelfth each at three
+points: right after the send (before the REQUEST is acknowledged), after the first interim, and after the final, where the cancel must
+find no request (`notFound`). A ping is sent with every fifth request, one at a time, with no padding and then 16 bytes of padding
+alternately; a note is sent with every fourth request. The pings have a deadline of 3000 ms: under `--loss` a packet may need three resends
+of 200 ms in each direction, which the layer's 1000 ms default does not cover. The device counters count from the board's last reset, so the run
+reads them before and after, and compares the difference.
+
+The summary has one line:
+
+```
+vubcheck link=<link> requests sent=<n> finals=<n> ok=<n> timeout=<n> busy=<n> notSupported=<n> cancelled=<n> invalid=<n> other=<n> duplicate=<n> unknown=<n> mismatched=<n> interims=<n> interimErrors=<n> sweeps=<done>/<device> delivered=<n> cancelSent=<n> cancelRuns=<device> cancelledEnds=<n> cancelMissed=<n> sets=<ok>/<device> kicks=<ok>/<device> nudges=<sent>/<device> hangs=<admitted>/<device> notes=<sent>/<device> ticks=<n> tickGaps=<n> pings=<ok>/<sent> pingFailed=<n> rttMinUs=<n> rttAvgUs=<n> rttMaxUs=<n> refused=<n> lateReplies=<n> eventsLost=<n> dropped=<n> inflight=<n> loss=<K> seed=<seed> seconds=<s> result=<PASS|FAIL>
+```
+
+`ok`, `timeout`, `busy`, `notSupported`, `cancelled` (the layer's operationCancelled) and `invalid` count the finals by category; `other`
+is any other result, such as a delivery that gave up (`retryExhausted`). `sweeps` shows the done sweeps the PC got and the device's count;
+`delivered` is the Delivered events the PC got; `cancelSent` is the cancels the layer accepted, `cancelRuns` the cancel handler runs the
+device counted, and `cancelledEnds` the sweeps that ended cancelled. `sets`, `kicks` show the finals that were ok and the device's count;
+`nudges` and `hangs` show what was sent or admitted and what the device ran; `notes` the notes sent and counted. `ticks` and `tickGaps`
+count the device's ticks and the gaps in their numbers. `refused`, `lateReplies` and `eventsLost` are the PC layer's counters (Counted).
+The `rtt` values are microseconds over the pings that came back.
+
+A pass needs every final in its expected category, no duplicate, unknown or mismatched reply, every interim in order, one end per sweep,
+and the device's counters as above. Without `--loss` the done sweeps, the Delivered events and the device's sweep count are equal; each
+cancel handler runs at most once per accepted cancel; the notes are counted exactly; the ticks rise by one, and there are at least two ticks a
+second of the run, less two; and every ping comes back ok with no late reply. With `--loss` the counts are bounded, not equal, and gaps in the ticks
+are allowed. A cancel that the device ended first is not an error: its end is then done. Exit codes: 0 for `PASS`, 1 for `FAIL`, 2 for a usage error or a port that does not open. `--loss K` drops every K-th
+outgoing frame on the PC side, with the guard of The loss pattern, as the echo check does. The requests check does not have the echo check's pacing limit of 4 payloads; it
+has `--inflight` up to 8, the requests the device's layer serves at once.
+
+The device's requests counters are in the status block after the echo words, and only in the requests image (`VHAL_VUB_MODE=Requests`). The
+echo image's block is unchanged, 344 bytes; the requests image's block is 396 bytes, 99 words:
+
+| Offset | Field |
+|---|---|
+| 344, 348, 352, 356, 360 | `requests.sets`, `sweeps`, `kicks`, `nudges`, `hangs`: the device's counters |
+| 364 | `requests.interims`: interims given |
+| 368 | `requests.interimBusy`: steps that waited for a busy interim slot |
+| 372 | `requests.sweepsExpired`: sweeps the ticket ended before their final |
+| 376 | `requests.sweepsActive`: sweeps in progress |
+| 380 | `requests.unclaimed`: payloads the requests layer did not take |
+| 384, 388, 392 | `requests.cancels`, `notes`, `eventBusy`: cancel handler runs, notes counted, events the device could not send yet |
+
 ## Results
+
+The two images of the demo, from `arm-none-eabi-size` of the RelSpeed preset build. Flash is text plus data, RAM is data plus bss:
+
+| Image | Flash | Share of 128 KB | RAM |
+|---|---:|---:|---:|
+| echo | 113656 bytes | 86.7 % | 14124 bytes |
+| requests | 115044 bytes | 87.8 % | 12020 bytes |
+
+The echo image does not contain the requests code, so its size is the one of the link check alone. The requests image
+holds the device's cancel handlers, its Delivered and plain events and the answer to the pings, in each of its two stacks. The responder
+is instantiated once per stack, because each stack has its own handler list (the sweep handlers carry the stack's index). Its growth over
+the image without these features is 18304 bytes of flash and 232 bytes of RAM. The requests image has no hardware run in this section yet.
 
 Measured on 2026-11-24 on an STM32G431 with the RelSpeed image of this demo (113584 bytes of text, 14124 bytes of data and bss), and
 vubcheck built with MinGW g++ 15.2 on Windows 11, with the default `--inflight 4`. USART1 goes through a CH343 adapter (COM3); the CDC port
@@ -225,11 +301,52 @@ link also checks a restart of the PC side. After the runs without `--loss 3` the
 | `bulk --loss 3 --count 500` | 500 | 483 | 483 | 17 | 179 | 483 | 11 per second | FAIL |
 | `hid --loss 3 --count 500` | 500 | 493 | 493 | 7 | 107 | 599 | 10 per second | FAIL |
 
-With `--loss 5` one frame in five of the PC side is dropped, acknowledgements included, and every payload still arrives once. With
-`--loss 3` one frame in three is dropped, and some payloads lose all four attempts of `Retries(3)`: their outcome is `retryExhausted`,
-which the delivery layer reports for a packet it gave up on, and no payload arrives twice or wrong. The drop is periodic, so a payload's
-resends can fall on dropped frames each time; a path that loses one frame in three needs more retries. The rate is limited by the PC loop
-and the window of 4 payloads in flight.
+With `--loss 5` one frame in five of the PC side is dropped, acknowledgements included, and every payload still arrives once. The rate is
+limited by the PC loop and the window of 4 payloads in flight.
+
+### The loss pattern
+
+`--loss K` drops every K-th frame of the PC side, and the drop is periodic. A resend comes at a spacing of whole frames, and that
+spacing can be a multiple of K: then the four attempts of one packet all fall on dropped frames, and `Retries(3)` gives up on a packet
+the board would have taken. Under `--loss 3`, the host loopback (`test/TestVubBoardLoopback.cpp`) showed this for packets 71 (seed 1 of
+the echo mode), 135 and 188 (seed 2) and 78 (seed 3): each of their four attempts was a dropped frame, and each attempt fell on a frame
+whose number is a multiple of 3.
+
+The results in the table above were measured with the periodic drop alone, before the guard, and they are not measured again.
+
+So the drop keeps a frame when its packet, or the packet it acknowledges, has already lost `Retries(3)` frames (three). A packet then
+always has one attempt through, and a give-up under `--loss` is a fault of the stack, not of the pattern. The rule reads the two-byte
+sequence layout of the board chains. The frame counts stay as they are: a kept frame is sent, and the summary's `dropped` counts only the
+frames that were dropped.
+
+Under `--loss 3` the echo check passes on each of six seeds of the loopback, and so does the requests check. The requests have a reply
+deadline of 3000 ms, because a request can take its four attempts (600 ms) to arrive, and its final can then wait for a free place in the
+device's window, which the lost acknowledgements of the PC hold. With a deadline of 1000 ms three of 24 runs of seed 5 ended one `set` with
+`timeout` although the device had run it; with 5000 ms none of 24 did.
+
+### Host loopback
+
+`test/TestVubBoardLoopback.cpp` runs the PC side of this check (the chains and the runs of `src/`) against the demo's device stacks over
+an in-memory UART line, with the device on a thread of its own. It is built with g++ and no board:
+
+```sh
+g++ -std=c++20 -Wall -Wextra -Werror -I Common -I .demo/STM32G4/Application -I Periphery -o loopback.exe Common/Drivers/Interface/VUB/.tool/board/test/TestVubBoardLoopback.cpp -lwinmm
+loopback.exe echo|requests LOSS SEED... [-trace]
+```
+
+Each run prints the summary line of `vubcheck`. `-trace` adds one line per frame the PC side wrote, the frames that were dropped, the
+packets without a device acknowledgement, and the per-kind tallies of the requests check. Results of this build, seeds 1 to 6, 200 payloads
+or requests each:
+
+| Mode | Loss | Result |
+|---|---|---|
+| echo | 0 | 6 of 6 PASS, `retried=0` |
+| echo | 3 | 6 of 6 PASS, `retried` 57 to 79 |
+| requests | 0 | 12 of 12 PASS (seeds 1 to 12) |
+| requests | 3 | 12 of 12 PASS (seeds 1 to 12), `pingFailed=0` and no mismatch |
+
+`--loss` drops only the PC's outgoing frames, so the device's ticks are not dropped and `tickGaps` stays at zero in these runs. The round trips
+under loss reach about one second, which the 3000 ms ping deadline covers.
 
 ## Notes
 

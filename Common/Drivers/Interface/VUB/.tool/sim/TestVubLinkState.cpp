@@ -94,6 +94,7 @@ struct CountingFraming : FlagFraming {
 
 using WatchStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<WatchLayer>()
 		.Link<ReportingPacketEnd>()
 		.MaxPayload(40)
@@ -106,6 +107,7 @@ using WatchStack = VUB::Stack<+[] {
 // A layer that declares the peer, over a link that does not report: the layer alone takes the stack down.
 using PeerStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<PeerLayer>()
 		.Link<PacketEnd>()
 		.MaxPayload(40)
@@ -117,6 +119,7 @@ using PeerStack = VUB::Stack<+[] {
 
 using CountingStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Framing<CountingFraming>()
 		.Link<ReportingStreamEnd>()
 		.MaxPayload(40)
@@ -162,8 +165,8 @@ static_assert(HasLinkUp<PeerStack>);
 static_assert(HasLinkUp<WatchStack>);
 
 // A chain that cannot report keeps its size: the stack's storage for the link state is empty. The sizes are of the host's 64-bit build.
-static_assert(sizeof(StreamStack) == 1192);
-static_assert(sizeof(PacketStack) == 888);
+static_assert(sizeof(StreamStack) == 1176);
+static_assert(sizeof(PacketStack) == 896);
 
 // The option is a value of the builder: Wait by default, Fail when given.
 static_assert(VUB::Builder().settings.whileDown == VUB::Down::Wait);
@@ -304,6 +307,7 @@ void TestPeerDeclaredFromProcess() {
 // A stream chain with a peer layer and a counting framing, over a link that reports: a down resets the framing and drops the receive ring.
 using PeerFramedStack = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
 		.Layer<PeerLayer>()
 		.Framing<CountingFraming>()
 		.Link<ReportingStreamEnd>()

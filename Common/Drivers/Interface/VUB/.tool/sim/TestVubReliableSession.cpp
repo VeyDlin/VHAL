@@ -15,7 +15,7 @@
 // carried between them by hand. A layer is rebuilt to model a reboot. Payloads start with a 16-bit id. The session starts with a sync
 // packet of its own: a Send is busy until the sync is acknowledged, and the sync goes out at the next Process.
 
-// The session tag is the session counter plus the low byte of the boot value. Expected bytes are written by hand from the layout on the wiki
+// The session tag is the session counter plus the mixed byte of the boot value. Expected bytes are written by hand from the layout on the wiki
 // page.
 
 
@@ -175,15 +175,16 @@ bool SentOnly(const SessionWire& wire, const std::array<uint8, Size>& expected) 
 }
 
 
-// The boot value is the session value the application gave. The sync is 0x05, the tag, the number 0x0000, the delta 0x00, the boot value
-// and the counter 0x00.
+// The boot value is the session value the application gave. The sync is 0x05, the tag, the first number of the boot, the delta 0x00, the
+// boot value and the counter 0x00.
 void TestSessionValueSetsTheBootValue() {
 	SessionWire wire{};
 	SessionLayer layer;
 	layer.SetSession(0x5A5A);
 	SIM_EXPECT(!SendId(layer, 0, wire));
 	layer.Process(0x0100, Outbox(wire));
-	std::array<uint8, 8> sync = {0x05, 0x5A, 0x00, 0x00, 0x00, 0x5A, 0x5A, 0x00};
+	// The first number of boot 0x5A5A is 0xF556 (LE 56 F5).
+	std::array<uint8, 8> sync = {0x05, 0x67, 0x56, 0xF5, 0x00, 0x5A, 0x5A, 0x00};
 	SIM_EXPECT(SentOnly(wire, sync));
 }
 
@@ -206,7 +207,8 @@ void TestSendBeforeSessionValueIsNoInit() {
 	layer.SetSession(0x5A5A);
 	SIM_EXPECT(!SendId(layer, 0, wire));
 	layer.Process(0x0100, Outbox(wire));
-	std::array<uint8, 8> sync = {0x05, 0x5A, 0x00, 0x00, 0x00, 0x5A, 0x5A, 0x00};
+	// The first number of boot 0x5A5A is 0xF556 (LE 56 F5).
+	std::array<uint8, 8> sync = {0x05, 0x67, 0x56, 0xF5, 0x00, 0x5A, 0x5A, 0x00};
 	SIM_EXPECT(SentOnly(wire, sync));
 }
 
@@ -299,7 +301,8 @@ void TestOldSessionPacketCannotSlideTheWindow() {
 	SessionWire farWire{};
 	FarLayer far;
 	far.Process(0x0100, Outbox(farWire));
-	std::array<uint8, 8> sync = {0x05, 0x34, 0x00, 0x00, 0x00, 0x34, 0x12, 0x00};
+	// The sync of boot 0x1234: number 0x012C (LE 2C 01), tag 0x65.
+	std::array<uint8, 8> sync = {0x05, 0x65, 0x2C, 0x01, 0x00, 0x34, 0x12, 0x00};
 	SIM_EXPECT(TakeBytes(far, sync).IsOk());
 	far.Process(0x0100, Outbox(farWire));
 	farWire.count = 0;
@@ -311,8 +314,8 @@ void TestOldSessionPacketCannotSlideTheWindow() {
 	far.Process(0x0100, Outbox(farWire));
 	std::array<uint8, 2> resync = {0x08, 0x77};
 	SIM_EXPECT(SentOnly(farWire, resync));
-	// The session's own packet with the first number is inside the window and goes up.
-	std::array<uint8, 7> current = {0x01, 0x34, 0x01, 0x00, 0x00, 0x05, 0x00};
+	// The session's own packet with the first data number 0x012D is inside the window and goes up.
+	std::array<uint8, 7> current = {0x01, 0x65, 0x2D, 0x01, 0x00, 0x05, 0x00};
 	Result<VUB::Taken> own = TakeBytes(far, current);
 	SIM_EXPECT(own.IsOk());
 	SIM_EXPECT(own.Value().deliver);
@@ -326,27 +329,29 @@ void TestDataOfAnotherSessionIsNotDelivered() {
 	testRestartCount = 0;
 	SessionWire farWire{};
 	FarLayer far;
-	std::array<uint8, 8> sync = {0x05, 0x34, 0x00, 0x00, 0x00, 0x34, 0x12, 0x00};
+	std::array<uint8, 8> sync = {0x05, 0x65, 0x2C, 0x01, 0x00, 0x34, 0x12, 0x00};
 	SIM_EXPECT(TakeBytes(far, sync).IsOk());
 	far.Process(0x0100, Outbox(farWire));
 	farWire.count = 0;
-	// The sync of session 0x5656 was lost; its data, with the number 0x0001 of the held session's tag 0x56, is refused.
-	std::array<uint8, 7> foreign = {0x01, 0x56, 0x01, 0x00, 0x00, 0x05, 0x00};
+	// The sync of session 0x5656 was lost; its data, with the number 0x012D (inside the window of the held session) and the tag 0x1E, is
+	// refused.
+	std::array<uint8, 7> foreign = {0x01, 0x1E, 0x2D, 0x01, 0x00, 0x05, 0x00};
 	Result<VUB::Taken> refused = TakeBytes(far, foreign);
 	SIM_EXPECT(refused.IsOk());
 	SIM_EXPECT(!refused.Value().deliver);
 	far.Process(0x0100, Outbox(farWire));
-	std::array<uint8, 2> resync = {0x08, 0x56};
+	std::array<uint8, 2> resync = {0x08, 0x1E};
 	SIM_EXPECT(SentOnly(farWire, resync));
 	farWire.count = 0;
 
-	// The sync of boot 0x5656, counter 0: the tag is 0x56.
-	std::array<uint8, 8> newSync = {0x05, 0x56, 0x00, 0x00, 0x00, 0x56, 0x56, 0x00};
+	// The sync of boot 0x5656, counter 0: the tag is 0x1E, the number is 0xA07A (LE 7A A0).
+	std::array<uint8, 8> newSync = {0x05, 0x1E, 0x7A, 0xA0, 0x00, 0x56, 0x56, 0x00};
 	SIM_EXPECT(TakeBytes(far, newSync).IsOk());
 	// The restart handler runs in Process, after the packet is taken.
 	far.Process(0x0100, Outbox(farWire));
 	SIM_EXPECT(testRestartCount == 1);
-	std::array<uint8, 7> next = {0x01, 0x56, 0x01, 0x00, 0x00, 0x06, 0x00};
+	// The first data packet of session 0x5656: number 0xA07B, delta 0.
+	std::array<uint8, 7> next = {0x01, 0x1E, 0x7B, 0xA0, 0x00, 0x06, 0x00};
 	Result<VUB::Taken> first = TakeBytes(far, next);
 	SIM_EXPECT(first.IsOk());
 	SIM_EXPECT(first.Value().deliver);
@@ -372,7 +377,7 @@ void TestResyncOfAnotherSessionIsIgnored() {
 	SIM_EXPECT(near.Take(VUB::Meta{}, std::span<const uint8>(other.data(), other.size())).IsOk());
 	near.Process(0x0100, Outbox(nearWire));
 	SIM_EXPECT(testCountById[3] == 0);
-	std::array<uint8, 2> own = {0x08, 0x34};
+	std::array<uint8, 2> own = {0x08, 0x65};
 	SIM_EXPECT(near.Take(VUB::Meta{}, std::span<const uint8>(own.data(), own.size())).IsOk());
 	near.Process(0x0100, Outbox(nearWire));
 	SIM_EXPECT(testCountById[3] == 1);
@@ -405,7 +410,7 @@ void TestDelayedResyncOfTheCurrentSessionIsSafe() {
 	farWire.count = 0;
 	SIM_EXPECT(SendId(near, 2, nearWire));
 	nearWire.count = 0;
-	std::array<uint8, 2> delayed = {0x08, 0x34};
+	std::array<uint8, 2> delayed = {0x08, 0x65};
 	SIM_EXPECT(near.Take(VUB::Meta{}, std::span<const uint8>(delayed.data(), delayed.size())).IsOk());
 	near.Process(0x0100, Outbox(nearWire));
 	SIM_EXPECT(testCountById[1] == 1);
@@ -448,13 +453,13 @@ void TestStaleAcknowledgementDoesNotAcknowledge() {
 	StartSession(near, nearWire, far, farWire, received, 0x0100);
 	SIM_EXPECT(SendId(near, 0, nearWire));
 	nearWire.count = 0;
-	// Bare acknowledgement: flags 0x12, tag 0x77, number 0x0001.
-	std::array<uint8, 4> stale = {0x12, 0x77, 0x01, 0x00};
+	// Bare acknowledgement: flags 0x12, tag 0x77, number 0x012D (the number of the packet in flight).
+	std::array<uint8, 4> stale = {0x12, 0x77, 0x2D, 0x01};
 	SIM_EXPECT(TakeBytes(near, stale).IsOk());
 	near.Process(0x0100, Outbox(nearWire));
 	SIM_EXPECT(testCountById[0] == 0);
-	// Bare acknowledgement: flags 0x12, tag 0x34, number 0x0001.
-	std::array<uint8, 4> own = {0x12, 0x34, 0x01, 0x00};
+	// Bare acknowledgement: flags 0x12, tag 0x65, number 0x012D.
+	std::array<uint8, 4> own = {0x12, 0x65, 0x2D, 0x01};
 	SIM_EXPECT(TakeBytes(near, own).IsOk());
 	near.Process(0x0100, Outbox(nearWire));
 	SIM_EXPECT(testCountById[0] == 1);
@@ -473,20 +478,21 @@ void TestCounterReplyMovesTheSenderPastTheHeldCounter() {
 	SessionWire farWire{};
 	SessionReceived received{};
 	FarLayer far;
-	// A sync of boot 0x0100 with counter 2 and tag 0x02, from an earlier life of the sender.
-	std::array<uint8, 8> earlier = {0x05, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02};
+	// A sync of boot 0x0100 with counter 2 and tag 0x39, from an earlier life of the sender.
+	// The first number of boot 0x0100 is 0x3700 (LE 00 37).
+	std::array<uint8, 8> earlier = {0x05, 0x39, 0x00, 0x37, 0x00, 0x00, 0x01, 0x02};
 	SIM_EXPECT(TakeBytes(far, earlier).IsOk());
 	far.Process(0x0100, Outbox(farWire));
-	// Bare acknowledgement of the sync: flags 0x12, tag 0x02, number 0x0000.
-	std::array<uint8, 4> earlierAck = {0x12, 0x02, 0x00, 0x00};
+	// Acknowledgement of the sync: flags 0x12, tag 0x39, number 0x3700, and the far side's boot value 0x0000 (it has no SetSession).
+	std::array<uint8, 6> earlierAck = {0x12, 0x39, 0x00, 0x37, 0x00, 0x00};
 	SIM_EXPECT(SentOnly(farWire, earlierAck));
 	farWire.count = 0;
 	SendingLayer near;
 	near.SetSession(0x0100);
 	SIM_EXPECT(!SendId(near, 1, nearWire));
 	near.Process(0x0100, Outbox(nearWire));
-	// The sync of the rebooted sender: boot 0x0100, counter 0, tag 0x00.
-	std::array<uint8, 8> firstSync = {0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00};
+	// The sync of the rebooted sender: boot 0x0100, counter 0, tag 0x37.
+	std::array<uint8, 8> firstSync = {0x05, 0x37, 0x00, 0x37, 0x00, 0x00, 0x01, 0x00};
 	SIM_EXPECT(SentOnly(nearWire, firstSync));
 	nearWire.count = 0;
 	SIM_EXPECT(TakeBytes(far, firstSync).IsOk());
@@ -497,22 +503,22 @@ void TestCounterReplyMovesTheSenderPastTheHeldCounter() {
 	farWire.count = 0;
 	SIM_EXPECT(TakeBytes(near, reply).IsOk());
 	near.Process(0x0100, Outbox(nearWire));
-	// The sync moves on to counter 3, tag 0x03.
-	std::array<uint8, 8> nextSync = {0x05, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01, 0x03};
+	// The sync moves on to counter 3, tag 0x3A.
+	std::array<uint8, 8> nextSync = {0x05, 0x3A, 0x00, 0x37, 0x00, 0x00, 0x01, 0x03};
 	SIM_EXPECT(SentOnly(nearWire, nextSync));
 	nearWire.count = 0;
 	SIM_EXPECT(TakeBytes(far, nextSync).IsOk());
 	far.Process(0x0100, Outbox(farWire));
 	SIM_EXPECT(testRestartCount == 1);
-	// Bare acknowledgement of the sync: flags 0x12, tag 0x03, number 0x0000.
-	std::array<uint8, 4> nextAck = {0x12, 0x03, 0x00, 0x00};
+	// Acknowledgement of the sync: flags 0x12, tag 0x3A, number 0x3700, and the far side's boot value 0x0000.
+	std::array<uint8, 6> nextAck = {0x12, 0x3A, 0x00, 0x37, 0x00, 0x00};
 	SIM_EXPECT(SentOnly(farWire, nextAck));
 	farWire.count = 0;
 	SIM_EXPECT(TakeBytes(near, nextAck).IsOk());
 	SIM_EXPECT(SendId(near, 1, nearWire));
 	near.Process(0x0100, Outbox(nearWire));
-	// Data: flags 0x01, tag 0x03, number 0x0001, delta 0, payload 01 00.
-	std::array<uint8, 7> data = {0x01, 0x03, 0x01, 0x00, 0x00, 0x01, 0x00};
+	// Data: flags 0x01, tag 0x3A, number 0x3701, delta 0, payload 01 00.
+	std::array<uint8, 7> data = {0x01, 0x3A, 0x01, 0x37, 0x00, 0x01, 0x00};
 	SIM_EXPECT(SentOnly(nearWire, data));
 	Carry(nearWire, far, received);
 	SIM_EXPECT(received.count == 1);
@@ -539,8 +545,8 @@ void TestStaleSyncOfLiveSenderDoesNotDisturb() {
 	}
 
 	SIM_EXPECT(testStatusById[0] == ResultStatus::ok);
-	// A sync of boot 0x0100 with counter 0xFF, tag 0xFF: 255 behind the held counter 0, so the receiver takes it as stale.
-	std::array<uint8, 8> stale = {0x05, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x01, 0xFF};
+	// A sync of boot 0x0100 with counter 0xFF, tag 0x36 (0xFF + 0x37): 255 behind the held counter 0, so the receiver takes it as stale.
+	std::array<uint8, 8> stale = {0x05, 0x36, 0x00, 0x37, 0x00, 0x00, 0x01, 0xFF};
 	SIM_EXPECT(TakeBytes(far, stale).IsOk());
 	far.Process(0x0100, Outbox(farWire));
 	// Counter reply: flags 0x18, boot 0x0100, held counter 0.
@@ -569,8 +575,8 @@ void TestCounterReplyOfAnotherBootIsIgnored() {
 	near.SetSession(0x0200);
 	SIM_EXPECT(!SendId(near, 0, wire));
 	near.Process(0x0100, Outbox(wire));
-	// Sync of boot 0x0200, counter 0, tag 0x00.
-	std::array<uint8, 8> sync = {0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00};
+	// Sync of boot 0x0200, counter 0, tag 0x6E: the first number of boot 0x0200 is 0x6E00 (LE 00 6E).
+	std::array<uint8, 8> sync = {0x05, 0x6E, 0x00, 0x6E, 0x00, 0x00, 0x02, 0x00};
 	SIM_EXPECT(SentOnly(wire, sync));
 	wire.count = 0;
 	// Counter reply of boot 0x0100, held counter 2.

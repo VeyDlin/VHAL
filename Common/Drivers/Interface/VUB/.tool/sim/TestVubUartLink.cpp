@@ -217,6 +217,8 @@ void TestBytesToAPortWithReceiveOffAreLost() {
 // processes, then each port finishes its transfer, so the bytes reach the peer's receive interrupt.
 using UartStackA = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Framing<VUB::Cobs>()
 		.Link<UartLinkType>()
 		.MaxPayload(32)
@@ -226,6 +228,8 @@ using UartStackA = VUB::Stack<+[] {
 
 using UartStackB = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Framing<VUB::Cobs>()
 		.Link<UartLinkType>()
 		.MaxPayload(32)
@@ -349,6 +353,8 @@ void TestStacksExchangeOverTheEspPort() {
 // The delivery layer on top of the UART link. The first Send returns busy while the session starts, so the sends repeat until ok.
 using ReliableUartStackA = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(40)
 		.Framing<VUB::Cobs>()
 		.Link<UartLinkType>()
@@ -360,6 +366,8 @@ using ReliableUartStackA = VUB::Stack<+[] {
 
 using ReliableUartStackB = VUB::Stack<+[] {
 	return VUB::Builder()
+		.CountDrops()
+		.SendQueue(4)
 		.Layer<VUB::ReliableOf<40, 4>>().Retries(3).TimeoutMs(200).Window(4).PayloadBytes(40)
 		.Framing<VUB::Cobs>()
 		.Link<UartLinkType>()
