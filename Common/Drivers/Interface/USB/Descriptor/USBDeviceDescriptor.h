@@ -3,6 +3,7 @@
 #include <Adapter/USBDeviceAdapter.h>
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorUtility.h>
 #include <Drivers/Interface/USB/USBProtocol.h>
+#include <Utilities/CompileTime/Require.h>
 
 
 // Device descriptor, 18 bytes (USB 2.0 section 9.6.1). Every argument is required and none has a default: the identities
@@ -23,9 +24,9 @@ constexpr std::array<uint8, 18> MakeUSBDeviceDescriptor(
 	uint8 serialNumberIndex,
 	uint8 numConfigurations)
 {
-	USBDescriptorRequire(bcdUSB >= 0x0200, "bcdUSB is USB 2.0 or later");
-	USBDescriptorRequire(maxPacketSize0 == USBDeviceAdapter::ControlMaxPacketSize, "bMaxPacketSize0 must equal the adapter's control packet size");
-	USBDescriptorRequire(numConfigurations == 1, "the device core answers one configuration");
+	Require<"USB: bcdUSB is USB 2.0 or later">(bcdUSB >= 0x0200);
+	Require<"USB: bMaxPacketSize0 must equal the adapter's control packet size">(maxPacketSize0 == USBDeviceAdapter::ControlMaxPacketSize);
+	Require<"USB: the device core answers one configuration">(numConfigurations == 1);
 
 	std::array<uint8, 18> bytes{};
 	bytes[0] = 18;

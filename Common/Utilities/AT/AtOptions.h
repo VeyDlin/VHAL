@@ -17,7 +17,7 @@ struct AtDefaults {
 
 
 	constexpr AtDefaults TimeoutMs(uint32 milliseconds) const {
-		AtRequire<"a timeout of 0">(milliseconds > 0);
+		Require<"AT: a timeout of 0">(milliseconds > 0);
 
 		AtDefaults changed = *this;
 		changed.timeoutMs = milliseconds;

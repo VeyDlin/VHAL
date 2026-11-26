@@ -2,28 +2,14 @@
 #include <Utilities/Checksum/CRC/CrcParameters.h>
 #include <Utilities/Checksum/CRC/Engine/CrcBitwise.h>
 #include <Utilities/DataTypes.h>
-#include <Utilities/TextLiteral.h>
+#include <Utilities/CompileTime/Require.h>
+#include <Utilities/CompileTime/TextLiteral.h>
 #include <array>
 #include <cstddef>
 #include <span>
 #include <utility>
 
 namespace Checksum {
-
-
-// A message of a failed compile-time check. Declared, never defined: a call from a constant expression is ill-formed, and the
-// diagnostic prints the message in the template argument.
-template<TextLiteral Message>
-void CheckFailed();
-
-
-// Calls CheckFailed<Message>() when the condition does not hold. Used only inside constant expressions.
-template<TextLiteral Message>
-constexpr void Require(bool condition) {
-	if (!condition) {
-		CheckFailed<Message>();
-	}
-}
 
 
 // The hexadecimal digit of value at position, counted from the least significant digit: '0' to '9', then 'A' to 'F'.
@@ -43,7 +29,7 @@ void CrcCheckFailed();
 // Fails the check with the hexadecimal digits of Value, one per position of the index sequence.
 template<uint64 Value, std::size_t... Position>
 constexpr void CrcShowCheckValue(std::index_sequence<Position...>) {
-	CrcCheckFailed<"the check value of the CRC parameters does not match the CRC of 123456789",
+	CrcCheckFailed<"CRC: the check value of the CRC parameters does not match the CRC of 123456789",
 		CrcHexDigit(Value, sizeof...(Position) - 1 - Position)...>();
 }
 
@@ -64,17 +50,17 @@ constexpr uint64 CrcCheckValueOf() {
 // "123456789", and the engine supports the algorithm. Each failure is a compile error with its message.
 template<CrcParameters Parameters, typename Engine>
 constexpr bool CrcChecked() {
-	Require<"the CRC parameters have no Width: chain Width(...) with the width in bits, 1 to 64">(Parameters.hasWidth);
-	Require<"the CRC parameters have no Polynomial: chain Polynomial(...) with the polynomial in normal form">(Parameters.hasPolynomial);
+	Require<"CRC: the CRC parameters have no Width: chain Width(...) with the width in bits, 1 to 64">(Parameters.hasWidth);
+	Require<"CRC: the CRC parameters have no Polynomial: chain Polynomial(...) with the polynomial in normal form">(Parameters.hasPolynomial);
 	if constexpr (Parameters.hasWidth && Parameters.hasPolynomial) {
-		Require<"a CRC is 1 to 64 bits wide: the Width(...) of the CRC parameters is outside that range">(
+		Require<"CRC: a CRC is 1 to 64 bits wide: the Width(...) of the CRC parameters is outside that range">(
 			Parameters.width >= 1 && Parameters.width <= 64);
 		if constexpr (Parameters.width >= 1 && Parameters.width <= 64) {
-			Require<"the polynomial of the CRC parameters is wider than the width">(
+			Require<"CRC: the polynomial of the CRC parameters is wider than the width">(
 				CrcFits(Parameters.polynomial, Parameters.width));
-			Require<"the initial value of the CRC parameters is wider than the width">(
+			Require<"CRC: the initial value of the CRC parameters is wider than the width">(
 				CrcFits(Parameters.initialValue, Parameters.width));
-			Require<"the final XOR of the CRC parameters is wider than the width">(
+			Require<"CRC: the final XOR of the CRC parameters is wider than the width">(
 				CrcFits(Parameters.finalXor, Parameters.width));
 			if constexpr (Parameters.hasCheck) {
 				if constexpr (CrcCheckValueOf<Parameters>() != Parameters.check) {
@@ -82,7 +68,7 @@ constexpr bool CrcChecked() {
 				}
 			}
 
-			Require<"the engine cannot compute this CRC: its Supports says no for these parameters">(
+			Require<"CRC: the engine cannot compute this CRC: its Supports says no for these parameters">(
 				Engine::template Supports<Parameters>());
 		}
 	}

@@ -63,14 +63,14 @@ Every mistake is a compile error with its message:
 
 | Message | Cause |
 |---|---|
-| the CRC parameters have no Width | `Width` is not in the chain |
-| the CRC parameters have no Polynomial | `Polynomial` is not in the chain |
-| a CRC is 1 to 64 bits wide | the width is 0 or above 64 |
-| the polynomial of the CRC parameters is wider than the width | the polynomial has a bit at or above the width |
-| the initial value of the CRC parameters is wider than the width | the same for `Initial` |
-| the final XOR of the CRC parameters is wider than the width | the same for `FinalXor` |
-| the check value of the CRC parameters does not match the CRC of 123456789 | the diagnostic lists the value the parameters give, in hexadecimal |
-| the engine cannot compute this CRC | the engine's `Supports` says no for these parameters |
+| CRC: the CRC parameters have no Width | `Width` is not in the chain |
+| CRC: the CRC parameters have no Polynomial | `Polynomial` is not in the chain |
+| CRC: a CRC is 1 to 64 bits wide | the width is 0 or above 64 |
+| CRC: the polynomial of the CRC parameters is wider than the width | the polynomial has a bit at or above the width |
+| CRC: the initial value of the CRC parameters is wider than the width | the same for `Initial` |
+| CRC: the final XOR of the CRC parameters is wider than the width | the same for `FinalXor` |
+| CRC: the check value of the CRC parameters does not match the CRC of 123456789 | the diagnostic lists the value the parameters give, in hexadecimal |
+| CRC: the engine cannot compute this CRC | the engine's `Supports` says no for these parameters |
 
 ## Engines
 

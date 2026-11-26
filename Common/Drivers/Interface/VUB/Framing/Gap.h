@@ -2,7 +2,7 @@
 #include <Drivers/Interface/VUB/Blocks.h>
 #include <Drivers/Interface/VUB/Bytes.h>
 #include <Drivers/Interface/VUB/Meta.h>
-#include <Drivers/Interface/VUB/Require.h>
+#include <Utilities/CompileTime/Require.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -62,7 +62,7 @@ public:
 
 
 		constexpr Step GapUs(uint32 value) const {
-			Require<"the gap is zero: GapUs() needs a value above 0">(value > 0);
+			Require<"VUB: the gap is zero: GapUs() needs a value above 0">(value > 0);
 			Options options = this->LastOptions();
 			options.gapUs = value;
 			options.inCharacters = false;
@@ -72,8 +72,8 @@ public:
 
 		// The gap in tenths of a character time, at baud: GapCharacters(35, 9600) is 3.5 character times at 9600 baud.
 		constexpr Step GapCharacters(uint32 tenths, uint32 baud) const {
-			Require<"the gap is zero: GapCharacters() needs tenths above 0">(tenths > 0);
-			Require<"GapCharacters() needs a baud rate above 0">(baud > 0);
+			Require<"VUB: the gap is zero: GapCharacters() needs tenths above 0">(tenths > 0);
+			Require<"VUB: GapCharacters() needs a baud rate above 0">(baud > 0);
 			Options options = this->LastOptions();
 			options.tenths = tenths;
 			options.baud = baud;
@@ -83,7 +83,7 @@ public:
 
 
 		constexpr Step Baud(uint32 value) const {
-			Require<"Baud() needs a baud rate above 0">(value > 0);
+			Require<"VUB: Baud() needs a baud rate above 0">(value > 0);
 			Options options = this->LastOptions();
 			options.baud = value;
 			return Step(this->WithLastOptions(options));
@@ -91,7 +91,7 @@ public:
 
 
 		constexpr Step WaitTimeoutUs(uint32 value) const {
-			Require<"WaitTimeoutUs() needs a timeout above 0">(value > 0);
+			Require<"VUB: WaitTimeoutUs() needs a timeout above 0">(value > 0);
 			Options options = this->LastOptions();
 			options.timeoutUs = value;
 			return Step(this->WithLastOptions(options));

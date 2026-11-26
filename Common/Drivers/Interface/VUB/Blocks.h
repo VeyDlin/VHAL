@@ -4,7 +4,7 @@
 #include <Drivers/Interface/VUB/Meta.h>
 #include <Drivers/Interface/VUB/Outbox.h>
 #include <Drivers/Interface/VUB/Receiver.h>
-#include <Drivers/Interface/VUB/Require.h>
+#include <Drivers/Interface/VUB/Constant.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>

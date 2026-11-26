@@ -465,4 +465,4 @@ The sim tests are in `Common/Utilities/CommandLine/.tool/sim`, run by `run.sh` w
 | [CommandNameTree](CommandNameTree.md) | `CommandNameTree.h`: the prefix tree of names |
 | [CommandLevel](CommandLevel.md) | `CommandLevel.h`: the tables of one level, built at compile time |
 | [CommandPack](CommandPack.md) | `CommandPack.h`: the value list the builder keeps |
-| [CommandCheck](CommandCheck.md) | `CommandCheck.h`: the compile-time error mechanism |
+| [CommandCheck](CommandCheck.md) | the compile-time checks of the command line |
