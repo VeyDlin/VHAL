@@ -3,7 +3,7 @@
 #include <Drivers/Interface/VUB/LinkState.h>
 #include <Drivers/Interface/VUB/LinkTraits.h>
 #include <Drivers/Interface/VUB/Meta.h>
-#include <Drivers/Interface/VUB/Require.h>
+#include <Utilities/CompileTime/Require.h>
 #include <Utilities/DataTypes.h>
 #include <array>
 #include <cstddef>
@@ -621,7 +621,7 @@ public:
 		if constexpr (count > 0) {
 			return ListAt<count - 1>(entries).options;
 		} else {
-			Require<"LastOptions() needs a block before it">(false);
+			Require<"VUB:LastOptions() needs a block before it">(false);
 			return {};
 		}
 	}
@@ -635,7 +635,7 @@ public:
 			ListAt<count - 1>(next.entries).options = value;
 			return next;
 		} else {
-			Require<"WithLastOptions() needs a block before it, with options of the same type">(false);
+			Require<"VUB:WithLastOptions() needs a block before it, with options of the same type">(false);
 			return *this;
 		}
 	}
@@ -806,9 +806,9 @@ public:
 
 		// The lengths of a packet and of a framed packet are 16-bit. The size rules come first: a constant expression stops at its first
 		// failed check, so a size error is reported ahead of a link error that follows from the same size.
-		Require<"a packet of 65536 bytes or more does not fit the 16-bit lengths: lower MaxPayload or the block headers and growths">(
+		Require<"VUB:a packet of 65536 bytes or more does not fit the 16-bit lengths: lower MaxPayload or the block headers and growths">(
 			PacketBound(values) <= 65535);
-		Require<"a framed packet of 65536 bytes or more does not fit the 16-bit lengths: lower MaxPayload or the framing growth">(
+		Require<"VUB:a framed packet of 65536 bytes or more does not fit the 16-bit lengths: lower MaxPayload or the framing growth">(
 			FramedBound(values) <= 65535);
 
 		const std::array<BlockKind, count> kinds = Kinds();
@@ -824,11 +824,11 @@ public:
 			}
 		}
 
-		Require<"a chain needs a link: add Link<Type>() as the last block">(links > 0);
-		Require<"a chain has more than one link">(links <= 1);
-		Require<"a chain has two framings">(framings <= 1);
+		Require<"VUB:a chain needs a link: add Link<Type>() as the last block">(links > 0);
+		Require<"VUB:a chain has more than one link">(links <= 1);
+		Require<"VUB:a chain has two framings">(framings <= 1);
 		if constexpr (count > 0) {
-			Require<"the link must be the last block of the chain">(kinds[count - 1] == BlockKind::link);
+			Require<"VUB:the link must be the last block of the chain">(kinds[count - 1] == BlockKind::link);
 		}
 
 		// A chain holds one layer that declares its peer, and it is the lowest layer: its state is the connection's, and the layers below
@@ -847,53 +847,53 @@ public:
 			}
 		}
 
-		Require<"two layers declare reportsPeer: the stack keeps one peer state, and a second layer would overwrite the first">(
+		Require<"VUB:two layers declare reportsPeer: the stack keeps one peer state, and a second layer would overwrite the first">(
 			peerLayers <= 1);
-		Require<"a layer that declares reportsPeer must be the lowest layer of the chain: it is a hop-level block, below every other layer">(
+		Require<"VUB:a layer that declares reportsPeer must be the lowest layer of the chain: it is a hop-level block, below every other layer">(
 			peerLayers == 0 || reports[lowestLayer]);
 
 		constexpr LinkTraits traits = ChainLinkTraits();
 		if constexpr (PacketLink<LinkType>) {
-			Require<"a packet link takes no framing: remove the Framing<Type>() block">(framings == 0);
-			Require<"a packet link must be Framed(): its packets have boundaries of their own">(traits.framed);
+			Require<"VUB:a packet link takes no framing: remove the Framing<Type>() block">(framings == 0);
+			Require<"VUB:a packet link must be Framed(): its packets have boundaries of their own">(traits.framed);
 		} else if constexpr (StreamLink<LinkType>) {
-			Require<"a stream link needs a framing: add Framing<Type>() right above the link">(framings == 1);
-			Require<"the framing must be right above the link">(framings == 0 || (count >= 2 && FramingIndex() == count - 2));
-			Require<"a stream link cannot be Framed(): its bytes have no packet boundaries">(!traits.framed);
+			Require<"VUB:a stream link needs a framing: add Framing<Type>() right above the link">(framings == 1);
+			Require<"VUB:the framing must be right above the link">(framings == 0 || (count >= 2 && FramingIndex() == count - 2));
+			Require<"VUB:a stream link cannot be Framed(): its bytes have no packet boundaries">(!traits.framed);
 		}
 
 		if constexpr (LinkBlock<LinkType>) {
-			Require<"the link must say HalfDuplex() or FullDuplex()">(traits.duplex != Duplex::Unset);
-			Require<"a link has no MaxPacket: set MaxPacket(n) in its traits">(traits.maxPacket > 0);
-			Require<"the MaxPacket of the link is 65536 bytes or more: the received lengths are 16-bit">(traits.maxPacket <= 65535);
-			Require<"a packet is larger than the MaxPacket of the link: the payload and the headers and growths of the blocks add up to more">(
+			Require<"VUB:the link must say HalfDuplex() or FullDuplex()">(traits.duplex != Duplex::Unset);
+			Require<"VUB:a link has no MaxPacket: set MaxPacket(n) in its traits">(traits.maxPacket > 0);
+			Require<"VUB:the MaxPacket of the link is 65536 bytes or more: the received lengths are 16-bit">(traits.maxPacket <= 65535);
+			Require<"VUB:a packet is larger than the MaxPacket of the link: the payload and the headers and growths of the blocks add up to more">(
 				PacketBound(values) <= traits.maxPacket);
 		}
 
-		Require<"a link with ReportsState() needs SetStateSink(VUB::StateSink): the stack gives its state object there">(
+		Require<"VUB:a link with ReportsState() needs SetStateSink(VUB::StateSink): the stack gives its state object there">(
 			!traits.reportsState || ReportingLink<LinkType>);
-		Require<"a link has both SetReceiver and Poll: a link receives in an interrupt or is polled, not both, since two writers would share the receive ring or queue">(
+		Require<"VUB:a link has both SetReceiver and Poll: a link receives in an interrupt or is polled, not both, since two writers would share the receive ring or queue">(
 			!(ReceivingLink<LinkType> && PollingLink<LinkType>));
-		Require<"WhileDown(VUB::Down::Fail) needs a connection that can go down: the link needs ReportsState(), or a layer needs reportsPeer">(
+		Require<"VUB:WhileDown(VUB::Down::Fail) needs a connection that can go down: the link needs ReportsState(), or a layer needs reportsPeer">(
 			values.whileDown != Down::Fail || CanReportDown());
 
 		// A ring or a queue of n slots needs n + 1 indexes of at most 65535, so it holds at most 65535 entries.
-		Require<"ReceiveRing() is zero">(values.receiveRing > 0);
-		Require<"the receive ring holds at most 65535 bytes: its indexes are 16-bit">(values.receiveRing <= 65535);
-		Require<"ReceiveQueue() is zero">(values.receiveQueue > 0);
-		Require<"the receive queue holds at most 65535 packets: its indexes are 16-bit">(values.receiveQueue <= 65535);
-		Require<"a chain with a bulk layer needs a send queue: bulk packets follow each other, so the application never finds the link free: add SendQueue(1) or more">(
+		Require<"VUB:ReceiveRing() is zero">(values.receiveRing > 0);
+		Require<"VUB:the receive ring holds at most 65535 bytes: its indexes are 16-bit">(values.receiveRing <= 65535);
+		Require<"VUB:ReceiveQueue() is zero">(values.receiveQueue > 0);
+		Require<"VUB:the receive queue holds at most 65535 packets: its indexes are 16-bit">(values.receiveQueue <= 65535);
+		Require<"VUB:a chain with a bulk layer needs a send queue: bulk packets follow each other, so the application never finds the link free: add SendQueue(1) or more">(
 			!values.sendQueueGiven || values.sendQueue > 0 || BulkCount() == 0);
-		Require<"a packet link with no Ready() needs a send queue: add SendQueue(1) or more">(
+		Require<"VUB:a packet link with no Ready() needs a send queue: add SendQueue(1) or more">(
 			!values.sendQueueGiven || values.sendQueue > 0 || NoQueueFits());
-		Require<"the send queue holds at most 65535 packets: its indexes are 16-bit">(SendQueueOf(values) <= 65535);
-		Require<"the staging queue holds at most 65535 packets: its indexes are 16-bit">(values.stageQueue <= 65535);
-		Require<"the largest received packet of 65536 bytes or more does not fit the 16-bit lengths: lower MaxReceive or MaxPayload">(
+		Require<"VUB:the send queue holds at most 65535 packets: its indexes are 16-bit">(SendQueueOf(values) <= 65535);
+		Require<"VUB:the staging queue holds at most 65535 packets: its indexes are 16-bit">(values.stageQueue <= 65535);
+		Require<"VUB:the largest received packet of 65536 bytes or more does not fit the 16-bit lengths: lower MaxReceive or MaxPayload">(
 			ReceiveBound(values) <= 65535);
-		Require<"MaxPayload() is not given or is zero: set the largest application payload">(values.maxPayload > 0);
-		Require<"OnReceive<&Fn>() is missing: the receive handler takes each packet">(values.hasReceive);
-		Require<"PerProcess() is zero">(values.perProcess > 0);
-		Require<"a block needs time and the chain has no clock: add Clock<&Fn>() to the builder">(!NeedsTime() || values.hasClock);
+		Require<"VUB:MaxPayload() is not given or is zero: set the largest application payload">(values.maxPayload > 0);
+		Require<"VUB:OnReceive<&Fn>() is missing: the receive handler takes each packet">(values.hasReceive);
+		Require<"VUB:PerProcess() is zero">(values.perProcess > 0);
+		Require<"VUB:a block needs time and the chain has no clock: add Clock<&Fn>() to the builder">(!NeedsTime() || values.hasClock);
 		return true;
 	}
 
@@ -904,15 +904,15 @@ private:
 	template<typename Entry>
 	static constexpr void CheckOptions() {
 		if constexpr (Entry::kind == BlockKind::layer && !std::is_same_v<typename Entry::OptionsType, None> && !DeclaresConfigured<Entry>) {
-			Require<"the layer cannot be built from its options: give it a constructor that takes them">(
+			Require<"VUB:the layer cannot be built from its options: give it a constructor that takes them">(
 				std::is_constructible_v<typename Entry::BlockType, const typename Entry::OptionsType&>);
 		} else if constexpr (Entry::kind == BlockKind::transform && !std::is_same_v<typename Entry::OptionsType, None>
 				&& !DeclaresConfigured<Entry>) {
-			Require<"the transform cannot be built from its options: give it a constructor that takes them">(
+			Require<"VUB:the transform cannot be built from its options: give it a constructor that takes them">(
 				std::is_constructible_v<typename Entry::BlockType, const typename Entry::OptionsType&>);
 		} else if constexpr (Entry::kind == BlockKind::framing && !std::is_same_v<typename Entry::OptionsType, None>
 				&& !DeclaresConfigured<Entry>) {
-			Require<"the framing cannot be built from its options: give it a constructor that takes them">(
+			Require<"VUB:the framing cannot be built from its options: give it a constructor that takes them">(
 				std::is_constructible_v<typename Entry::BlockType, const typename Entry::OptionsType&>);
 		}
 	}

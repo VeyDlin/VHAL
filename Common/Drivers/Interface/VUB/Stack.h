@@ -7,7 +7,7 @@
 #include <Drivers/Interface/VUB/LinkTraits.h>
 #include <Drivers/Interface/VUB/Meta.h>
 #include <Drivers/Interface/VUB/Outbox.h>
-#include <Drivers/Interface/VUB/Require.h>
+#include <Utilities/CompileTime/Require.h>
 #include <Drivers/Interface/VUB/Ring.h>
 #include <Drivers/Interface/VUB/Storage.h>
 #include <System/System.h>
@@ -220,7 +220,7 @@ public:
 		if constexpr (requires { AboveType::largestPacket; } && requires { BelowType::payloadCapacity; }) {
 			constexpr std::size_t need = AboveType::largestPacket;
 			constexpr std::size_t capacity = BelowType::payloadCapacity;
-			RequireValue<"the largest requests packet does not fit Reliable's payload: raise PayloadCapacity to the value shown", need>(
+			RequireValue<"VUB:the largest requests packet does not fit Reliable's payload: raise PayloadCapacity to the value shown", need>(
 				need <= capacity);
 		}
 	}
@@ -267,14 +267,14 @@ public:
 		using LayerType = StoredAt<Index>;
 		if constexpr (requires { LayerType::needsCounters; }) {
 			if constexpr (LayerType::needsCounters) {
-				Require<"a layer of the chain sends the drop counts (Requests with AnswerHealth does): add CountDrops() to the stack">(
+				Require<"VUB:a layer of the chain sends the drop counts (Requests with AnswerHealth does): add CountDrops() to the stack">(
 					built.settings.countDrops);
-				Require<"a layer of the chain sends the high-water marks (Requests with AnswerHealth does): add HighWater() to the stack">(
+				Require<"VUB:a layer of the chain sends the high-water marks (Requests with AnswerHealth does): add HighWater() to the stack">(
 					built.settings.highWater);
 				if constexpr (Index + 1 < count) {
 					using Below = std::tuple_element_t<Index + 1, Tuple>;
 					if constexpr (TakesOwnerOf<typename Below::BlockType, LayerType>) {
-						Require<"a layer of the chain sends Reliable's counters (Requests with AnswerHealth does): add Counted() to the Reliable layer">(
+						Require<"VUB:a layer of the chain sends Reliable's counters (Requests with AnswerHealth does): add Counted() to the Reliable layer">(
 							ReportsCounts<StoredAt<Index + 1>>);
 					}
 				}
