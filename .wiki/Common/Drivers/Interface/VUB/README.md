@@ -1435,8 +1435,8 @@ using GuardedBoard = VUB::Stack<+[] {
 
 ## Compilers
 
-The host tests (`Common/Drivers/Interface/VUB/.tool/sim/run.sh`) pass with g++ 11.4 (Ubuntu 22.04, under WSL) and g++ 15.2 (MinGW, on
-Windows 11). The header checks and the builder error snippets run with both. The microcontroller headers are checked alone with
+The host tests (`Common/Drivers/Interface/VUB/.tool/sim/run.sh`) pass with g++ 15.2 (MinGW, on
+Windows 11). The header checks and the builder error snippets run with it. The microcontroller headers are checked alone with
 `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203`, and the size table is measured with it. Other compilers, clang++ among them, are
 not tested.
 
