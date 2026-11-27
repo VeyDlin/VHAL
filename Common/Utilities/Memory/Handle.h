@@ -13,10 +13,13 @@ struct Entry {
     std::size_t   size = 0;
     std::uint32_t generation = 0;
     bool          alive = false;
+    std::uint8_t  headerOffset = 0;   // bytes from data back to the block header
 
-    void Activate(void* blockData, std::size_t blockSize) {
+    // offset is the distance from blockData back to the header of a heap block. A pool block has no header.
+    void Activate(void* blockData, std::size_t blockSize, std::uint8_t offset = 0) {
         data = blockData;
         size = blockSize;
+        headerOffset = offset;
         generation++;
         alive = true;
     }
