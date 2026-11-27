@@ -44,7 +44,7 @@ The module name opens the message, so the text names the library that reports th
 
 ## The GCC diagnostic
 
-The failing snippet below is `Common/Utilities/CompileTime/.tool/sim/BuilderErrors/require_fails.cpp`, compiled with g++ 15.2 and `-std=c++23`:
+The failing snippet below is `Common/Utilities/CompileTime/.test/BuilderErrors/require_fails.cpp`, compiled with g++ 15.2 and `-std=c++23`:
 
 ```cpp
 constexpr int CheckedSum(int first, int second) {
@@ -69,7 +69,7 @@ Common/Utilities/CompileTime/Require.h:37:54: error: call to non-'constexpr' fun
 
 ## Host definitions
 
-A host program that runs a builder at run time needs definitions of `CompileTimeError` and `CompileTimeErrorValue`, so the calls link. `Common/Utilities/CompileTime/.tool/sim/CompileTimeError.h` provides them. Each prints its message to `stderr`, with the value for `RequireValue`, and calls `std::abort()`. The definitions are not `constexpr`, so a constant expression that reaches them still does not compile, as on the target. Only host tests include this header. A target build does not.
+A host program that runs a builder at run time needs definitions of `CompileTimeError` and `CompileTimeErrorValue`, so the calls link. `Common/Utilities/CompileTime/.test/CompileTimeError.h` provides them. Each prints its message to `stderr`, with the value for `RequireValue`, and calls `std::abort()`. The definitions are not `constexpr`, so a constant expression that reaches them still does not compile, as on the target. Only host tests include this header. A target build does not.
 
 ## Module prefixes
 
