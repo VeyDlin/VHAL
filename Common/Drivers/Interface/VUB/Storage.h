@@ -184,8 +184,12 @@ struct QueueStorage {
 			return QueueView{std::span<uint8>(), std::span<uint16>(), std::span<uint8>(), SlotBytes};
 		}
 
-		return QueueView{std::span<uint8>(bytes.Data(), Slots * SlotBytes), std::span<uint16>(lengths.Data(), Slots),
-			std::span<uint8>(flags.Data(), Slots), SlotBytes};
+		return QueueView{
+			std::span<uint8>(bytes.Data(), Slots * SlotBytes),
+			std::span<uint16>(lengths.Data(), Slots),
+			std::span<uint8>(flags.Data(), Slots),
+			SlotBytes
+		};
 	}
 };
 
