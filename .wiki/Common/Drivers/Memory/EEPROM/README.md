@@ -119,6 +119,6 @@ These change the API of the driver as it stood before this rework.
 
 ## Tests
 
-`.tool/sim` holds host tests (`run.sh`, `TestEeprom.cpp`). The shim has a fake I2C bus with a 24xx chip behind it. The chip models the page wrap, the write cycle with NACK while busy, the 7-bit device address, and the capacity. The tests cover the page split, the ACK poll (its probe count and its timeout), a busy chip at call time, the retry rules (a timeout is not repeated), the geometry and address checks, the raw bounds, the exact fill of a device, the comparisons, and the compile-time rules of `Data<T>` and `Eeprom`.
+`.test` holds host tests (`TestEeprom.cpp`). The shim has a fake I2C bus with a 24xx chip behind it. The chip models the page wrap, the write cycle with NACK while busy, the 7-bit device address, and the capacity. The tests cover the page split, the ACK poll (its probe count and its timeout), a busy chip at call time, the retry rules (a timeout is not repeated), the geometry and address checks, the raw bounds, the exact fill of a device, the comparisons, and the compile-time rules of `Data<T>` and `Eeprom`.
 
-Run them with `bash run.sh` from the `.tool/sim` folder.
+Run them with `./test.cmd EEPROM` from the repository root.

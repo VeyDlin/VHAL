@@ -220,7 +220,7 @@ An input beyond the range saturates silently. A 3000 deg/s rate on `IQ<20>` give
 `float` gives 279. The caller must keep the inputs within the range. The `Sample` fields, the tuning and the `Update` time step
 are all `T`.
 
-Measured against a double reference over a 4 s scenario (host test `.tool/sim/TestComplementaryFilter.cpp`, bounds in the
+Measured against a double reference over a 4 s scenario (host test `.test/TestComplementaryFilter.cpp`, bounds in the
 test): float 0.00006 degree, `IQ<16>` 0.0015 degree, `IQ<20>` 0.0002 degree. The time step should be a value the type holds
 exactly, such as 2^-10 s. At `IQ<16>` a 1 ms step is 66 raw steps, 0.7 percent high, and the gyroscope integral grows with it
 (about 0.5 degree in 4 s), so use `IQ<20>` for a 1 kHz sample time.

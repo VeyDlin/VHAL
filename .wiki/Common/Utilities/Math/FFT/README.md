@@ -113,7 +113,7 @@ A source is any type whose `source[i]` gives sample `i` as exactly `Number`. `An
 | [`LatestSamples<Number, Size>`](LatestSamples.md) | `LatestSamples.h` | A ring fed from an interrupt. The FFT reads the newest `Size` samples as a sliding window |
 | [`FrameCollector<Number, Size, Hop>`](FrameCollector.md) | `FrameCollector.h` | Frames fed from an interrupt, two buffers so the reader holds a stable frame. An optional `Hop` gives overlapping frames |
 
-Each source is its own header, and a program that does not include a header pays nothing for it. Each source is tested in `.tool/sim` against the same samples given as a plain array: the spectra are identical.
+Each source is its own header, and a program that does not include a header pays nothing for it. Each source is tested in `.test` against the same samples given as a plain array: the spectra are identical.
 
 ```cpp
 #include <Utilities/Math/FFT/AdcSamples.h>
@@ -138,7 +138,7 @@ fft.Analyze(samples, amplitude);
 
 ## Accuracy
 
-Measured against a naive DFT in long double on the same quantized input, with DC of 0.5 and of 1, a sine at a bin centre and one between two bins, uniform noise in -1..1, full-scale noise of +-1, a unit sine and silence, at sizes 256 and 1024, with both windows. The test is `Common/Utilities/Math/FFT/.tool/sim/TestRealFFT.cpp`.
+Measured against a naive DFT in long double on the same quantized input, with DC of 0.5 and of 1, a sine at a bin centre and one between two bins, uniform noise in -1..1, full-scale noise of +-1, a unit sine and silence, at sizes 256 and 1024, with both windows. The test is `Common/Utilities/Math/FFT/.test/TestRealFFT.cpp`.
 
 | Type | Forward, worst error divided by Size | Analyze, worst absolute error | Test bound (Analyze) |
 |---|---|---|---|
