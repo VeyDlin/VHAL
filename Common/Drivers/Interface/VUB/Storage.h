@@ -28,11 +28,19 @@ struct Buffer {
 
 
 	std::span<uint8> Span() {
+		if (!Ready()) {
+			return std::span<uint8>();
+		}
+
 		return std::span<uint8>(bytes.Data(), Bytes);
 	}
 
 
 	std::span<const uint8> Span() const {
+		if (!Ready()) {
+			return std::span<const uint8>();
+		}
+
 		return std::span<const uint8>(bytes.Data(), Bytes);
 	}
 };
@@ -91,6 +99,10 @@ struct RingStorage {
 
 
 	std::span<uint8> Span() {
+		if (!Ready()) {
+			return std::span<uint8>();
+		}
+
 		return std::span<uint8>(slots.Data(), Slots);
 	}
 };
@@ -116,11 +128,19 @@ struct StampStorage {
 
 
 	std::span<uint32> Span() {
+		if (!Ready()) {
+			return std::span<uint32>();
+		}
+
 		return std::span<uint32>(stamps.Data(), Slots);
 	}
 
 
 	std::span<const uint32> Span() const {
+		if (!Ready()) {
+			return std::span<const uint32>();
+		}
+
 		return std::span<const uint32>(stamps.Data(), Slots);
 	}
 };
@@ -158,7 +178,12 @@ struct QueueStorage {
 	}
 
 
+	// A queue that is not ready has empty spans, so a caller that does not check Ready() gets no elements.
 	QueueView View() {
+		if (!Ready()) {
+			return QueueView{std::span<uint8>(), std::span<uint16>(), std::span<uint8>(), SlotBytes};
+		}
+
 		return QueueView{std::span<uint8>(bytes.Data(), Slots * SlotBytes), std::span<uint16>(lengths.Data(), Slots),
 			std::span<uint8>(flags.Data(), Slots), SlotBytes};
 	}
