@@ -165,7 +165,7 @@ void FloatFormatting() {
 	capture.console.Write(1.0 / 3.0, static_cast<uint8>(4));
 	capture.out += "|";
 	capture.console.Write(1.5, static_cast<uint8>(0));
-	// Precision 0 rounds half away from zero: 1.5 prints as 2 (was 1 when digits were truncated)
+	// Precision 0 rounds half away from zero: 1.5 prints as 2, not as 1 from a truncated digit.
 	VHAL_CHECK_EQ(capture.out, std::string("3.14|-2.5|0.00|0.3333|2"));
 }
 

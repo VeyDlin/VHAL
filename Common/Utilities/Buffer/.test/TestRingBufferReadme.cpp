@@ -81,23 +81,23 @@ void PeekAndIndex() {
 
 void TransactionalReads() {
 	RingBuffer<uint8, 256> buf;
-	// ... assume buf has data ...
+	// The buffer holds data: four elements are pushed for the example to read.
 	buf.Push(static_cast<uint8>(1));
 	buf.Push(static_cast<uint8>(2));
 	buf.Push(static_cast<uint8>(3));
 	buf.Push(static_cast<uint8>(4));
 
-	// Step 1: Peek at data without removing
+	// Peek at data without removing
 	uint8 header[4];
 	buf.PeekMultiple(header, 4);
 
-	// Step 2: Mark elements as "tentatively read"
+	// Mark elements as "tentatively read"
 	buf.MarkRead(4);
 
-	// Step 3a: If processing succeeds, commit
+	// If processing succeeds, commit
 	buf.CommitReads();
 
-	// Step 3b: If processing fails, rollback -- data stays in buffer
+	// If processing fails, rollback -- data stays in buffer
 	buf.RollbackReads();
 
 	// Check how many reads are pending
