@@ -33,4 +33,4 @@ Like the integer formatter, it writes the whole text or nothing. It returns 0 wh
 
 ## Compile Time
 
-The conversion is `constexpr`. It reads the exponent and mantissa of a double with `std::bit_cast`, because `frexp` and `ldexp` are not constexpr in C++20.
+The conversion is `constexpr`. It reads the exponent and mantissa of a double with `std::bit_cast`, because `std::frexp` is not usable in a constant expression under `-std=c++23` with g++ 15.2 or with GCC 14.2 for riscv32. `std::ldexp` is usable there.
