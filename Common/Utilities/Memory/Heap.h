@@ -72,14 +72,13 @@ struct OomHandler {
 
 
 // The header of a block: 12 bytes on a 32-bit target. The data starts dataOffset bytes after the header. The offset
-// is chosen when the block is placed and chosen again when the block changes position, so the data keeps its alignment. A
-// free block has no entry, and its dataOffset is the size of the header.
+// is chosen when the block is placed and chosen again when a movable block changes position, so the data keeps its
+// alignment. A free block has no entry, and its dataOffset is the size of the header.
 struct BlockHeader {
 	Entry*       entry;
 	std::size_t  size;
 	bool         free;
 	bool         pinned;
-	std::uint8_t alignLog2;
 	std::uint8_t dataOffset;
 };
 
@@ -159,7 +158,7 @@ public:
 	Handle Allocate(std::size_t size) {
 		AssertNotInterrupt();
 		LockPolicy::Lock();
-		Handle result = AllocateLocked(size, kBlockAlignmentLog2, false);
+		Handle result = AllocateLocked<false>(size, kBlockAlignmentLog2);
 		LockPolicy::Unlock();
 
 		if (!result.IsValid()) {
@@ -214,7 +213,7 @@ public:
 		}
 
 		LockPolicy::Lock();
-		Handle result = AllocateLocked(size, alignLog2, true);
+		Handle result = AllocateLocked<true>(size, alignLog2);
 		LockPolicy::Unlock();
 
 		if (!result.IsValid()) {
@@ -360,6 +359,27 @@ private:
 	}
 
 
+	// Data offset of a block that is not pinned: the data starts at the first multiple of kBlockAlignment after the
+	// header.
+	static constexpr std::size_t DefaultDataOffset(std::uintptr_t headerAddress) {
+		std::uintptr_t alignment = static_cast<std::uintptr_t>(kBlockAlignment);
+		std::uintptr_t data = (headerAddress + kHeaderSize + alignment - 1) & ~(alignment - 1);
+		return static_cast<std::size_t>(data - headerAddress);
+	}
+
+
+	// A pinned block is aligned to alignLog2. Any other block takes the default alignment, so its code has no
+	// alignment argument.
+	template <bool Pinned>
+	static std::size_t DataOffset(std::uintptr_t headerAddress, [[maybe_unused]] std::uint8_t alignLog2) {
+		if constexpr (Pinned) {
+			return AlignedDataOffset(headerAddress, alignLog2);
+		} else {
+			return DefaultDataOffset(headerAddress);
+		}
+	}
+
+
 	static bool AlignmentLog2(std::size_t alignment, std::uint8_t& alignLog2) {
 		for (std::uint8_t bits = 0; bits <= kMaxAlignmentLog2; ++bits) {
 			if (alignment == (static_cast<std::size_t>(1) << bits)) {
@@ -408,6 +428,18 @@ private:
 	}
 
 
+	// The header of the block that an entry describes. The entry holds the distance back from its data to the header,
+	// so no walk over the blocks is needed.
+	static BlockHeader* HeaderOf(const Entry* entry) {
+		return reinterpret_cast<BlockHeader*>(static_cast<std::uint8_t*>(entry->data) - entry->headerOffset);
+	}
+
+
+	std::size_t OffsetOf(const BlockHeader* hdr) const {
+		return static_cast<std::size_t>(reinterpret_cast<const std::uint8_t*>(hdr) - buffer);
+	}
+
+
 	// Offset of the header of the used block whose data starts at data, or NoBlock when there is none. Walks the
 	// blocks, so it costs one step per block.
 	std::size_t FindBlock(const void* data) const {
@@ -424,13 +456,21 @@ private:
 	}
 
 
+	// True when entry is one of the slots in use at the top of the buffer. Only this heap creates the entries in its
+	// table, so an entry of another heap or of a pool is refused here, before its bytes are read as a header.
+	bool InEntryTable(const Entry* entry) const {
+		std::uintptr_t tableBytes = entryCount * sizeof(Entry);
+		std::uintptr_t start = reinterpret_cast<std::uintptr_t>(buffer) + capacity - tableBytes;
+		return reinterpret_cast<std::uintptr_t>(entry) - start < tableBytes;
+	}
+
+
 	bool IsPinned(const Handle& handle) const {
 		Entry* entry = handle.GetEntry();
-		if (entry == nullptr) {
+		if (entry == nullptr || !InEntryTable(entry)) {
 			return false;
 		}
-		std::size_t offset = FindBlock(entry->data);
-		return offset != NoBlock && HeaderAt(offset)->pinned;
+		return HeaderOf(entry)->pinned;
 	}
 
 
@@ -458,33 +498,33 @@ private:
 		hdr->pinned = false;
 		hdr->size = total - kHeaderSize;
 		hdr->dataOffset = static_cast<std::uint8_t>(kHeaderSize);
-		hdr->alignLog2 = 0;
 		MergeFreeBlock(offset);
 	}
 
 
 	// The caller holds the lock. Frees the block of handle and clears handle. Other copies of the handle become
-	// invalid. A pinned block is left as it is.
+	// invalid. A pinned block, and a handle of another heap or of a pool, are left as they are.
 	void DeallocateLocked(Handle& handle) {
 		Entry* entry = handle.GetEntry();
-		if (entry == nullptr) {
+		if (entry == nullptr || !InEntryTable(entry)) {
 			return;
 		}
 
-		std::size_t offset = FindBlock(entry->data);
-		if (offset == NoBlock || HeaderAt(offset)->pinned) {
+		BlockHeader* hdr = HeaderOf(entry);
+		if (hdr->pinned) {
 			return;
 		}
 
-		FreeBlock(offset);
+		FreeBlock(OffsetOf(hdr));
 		handle = Handle();
 	}
 
 
-	// The caller holds the lock.
+	// The caller holds the lock. Reallocate refuses a pinned block, so the block here is movable and takes the default
+	// alignment.
 	Handle ReallocateLocked(Handle& handle, std::size_t newSize) {
 		if (!handle.IsValid()) {
-			return AllocateLocked(newSize, kBlockAlignmentLog2, false);
+			return AllocateLocked<false>(newSize, kBlockAlignmentLog2);
 		}
 
 		std::size_t oldSize = handle.Size();
@@ -492,8 +532,7 @@ private:
 			return handle;
 		}
 
-		std::uint8_t alignLog2 = HeaderAt(FindBlock(handle.Data()))->alignLog2;
-		Handle newHandle = AllocateLocked(newSize, alignLog2, false);
+		Handle newHandle = AllocateLocked<false>(newSize, kBlockAlignmentLog2);
 		if (!newHandle.IsValid()) {
 			return Handle();
 		}
@@ -507,7 +546,8 @@ private:
 
 	// The caller holds the lock. Returns an invalid handle when no block of this size fits. The first free block that
 	// fits is used, and the space after the used data is the fallback.
-	Handle AllocateLocked(std::size_t size, std::uint8_t alignLog2, bool pinned) {
+	template <bool Pinned>
+	Handle AllocateLocked(std::size_t size, std::uint8_t alignLog2) {
 		if (size > capacity) {
 			return Handle();
 		}
@@ -519,9 +559,9 @@ private:
 			std::size_t total = BlockTotal(hdr);
 
 			if (hdr->free) {
-				std::size_t dataOffset = AlignedDataOffset(reinterpret_cast<std::uintptr_t>(buffer + offset), alignLog2);
+				std::size_t dataOffset = DataOffset<Pinned>(reinterpret_cast<std::uintptr_t>(buffer + offset), alignLog2);
 				if (dataOffset + rounded <= total) {
-					Handle result = PlaceInFreeBlock(offset, dataOffset, rounded, alignLog2, pinned);
+					Handle result = PlaceInFreeBlock<Pinned>(offset, dataOffset, rounded);
 					if (result.IsValid()) {
 						return result;
 					}
@@ -531,19 +571,14 @@ private:
 			offset += total;
 		}
 
-		return AllocateAtTail(rounded, alignLog2, pinned);
+		return AllocateAtTail<Pinned>(rounded, alignLog2);
 	}
 
 
 	// The caller holds the lock. The block takes the start of the free block at offset, and the rest of the free
 	// block stays free when it is large enough for a header. Returns an invalid handle when no entry is left.
-	Handle PlaceInFreeBlock(
-		std::size_t offset,
-		std::size_t dataOffset,
-		std::size_t rounded,
-		std::uint8_t alignLog2,
-		bool pinned)
-	{
+	template <bool Pinned>
+	Handle PlaceInFreeBlock(std::size_t offset, std::size_t dataOffset, std::size_t rounded) {
 		BlockHeader* hdr = HeaderAt(offset);
 		std::size_t total = BlockTotal(hdr);
 		std::size_t leftover = total - dataOffset - rounded;
@@ -561,8 +596,7 @@ private:
 		hdr->entry = entry;
 		hdr->size = usedSize;
 		hdr->free = false;
-		hdr->pinned = pinned;
-		hdr->alignLog2 = alignLog2;
+		hdr->pinned = Pinned;
 		hdr->dataOffset = static_cast<std::uint8_t>(dataOffset);
 
 		if (leftover != 0) {
@@ -571,19 +605,19 @@ private:
 			rest->size = leftover - kHeaderSize;
 			rest->free = true;
 			rest->pinned = false;
-			rest->alignLog2 = 0;
 			rest->dataOffset = static_cast<std::uint8_t>(kHeaderSize);
 		}
 
-		entry->Activate(buffer + offset + dataOffset, usedSize);
+		entry->Activate(buffer + offset + dataOffset, usedSize, static_cast<std::uint8_t>(dataOffset));
 		return Handle(entry);
 	}
 
 
 	// The caller holds the lock. The block goes after the used data. A freed entry slot is reused, so the entry table
 	// does not grow with each allocation and free.
-	Handle AllocateAtTail(std::size_t rounded, std::uint8_t alignLog2, bool pinned) {
-		std::size_t dataOffset = AlignedDataOffset(reinterpret_cast<std::uintptr_t>(buffer + dataTop), alignLog2);
+	template <bool Pinned>
+	Handle AllocateAtTail(std::size_t rounded, std::uint8_t alignLog2) {
+		std::size_t dataOffset = DataOffset<Pinned>(reinterpret_cast<std::uintptr_t>(buffer + dataTop), alignLog2);
 		std::size_t total = dataOffset + rounded;
 
 		Entry* entry = FindDeadEntry();
@@ -602,11 +636,10 @@ private:
 		hdr->entry = entry;
 		hdr->size = rounded;
 		hdr->free = false;
-		hdr->pinned = pinned;
-		hdr->alignLog2 = alignLog2;
+		hdr->pinned = Pinned;
 		hdr->dataOffset = static_cast<std::uint8_t>(dataOffset);
 
-		entry->Activate(buffer + dataTop + dataOffset, rounded);
+		entry->Activate(buffer + dataTop + dataOffset, rounded, static_cast<std::uint8_t>(dataOffset));
 		dataTop += total;
 		return Handle(entry);
 	}
@@ -631,8 +664,9 @@ private:
 	}
 
 
-	// The caller holds the lock. Called for a block that has just become free. Merges it with a free block that precedes it
-	// and with the free blocks after it. A free block that ends the used region returns its space to the tail.
+	// The caller holds the lock. Called for a block that has just become free. Merges it with a free block that
+	// precedes it and with the free blocks after it. A free block that ends the used region returns its space to the
+	// tail.
 	void MergeFreeBlock(std::size_t offset) {
 		std::size_t previous = PreviousBlockOffset(offset);
 		if (previous != NoBlock && HeaderAt(previous)->free) {
@@ -653,15 +687,13 @@ private:
 	}
 
 
-	// Moves the used block at blockOffset down to freeOffset, the free block in front of it. The block keeps its
-	// alignment, so its new data offset may differ. Returns false when the block does not fit in the two blocks.
+	// Moves the movable block at blockOffset down to freeOffset, the free block in front of it. The block takes the
+	// default alignment, so its new data offset may differ. Returns false when the block does not fit in the two
+	// blocks.
 	bool MoveBlockDown(std::size_t freeOffset, std::size_t blockOffset) {
 		BlockHeader* blockHdr = HeaderAt(blockOffset);
 		std::size_t regionLen = blockOffset - freeOffset + BlockTotal(blockHdr);
-		std::size_t newDataOffset = AlignedDataOffset(
-			reinterpret_cast<std::uintptr_t>(buffer + freeOffset),
-			blockHdr->alignLog2
-		);
+		std::size_t newDataOffset = DefaultDataOffset(reinterpret_cast<std::uintptr_t>(buffer + freeOffset));
 		std::size_t newTotal = newDataOffset + blockHdr->size;
 		if (newTotal > regionLen) {
 			return false;
@@ -677,8 +709,6 @@ private:
 		}
 
 		Entry* entry = blockHdr->entry;
-		std::uint8_t alignLog2 = blockHdr->alignLog2;
-		bool pinned = blockHdr->pinned;
 		std::uint8_t* source = buffer + blockOffset + blockHdr->dataOffset;
 		std::uint8_t* destination = buffer + freeOffset + newDataOffset;
 		std::memmove(destination, source, blockHdr->size);
@@ -687,11 +717,11 @@ private:
 		hdr->entry = entry;
 		hdr->size = usedSize;
 		hdr->free = false;
-		hdr->pinned = pinned;
-		hdr->alignLog2 = alignLog2;
+		hdr->pinned = false;
 		hdr->dataOffset = static_cast<std::uint8_t>(newDataOffset);
 		entry->data = destination;
 		entry->size = usedSize;
+		entry->headerOffset = static_cast<std::uint8_t>(newDataOffset);
 
 		if (leftover != 0) {
 			BlockHeader* rest = HeaderAt(freeOffset + newTotal);
@@ -699,7 +729,6 @@ private:
 			rest->size = leftover - kHeaderSize;
 			rest->free = true;
 			rest->pinned = false;
-			rest->alignLog2 = 0;
 			rest->dataOffset = static_cast<std::uint8_t>(kHeaderSize);
 			MergeFreeBlock(freeOffset + newTotal);
 		}

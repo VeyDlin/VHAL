@@ -13,7 +13,7 @@ inline bool System::IsInterrupt() {
 }
 
 inline void System::Abort(const char* message, const char* file, uint32 line) {
-	std::fprintf(stderr, "abort: %s (%s:%u)\n", message != nullptr ? message : "", file != nullptr ? file : "", line);
+	std::fprintf(stderr, "abort: %s (%s:%u)\n", message != nullptr ? message : "", file != nullptr ? file : "", static_cast<unsigned>(line));
 	std::abort();
 }
 
