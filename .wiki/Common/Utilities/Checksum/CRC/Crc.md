@@ -74,7 +74,7 @@ Every mistake is a compile error with its message:
 
 ## Engines
 
-Each engine is a template argument. The cost is measured by `.tool/size/size.sh` on arm-none-eabi-g++ 15.2 at `-Os` and `-O2`, as the
+Each engine is a template argument. The cost is measured by `.test/size/Size.cmake` on arm-none-eabi-g++ 15.2 at `-Os` and `-O2`, as the
 bytes of text added to a program that makes the same calls with no CRC. RAM is 0 for every engine.
 
 | Engine | Table | Widths | Algorithms: 1 (MODBUS), M4 / M0+ | Algorithms: 3 (MODBUS, ISO-HDLC, SMBUS), M4 / M0+ |
@@ -90,7 +90,7 @@ pays only its loop.
 On a Cortex-M4 the bitwise engine takes eight steps of about five instructions per byte, the nibble engine two table lookups per byte,
 and the table engine one.
 
-At `-O2`, `CrcBitwise` costs 36 / 24 for one algorithm and 124 / 120 for three. `.tool/size/size.sh` fails when a cost grows above its
+At `-O2`, `CrcBitwise` costs 36 / 24 for one algorithm and 124 / 120 for three. `.test/size/Size.cmake` fails when a cost grows above its
 limit, and it also measures `CrcBitwise` at `-O3`, where the compiler's CRC optimisation would otherwise replace the loop by a table.
 
 ### The engine contract
@@ -123,8 +123,8 @@ feeds the bytes, and returns the register, which `CrcFinish` turns into the valu
 
 A preset is a name for a CRC: one file each under `Preset/`, in the namespace `Checksum`, with the catalogue name in PascalCase. Each
 file is one `using` line, so a preset that is not used costs nothing: a program that includes all the preset files and uses one is the
-same size as a program that includes that one file (`.tool/size/presets.sh`). The check value of a preset is checked when the preset is
-used, and by `.tool/sim/TestCrcPresets.cpp` for every preset with every engine that supports it.
+same size as a program that includes that one file (`.test/size/Presets.cmake`). The check value of a preset is checked when the preset is
+used, and by `.test/TestCrcPresets.cpp` for every preset with every engine that supports it.
 
 Include the file of the preset, for example `<Utilities/Checksum/CRC/Preset/Crc16Modbus.h>`, and use the name:
 

@@ -76,6 +76,14 @@ function(vhalSizeProgram resultVar opt cpu name source)
     return()
   endif()
 
+  vhalSizeImage(measured "${image}")
+  set(${resultVar} "${measured}" PARENT_SCOPE)
+endfunction()
+
+
+# Reads the text and the RAM (data plus bss) of a linked image with the size tool. Sets resultVar to "text ram". A failure of the size
+# tool stops the script, because a missing reading would make the table wrong.
+function(vhalSizeImage resultVar image)
   execute_process(
     COMMAND "${VHAL_ARM_SIZE}" --format=berkeley "${image}"
     RESULT_VARIABLE sizeResult
