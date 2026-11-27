@@ -164,6 +164,7 @@ public:
 	using Builder = decltype(Make());
 	using Tuple = typename Builder::Tuple;
 	using LinkType = typename Builder::LinkType;
+	using Policy = typename Builder::PolicyType;
 
 
 	static constexpr Builder built = Make();
@@ -312,6 +313,8 @@ public:
 	// A framing that uses time gets the time of each received byte, and the ring keeps it. Any other chain keeps no time.
 	static constexpr bool framingTimed = streamLink && FramingUsesTime<hasFraming, FramingEntry>::value;
 	static constexpr bool hasBulk = Builder::BulkCount() > 0;
+	// Whether the stack keeps its storage in Memory::Inside, which is always ready: its Ready() is constant true.
+	static constexpr bool inMemory = std::is_same_v<Policy, DefaultMemory> || std::is_same_v<Policy, Memory::Inside>;
 	// A stream link receives into a buffer of the largest received packet; a packet link keeps the MaxPacket of its traits.
 	static constexpr std::size_t receiveBytes = streamLink ? Builder::ReceiveBound(built.settings) : linkTraits.maxPacket;
 	static constexpr std::size_t receiveStart = streamLink ? (count >= 2 ? count - 2 : 0) : (count >= 1 ? count - 1 : 0);
@@ -390,6 +393,12 @@ public:
 	// applies the link's state, takes the received bytes and packets up the chain, runs the layers' Process, and sends. The receive handlers
 	// and the layers run outside any critical section.
 	void Process() {
+		if constexpr (!inMemory) {
+			if (!Ready()) {
+				return;
+			}
+		}
+
 		uint32 now = 0;
 		if constexpr (hasClock) {
 			now = clockFn();
@@ -427,9 +436,27 @@ public:
 	}
 
 
+	// Whether every storage of the stack and of its layers has its memory. A stack on Memory::Inside is always ready, so Ready() is constant
+	// true there. While the stack is not ready, Send and every call that queues return notReady, Process does nothing, and the receive
+	// calls drop what they are given. A storage with FromHeap memory is not ready when the heap has no block for it.
+	constexpr bool Ready() const {
+		if constexpr (inMemory) {
+			return true;
+		} else {
+			return StorageReady() && LayersReady(std::make_index_sequence<count>{});
+		}
+	}
+
+
 	// Takes one received byte. Called from the receive interrupt of a byte-stream link. A full ring drops the byte and counts it. A
 	// framing that uses time gets the time of the byte from the clock, here, so the byte keeps the time it arrived at.
 	void Feed(uint8 byte) requires (streamLink) {
+		if constexpr (!inMemory) {
+			if (!Ready()) {
+				return;
+			}
+		}
+
 		bool stored = false;
 		if constexpr (framingTimed) {
 			uint32 stamp = clockFn();
@@ -462,6 +489,12 @@ public:
 	// Takes one received packet. Called from the receive interrupt of a packet link. A packet longer than the receive buffer counts as too
 	// long; a packet that finds the queue full counts as queue full.
 	void FeedPacket(std::span<const uint8> packet) requires (!streamLink) {
+		if constexpr (!inMemory) {
+			if (!Ready()) {
+				return;
+			}
+		}
+
 		ResultStatus status = QueuePush(rxQueue.indexes, rxQueue.View(), packet, 0);
 		if (status == ResultStatus::messageTooLong) {
 			DropIsr(&DropState::tooLongIsr);
@@ -605,25 +638,51 @@ private:
 	[[no_unique_address]] Detach<linkReports, LinkType> detach;
 	[[no_unique_address]] ReceiverDetach<linkReceives, LinkType> receiverDetach;
 	[[no_unique_address]] Storage blocks;
-	[[no_unique_address]] Buffer<Builder::HasStepOfParity(0), packetBytes, 1> sendA;
-	[[no_unique_address]] Buffer<Builder::HasStepOfParity(1), packetBytes, 2> sendB;
-	[[no_unique_address]] Buffer<hasBulk, packetBytes, 3> pulled;
-	[[no_unique_address]] Buffer<hasBulk, packetBytes, 4> held;
+	[[no_unique_address]] Buffer<Builder::HasStepOfParity(0), packetBytes, 1, Policy> sendA;
+	[[no_unique_address]] Buffer<Builder::HasStepOfParity(1), packetBytes, 2, Policy> sendB;
+	[[no_unique_address]] Buffer<hasBulk, packetBytes, 3, Policy> pulled;
+	[[no_unique_address]] Buffer<hasBulk, packetBytes, 4, Policy> held;
 	[[no_unique_address]] State<hasBulk, HeldState, 5> heldState;
-	[[no_unique_address]] Buffer<streamLink && hasFraming, framedBytes, 6> framed;
+	[[no_unique_address]] Buffer<streamLink && hasFraming, framedBytes, 6, Policy> framed;
 	[[no_unique_address]] State<streamLink && hasFraming, FramedState, 7> framedState;
 	[[no_unique_address]] std::conditional_t<framesResent, FrameMark, NoFrameMark> frameMark{};
-	[[no_unique_address]] QueueStorage<sendQueued, sendSlots, packetBytes, 8> control;
-	[[no_unique_address]] QueueStorage<stageQueued, stageSlots, stageBytes, 16> staged;
-	[[no_unique_address]] QueueStorage<peersReport && sendQueued, sendSlots, packetBytes, 14> ownQueue;
-	[[no_unique_address]] Buffer<true, receiveBytes, 9> rx;
-	[[no_unique_address]] RingStorage<streamLink, ringSlots, 10> ring;
-	[[no_unique_address]] StampStorage<framingTimed, ringSlots, 13> stamps;
-	[[no_unique_address]] QueueStorage<!streamLink, receiveSlots, receiveBytes, 11> rxQueue;
+	[[no_unique_address]] QueueStorage<sendQueued, sendSlots, packetBytes, 8, Policy> control;
+	[[no_unique_address]] QueueStorage<stageQueued, stageSlots, stageBytes, 16, Policy> staged;
+	[[no_unique_address]] QueueStorage<peersReport && sendQueued, sendSlots, packetBytes, 14, Policy> ownQueue;
+	[[no_unique_address]] Buffer<true, receiveBytes, 9, Policy> rx;
+	[[no_unique_address]] RingStorage<streamLink, ringSlots, 10, Policy> ring;
+	[[no_unique_address]] StampStorage<framingTimed, ringSlots, 13, Policy> stamps;
+	[[no_unique_address]] QueueStorage<!streamLink, receiveSlots, receiveBytes, 11, Policy> rxQueue;
 	[[no_unique_address]] State<hasLinkState, LinkRecord, 12> linkRecord;
 	[[no_unique_address]] State<countDrops, DropState, 17> drops;
 	[[no_unique_address]] State<layerHolds, HoldState, 18> holdState;
 	[[no_unique_address]] State<highWater, HighWaterState, 15> highWaterState;
+
+
+	// Whether the storage of the stack itself is ready. A storage that is not built has no memory to lack, and is ready.
+	bool StorageReady() const {
+		return sendA.Ready() && sendB.Ready() && pulled.Ready() && held.Ready() && framed.Ready() && control.Ready() && staged.Ready()
+			&& ownQueue.Ready() && rx.Ready() && ring.Ready() && stamps.Ready() && rxQueue.Ready();
+	}
+
+
+	// Whether the storage of every layer and transform is ready, given the index of each block. A block with no storage is ready.
+	template<std::size_t... Index>
+	bool LayersReady(std::index_sequence<Index...>) const {
+		bool ready = true;
+		((ready = ready && BlockReady(std::get<Index>(blocks))), ...);
+		return ready;
+	}
+
+
+	template<typename Stored>
+	static bool BlockReady(const Stored& stored) {
+		if constexpr (requires { stored.Ready(); }) {
+			return stored.Ready();
+		} else {
+			return true;
+		}
+	}
 
 
 	// Counts one packet or byte the stack discarded, under its reason. A stack without CountDrops() counts nothing.
@@ -867,6 +926,12 @@ private:
 
 	// The body of Send. Runs in the critical section of a concurrent stack.
 	ResultStatus SendLocked(std::span<const uint8> payload, const Meta& meta) {
+		if constexpr (!inMemory) {
+			if (!Ready()) {
+				return ResultStatus::notReady;
+			}
+		}
+
 		if (payload.size() > built.settings.maxPayload) {
 			return ResultStatus::messageTooLong;
 		}
@@ -897,6 +962,12 @@ private:
 
 	template<std::size_t From>
 	ResultStatus AppSend(std::span<const uint8> packet, const Meta& meta) {
+		if constexpr (!inMemory) {
+			if (!Ready()) {
+				return ResultStatus::notReady;
+			}
+		}
+
 		if (packet.size() > packetBytes) {
 			return ResultStatus::messageTooLong;
 		}
@@ -913,6 +984,12 @@ private:
 	// The send of a concurrent stack. The payload is checked for its size, then copied into the staging ring under a short critical section:
 	// the ring's head is written from any task, so the push cannot run beside another push. Busy when the ring is full.
 	ResultStatus StageSend(std::span<const uint8> payload, const Meta& meta) {
+		if constexpr (!inMemory) {
+			if (!Ready()) {
+				return ResultStatus::notReady;
+			}
+		}
+
 		if (payload.size() > built.settings.maxPayload) {
 			return ResultStatus::messageTooLong;
 		}
@@ -1384,6 +1461,12 @@ private:
 	// packets go on the own lane, which is the chain's property; in any other chain they go on the control lane.
 	template<std::size_t Index>
 	ResultStatus LayerSend(std::span<const uint8> packet, const Meta& meta) {
+		if constexpr (!inMemory) {
+			if (!Ready()) {
+				return ResultStatus::notReady;
+			}
+		}
+
 		// A layer below that holds its packet goes first: this layer's packet is refused with nothing taken (see layerHolds).
 		if constexpr (layerHolds) {
 			if ((holdState.Get().busy & LayersBelowBits<Index>()) != 0) {

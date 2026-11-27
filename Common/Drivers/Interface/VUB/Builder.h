@@ -5,6 +5,7 @@
 #include <Drivers/Interface/VUB/Meta.h>
 #include <Utilities/CompileTime/Require.h>
 #include <Utilities/DataTypes.h>
+#include <Utilities/Memory/Storage.h>
 #include <array>
 #include <cstddef>
 #include <span>
@@ -402,26 +403,36 @@ struct DefaultOptionsOf<Block, true> {
 };
 
 
+// The memory policy of a chain that has no Memory step. It stores its elements like Memory::Inside, but it is a type of its own, so that a
+// Memory step after it is told apart from a step that gives Memory::Inside.
+struct DefaultMemory {
+	template<typename ElementType, std::size_t Capacity>
+	using Storage = typename Memory::Inside::template Storage<ElementType, Capacity>;
+};
+
+
 // The fluent builder of a chain. Each method that adds a block returns a builder whose type lists the blocks, so the chain is a type
-// with a constexpr value of the options. The settings methods return the same type.
+// with a constexpr value of the options. The settings methods return the same type. Policy is the memory policy of the stack's storage
+// (see Memory); the entries and the settings do not depend on it.
 //
 // Options of a block that come after it: the builder can read and replace the options of its last block with LastOptions and
 // WithLastOptions. A sugar method for a built-in block checks the block with LastIs and then sets the options, so for example
 // Retries(n) after Reliable() is a method on the builder that calls WithLastOptions. A user block gets the same by its type alone.
 // A user block that declares a Step gets its option methods flat after it: the Step derives from the builder, so every builder method
 // continues the chain, and the option methods exist only on the Step, so they are not callable after another block.
-template<typename... Entries>
+template<typename Policy = DefaultMemory, typename... Entries>
 class Builder {
 public:
 	using Tuple = std::tuple<Entries...>;
 	using LastEntry = typename LastBlockEntry<Entries...>::type;
 	using LinkType = typename LinkOf<Entries...>::type;
+	using PolicyType = Policy;
 	static constexpr std::size_t count = sizeof...(Entries);
 
 
 	// The builder a block method returns: the next builder with the entry added, or the block's Step over it.
 	template<typename Block, typename Entry>
-	using BuilderAfter = typename StepOf<Block, Builder<Entries..., Entry>>::type;
+	using BuilderAfter = typename StepOf<Block, Builder<Policy, Entries..., Entry>>::type;
 
 
 	List<Entries...> entries;
@@ -435,9 +446,24 @@ public:
 	}
 
 
+	// The memory policy of the stack's storage: Memory::Inside, or Memory::FromHeap<heap> for the elements of the buffers, queues and
+	// rings of the stack. Without this step the stack keeps them with Memory::Inside. A chain takes one step: a second one is a compile
+	// error. The step gives the same entries and settings with the new policy.
+	template<typename NewPolicy>
+	constexpr Builder<NewPolicy, Entries...> Memory() const {
+		static_assert(requires { typename NewPolicy::template Storage<uint8, 1>; },
+			"the memory step needs a memory policy of Memory: Memory::Inside or Memory::FromHeap<heap>");
+		if constexpr (!std::is_same_v<Policy, DefaultMemory>) {
+			Require<"VUB: one memory step per stack: remove the second Memory<Policy>() call">(false);
+		}
+
+		return Builder<NewPolicy, Entries...>(entries, settings);
+	}
+
+
 	// The block methods take any type and check it first, so the message names the block's kind ahead of the concept's notes.
 	template<typename Block>
-	constexpr Builder<Entries..., BlockEntry<BlockKind::link, Block, None>> Link() const {
+	constexpr Builder<Policy, Entries..., BlockEntry<BlockKind::link, Block, None>> Link() const {
 		static_assert(LinkBlock<Block>, "the link does not satisfy VUB::LinkBlock: a link needs traits, and Write (a byte stream) or Send (packets)");
 		return Append(BlockEntry<BlockKind::link, Block, None>{});
 	}
@@ -919,15 +945,15 @@ private:
 
 
 	template<typename Entry>
-	constexpr Builder<Entries..., Entry> Append(Entry entry) const {
-		return Builder<Entries..., Entry>(ListAppend(entries, entry), settings);
+	constexpr Builder<Policy, Entries..., Entry> Append(Entry entry) const {
+		return Builder<Policy, Entries..., Entry>(ListAppend(entries, entry), settings);
 	}
 
 
 	// Adds the entry of a block and returns the builder after it. A block with a Step gets the Step, so its option methods follow.
 	template<typename Block, typename Entry>
 	constexpr BuilderAfter<Block, Entry> Extend(const Entry& entry) const {
-		using Next = Builder<Entries..., Entry>;
+		using Next = Builder<Policy, Entries..., Entry>;
 		using AfterBlock = BuilderAfter<Block, Entry>;
 		if constexpr (std::is_same_v<AfterBlock, Next>) {
 			return Append(entry);
