@@ -118,4 +118,4 @@ These implement the SHA-1 algorithm internals and are not part of the public int
 
 ## Tests
 
-`tools/vhal-host-tests/websocket/sha1_tests.cpp` checks the FIPS 180 vectors ("abc", the empty message, the 448-bit message and one million `a`), incremental updates at every length from 0 to 130 bytes (the padding boundaries), `Reset` reuse, and the RFC 6455 accept example.
+`.test/TestSha1.cpp` (`./test.cmd SHA`) checks the FIPS 180 vectors ("abc", the empty message, the 448-bit message and one million `a`), incremental updates at every length from 0 to 130 bytes (the padding boundaries), `Reset` reuse, and the RFC 6455 accept example.
