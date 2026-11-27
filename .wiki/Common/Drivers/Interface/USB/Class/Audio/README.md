@@ -89,7 +89,7 @@ The extra frame lets an adaptive sink take a host that sends one more frame than
 
 The class-specific endpoint is always written, so every isochronous audio endpoint has one. Bit 0 says whether the host may change the rate. Whether a stream with one rate needs it was not checked against the specification text, so that case is the one open point of the descriptors.
 
-The descriptor bytes are checked byte for byte in `.tool/sim/TestAudioDescriptors.cpp`, with the expected arrays written by hand.
+The descriptor bytes are checked byte for byte in `.test/TestAudioDescriptors.cpp`, with the expected arrays written by hand.
 
 ## Function
 
@@ -265,14 +265,14 @@ The descriptors are checked against the specification in the host tests. Windows
 
 ## Tests
 
-`.tool/sim` runs the class against the simulated controller, with the expected bytes written by hand:
+`.test` runs the class against the simulated controller, with the expected bytes written by hand:
 
 - `TestAudioDescriptors.cpp`: the configuration of a mono microphone and a stereo speaker, and of a three-rate microphone with a two-rate speaker, byte for byte; the layout the function receives; the names; a hand-written microphone and speaker whose endpoint is too small for a listed rate, refused at configuration, and the same with the endpoint big enough, accepted
 - `TestAudioEndpointDescriptors.cpp`: the standard and the 9-byte endpoint forms, the isochronous forms with and without feedback
 - `TestAudioRequests.cpp`: mute and volume, the range and its stalls, unknown controls and channels, the sampling frequency with one rate and with several, an unknown request, and the GET lengths (shorter, longer, zero) with the exact length of a SET
 - `TestAudioStreaming.cpp`: the alternates and the Audio Control interface's alternate, the microphone's first packet and each completion's packet, the underrun, a packet waiting for the host, the stop and its restart, a repeated alternate 1 that restarts the stream, the speaker's packets and its overflow, a speaker packet that is not whole frames, a rate change and a sampling change that empties the ring, a repeated rate that keeps it, a bus reset, a deconfiguration, a late completion, a refused arm (microphone and speaker, in a completion and as the first arm of a SET_INTERFACE), a refused arm restarted by the next SET_INTERFACE, a ring of partial frames refused at configuration, two stereo 48 kHz paths where the second SET_INTERFACE is refused for packet memory
 
-The builder's compile-time rules are checked by the snippets in `.tool/sim/BuilderErrors/audio_*.cpp`.
+The builder's compile-time rules are checked by the snippets in `.test/BuilderErrors/audio_*.cpp`.
 
 ## Compile Errors
 

@@ -183,7 +183,7 @@ keyboard.TypeText("Hello");
 
 ## Tests
 
-The host tests are in `.tool/sim` and run with `run.sh`:
+The host tests are in `.test` and run with `./test.cmd USB`:
 
 - `TestHidDescriptors.cpp`: the presets, the HID descriptor, the configurations of the boot keyboard, the boot mouse, the vendor device and the identified report, checked against arrays written out by hand from HID 1.11, and no zero-size item except End Collection. The builder is not used to produce them.
 - `TestHid.cpp`: the class requests, the queue, the idle repeat, protocol switching, remote wakeup, halts, bus reset and both output paths, through the simulated host.

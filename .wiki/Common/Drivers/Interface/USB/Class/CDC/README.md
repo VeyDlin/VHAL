@@ -142,7 +142,7 @@ The header is bmRequestType 0xA1, bNotification 0x20, wValue 0, wIndex the commu
 
 ## Tests
 
-The host tests are in `.tool/sim` and run with `run.sh`:
+The host tests are in `.test` and run with `./test.cmd USB`:
 
 - `TestCdcAcmDescriptors.cpp`: the device descriptor and the configuration with automatic addresses, explicit addresses and a 4 ms interval, checked against arrays written by hand from the USB 2.0 layout, the interface association, CDC 1.2 section 5.2 and PSTN 1.2.
 - `TestCdcAcmRequests.cpp`: each class request with its bytes, the handlers and their change-only rule, the stalls (the data interface, wrong length, wrong direction, unknown request, a request to the device, a coding out of range) with the edges that are accepted, a bus reset restoring DTR, RTS and the default coding, and the busy handler setters.

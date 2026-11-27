@@ -102,7 +102,7 @@ A mode device with more than one memory region lists one alternate setting per r
 
 The run-time descriptor carries the same bmAttributes as the mode descriptor. DFU 1.1 section 4.1.3 makes the descriptor identical for both sets, and the attribute bits describe the DFU mode's capabilities. So `.CanDnload()` and `.CanUpload()` on a `.Runtime()` interface are accepted and written as the spec puts them. The run-time function uses only `.WillDetach()`.
 
-Errors are compile errors that print the rule: `a DFU mode interface downloads or uploads`, `wTransferSize is 1 to 4096 bytes`, `TransferSize() is required`, `a device without WillDetach() needs DetachTimeoutMs() of at least 1`, `Runtime() and Mode() are given once`. The snippets in `.tool/sim/BuilderErrors/dfu_*.cpp` check each one.
+Errors are compile errors that print the rule: `a DFU mode interface downloads or uploads`, `wTransferSize is 1 to 4096 bytes`, `TransferSize() is required`, `a device without WillDetach() needs DetachTimeoutMs() of at least 1`, `Runtime() and Mode() are given once`. The snippets in `.test/BuilderErrors/dfu_*.cpp` check each one.
 
 ## The run-time function
 
@@ -224,7 +224,7 @@ On Linux and macOS no driver is needed; a udev rule may be needed for non-root a
 
 ## Tests
 
-Host tests in `.tool/sim`, run with `bash .tool/sim/run.sh` (all USB tests, including the builder rule snippets):
+Host tests in `.test`, run with `./test.cmd USB` (all USB tests, including the builder rule snippets):
 
 - `TestDfuDescriptors.cpp`: the run-time and mode configuration bytes against hand-written arrays from DFU 1.1 tables 4.1, 4.2 and 4.4, the device descriptor, the functional descriptor and status response encoding, the poll timeout clamp, the WinUSB BOS, and the MS OS 2.0 set field by field (set header, compatible ID, DeviceInterfaceGUIDs property with its lengths and types), and a mode interface without DetachTimeoutMs() that builds with wDetachTimeOut 0.
 - `TestDfuRuntime.cpp`: DFU_DETACH reaching the delegate from `Process()`, the detach timeout and its clamp to wDetachTimeOut, wTimeout 0 taking the descriptor's timeout, a host reset inside the timer delivering a late `Process()`, a reset after the timer dropping the request, WillDetach, the stall in appDETACH, and GETSTATUS in appIDLE.
