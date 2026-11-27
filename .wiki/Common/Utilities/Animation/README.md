@@ -83,6 +83,13 @@ anim.SetTarget(0.5f);
 | Low (50) | Low (5) | Slow, gentle bounce |
 | Low (50) | High (15) | Slow, smooth settle |
 
+**Completion:** the spring completes when the distance to the target and the velocity are both below the epsilon. It also
+completes on a step that leaves both the value and the velocity exactly as they were, compared in the value's own type. Such
+a step repeats at the same time step, so the spring stays where it is; a low-precision IQ reaches one a raw step away from the
+target, where the epsilon test does not fire. On completion the value is set to the target, the velocity to zero, and `onStop`
+is called, as for the epsilon case. A step with a zero time step does not complete the spring. With `float` and the default
+parameters at 16 ms steps, the epsilon test completes the spring.
+
 ## Easing Functions
 
 `template <RealType Type = float>`
@@ -266,7 +273,8 @@ Ranges by type:
   within it, or use `float`. `float`, `double` and `IQ<Q>` with Q of 23 or less qualify; `IQ<24>` (range 128) does not compile
   in `SetSpring` or `SetTarget`, and the `static_assert` says so. The spring's time step is also an integer fraction of 1000 ms,
   so `IQ<22>` and `IQ<23>` (ranges below 1000) run at the right step. Spring host tests cover `float`, `IQ<16>`, `IQ<20>`,
-  `IQ<22>` and `IQ<23>` (a 0 to 1 spring at 17 ms ticks).
+  `IQ<22>` and `IQ<23>` (a 0 to 1 spring at 17 ms ticks). The settle tests run `IQ<8>` and `IQ<12>` with the default
+  parameters at 16 ms ticks: both reach the target exactly within 2000 steps.
 
 Implicit conversions from `int` and `float` literals work transparently with IQ — no `T(...)` wrappers needed:
 
