@@ -33,14 +33,14 @@ interface EncryptedImage {
 
 const toolDir: string = path.resolve(import.meta.dirname, "..");
 const simCandidates: string[] = [
-    path.join(toolDir, "sim", "build", "vboot-sim.exe"),
-    path.join(toolDir, "sim", "build", "vboot-sim")
+    path.join(toolDir, "..", ".test", "build", "vboot-sim.exe"),
+    path.join(toolDir, "..", ".test", "build", "vboot-sim")
 ];
 const simFound: boolean = simCandidates.some((candidate: string): boolean => existsSync(candidate));
 const suiteOptions: { skip?: string; timeout: number } = simFound
     ? { timeout: 120000 }
     : {
-        skip: "simulator not built: run `npm run sim:build` to create sim/build/vboot-sim[.exe]",
+        skip: "simulator not built: run `npm run sim:build` to create .test/build/vboot-sim[.exe]",
         timeout: 120000
     };
 const regionStart: number = 0x08020000;

@@ -36,4 +36,4 @@ npm test             # unit tests, plus end-to-end tests when the simulator is b
 
 Layout: `src/protocol` (bootloader packets, client, flash procedure), `src/transport` (one folder per transport,
 registered in `src/transport/transports.ts`), `src/image` and `src/crypto` (ELF, Intel HEX, packages, keys, AES),
-`src/commands` (the CLI), `sim` (the simulator), `test`.
+`src/commands` (the CLI), `test` (the tests). The simulator is in the module's `.test` folder.
