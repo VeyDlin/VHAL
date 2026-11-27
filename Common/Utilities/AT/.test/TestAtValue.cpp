@@ -238,13 +238,11 @@ static_assert(AtValueChars<String<32>> == 66);
 
 
 int main() {
-	int failures = 0;
-
-	failures += TestIntegers();
-	failures += TestBool();
-	failures += TestStrings();
-	failures += TestWriters();
-	failures += TestRoundTrip();
+	TestIntegers();
+	TestBool();
+	TestStrings();
+	TestWriters();
+	TestRoundTrip();
 
 	if (failureCount != 0) {
 		std::fprintf(stderr, "TestAtValue: %d failure(s)\n", failureCount);
