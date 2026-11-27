@@ -7,8 +7,12 @@ cmake_minimum_required(VERSION 3.25)
 
 set(sampleDir "${CMAKE_CURRENT_LIST_DIR}/ObjectCheck")
 
-# The nm tool is named after the compiler with the g++ suffix (and its version, when there is one) replaced by nm.
-string(REGEX REPLACE "g\\+\\+(-[0-9.]+)?(\\.exe)?$" "nm\\2" armNm "${VHAL_ARM_CXX}")
+# The nm tool is named after the compiler with the g++ suffix (and its version, when there is one) replaced by nm. The .exe suffix
+# is put back by hand: a reference to an optional group that did not match is an error in some CMake versions.
+string(REGEX REPLACE "g\\+\\+(-[0-9.]+)?(\\.exe)?$" "nm" armNm "${VHAL_ARM_CXX}")
+if(VHAL_ARM_CXX MATCHES "\\.exe$")
+  string(APPEND armNm ".exe")
+endif()
 
 execute_process(
   COMMAND "${VHAL_ARM_CXX}" --version

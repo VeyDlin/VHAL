@@ -195,17 +195,31 @@ constexpr void Fat12StoreEntry(Fat12Volume& volume, std::size_t fatOffset, std::
 }
 
 
-constexpr uint8 Fat12ByteOf(const Fat12File& file, std::size_t index) {
-	return file.isBytes ? file.bytes[index] : static_cast<uint8>(file.text[index]);
+// Copies the bytes of one file to target. The build runs as a constant expression, and a checked operator[] per byte costs several
+// operations more than the copy itself, so the loops read and write through plain pointers.
+constexpr void Fat12CopyFile(const Fat12File& file, uint8* target) {
+	if (file.isBytes) {
+		const uint8* source = file.bytes.data();
+		for (std::size_t index = 0; index < file.size; index++) {
+			target[index] = source[index];
+		}
+	} else {
+		const char* source = file.text.data();
+		for (std::size_t index = 0; index < file.size; index++) {
+			target[index] = static_cast<uint8>(source[index]);
+		}
+	}
 }
 
 
-// Copies the first Size bytes of a built volume into an array of exact size.
+// Copies the first Size bytes of a built volume into an array of exact size, through plain pointers for the reason Fat12CopyFile gives.
 template<std::size_t Size>
 constexpr std::array<uint8, Size> Fat12Exact(const std::array<uint8, Fat12MaxBytes>& bytes) {
 	std::array<uint8, Size> exact{};
+	const uint8* source = bytes.data();
+	uint8* target = exact.data();
 	for (std::size_t index = 0; index < Size; index++) {
-		exact[index] = bytes[index];
+		target[index] = source[index];
 	}
 
 	return exact;
@@ -350,9 +364,7 @@ public:
 			Fat12PutEntry(volume, rootOffset + rootIndex * 32, entry.shortName, Fat12AttrArchive, static_cast<uint32>(first), entry.size);
 
 			std::size_t dataOffset = dataStart * Fat12SectorBytes + (first >= 2 ? (first - 2) * clusterBytes : 0);
-			for (std::size_t index = 0; index < entry.size; index++) {
-				volume.bytes[dataOffset + index] = Fat12ByteOf(entry, index);
-			}
+			Fat12CopyFile(entry, volume.bytes.data() + dataOffset);
 
 			nextCluster += count;
 			rootIndex++;

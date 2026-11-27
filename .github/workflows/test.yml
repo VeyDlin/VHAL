@@ -31,7 +31,10 @@ jobs:
         shell: bash
         env:
           CXX: g++-14
-        run: ./test.cmd -j 4
+        run: |
+          g++-14 --version
+          cmake --version
+          ./test.cmd -j 4
 
   windows:
     name: Windows, UCRT64 GCC
@@ -41,14 +44,19 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Install GCC, CMake and Ninja
+        id: msys2
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
-          path-type: inherit
           install: >-
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
+
+      # The runner image has its own MinGW in C:\mingw64 on PATH, and a cmd step would use it. The UCRT64 tools go first instead.
+      - name: Put the UCRT64 tools first on PATH
+        shell: pwsh
+        run: Add-Content -Path $env:GITHUB_PATH -Value "${{ steps.msys2.outputs.msys2-location }}\ucrt64\bin"
 
       - name: Set up Node 24
         uses: actions/setup-node@v5
@@ -57,4 +65,7 @@ jobs:
 
       - name: Run the tests
         shell: cmd
-        run: .\test.cmd -j 4
+        run: |
+          g++ --version
+          cmake --version
+          .\test.cmd -j 4
