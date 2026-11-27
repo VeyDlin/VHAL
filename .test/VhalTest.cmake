@@ -14,7 +14,8 @@
 #     runs a size measurement with the ARM compiler (VHAL_ARM_CXX). The test is skipped when that compiler is absent or older
 #     than GCC 14, or the size tool is absent.
 # vhal_check(<script.cmake> [ARGS args])
-#     runs a scripted check with cmake -P. The arguments are the script's CMAKE_ARGV4 and onwards.
+#     runs a scripted check with cmake -P. The arguments follow the -- on the command line, and the script reads them from
+#     CMAKE_ARGV, the last one being the last argument.
 # vhal_tool_test(<dir>)
 #     runs the tests of a counterpart program in the .tool folder: npm test for a package.json, dotnet test for a project file.
 #     The test is skipped when its tool is absent.
