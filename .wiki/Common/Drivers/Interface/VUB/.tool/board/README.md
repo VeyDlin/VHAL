@@ -6,8 +6,10 @@ its stack takes back to the sender, so a run checks the link in both directions,
 resends, and the outcomes the delivery layer reports.
 
 The program is in `Common/Drivers/Interface/VUB/.tool/board/`: `CMakeLists.txt` and `src/`. It uses the PC links of `VUB::PC` and the
-same chains as the device, with `VUB::Reliable` and a payload of at most 32 bytes. It is not run by any test: it opens a serial port, a
-USB interface or a HID device, so a run is done by hand, against a board that is flashed.
+same chains as the device, with `VUB::Reliable` and a payload of at most 32 bytes. The check itself is not run by any test: it opens a serial
+port, a USB interface or a HID device, so a run is done by hand, against a board that is flashed. Two offline tests of the folder run with
+`./test.cmd VUB -L tool`: the parser of the number options (`test/TestDecimalArgument.cpp`), and the host loopback in its echo and requests
+modes at loss 0 with seeds 1 to 3 (`test/TestVubBoardLoopback.cpp`, see below).
 
 ## Build
 
