@@ -288,15 +288,13 @@ int TestStatus() {
 
 
 int main() {
-	int failures = 0;
-
-	failures += TestNames();
-	failures += TestTimeouts();
-	failures += TestOptions();
-	failures += TestArgumentNames();
-	failures += TestTree();
-	failures += TestDialectAndModes();
-	failures += TestStatus();
+	TestNames();
+	TestTimeouts();
+	TestOptions();
+	TestArgumentNames();
+	TestTree();
+	TestDialectAndModes();
+	TestStatus();
 
 	if (failureCount != 0) {
 		std::fprintf(stderr, "TestAtDescription: %d failure(s)\n", failureCount);
