@@ -2,7 +2,7 @@
 #include "ReliableChains.h"
 #include <Drivers/Interface/VUB/TestKit/Loopback.h>
 #include <Utilities/DataTypes.h>
-#include <Utilities/Memory/.tool/sim/SimCheck.h>
+#include <Utilities/Memory/.test/SimCheck.h>
 #include <Utilities/Memory/Heap.h>
 #include <Utilities/Memory/Storage.h>
 #include <array>
