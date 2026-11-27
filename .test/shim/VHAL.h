@@ -15,7 +15,7 @@
 namespace VhalSim {
 
 
-// The sections open now, and every enter since the start of the test program.
+// The sections currently open, and every enter since the start of the test program.
 inline int criticalDepthCount = 0;
 inline uint32 criticalEnterCount = 0;
 
@@ -23,7 +23,7 @@ inline uint32 criticalEnterCount = 0;
 inline uint64 clockMs = 0;
 
 
-// The number of critical sections open now.
+// The number of critical sections currently open.
 inline int CriticalDepth() {
 	return criticalDepthCount;
 }
