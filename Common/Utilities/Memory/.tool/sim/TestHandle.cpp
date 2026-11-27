@@ -95,5 +95,5 @@ int main() {
     PoolStaleCopyStaysDead();
     HeapInvalidateKeepsTheBlock();
     PoolInvalidateKeepsTheBlock();
-    return VstdSim::Finish("TestHandle");
+    return MemorySim::Finish("TestHandle");
 }

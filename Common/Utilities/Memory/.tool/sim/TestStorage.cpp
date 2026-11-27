@@ -130,5 +130,5 @@ int main() {
 	FromHeapMoveCase();
 	FromHeapExhaustedCase();
 
-	return VstdSim::Finish("TestStorage");
+	return MemorySim::Finish("TestStorage");
 }

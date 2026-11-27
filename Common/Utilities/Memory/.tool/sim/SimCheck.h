@@ -19,7 +19,7 @@ inline void System::Abort(const char* message, const char* file, uint32 line) {
 
 // Check helpers for the host tests. A failed check is printed and counted, and the test keeps going,
 // so one run reports every failure. A crash ends the run with a non-zero exit code.
-namespace VstdSim {
+namespace MemorySim {
 
 inline int failedChecks = 0;
 
@@ -45,4 +45,4 @@ inline int Finish(const char* testName) {
 
 }
 
-#define SIM_CHECK(condition) VstdSim::Check((condition), #condition, __FILE__, __LINE__)
+#define SIM_CHECK(condition) MemorySim::Check((condition), #condition, __FILE__, __LINE__)

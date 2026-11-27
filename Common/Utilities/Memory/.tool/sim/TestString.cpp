@@ -64,5 +64,5 @@ int main() {
 	StringWithoutAllocatorRefuses();
 	StringKeepsTextInItsAllocator();
 	StringOverHeapTypeUsesTheHeap();
-	return VstdSim::Finish("TestString");
+	return MemorySim::Finish("TestString");
 }
