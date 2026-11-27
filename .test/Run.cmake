@@ -121,13 +121,28 @@ if(vhalJobs STREQUAL "")
   set(vhalJobs "${vhalCores}")
 endif()
 
+# CTest lists the tests that the arguments select. Its listing also reports each executable that is not built yet, so only the
+# test lines and the total are kept.
+execute_process(
+  COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${vhalBuildDir}" -N ${vhalCtestArgs}
+  RESULT_VARIABLE vhalSelectResult
+  OUTPUT_VARIABLE vhalSelectOutput
+  ERROR_QUIET)
+
+if(NOT vhalSelectResult EQUAL 0)
+  message(FATAL_ERROR "CTest could not list the tests.")
+endif()
+
+string(REGEX MATCH "Total Tests: ([0-9]+)" vhalTotalLine "${vhalSelectOutput}")
+set(vhalTestCount "${CMAKE_MATCH_1}")
+if(vhalTestCount STREQUAL "" OR vhalTestCount EQUAL 0)
+  message(FATAL_ERROR "No tests were found for the arguments. Run ./test.cmd --list to see the test names and labels.")
+endif()
+
 if(vhalList)
-  execute_process(
-    COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${vhalBuildDir}" -N --no-tests=error ${vhalCtestArgs}
-    RESULT_VARIABLE vhalListResult)
-  if(NOT vhalListResult EQUAL 0)
-    message(FATAL_ERROR "The test list failed.")
-  endif()
+  string(REGEX MATCHALL "[^\n]*(  Test +#|Total Tests:)[^\n]*" vhalSelectLines "${vhalSelectOutput}")
+  string(REPLACE ";" "\n" vhalSelectText "${vhalSelectLines}")
+  message("${vhalSelectText}")
   return()
 endif()
 
@@ -147,6 +162,12 @@ execute_process(
   COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${vhalBuildDir}" --output-on-failure --no-tests=error ${vhalCtestArgs}
   RESULT_VARIABLE vhalTestResult)
 
-if(NOT vhalBuildResult EQUAL 0 OR NOT vhalTestResult EQUAL 0)
+# With a module filter, a build error in a module that is not selected does not count: a selected test whose executable is
+# missing fails by itself. Without a filter every target is needed, so a build error fails the run.
+if(NOT vhalBuildResult EQUAL 0 AND vhalModules)
+  message("The build reported errors (${vhalBuildResult}). Only the selected tests decide the result: a test whose executable is missing is Not Run.")
+endif()
+
+if(NOT vhalTestResult EQUAL 0 OR (NOT vhalBuildResult EQUAL 0 AND NOT vhalModules))
   message(FATAL_ERROR "The build (${vhalBuildResult}) or a test (${vhalTestResult}) failed. The failing tests are listed above.")
 endif()
