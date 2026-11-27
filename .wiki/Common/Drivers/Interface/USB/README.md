@@ -253,6 +253,11 @@ Run them from the repository root:
 
 `./test.cmd USB -L host` builds and runs the 60 test files (`Test*.cpp`), and `./test.cmd USB -L fail` runs the 92 builder error snippets in `.test/BuilderErrors/`. Each snippet is a compile-error check with its expected message. The MS OS 2.0 check is covered on its [page](Descriptor/MsOs20/README.md).
 
+The tools have offline tests too, and `./test.cmd USB -L tool` runs them. `usbbench` runs its five offline tests (lane scheduling,
+command line rules, verdict and totals, device selection, and the start gate of a `--all` run). They need neither libusb nor a
+board, and they run even when usbbench itself is not built. `usbclasscheck` runs the twelve tests of its pure logic. The tests that
+need a board are not in either set.
+
 The tests cover:
 
 - the controller against the adapter contract, without the core
