@@ -151,6 +151,43 @@ void SpringCase(double bound, const char* name) {
 }
 
 
+// A default spring (stiffness 200, damping 20) from 0 to 1 at 16 ms ticks settles at the target within 2000 steps, with the
+// value exactly the target, the spring inactive and onStop called once. A low-precision IQ can reach a step that leaves the
+// value and the velocity unchanged, so the epsilon test never fires there.
+template<RealType T>
+void SettleCase(const char* name) {
+	Animation<T> animation;
+	T last{};
+	int stopCount = 0;
+	animation.onUpdateValue = [&last](T value) {
+		last = value;
+	};
+	animation.onStop = [&stopCount](T) {
+		stopCount++;
+	};
+
+	animation.SetTarget(T(1));
+
+	// The first tick is 1 ms. A zero time step of an IQ rounds to nothing, so it must not settle the spring.
+	uint64_t tick = 1000;
+	animation.Update(tick);
+	ExpectTrue(animation.IsActive(), __LINE__);
+	tick += 16;
+
+	uint32_t step = 0;
+	for (; step < 2000 && animation.IsActive(); step++) {
+		animation.Update(tick);
+		tick += 16;
+	}
+	ExpectTrue(!animation.IsActive(), __LINE__);
+	ExpectTrue(animation.GetValue() == T(1), __LINE__);
+	ExpectTrue(last == T(1), __LINE__);
+	ExpectTrue(stopCount == 1, __LINE__);
+
+	std::printf("settle %-9s reached the target in %u steps of 16 ms\n", name, static_cast<unsigned>(step));
+}
+
+
 void RgbCase() {
 	RgbAnimation<float> floatRgb;
 	Colors::FRgb floatColor;
@@ -194,6 +231,9 @@ int main() {
 	SpringCase<IQ<20>>(0.001, "IQ<20>");
 	SpringCase<IQ<22>>(0.001, "IQ<22>");
 	SpringCase<IQ<23>>(0.001, "IQ<23>");
+
+	SettleCase<IQ<8>>("IQ<8>");
+	SettleCase<IQ<12>>("IQ<12>");
 
 	RgbCase();
 

@@ -332,6 +332,9 @@ private:
 		}
 		T dt = SpringStep(elapsedMs);
 
+		T previousValue = value;
+		T previousVelocity = springVelocity;
+
 		T diff = target - value;
 		T force = diff * springStiffness;
 		springVelocity = springVelocity + force * dt;
@@ -343,8 +346,16 @@ private:
 			onUpdateValue(value);
 		}
 
+		// A step that leaves the value and the velocity unchanged repeats at the same time step, so the spring never moves
+		// again. A low-precision IQ can reach such a step before the epsilon test fires, and then the value may lie further
+		// from the target than one raw step. A zero time step changes nothing in any state, so it is not such a repeat.
 		using std::fabs;
-		if (fabs(diff) < springEpsilon && fabs(springVelocity) < springEpsilon) {
+		bool settled = fabs(diff) < springEpsilon && fabs(springVelocity) < springEpsilon;
+		if (!settled && dt > T(0)) {
+			settled = value == previousValue && springVelocity == previousVelocity;
+		}
+
+		if (settled) {
 			value = target;
 			if (onUpdateValue) {
 				onUpdateValue(value);
