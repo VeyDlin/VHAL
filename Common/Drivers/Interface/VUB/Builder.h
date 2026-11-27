@@ -459,8 +459,10 @@ public:
 	// error. The step gives the same entries and settings with that policy.
 	template<typename NewPolicy>
 	constexpr Builder<NewPolicy, Entries...> Memory() const {
-		static_assert(BuildablePolicy<NewPolicy>,
-			"the memory step needs a policy whose storage is built with no arguments: Memory::Inside or Memory::FromHeap<heap>");
+		static_assert(
+			BuildablePolicy<NewPolicy>,
+			"the memory step needs a policy whose storage is built with no arguments: Memory::Inside or Memory::FromHeap<heap>"
+		);
 		if constexpr (!std::is_same_v<Policy, DefaultMemory>) {
 			Require<"VUB: one memory step per stack: remove the second Memory<Policy>() call">(false);
 		}
