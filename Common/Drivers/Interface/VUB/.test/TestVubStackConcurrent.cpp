@@ -1,4 +1,5 @@
 #include "SimCheck.h"
+#include "WaitLimit.h"
 #include <Drivers/Interface/VUB/LinkTraits.h>
 #include <Drivers/Interface/VUB/Meta.h>
 #include <Drivers/Interface/VUB/Stack.h>
@@ -207,7 +208,12 @@ template<typename Chain>
 void Produce(Chain& stack, uint8 producer) {
 	for (std::size_t number = 0; number < PerProducer; number++) {
 		std::array<uint8, 2> packet = {producer, static_cast<uint8>(number)};
+		VubWait::WaitLimit limit;
 		while (stack.Send(std::span<const uint8>(packet.data(), packet.size())) != ResultStatus::ok) {
+			if (limit.Passed()) {
+				return;
+			}
+
 			std::this_thread::yield();
 		}
 	}
@@ -227,10 +233,9 @@ void TestTwoProducersWhileProcessRuns() {
 		});
 	}
 
-	uint64 rounds = 0;
-	while (sinkPackets < Producers * PerProducer && rounds < 50000000) {
+	VubWait::WaitLimit limit;
+	while (sinkPackets < Producers * PerProducer && limit.Passed() == false) {
 		stack.Process();
-		rounds++;
 	}
 
 	for (std::thread& thread : threads) {
