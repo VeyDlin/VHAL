@@ -116,3 +116,7 @@ foreach(relativeModule IN LISTS moduleList)
   vhalModuleLabel("${relativeModule}" "${moduleList}" VHAL_MODULE_LABEL)
   add_subdirectory("${VHAL_ROOT}/${relativeModule}/.test" "${CMAKE_BINARY_DIR}/modules/${relativeModule}")
 endforeach()
+
+# The frame's own self-test, under the label Frame. The .test folder is hidden, so the walk above does not find it.
+set(VHAL_MODULE_LABEL "Frame")
+add_subdirectory("${VHAL_TEST_DIR}/self" "${CMAKE_BINARY_DIR}/frame/self")

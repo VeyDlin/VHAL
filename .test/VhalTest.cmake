@@ -4,7 +4,8 @@
 #
 # vhal_test(<source.cpp> [INCLUDES dirs] [DEFINES defs] [LIBS libs] [OPTIONS flags] [ARGS args] [SOURCES files])
 #     builds one host test executable with -std=c++23 -Wall -Wextra -Werror and runs it; the test passes on exit code 0.
-#     The include directories are searched in the order given, relative to the module folder. The default is Common.
+#     The include directories are searched in the order given, relative to the module folder. The default is Common. The frame
+#     adds .test/include and .test/shim after them, to every host test.
 # vhal_test(GLOB <pattern> [INCLUDES dirs] ...)
 #     the same for each file of the module folder that matches the pattern, with the same options.
 # vhal_fail(<dir> [INCLUDES dirs])
@@ -50,7 +51,7 @@ function(vhalAddHostTest source stem)
   target_compile_features(${targetName} PRIVATE cxx_std_23)
   target_compile_options(${targetName} PRIVATE -Wall -Wextra -Werror ${vhalArg_OPTIONS})
   target_compile_definitions(${targetName} PRIVATE ${vhalArg_DEFINES})
-  target_include_directories(${targetName} PRIVATE ${includeDirs})
+  target_include_directories(${targetName} PRIVATE ${includeDirs} "${VHAL_TEST_DIR}/include" "${VHAL_TEST_DIR}/shim")
   target_link_libraries(${targetName} PRIVATE ${vhalArg_LIBS})
 
   add_test(NAME "${testName}" COMMAND "$<TARGET_FILE:${targetName}>" ${vhalArg_ARGS})
