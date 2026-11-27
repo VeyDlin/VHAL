@@ -456,40 +456,18 @@ private:
 	}
 
 
-	// The entry of a valid handle when its block belongs to this heap, or nullptr. An entry of another heap or of a pool
-	// lies outside the entry table of this heap, so its bytes are not read as a header.
-	Entry* OwnEntry(const Handle& handle) const {
-		Entry* entry = handle.GetEntry();
-		if (entry == nullptr || !InEntryTable(entry)) {
-			return nullptr;
-		}
-
-		std::uintptr_t header = reinterpret_cast<std::uintptr_t>(entry->data) - entry->headerOffset;
-		std::uintptr_t start = reinterpret_cast<std::uintptr_t>(buffer);
-		if (header < start || header - start + kHeaderSize > dataTop) {
-			return nullptr;
-		}
-
-		const BlockHeader* hdr = reinterpret_cast<const BlockHeader*>(header);
-		if (hdr->free || hdr->entry != entry) {
-			return nullptr;
-		}
-		return entry;
-	}
-
-
-	// True when entry is one of the slots in use at the top of the buffer.
+	// True when entry is one of the slots in use at the top of the buffer. Only this heap creates the entries in its
+	// table, so an entry of another heap or of a pool is refused here, before its bytes are read as a header.
 	bool InEntryTable(const Entry* entry) const {
-		std::uintptr_t address = reinterpret_cast<std::uintptr_t>(entry);
-		std::uintptr_t end = reinterpret_cast<std::uintptr_t>(buffer) + capacity;
-		std::uintptr_t start = end - entryCount * sizeof(Entry);
-		return address >= start && address < end && (end - address) % sizeof(Entry) == 0;
+		std::uintptr_t tableBytes = entryCount * sizeof(Entry);
+		std::uintptr_t start = reinterpret_cast<std::uintptr_t>(buffer) + capacity - tableBytes;
+		return reinterpret_cast<std::uintptr_t>(entry) - start < tableBytes;
 	}
 
 
 	bool IsPinned(const Handle& handle) const {
-		Entry* entry = OwnEntry(handle);
-		if (entry == nullptr) {
+		Entry* entry = handle.GetEntry();
+		if (entry == nullptr || !InEntryTable(entry)) {
 			return false;
 		}
 		return HeaderOf(entry)->pinned;
@@ -527,8 +505,8 @@ private:
 	// The caller holds the lock. Frees the block of handle and clears handle. Other copies of the handle become
 	// invalid. A pinned block, and a handle of another heap or of a pool, are left as they are.
 	void DeallocateLocked(Handle& handle) {
-		Entry* entry = OwnEntry(handle);
-		if (entry == nullptr) {
+		Entry* entry = handle.GetEntry();
+		if (entry == nullptr || !InEntryTable(entry)) {
 			return;
 		}
 
