@@ -416,7 +416,7 @@ Try it on Windows 11:
 On Linux the same steps work with the kernel's `cdc_ncm` driver: the new interface (`ip link`) takes `192.168.7.2` from the
 system's DHCP client, NetworkManager or `dhclient`, and `ping 192.168.7.1` gets replies.
 
-The host tests for this code are `.tool/sim/TestNetworkDemo.cpp` (ARP, ICMP with hand-computed checksums, DHCP DISCOVER, REQUEST,
+The host tests for this code are `.test/TestNetworkDemo.cpp` (ARP, ICMP with hand-computed checksums, DHCP DISCOVER, REQUEST,
 renewal and malformed input, written by hand from the RFCs) and the `TestNcm*` tests for the NCM function. The board has not run
 it yet: the flash, the Windows and Linux steps are still to be tried on hardware.
 
@@ -518,9 +518,9 @@ The first hardware run (Windows 11, the board attached to the PC) showed:
 - Windows may make the board its default output device, so the PC's sound plays through the board until the user switches the
   default back.
 
-The host tests for the signal are `.tool/sim/TestAudioDemo.cpp` (the tone table against `std::sin`, the gain table, the volume and
+The host tests for the signal are `.test/TestAudioDemo.cpp` (the tone table against `std::sin`, the gain table, the volume and
 mute scaling, the loopback downmix, the loopback's signal threshold at 64 and 65 LSB, the speaker backlog and the tone phase). The descriptors and the audio function are tested
-by the `TestAudio*` tests in `.tool/sim`: the sync types and packet sizes, the first packet armed at alternate 1, the arming after each
+by the `TestAudio*` tests in `.test`: the sync types and packet sizes, the first packet armed at alternate 1, the arming after each
 completion, the refused arms, the requests and the rate change. `DemoUSBAudio.cpp` itself is not run on the host; the build checks it.
 
 Verified on the host: the items above, and the signal's threshold and backlog rules. The first and second hardware runs are listed above.
@@ -551,11 +551,11 @@ figures above are the linker's, not a measurement.
     the status line. `Descriptors/NetworkDescriptors.h` has the descriptors and their asserts. `Network/` has the protocol code as pure
     functions over byte spans: `NetworkBytes.h` (big-endian fields), `InternetChecksum.h`, `EthernetFrame.h`, `Arp.h`,
     `Ipv4Packet.h`, `IcmpEcho.h`, `UdpPacket.h`, `Dhcp.h` and `NetworkResponder.h`, which answers one frame. The host test
-    `.tool/sim/TestNetworkDemo.cpp` includes them.
+    `.test/TestNetworkDemo.cpp` includes them.
   - `Application/DemoUSBAudio/`: the audio device. `DemoUSBAudio.h/.cpp` has the device, the main loop with the microphone and
     speaker pass (the tone, the loopback and the volume scaling), and the status line. `Descriptors/AudioDescriptors.h` has the
     descriptors and their asserts. `Audio/AudioSignal.h` has the tone table, the gain table, the volume scaling and the downmix as
-    pure functions, which `.tool/sim/TestAudioDemo.cpp` includes.
+    pure functions, which `.test/TestAudioDemo.cpp` includes.
   - A new demo goes in its own folder `Application/Demo<Name>/`, with a branch in `Application/Application.cpp`. The folder
     makes `VHAL_DEMO=<Name>` valid. Its PID and GUID go in `DemoProducts.h`.
 - `STM32G431XB_FLASH.ld`: linker script (128 KB flash, 22 KB RAM: SRAM1 16 KB plus SRAM2 6 KB, contiguous; the 10 KB CCM
