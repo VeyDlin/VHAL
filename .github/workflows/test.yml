@@ -36,6 +36,32 @@ jobs:
           cmake --version
           ./test.cmd -j 4
 
+  sanitizers:
+    name: Linux, GCC 14, sanitizers
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install GCC 14, Ninja and libusb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-14 ninja-build pkg-config libusb-1.0-0-dev
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Run the host tests with the sanitizers
+        shell: bash
+        env:
+          CXX: g++-14
+        run: |
+          g++-14 --version
+          cmake --version
+          ./test.cmd --sanitize -j 4
+
   windows:
     name: Windows, UCRT64 GCC
     runs-on: windows-latest
