@@ -93,5 +93,5 @@ int main() {
 	TestQueueStorageFromHeapTooSmall();
 	TestQueueStorageFromHeapReady();
 	TestDisabledStoragesAreReady();
-	return VstdSim::Finish("TestVubStorage");
+	return MemorySim::Finish("TestVubStorage");
 }
