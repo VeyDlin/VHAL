@@ -152,7 +152,7 @@ Not tested on hardware or on a real host. The intended drivers are the in-box on
 
 ## Tests
 
-The host tests are in `.tool/sim` and run with `run.sh`. The serial port's tests, the bootloader transport and the CDC builder errors are on the [CDC Class page](README.md#tests).
+The host tests are in `.test` and run with `./test.cmd USB`. The serial port's tests, the bootloader transport and the CDC builder errors are on the [CDC Class page](README.md#tests).
 
 - `TestNcmDescriptors.cpp`: the NCM device and configuration bytes with automatic and explicit addresses and a 4 ms interval, the functional descriptors, the MAC string from the helper, and the notification helpers, against arrays written by hand from NCM 1.0 and ECM 1.2.
 - `TestNcmRequests.cpp`: each NCM request with its bytes, the NTB input size limits in both forms, the packet filter, the stalls and the lengths.

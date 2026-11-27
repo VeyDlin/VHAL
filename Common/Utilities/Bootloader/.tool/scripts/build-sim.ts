@@ -7,7 +7,7 @@ import process from "node:process";
 // The tool folder sits in VHAL/Common/Utilities/Bootloader/.tool, so VHAL is four levels up
 const toolDir: string = path.resolve(import.meta.dirname, "..");
 const vhalDir: string = path.resolve(toolDir, "..", "..", "..", "..");
-const simDir: string = path.join(toolDir, "sim");
+const simDir: string = path.resolve(toolDir, "..", ".test");
 const buildDir: string = path.join(simDir, "build");
 const isWindows: boolean = process.platform === "win32";
 const exePath: string = path.join(buildDir, isWindows ? "vboot-sim.exe" : "vboot-sim");

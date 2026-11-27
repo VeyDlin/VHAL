@@ -5,13 +5,13 @@ hardware and enforces the rules of the `USBDeviceAdapter` contract, and a script
 
 ## Run
 
-From this folder, with a g++ that supports C++23 (tested with g++ 15.2):
+From the repository root, with CMake 3.25 or newer and a g++ that supports C++23, GCC 14 or newer (tested with g++ 15.2):
 
-    sh run.sh
+    ./test.cmd USB
 
-Each `Test*.cpp` is built into its own executable with `-std=c++23 -Wall -Wextra -Werror` and run. The script exits
-non-zero when a test fails to build or any check fails. It works in Git Bash on Windows and on Linux or macOS. The
-`CXX` variable selects another compiler. Build output goes to a temporary directory outside the repository.
+Each `Test*.cpp` is built into its own executable with `-std=c++23 -Wall -Wextra -Werror` and run. The runner exits
+non-zero when a test fails to build or any check fails. It works from cmd, PowerShell, Git Bash and a shell on Linux or
+macOS. The `CXX` variable selects another compiler. Build output goes to `.test-build`, which is git-ignored.
 
 ## Files
 

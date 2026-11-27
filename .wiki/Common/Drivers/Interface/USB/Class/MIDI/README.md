@@ -100,16 +100,16 @@ A rule violation is a compile error with its message:
 - `a USB-MIDI function has 1 to 16 cables`: `Cables(0)` and `Cables(17)`
 - `a USB-MIDI interface needs its cables: call Cables()`: a function without `Cables()`
 - `BulkOut needs an OUT address (bit 7 clear)` and `BulkIn needs an IN address (bit 7 set)`, and `endpoint 0 belongs to the control pipe`
-- `bRefresh and bSynchAddress are 0 for bulk endpoints`: a 9-byte endpoint with either field set (see `.tool/sim/BuilderErrors/audio_endpoint_refresh_not_zero.cpp`)
-- `the 9-byte endpoint form is bulk or isochronous`: a 9-byte endpoint that is interrupt, from the builder or from a plain array (see `.tool/sim/BuilderErrors/audio_endpoint_interrupt.cpp`)
-- `bInterval of a full-speed isochronous endpoint is 1`: an isochronous endpoint with another interval, from the builder or from a plain array (see `.tool/sim/BuilderErrors/audio_endpoint_interval_not_one.cpp`)
-- `endpoint address bits 6..4 are reserved`: an endpoint address with a reserved bit set, from a plain array too (see `.tool/sim/BuilderErrors/endpoint_reserved_bits_plain.cpp`)
+- `bRefresh and bSynchAddress are 0 for bulk endpoints`: a 9-byte endpoint with either field set (see `.test/BuilderErrors/audio_endpoint_refresh_not_zero.cpp`)
+- `the 9-byte endpoint form is bulk or isochronous`: a 9-byte endpoint that is interrupt, from the builder or from a plain array (see `.test/BuilderErrors/audio_endpoint_interrupt.cpp`)
+- `bInterval of a full-speed isochronous endpoint is 1`: an isochronous endpoint with another interval, from the builder or from a plain array (see `.test/BuilderErrors/audio_endpoint_interval_not_one.cpp`)
+- `endpoint address bits 6..4 are reserved`: an endpoint address with a reserved bit set, from a plain array too (see `.test/BuilderErrors/endpoint_reserved_bits_plain.cpp`)
 
-The snippets are in `.tool/sim/BuilderErrors/midi_*.cpp`, checked by `check.sh`.
+The snippets are in `.test/BuilderErrors/midi_*.cpp`, checked by `./test.cmd USB -L fail`.
 
 ## Tests
 
-The host tests are in `.tool/sim` and run with `run.sh`:
+The host tests are in `.test` and run with `./test.cmd USB`:
 
 - `TestMidiDescriptors.cpp`: the configuration for one and two cables, byte for byte, against arrays written out by hand from MIDI 1.0 and Audio 1.0. Also the association and device class, the automatic and explicit endpoint addresses, the interface and jack names through the string table, and a keyboard and a MIDI function in one configuration.
 - `TestAudioEndpointDescriptors.cpp`: the 7-byte and the 9-byte endpoint forms, alone and in one configuration.

@@ -8,6 +8,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Libusb.cmake")
 
+# Without libusb, nothing is defined: the counterpart test reports the skip.
+if(NOT USBBENCH_LIBUSB_TARGET)
+	return()
+endif()
+
 find_package(Threads REQUIRED)
 
 add_executable(usbbench

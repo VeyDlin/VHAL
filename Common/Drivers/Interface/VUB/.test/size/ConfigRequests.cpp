@@ -1,5 +1,5 @@
 // Configuration of the requests layer for the size table. The flags pick the chain under the layer, the role of the layer, and the number of
-// commands with a Send site (size.sh gives them per row):
+// commands with a Send site (Size.cmake gives them per row):
 //   SIZE_BASE   1: Crc16Modbus, Cobs, stream link; 2: Cobs, stream link; 3: ReliableOf<40, 4> over Crc16Modbus, Cobs, stream link.
 //   SIZE_ROLE   0: no layer; 1: responder only (one command, Tickets(1), Refusals(2)); 2: requester only (Open(2)); 3: both.
 //   SIZE_SENDS  1 or 4: the number of commands with a Send site, in the requester role.

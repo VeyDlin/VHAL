@@ -22,6 +22,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y g++-14 ninja-build
 
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
       - name: Run the tests
         shell: bash
         env:
@@ -44,6 +49,11 @@ jobs:
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
 
       - name: Run the tests
         shell: cmd

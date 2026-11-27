@@ -1,4 +1,3 @@
-// libs-windows: hid setupapi
 #include "SimCheck.h"
 #include <Drivers/Interface/VUB/Blocks.h>
 #include <Drivers/Interface/VUB/Link/HidReport.h>

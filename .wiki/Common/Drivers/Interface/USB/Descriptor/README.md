@@ -296,7 +296,7 @@ error: call to non-'constexpr' function 'void CompileTimeError() [with TextLiter
 
 The lines after it trace the instantiations back to the chain, and point at the `MaxPowerMilliamps(101)` call. The message is the text the rule gives, prefixed with `USB: `, so the diagnostic names the rule that failed. Other rules give their own message, such as `"USB: VendorId is required"`, `"USB: an endpoint number is above EndpointNumberLimit"` or `"USB: MsOs20VendorCode is required when a function asks for WinUSB"`. Only GCC has been checked this way.
 
-The rule checks sit in `.tool/sim/BuilderErrors/`: one snippet per rule, each with its expected message on its first line. `run.sh` fails when a snippet compiles or reports another message.
+The rule checks sit in `.test/BuilderErrors/`: one snippet per rule, each with its expected message on its first line. The runner fails when a snippet compiles or reports another message.
 
 ### Limits
 
@@ -482,7 +482,7 @@ Notes on the example:
 - `MakeUSBConfigurationDescriptor()` sets the remote wakeup bit. The device is bus powered, with 50 units (100 mA).
 - `VendorInterfaces` and `VendorEndpoints` are the arrays a function takes through its span constructor. Their values must match the interface and the endpoints above. The fluent form takes the layout `AppUsb::Function(0)` instead, which carries the same values.
 
-The set compiles with `-Wall -Wextra -Werror`, and its size annotations are checked by the compiler. The host tests do not run this set: `.tool/sim/Descriptors.h` holds the simulator's own bytes.
+The set compiles with `-Wall -Wextra -Werror`, and its size annotations are checked by the compiler. The host tests do not run this set: `.test/Descriptors.h` holds the simulator's own bytes.
 
 ## Rules to Keep
 

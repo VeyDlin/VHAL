@@ -259,7 +259,7 @@ Polled polled(pollLink);
 
 A chain whose link has neither member is the same size as a chain without the receiver. Measured with `sizeof` on g++ (x86-64), the
 packet stack of the link with neither member is 656 bytes and the stream stack 952 bytes (`TestVubReceiver.cpp` checks both). The rows of
-the [size table](#size) are measured by `size.sh`.
+the [size table](#size) are measured by `Size.cmake`.
 
 ## Backpressure and order
 
@@ -427,7 +427,7 @@ On Cortex-M0+, the text of rows (g), (i) and (k) can move by 4 bytes with the li
 their sizes: the padding between two of them depends on the order the linker places them in.
 
 Measured with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203` on Windows 11, through Git Bash,
-with `Common/Drivers/Interface/VUB/.tool/size/size.sh`.
+with `Common/Drivers/Interface/VUB/.test/size/Size.cmake`.
 
 The flags of each compile are `-std=c++23 -mcpu=cortex-m4 -mthumb -Os -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti
 -Wall -Wextra -Werror`, with `-mcpu=cortex-m0plus` for the M0+. Each program is linked with `-Wl,--gc-sections --specs=nano.specs
@@ -452,11 +452,12 @@ plus bss 180 bytes (data 8, bss 172), and for Cortex-M0+, text 568 bytes and dat
 To run it, from the repository root:
 
 ```bash
-bash Common/Drivers/Interface/VUB/.tool/size/size.sh
+./test.cmd VUB -L size -V
 ```
 
-The script prints the table, then the toolchain and the baseline sizes. It needs `arm-none-eabi-g++` and `arm-none-eabi-size` on the
-PATH, or `CXX` and `SIZE` set to other tools. Without the toolchain it says so and exits 0. It exits 1 when a program does not build. The
+The test prints the table, then the toolchain and the baseline sizes. It needs `arm-none-eabi-g++` (GCC 14 or newer) and
+`arm-none-eabi-size` on the PATH, or `ARM_CXX` and `ARM_SIZE` set to other tools. Without the toolchain it prints `VHAL_SKIP:` and the
+test is skipped. It fails when a program does not build. The
 build output goes to a temporary folder outside the repository.
 
 #### Against CompactStreamingProtocol
@@ -1483,7 +1484,7 @@ not the whole of its RAM.
 
 ## Compilers
 
-The host tests (`Common/Drivers/Interface/VUB/.tool/sim/run.sh`) pass with g++ 15.2 (MinGW, on
+The host tests (`./test.cmd VUB`) pass with g++ 15.2 (MinGW, on
 Windows 11). The header checks and the builder error snippets run with it. The microcontroller headers are checked alone with
 `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203`, and the size table is measured with it. Other compilers, clang++ among them, are
 not tested.
