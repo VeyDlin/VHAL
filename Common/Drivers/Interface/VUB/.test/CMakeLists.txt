@@ -19,16 +19,35 @@ set(vubUsbIncludes
   "${VHAL_ROOT}/.demo/STM32G4/Application"
   ${vubIncludes})
 
+set(vubUsbFound TRUE)
+
 if(WIN32)
   set(vubBulkLibs winusb setupapi cfgmgr32)
   set(vubHidLibs hid setupapi)
   set(vubTcpLibs ws2_32)
   set(vubWikiLibs ws2_32 setupapi cfgmgr32 winusb hid)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  find_library(vubUsbLibrary NAMES usb-1.0)
+  find_path(vubUsbInclude NAMES libusb-1.0/libusb.h)
+  if(NOT vubUsbLibrary OR NOT vubUsbInclude)
+    set(vubUsbFound FALSE)
+  endif()
+
   set(vubBulkLibs usb-1.0)
   set(vubWikiLibs usb-1.0)
   set(vubThreadLibs pthread)
 endif()
+
+# A test that needs a library the system lacks is reported as skipped, with the marker the other skips use.
+function(vubSkipHostTest source)
+  get_filename_component(stem "${source}" NAME_WE)
+  set(testName "${VHAL_MODULE_LABEL}.${stem}")
+
+  add_test(
+    NAME "${testName}"
+    COMMAND "${CMAKE_COMMAND}" -E echo "VHAL_SKIP: libusb-1.0 (the library and libusb-1.0/libusb.h) is not installed")
+  set_tests_properties("${testName}" PROPERTIES LABELS "${VHAL_MODULE_LABEL};host" SKIP_REGULAR_EXPRESSION "VHAL_SKIP:")
+endfunction()
 
 set(vubPlainTests
   TestVubBuilder.cpp
@@ -108,12 +127,18 @@ endforeach()
 
 vhal_test(TestVubLinkUsb.cpp INCLUDES ${vubUsbIncludes})
 vhal_test(TestVubLinkWiki.cpp INCLUDES ${vubUsbIncludes})
-vhal_test(TestVubPcBulk.cpp INCLUDES ${vubIncludes} LIBS ${vubBulkLibs})
+if(vubUsbFound)
+  vhal_test(TestVubPcBulk.cpp INCLUDES ${vubIncludes} LIBS ${vubBulkLibs})
+  vhal_test(TestVubPcWiki.cpp INCLUDES ${vubIncludes} LIBS ${vubWikiLibs})
+else()
+  vubSkipHostTest(TestVubPcBulk.cpp)
+  vubSkipHostTest(TestVubPcWiki.cpp)
+endif()
+
 vhal_test(TestVubPcHid.cpp INCLUDES ${vubIncludes} LIBS ${vubHidLibs})
 vhal_test(TestVubPcHidRelease.cpp INCLUDES ${vubIncludes} LIBS ${vubHidLibs})
 vhal_test(TestVubPcTcp.cpp INCLUDES ${vubIncludes} LIBS ${vubTcpLibs})
 vhal_test(TestVubPcTcpReliable.cpp INCLUDES ${vubIncludes} LIBS ${vubTcpLibs})
-vhal_test(TestVubPcWiki.cpp INCLUDES ${vubIncludes} LIBS ${vubWikiLibs})
 vhal_test(TestVubRequestsConcurrent.cpp INCLUDES ${vubIncludes} LIBS ${vubThreadLibs})
 vhal_test(TestVubRequestsQueue.cpp INCLUDES ${vubIncludes} LIBS ${vubThreadLibs})
 vhal_test(TestVubStackConcurrent.cpp INCLUDES ${vubIncludes} LIBS ${vubThreadLibs})
