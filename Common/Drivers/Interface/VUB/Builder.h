@@ -411,6 +411,14 @@ struct DefaultMemory {
 };
 
 
+// Whether a memory policy builds its storage with no arguments, so that a stack can declare it as a member. Memory::External takes a span,
+// so it is not one.
+template<typename NewPolicy>
+concept BuildablePolicy = requires {
+	typename NewPolicy::template Storage<uint8, 1>;
+} && std::is_default_constructible_v<typename NewPolicy::template Storage<uint8, 1>>;
+
+
 // The fluent builder of a chain. Each method that adds a block returns a builder whose type lists the blocks, so the chain is a type
 // with a constexpr value of the options. The settings methods return the same type. Policy is the memory policy of the stack's storage
 // (see Memory); the entries and the settings do not depend on it.
@@ -448,11 +456,11 @@ public:
 
 	// The memory policy of the stack's storage: Memory::Inside, or Memory::FromHeap<heap> for the elements of the buffers, queues and
 	// rings of the stack. Without this step the stack keeps them with Memory::Inside. A chain takes one step: a second one is a compile
-	// error. The step gives the same entries and settings with the new policy.
+	// error. The step gives the same entries and settings with that policy.
 	template<typename NewPolicy>
 	constexpr Builder<NewPolicy, Entries...> Memory() const {
-		static_assert(requires { typename NewPolicy::template Storage<uint8, 1>; },
-			"the memory step needs a memory policy of Memory: Memory::Inside or Memory::FromHeap<heap>");
+		static_assert(BuildablePolicy<NewPolicy>,
+			"the memory step needs a policy whose storage is built with no arguments: Memory::Inside or Memory::FromHeap<heap>");
 		if constexpr (!std::is_same_v<Policy, DefaultMemory>) {
 			Require<"VUB: one memory step per stack: remove the second Memory<Policy>() call">(false);
 		}
