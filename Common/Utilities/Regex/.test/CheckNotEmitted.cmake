@@ -19,18 +19,20 @@ set(notEmittedSource "${CMAKE_CURRENT_LIST_DIR}/NotEmitted.cpp")
 execute_process(
   COMMAND "${VHAL_CXX}" ${notEmittedFlags} -c -o "${VHAL_WORK_DIR}/matches.o" "${notEmittedSource}"
   RESULT_VARIABLE matchesBuild
-  ERROR_QUIET
+  ERROR_VARIABLE matchesErr
   OUTPUT_QUIET)
 if(NOT matchesBuild EQUAL 0)
+  message("${matchesErr}")
   message(FATAL_ERROR "BUILD FAILED: NotEmitted.cpp (Matches only)")
 endif()
 
 execute_process(
   COMMAND "${VHAL_CXX}" ${notEmittedFlags} -DREGEX_USE_FIND -c -o "${VHAL_WORK_DIR}/find.o" "${notEmittedSource}"
   RESULT_VARIABLE findBuild
-  ERROR_QUIET
+  ERROR_VARIABLE findErr
   OUTPUT_QUIET)
 if(NOT findBuild EQUAL 0)
+  message("${findErr}")
   message(FATAL_ERROR "BUILD FAILED: NotEmitted.cpp (Find)")
 endif()
 
