@@ -17,4 +17,18 @@ vhal_test(
   SOURCES
     RingSecondUnit.cpp)
 
-vhal_declared(Test*.cpp TestRingBuffer.cpp TestRingBufferStorage.cpp)
+vhal_test(
+  TestRingBufferModel.cpp
+  INCLUDES
+    shim
+    "${VHAL_ROOT}/Periphery"
+    "${VHAL_ROOT}/Common")
+
+vhal_test(
+  TestRingBufferReadme.cpp
+  INCLUDES
+    shim
+    "${VHAL_ROOT}/Periphery"
+    "${VHAL_ROOT}/Common")
+
+vhal_declared(Test*.cpp TestRingBuffer.cpp TestRingBufferStorage.cpp TestRingBufferModel.cpp TestRingBufferReadme.cpp)
