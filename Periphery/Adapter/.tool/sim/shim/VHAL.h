@@ -6,6 +6,7 @@
 // The tick is System::tickLow, which GetTick32 reads inline as it does on a port. A test that needs time passing runs a thread
 // that advances it once per millisecond, as SysTick would. The RTOS delay handle is defined here because System.cpp is not linked.
 #include <System/System.h>
+#include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
@@ -50,7 +51,7 @@ inline void System::CriticalSection(bool isEnable) {
 
 
 inline void System::Abort(const char* message, const char* file, uint32 line) {
-	std::fprintf(stderr, "sim abort: %s (%s:%u)\n", message != nullptr ? message : "no message", file != nullptr ? file : "?", line);
+	std::fprintf(stderr, "sim abort: %s (%s:%" PRIu32 ")\n", message != nullptr ? message : "no message", file != nullptr ? file : "?", line);
 	std::abort();
 }
 
