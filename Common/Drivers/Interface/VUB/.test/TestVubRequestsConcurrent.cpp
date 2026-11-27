@@ -97,6 +97,8 @@ inline constexpr uint16 RestartedSession = 0x2B2B;
 // A wait that cannot end (a defect) stops the program at once: the run fails with this message and does not hang.
 [[noreturn]] void StopOnHang(const char* what) {
 	std::printf("FAILED, the run stopped: %s\n", what);
+	// _Exit does not flush, and stdout is a pipe under CTest
+	std::fflush(stdout);
 	std::_Exit(1);
 }
 
