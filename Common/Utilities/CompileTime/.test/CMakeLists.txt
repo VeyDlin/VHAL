@@ -10,3 +10,5 @@ vhal_check(RuntimeFailures/RuntimeFailure.cmake ARGS plain)
 vhal_check(RuntimeFailures/RuntimeFailure.cmake ARGS value)
 
 vhal_fail(BuilderErrors INCLUDES "${VHAL_ROOT}/Common")
+
+vhal_declared(Test*.cpp TestRequire.cpp)

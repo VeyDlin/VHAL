@@ -6,3 +6,5 @@ vhal_test(
     shim
     "${VHAL_ROOT}/Common/Drivers/Battery/RT9467"
     "${VHAL_ROOT}/Common")
+
+vhal_declared(Test*.cpp TestRT9467Encode.cpp)

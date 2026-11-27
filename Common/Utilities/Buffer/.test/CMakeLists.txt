@@ -16,3 +16,5 @@ vhal_test(
     "${VHAL_ROOT}/Common"
   SOURCES
     RingSecondUnit.cpp)
+
+vhal_declared(Test*.cpp TestRingBuffer.cpp TestRingBufferStorage.cpp)

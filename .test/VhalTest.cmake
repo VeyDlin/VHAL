@@ -16,6 +16,8 @@
 # vhal_check(<script.cmake> [ARGS args])
 #     runs a scripted check with cmake -P. The arguments follow the -- on the command line, and the script reads them from
 #     CMAKE_ARGV, the last one being the last argument.
+# vhal_declared(<pattern> <file>...)
+#     fails the configure when a file of the module folder matches the pattern and is not one of the declared files.
 # vhal_tool_test(<dir>)
 #     runs the tests of a counterpart program in the .tool folder: npm test for a package.json, dotnet test for a project file.
 #     The test is skipped when its tool is absent.
@@ -149,6 +151,19 @@ function(vhal_check script)
       -P "${scriptPath}" --
       ${vhalArg_ARGS})
   set_tests_properties("${testName}" PROPERTIES LABELS "${VHAL_MODULE_LABEL};check")
+endfunction()
+
+
+# Fails the configure when a file of the module folder that matches the pattern is not one of the declared files. A module that
+# declares its tests one by one calls it with the same pattern, so a test file added later cannot be left out without notice.
+function(vhal_declared pattern)
+  file(GLOB foundFiles RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/${pattern}")
+
+  foreach(foundFile IN LISTS foundFiles)
+    if(NOT foundFile IN_LIST ARGN)
+      message(FATAL_ERROR "${CMAKE_CURRENT_SOURCE_DIR}/${foundFile} matches ${pattern} but is not declared in CMakeLists.txt")
+    endif()
+  endforeach()
 endfunction()
 
 
