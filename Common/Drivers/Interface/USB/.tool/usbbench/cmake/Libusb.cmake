@@ -7,8 +7,8 @@
 # Other platforms: the system libusb-1.0, found through pkg-config.
 #
 # In the test mode (VHAL_TOOL_TEST set by the test runner) nothing is downloaded: a Windows build whose libusb is not in
-# third_party is skipped, and so is a build with no libusb-1.0 from pkg-config. The skip prints the VHAL_SKIP: marker, and no target
-# is defined; the caller returns when USBBENCH_LIBUSB_TARGET is empty.
+# third_party is not built, and neither is a build with no libusb-1.0 from pkg-config. The build prints a status line, and no target
+# is defined; the caller builds the offline tests without it.
 
 set(USBBENCH_LIBUSB_TARGET "")
 
@@ -25,7 +25,7 @@ if(WIN32)
 	set(USBBENCH_LIBUSB_STAMP "${USBBENCH_LIBUSB_ROOT}/extracted.stamp")
 
 	if(VHAL_TOOL_TEST AND NOT EXISTS "${USBBENCH_LIBUSB_STAMP}")
-		message("VHAL_SKIP: libusb ${USBBENCH_LIBUSB_VERSION} is not in third_party: build usbbench outside the tests once to download it")
+		message(STATUS "usbbench is not built: libusb ${USBBENCH_LIBUSB_VERSION} is not in third_party (build usbbench outside the tests once to download it)")
 		return()
 	endif()
 
@@ -120,7 +120,7 @@ else()
 
 	if(NOT USBBENCH_LIBUSB_FOUND)
 		if(VHAL_TOOL_TEST)
-			message("VHAL_SKIP: libusb-1.0 is not found through pkg-config: usbbench was not built")
+			message(STATUS "usbbench is not built: libusb-1.0 is not found through pkg-config")
 			return()
 		endif()
 		message(FATAL_ERROR "usbbench: libusb-1.0 is needed; it is found through pkg-config")
