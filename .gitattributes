@@ -1,3 +1,5 @@
 # Shell scripts run under bash, which reads a CR at the end of a line as part of the command. They keep LF line ends in every checkout,
 # including the Windows ones that set core.autocrlf.
 *.sh eol=lf
+# test.cmd is run by a POSIX shell too, which reads a CR at the end of its first line as part of the command, so it keeps LF line ends.
+test.cmd eol=lf
