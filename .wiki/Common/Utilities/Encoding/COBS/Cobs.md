@@ -143,7 +143,7 @@ static_assert(Cobs::EncodedSize(254) == 257);
 
 ## Tests
 
-The tests are in `Common/Utilities/Encoding/COBS/.tool/sim/`. `run.sh` builds each `Test*.cpp` with g++ at C++23, `-Wall -Wextra -Werror`, runs it, and checks that the header compiles alone.
+The tests are in `Common/Utilities/Encoding/COBS/.test/`. `./test.cmd COBS` builds each `Test*.cpp` with g++ at C++23, `-Wall -Wextra -Werror`, runs it, and checks that the header compiles alone.
 
 - `TestCobsVectors.cpp`: the vectors of the paper and of the Wikipedia article, written by hand, including the blocks of 253, 254 and 255 bytes. Every packet of 0 to 3 bytes over `00`, `01` and `FF`. Random packets of 0 to 1000 bytes, checked against a reference encoder written from the block rules. Round trips with in-place and two-span decoding. `EncodedSize` bounds. Errors.
 - `TestCobsStream.cpp`: the decoder one byte at a time, garbage and resynchronisation, overflow, `Reset`, and constant-expression use.
