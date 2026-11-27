@@ -16,5 +16,14 @@ vhal_fail(
     "${VHAL_ROOT}/Periphery"
     "${VHAL_ROOT}/Common")
 
-vhal_check(CheckHeaders.cmake)
+file(GLOB registerMapHeaders "${VHAL_ROOT}/Common/Utilities/Data/RegisterMap/*.h")
+
+vhal_headers(
+  ${registerMapHeaders}
+  INCLUDES
+    "${VHAL_ROOT}/Common"
+    "."
+  OPTIONS
+    -Wconversion)
+
 vhal_check(CheckUnused.cmake)
