@@ -249,7 +249,7 @@ Simulator arguments (inside `--sim-args`):
 
 The simulator is started for each command, so state on the device (the written image, user data) lasts one command. Use `--flash-out`/`--flash-in` to carry the flash content between commands.
 
-`npm test` runs the unit tests and, when the simulator is built, the end-to-end tests against it.
+`npm test` runs the unit tests and, when the simulator is built, the end-to-end tests against it. The repository's test run (`./test.cmd Bootloader`) builds the simulator with `npm run sim:build` first when a g++ is on the PATH.
 
 ## Package Format
 

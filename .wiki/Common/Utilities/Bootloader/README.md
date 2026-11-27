@@ -23,6 +23,7 @@ Extensible firmware bootloader framework with command protocol, Flash memory sup
 - [USBCommunication -- USB Transport](#usbcommunication----usb-transport)
 - [Firmware Update Workflow](#firmware-update-workflow)
   - [Retrying after a lost response](#retrying-after-a-lost-response)
+- [Host Tests](#host-tests)
 - [API Reference](#api-reference)
 
 ## Architecture
@@ -717,6 +718,42 @@ A command whose response is lost can be sent again. Whether that is safe depends
 | `Erase` | Yes, but it restarts the upload | A repeated `Erase` restarts the write stream. Poll `GetStatus` until `Idle`, then send the whole image again |
 | `Ping`, `GetInfo`, `GetStatus`, `GetHash`, `Verify` | Yes | Idempotent. Send again |
 | `ResetWritePos`, `ResetReadPos` | Yes | Idempotent as long as no `Write` was accepted in between. A repeated `ResetWritePos` after a `Write` discards that data |
+
+## Host Tests
+
+The PC tests of the bootloader are in `.test/unit`. They compile the real `FLASHBootloader`, `AESFLASHBootloader` and
+`CompactStreamingProtocol` classes with g++ and replace only `VHAL.h`, with a simulated clock and an in-memory NOR flash. Run them
+with `./test.cmd Bootloader`. The same label runs the end-to-end suite of the `.tool` folder, which drives the device simulator.
+
+Thirty-eight test cases in three programs cover the protocol. The streaming protocol's thirteen cases are in its own module.
+
+- Packet parsing: a length byte above the packet data size is rejected without writing past the packet object. A partial packet
+  is dropped once `packetTimeoutMs` has passed since it reached the front of the buffer. A stale header behind steady traffic is
+  dropped, while a packet whose bytes arrive slowly, within the timeout per packet, is processed. A transport reset during an
+  erase keeps the erase running.
+- Responses: a response refused by a busy transport is kept and sent later, and no response is lost or skipped. A queued Read
+  survives a transport reset without skipping data. Start answers Busy while an erase runs. An erase step that returns an
+  unexpected status answers Error and returns to Idle.
+- Read at an offset: the offset form does not move the streaming position. An offset at or past the end answers EndOfData, and a
+  payload of any other length is refused.
+- Write stream: the sequence number is an ordinary value, including 0xFF. A retry with the same sequence is answered and not
+  written twice. A flash failure is sticky until Erase. ResetWritePos restarts the stream, and the new size is what Finalize
+  records. Only the final chunk may be unaligned, and a Write never reaches into the firmware header.
+- Finalize and Verify: the header holds the CRC-32 and size of the image. A wrong CRC answers ChecksumMismatch and writes no
+  header. An empty payload is refused unless the host opts out of the checksum. A Finalize repeated after a lost response writes
+  nothing, which matters on flash that cannot be programmed twice. Finalize during an erase answers Busy.
+- Read-out protection: level 1 refuses Erase, Write and Finalize unless updates are allowed, and Read answers Protected. Level 2
+  makes Initialize fail. An 8-byte write alignment works end to end, including the header.
+- Status and information: GetStatus returns the state and the byte count in its 8-byte layout. GetInfo reports the packet data
+  size and the cipher id.
+- Start: Start answers Success first, and the application starts after the flush delay.
+- AES: CTR runs as one continuous stream, checked against an independent reference. CBC restarts its chain on Erase, and an
+  incomplete cipher block fails Finalize. Read is refused in encrypted mode. A key of the wrong size fails Initialize.
+- SetIV: an image encrypted under an IV sent with SetIV decrypts. SetIV is refused by the plain and ECB bootloaders, needs a
+  16-byte IV for CBC, answers Busy during an erase and Protected under read-out protection.
+
+These tests prove the protocol on the PC only. Flash timing, the word programming of a real flash, the read-out protection of a
+real device, interrupts and the transports on hardware are not covered by them.
 
 ## API Reference
 
