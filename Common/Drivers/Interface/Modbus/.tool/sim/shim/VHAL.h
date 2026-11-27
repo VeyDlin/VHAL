@@ -4,6 +4,7 @@
 // and then calls simDue, which the fake UART uses to deliver the received bytes that have come due. While simDue runs (inside a
 // receive callback), reads do not advance time, so the callback sees the time of its byte.
 #include <System/System.h>
+#include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
 
@@ -73,7 +74,7 @@ inline void System::CriticalSection(bool isEnable) {
 
 
 inline void System::Abort(const char* message, const char* file, uint32 line) {
-	std::fprintf(stderr, "sim abort: %s (%s:%u)\n", message != nullptr ? message : "no message", file != nullptr ? file : "?", line);
+	std::fprintf(stderr, "sim abort: %s (%s:%" PRIu32 ")\n", message != nullptr ? message : "no message", file != nullptr ? file : "?", line);
 	std::abort();
 }
 
