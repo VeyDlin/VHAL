@@ -1,29 +1,20 @@
 #pragma once
-#include <cstdio>
+// The check helpers of the Modbus tests, built on the check header of the frame. SIM_EXPECT and SimFinish keep their names, and the
+// checks are counted and summarised by VhalCheck.
+#include <VhalCheck.h>
 
 
-// Counts the failed checks of one test program. SIM_EXPECT prints the text of the condition and its line when it fails.
-inline int simFailures = 0;
-
-
+// Checks one condition. A failure prints the text of the condition with the line given. This header is the file of a failure.
 inline void SimExpect(bool condition, const char* text, int line) {
-	if (!condition) {
-		std::printf("FAILED line %d: %s\n", line, text);
-		simFailures++;
-	}
+	VhalCheck::ExpectTrue(condition, __FILE__, line, text);
 }
 
 
-#define SIM_EXPECT(condition) SimExpect((condition), #condition, __LINE__)
+// Checks the condition, and prints its text and line when it fails.
+#define SIM_EXPECT(condition) VHAL_CHECK(condition)
 
 
 // Prints the outcome of the program and returns its exit code.
 inline int SimFinish(const char* program) {
-	if (simFailures == 0) {
-		std::printf("%s: all checks passed\n", program);
-		return 0;
-	}
-
-	std::printf("%s: %d check(s) failed\n", program, simFailures);
-	return 1;
+	return VhalCheck::Finish(program);
 }

@@ -1,62 +1,35 @@
 #pragma once
 #include <VHAL.h>
-#include <cstdio>
-#include <type_traits>
+#include <VhalCheck.h>
 
 
-// Tiny assertion helper for the host tests, with no framework. A failed check prints its location and expression and is
-// counted. A test executable ends with SimTest::Finish(), which returns non-zero when any check failed, and aborts when a
+// Assertion helpers for the USB host tests, built on the check header of the frame. A failed check prints its location and expression
+// and is counted. A test executable ends with SimTest::Finish(), which returns non-zero when any check failed, and aborts when a
 // critical section is still open, so a section that the code under test leaves open fails every test that runs it.
 namespace SimTest {
 
 
-inline int failureCount = 0;
-
-
-template<typename T>
-long long ToInteger(const T& value) {
-	if constexpr (std::is_enum_v<T>) {
-		return static_cast<long long>(static_cast<std::underlying_type_t<T>>(value));
-	} else if constexpr (std::is_integral_v<T>) {
-		return static_cast<long long>(value);
-	} else {
-		static_assert(std::is_integral_v<T> || std::is_enum_v<T>, "SimTest compares integers and enums only");
-		return 0;
-	}
-}
+// The failed checks of the test program. It is the counter that VhalCheck::Finish reads, so a test that counts a failure of its own
+// adds to the same total.
+inline int& failureCount = VhalCheck::failCount;
 
 
 inline void Expect(bool condition, const char* expression, const char* file, int line) {
-	if (!condition) {
-		failureCount++;
-		std::fprintf(stderr, "%s:%d: check failed: %s\n", file, line, expression);
-	}
+	VhalCheck::ExpectTrue(condition, file, line, expression);
 }
 
 
-// Comparing through long long keeps signed and unsigned operands from warning under -Werror.
+// Compares two integers or two enums by value. The expected value is printed without its expression.
 template<typename TActual, typename TExpected>
 void ExpectEqual(const TActual& actual, const TExpected& expected, const char* expression, const char* file, int line) {
-	long long actualValue = ToInteger(actual);
-	long long expectedValue = ToInteger(expected);
-
-	if (actualValue != expectedValue) {
-		failureCount++;
-		std::fprintf(stderr, "%s:%d: %s is %lld, expected %lld\n", file, line, expression, actualValue, expectedValue);
-	}
+	VhalCheck::ExpectEqual(file, line, expression, "expected value", actual, expected);
 }
 
 
 inline int Finish(const char* testName) {
 	SimAssertNoCriticalSection();
 
-	if (failureCount == 0) {
-		std::printf("%s: all checks passed\n", testName);
-		return 0;
-	}
-
-	std::printf("%s: %d check(s) failed\n", testName, failureCount);
-	return 1;
+	return VhalCheck::Finish(testName);
 }
 
 
