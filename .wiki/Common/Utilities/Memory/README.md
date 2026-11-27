@@ -48,9 +48,13 @@ Heap objects are not copyable. A heap does not derive from `IAllocator`, so a pr
 
 A `Handle` is an index into the entry table with a generation. `Data()` returns the current address, `Size()` the size of the request, and `IsValid()` is false for an empty handle, a freed block, and a copy whose slot was reused. Only a `Handle` stays valid across `Defragment()`. Copies of a handle are valid until the block is freed.
 
+A handle of another heap, or of a pool, is ignored by `Deallocate` and `IsPinned`. `Reallocate` copies its data into a new block of this heap and leaves the old block to its owner.
+
 ## Blocks
 
 Each block has a 12-byte header on a 32-bit target: the entry, the size, the free and pinned flags and the offset from the header to the data. The entry of a block holds the same offset, so `Deallocate` and `Reallocate` find the header from the handle without a walk over the blocks. The data of a movable block is 8-byte aligned. When a block moves, its data keeps its alignment because the offset is set again for the new position.
+
+Only the header lookup avoids the walk. Freeing a block walks the blocks from the start to find the block before it, because a block has no link to its predecessor. So `Deallocate` costs one step per block before the freed one, not a constant.
 
 Freed blocks merge with the free blocks next to them. Free space at the end of the used data returns to the unallocated tail.
 
@@ -149,14 +153,14 @@ Header layout, Cortex-M0+ (layout arithmetic, not measured on a target):
 - Option A, an 8-byte aligned header: 16 B of header per block, always.
 - Option B, the chosen layout: a 12-byte header, and the data starts at the next 8-byte boundary. The data offset is 12 B when the header is at 4 mod 8 and 16 B when it is at 0 mod 8, so the header costs 12 B or 16 B per block.
 
-Text of the linked image (`-std=c++23 -Os -ffunction-sections -fdata-sections -Wl,--gc-sections`, nano newlib). Each program uses a `Heap<>` over a 512-byte buffer, and only through the container:
+Text of the linked image, the `text` column of `arm-none-eabi-size`, which includes the read-only data. Link line: `arm-none-eabi-g++ -std=c++23 -fno-exceptions -fno-rtti -Os -ffunction-sections -fdata-sections -Wl,--gc-sections --specs=nano.specs --specs=nosys.specs`, with `-mcpu=cortex-m0plus -mthumb` for M0+ and `-mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard` for M4F, and `-DNDEBUG` for the `NDEBUG` columns. Each program is a `main` with a `Heap<>` over a 512-byte static buffer, used only through the container. A stub defines `System::IsInterrupt()` and `System::Abort()`.
 
 | Program | M0+ debug | M0+ `NDEBUG` | M4F debug | M4F `NDEBUG` |
 |---|---|---|---|---|
-| `Memory::Vector<int, Memory::Heap<>>`, 20 `PushBack` | 1904 B | 1896 B | 1804 B | 1796 B |
-| `Memory::String<Memory::Heap<>>`, two `Append` | 2232 B | 2224 B | 2148 B | 2140 B |
+| `Memory::Vector<int, Memory::Heap<>>`, 20 `PushBack` | 1956 B | 1928 B | 1864 B | 1836 B |
+| `Memory::String<Memory::Heap<>>`, `"hello"`, then one `Append(" world")` | 2269 B | 2237 B | 2181 B | 2153 B |
 
-The Vector program contains no instance of the aligned or pinned path.
+The Vector program contains no instance of the aligned or pinned path. The debug build adds the interrupt assertion and the magic word, which is the difference between the debug and `NDEBUG` columns.
 
 Placement of pinned blocks (prototype, host, 4096-byte arena, 50000 steps, 20 percent of the requests are pinned, two defragmentation steps per step; `Mean` is the mean over all steps):
 
