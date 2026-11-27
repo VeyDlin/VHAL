@@ -87,7 +87,7 @@ overrun). A ring smaller than 256 is a compile error.
 
 Each entry is 2 bytes (the byte and its frame flags), so the default ring costs 512 bytes of RAM per transport. A frame of 256 bytes
 needs 256 entries, and a single byte per entry cannot keep the flags. The transport object with the default ring is 572 B of bss on
-Cortex-M4. The `RtuTransport` row of `Common/Drivers/Interface/Modbus/.tool/size/size.sh` measures it (text 1122 B, data 4 B), and the
+Cortex-M4. The `RtuTransport` row of `Common/Drivers/Interface/Modbus/.test/size/size.cmake` measures it (text 1122 B, data 4 B), and the
 ring is 512 B of that.
 
 ## Interrupts

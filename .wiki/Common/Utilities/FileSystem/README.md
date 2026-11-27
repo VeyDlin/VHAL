@@ -92,4 +92,4 @@ Each rule is checked at compile time, and a violation is an error with its messa
 
 ## Tests
 
-`.tool/sim/TestFat12ImageBuilder.cpp` builds the volumes at compile time and parses them back with a reader written in the test, from the FAT specification rather than from the builder. It checks the BPB fields, the signature, both FAT copies, the 12-bit entries, the label and the file entries, and the cluster chains, including one that crosses a FAT sector boundary. The rules are checked by the builder-error snippets in `BuilderErrors/fat12_*.cpp`.
+`Common/Drivers/Interface/USB/.test/TestFat12ImageBuilder.cpp` (run by `./test.cmd USB`) builds the volumes at compile time and parses them back with a reader written in the test, from the FAT specification rather than from the builder. It checks the BPB fields, the signature, both FAT copies, the 12-bit entries, the label and the file entries, and the cluster chains, including one that crosses a FAT sector boundary. The rules are checked by the builder-error snippets in `BuilderErrors/fat12_*.cpp`.

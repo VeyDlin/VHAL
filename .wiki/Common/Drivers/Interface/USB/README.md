@@ -236,22 +236,22 @@ System::CriticalSection(false);
 
 ## Tests and Tools
 
-### Host tests: `.tool/sim`
+### Host tests: `.test`
 
 The simulator is a software controller that follows the adapter contract. A scripted host drives the core through it. The tests run on a PC. They need no board.
 
-Run them from the `.tool/sim` folder:
+Run them from the repository root:
 
 ```sh
-sh run.sh
+./test.cmd USB
 ```
 
-- Needs a g++ with C++23. The tests were run with g++ 15.2. Set `CXX` to use another compiler.
-- Works in Git Bash on Windows, and on Linux and macOS.
-- Each `Test*.cpp` is built with `-std=c++23 -Wall -Wextra -Werror` and run. The script exits non-zero when a test does not build or a check fails.
-- Build output goes to a temporary folder outside the repository.
+- Needs CMake 3.25 or newer and a g++ with C++23. The tests were run with g++ 15.2. Set `CXX` to use another compiler.
+- Works from cmd, PowerShell and Git Bash on Windows, and from a shell on Linux and macOS.
+- Each `Test*.cpp` is built with `-std=c++23 -Wall -Wextra -Werror` and run. The runner exits non-zero when a test does not build or a check fails.
+- Build output goes to `.test-build`, which is git-ignored.
 
-`run.sh` builds and runs the 60 test files (`Test*.cpp`), then runs the 91 builder error snippets in `.tool/sim/BuilderErrors/` through `BuilderErrors/check.sh`. Each snippet is a compile-error check with its expected message. The MS OS 2.0 check is covered on its [page](Descriptor/MsOs20/README.md).
+`./test.cmd USB -L host` builds and runs the 60 test files (`Test*.cpp`), and `./test.cmd USB -L fail` runs the 92 builder error snippets in `.test/BuilderErrors/`. Each snippet is a compile-error check with its expected message. The MS OS 2.0 check is covered on its [page](Descriptor/MsOs20/README.md).
 
 The tests cover:
 
@@ -319,7 +319,7 @@ The three host tools have a page each. Each tool folder has a short README that 
 
 | Tool | Page | What it does |
 |------|------|--------------|
-| sim | [.tool/sim](.tool/sim/README.md) | Host tests of the device stack on a software controller. No board |
+| test | [.test](.test/README.md) | Host tests of the device stack on a software controller. No board |
 | usbbench | [.tool/usbbench](.tool/usbbench/README.md) | Throughput and data check of the benchmark firmware, on libusb or WinUSB |
 | usbclasscheck | [.tool/usbclasscheck](.tool/usbclasscheck/README.md) | End-to-end class check of the demo boards. Runs on a real board and changes some state on the PC and the board |
 | overview | [.tool](.tool/README.md) | The three tools, their folders and the test identities they share |

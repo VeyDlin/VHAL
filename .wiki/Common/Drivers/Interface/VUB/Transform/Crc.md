@@ -47,7 +47,7 @@ the fingerprint, because it is part of the wire. The engine and the check value 
 ## Cost
 
 The table gives the flash and RAM of a chain with COBS framing over a stream link, and the CRC-16/MODBUS transform added to it. The
-costs are measured on Cortex-M4 and M0+ with [`size.sh`](../README#measured-configurations) (rows (b), (c) and (d)).
+costs are measured on Cortex-M4 and M0+ with [`Size.cmake`](../README#measured-configurations) (rows (b), (c) and (d)).
 
 | Added to COBS over a stream link | Text, M4 | Text, M0+ | RAM, M4 and M0+ |
 |---|---:|---:|---:|
@@ -60,7 +60,7 @@ no table. The RAM is the same for both: the transform holds no data, and the sta
 ## Snippet
 
 A packet link with two CRC chains: the default engine with high byte first, and the table engine. It is compiled and run by
-`.tool/sim/TestVubCrcWiki.cpp`.
+`.test/TestVubCrcWiki.cpp`.
 
 ```cpp
 #include <Drivers/Interface/VUB/LinkTraits.h>

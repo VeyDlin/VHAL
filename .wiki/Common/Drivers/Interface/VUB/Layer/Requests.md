@@ -11,7 +11,7 @@ payloads of the block below. A body is one packet: the layer does not carry larg
 ## Example
 
 The device serves two commands and sends its packets over a Reliable layer. The snippet is compiled by
-`.tool/sim/TestVubRequestsLayerWiki.cpp`.
+`.test/TestVubRequestsLayerWiki.cpp`.
 
 ```cpp
 #include <Drivers/Interface/VUB/Framing/Cobs.h>
@@ -893,7 +893,7 @@ The rules of the layer's stack, which the stack checks when it is built, have th
 
 Each size is measured with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203` (`-Os`, `--gc-sections`, nano specs). Text is flash, and RAM is data plus bss.
 
-The layer rows are measured by `.tool/size/size.sh`, row by row. Each row is the same chain without the layer (the row's baseline) and the same
+The layer rows are measured by `.test/size/Size.cmake`, row by row. Each row is the same chain without the layer (the row's baseline) and the same
 chain with the layer. The difference is in bytes. The chains are CRC-16/MODBUS over COBS over a stream link, the same without the CRC
 transform, and `VUB::ReliableOf<40, 4>` over the CRC and COBS.
 
@@ -976,7 +976,7 @@ The rows without a ping step are unchanged from the table in [Size](#size).
 
 ### Health
 
-The health rows are the marginal cost of the step next to the ping: `.tool/size/ConfigHealth.cpp` over `ReliableOf<40, 4>` on CRC-16/MODBUS
+The health rows are the marginal cost of the step next to the ping: `.test/size/ConfigHealth.cpp` over `ReliableOf<40, 4>` on CRC-16/MODBUS
 over COBS over a stream link. The program has a served command, the ping on both sides, and the counters of the stack (`Counted()` on the
 layer and on Reliable, `CountDrops()` and `HighWater()`) in both programs of each row. The base is that program, and the row adds the step
 named.
@@ -994,7 +994,7 @@ pings.
 
 ### Concurrent
 
-The concurrent rows are in `.tool/size/size.sh`, measured with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203` (`-Os`, nano specs) by `ConfigConcurrent.cpp`. The
+The concurrent rows are in `.test/size/Size.cmake`, measured with `arm-none-eabi-g++.exe (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203` (`-Os`, nano specs) by `ConfigConcurrent.cpp`. The
 program is CRC-16/MODBUS over COBS over the stream link of `SizeWire.h`, with the port's section (the nesting helper with PRIMASK) and the
 tick and RTOS handle of the port. The base of each row is the same program with no layer and no `Concurrent()`.
 
@@ -1033,4 +1033,4 @@ A part that is off has no storage: its member is an empty type.
 Tests: `TestVubRequestsWire.cpp` (the bytes), `TestVubRequestsRequester.cpp`, `TestVubRequestsResponder.cpp`, `TestVubRequestsPath.cpp`
 (chains, links and restarts), `TestVubRequestsEvents.cpp` (events and counters), `TestVubRequestsPing.cpp`, `TestVubRequestsHealth.cpp`,
 `TestVubRequestsCancel.cpp`, `TestVubRequestsConcurrent.cpp`, and `TestVubRequestsLayerWiki.cpp` (the examples above). Their command sets and
-helpers are in `.tool/sim/RequestsChains.h` and `.tool/sim/RequestsMotor.h`.
+helpers are in `.test/RequestsChains.h` and `.test/RequestsMotor.h`.

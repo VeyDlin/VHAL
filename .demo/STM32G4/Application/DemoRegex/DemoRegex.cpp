@@ -21,7 +21,7 @@ volatile uint32 regexStackUsed __attribute__((used)) = 0;
 
 namespace DemoRegex {
 // One fixture row: the pattern it names (0 is the status line, 1 the URL), the input and the expected results of Matches, Contains and
-// the groups of Find. The row list is generated, see Common/Utilities/Regex/.tool/sim/fixtures/WriteBoardFixtures.cpp.
+// the groups of Find. The row list is generated, see Common/Utilities/Regex/.test/fixtures/WriteBoardFixtures.cpp.
 struct BoardRow {
 	uint8 pattern;
 	const char* input;
@@ -32,7 +32,7 @@ struct BoardRow {
 };
 
 
-#include <Utilities/Regex/.tool/sim/fixtures/Board.inc>
+#include <Utilities/Regex/.test/fixtures/Board.inc>
 
 
 // The patterns of the board check. They are the fixture patterns, so the board and the host read the same text.

@@ -87,7 +87,7 @@ the application's packets wait:
 
 The times are template arguments of the layer, so they take no RAM: `sizeof` of `VUB::KeepAlive` is 12 bytes on the Cortex-M4.
 
-The size table of the [VUB page](../README#size) has two rows with the layer, measured by `size.sh` with the method stated there. Each is
+The size table of the [VUB page](../README#size) has two rows with the layer, measured by `Size.cmake` with the method stated there. Each is
 compared with the same chain without the layer:
 
 | Chain | Cortex-M4 text | Cortex-M4 RAM | Cortex-M0+ text | Cortex-M0+ RAM |
@@ -156,7 +156,7 @@ void BoardLoop() {
 }
 ```
 
-The tests are in `.tool/sim/TestVubKeepAlive.cpp`. They run the layer on the test kit's silent packet line, and on a line that reports its
+The tests are in `.test/TestVubKeepAlive.cpp`. They run the layer on the test kit's silent packet line, and on a line that reports its
 state, with the line taken down and up. The three outages are: the line down from the start, the line down after the peer was declared
 down, and the line down while the peer is up. Each checks that no two packets of the layer are closer than a quiet time on the wire, and
 that the peers recover.

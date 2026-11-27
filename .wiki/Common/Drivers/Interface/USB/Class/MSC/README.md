@@ -132,7 +132,7 @@ The cost of the polling: every idle `Process()` calls the block device's `IsPres
 
 ## Tests
 
-The host tests are in `.tool/sim` and run with `run.sh`. They use a BOT host model (`MscHost.h`) that runs the device's `Process()` on each NAK, the way a main loop would, and clears halts through the device core's `CLEAR_FEATURE`:
+The host tests are in `.test` and run with `./test.cmd USB`. They use a BOT host model (`MscHost.h`) that runs the device's `Process()` on each NAK, the way a main loop would, and clears halts through the device core's `CLEAR_FEATURE`:
 
 - `TestMscDescriptors.cpp`: the device and configuration bytes, the function layout and the assigned endpoint addresses, against bytes written out by hand.
 - `TestMscEnumeration.cpp`: the Windows, Linux and macOS enumeration orders, GET_MAX_LUN, a TEST UNIT READY loop for a medium inserted late, and the mounting reads (INQUIRY, READ CAPACITY, READ FORMAT CAPACITIES, MODE SENSE, READ(10) of block 0).

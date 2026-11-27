@@ -192,11 +192,11 @@ export class SimLink implements PacketLink {
 
 export const simTransport: TransportFactory = {
     name: "sim",
-    description: "Device simulator built from the bootloader sources (sim/build), CSP over its stdin and stdout",
+    description: "Device simulator built from the bootloader sources (.test/build), CSP over its stdin and stdout",
     options: [
         {
             name: "exe",
-            description: "simulator executable (default: sim/build/vboot-sim, vboot-sim.exe on Windows, in the tool folder)"
+            description: "simulator executable (default: .test/build/vboot-sim, vboot-sim.exe on Windows, in the module folder)"
         },
         {
             name: "args",
@@ -220,7 +220,7 @@ function defaultSimExePath(): string {
     const fileName: string = process.platform === "win32" ? "vboot-sim.exe" : "vboot-sim";
 
     // This file lives in <tool>/src/transport/sim
-    return join(import.meta.dirname, "..", "..", "..", "sim", "build", fileName);
+    return join(import.meta.dirname, "..", "..", "..", "..", ".test", "build", fileName);
 }
 
 

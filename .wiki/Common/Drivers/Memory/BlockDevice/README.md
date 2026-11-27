@@ -50,4 +50,4 @@ A flash or card driver implements `IBlockDevice` and keeps the rules above. The 
 
 ## Tests
 
-The RAM disk is tested through the mass storage tests in `.tool/sim` (`TestMscMedia.cpp`), which use a disk with a fault switch (`FaultyDisk`) that fails the access to a chosen block. The FAT12 image that the disk mounts is checked by `TestFat12ImageBuilder.cpp`.
+The RAM disk is tested through the mass storage tests in `Common/Drivers/Interface/USB/.test` (`TestMscMedia.cpp`, run by `./test.cmd USB`), which use a disk with a fault switch (`FaultyDisk`) that fails the access to a chosen block. The FAT12 image that the disk mounts is checked by `TestFat12ImageBuilder.cpp`.
