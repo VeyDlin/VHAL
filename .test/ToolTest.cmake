@@ -1,6 +1,8 @@
-# Runs the tests of a counterpart tool of a module's .tool folder. The input is VHAL_TOOL_DIR. The tool kind is found from its files:
+# Runs the tests of a counterpart tool of a module's .tool folder. The inputs are VHAL_TOOL_DIR and, optionally, VHAL_TOOL_PREPARE. The
+# tool kind is found from its files:
 #
-# - a package.json: npm test, skipped when npm is absent. The script never runs npm ci or any download.
+# - a package.json: npm test, skipped when npm is absent. The script never runs npm ci or any download. When VHAL_TOOL_PREPARE names
+#   an npm script, that script runs first, when a g++ is on the PATH (the tests of a device simulator need it).
 # - a project or solution file: dotnet test, skipped when dotnet is absent.
 # - a CMakeLists.txt: the tool is configured and built in .test-build/tools/<folder path>, with the generator and the host compiler
 #   of the main build (read from its cache). The tool is built with VHAL_TOOL_TEST set to ON, so that it never downloads a library
@@ -17,6 +19,21 @@ if(EXISTS "${VHAL_TOOL_DIR}/package.json")
   if(NOT vhalNpm)
     message("VHAL_SKIP: npm is not on the PATH: the tests of ${VHAL_TOOL_DIR} were not run")
     return()
+  endif()
+
+  # The npm script that prepares the tests (a device simulator, for one) runs when a g++ is on the PATH, because the simulator is built
+  # with it. Without one the tests that need the simulator skip themselves, and the other tests run.
+  if(VHAL_TOOL_PREPARE)
+    find_program(vhalGxx NAMES g++ g++.exe)
+    if(vhalGxx)
+      execute_process(
+        COMMAND "${vhalNpm}" run "${VHAL_TOOL_PREPARE}"
+        WORKING_DIRECTORY "${VHAL_TOOL_DIR}"
+        RESULT_VARIABLE prepareResult)
+      if(NOT prepareResult EQUAL 0)
+        message(FATAL_ERROR "npm run ${VHAL_TOOL_PREPARE} failed in ${VHAL_TOOL_DIR} (${prepareResult})")
+      endif()
+    endif()
   endif()
 
   execute_process(
@@ -94,6 +111,16 @@ if(EXISTS "${VHAL_TOOL_DIR}/CMakeLists.txt")
   if(NOT buildResult EQUAL 0)
     message("${buildOut}${buildErr}")
     message(FATAL_ERROR "The build of ${VHAL_TOOL_DIR} failed (${buildResult})")
+  endif()
+
+  # The tool's own CTest tests run here: the offline set, which the tool's CMakeLists registers (a test that needs a device is not
+  # registered there).
+  execute_process(
+    COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure
+    WORKING_DIRECTORY "${vhalToolBuild}"
+    RESULT_VARIABLE ctestResult)
+  if(NOT ctestResult EQUAL 0)
+    message(FATAL_ERROR "The tests of ${VHAL_TOOL_DIR} failed (${ctestResult})")
   endif()
   return()
 endif()
