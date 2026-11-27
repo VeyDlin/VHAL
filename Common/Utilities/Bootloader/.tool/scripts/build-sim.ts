@@ -21,6 +21,8 @@ const compilerArgs: string[] = [
     path.join(simDir, "shim"),
     "-I",
     path.join(vhalDir, "Common"),
+    "-I",
+    path.join(vhalDir, "Periphery"),
     path.join(simDir, "main.cpp"),
     path.join(vhalDir, "Common", "Utilities", "Crypto", "AES", "AES.cpp"),
     "-o",

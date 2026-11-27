@@ -385,7 +385,7 @@ static int RunBootloader(Bootloader& bootloader, StdioCommunication& comm) {
     while (true) {
         bootloader.Process();
 
-        if (System::resetRequested) {
+        if (VbootSim::resetRequested) {
             ExitSimulator("RESET");
         }
 

@@ -1,54 +1,61 @@
 #pragma once
-// Desktop stand-in for VHAL.h: the platform pieces the bootloader needs (System, an in-memory NOR flash as AFLASH).
-// The bootloader and the streaming protocol compiled with it are the real VHAL sources.
+// Simulator stand-in for VHAL.h: the platform pieces the bootloader needs (the System functions, an in-memory NOR flash as AFLASH).
+// The real System declaration is kept, so the headers that include System/System.h compile unchanged, and the functions the
+// bootloader reaches are defined here. The bootloader and the streaming protocol compiled with it are the real VHAL sources.
+#include <System/System.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <algorithm>
 #include <chrono>
+#include <cinttypes>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
 
 
-struct System {
-    static inline const std::chrono::steady_clock::time_point startTime = std::chrono::steady_clock::now();
-    static inline bool resetRequested = false;
+namespace VbootSim {
 
 
-    static void CriticalSection(bool isEnable) {
-        (void)isEnable;
-    }
+// The clock starts when the simulator starts, and the simulator main loop performs the reset (writes the flash image, exits)
+// once the bootloader requested it.
+inline const std::chrono::steady_clock::time_point startTime = std::chrono::steady_clock::now();
+inline bool resetRequested = false;
 
 
-    static uint64 GetMs() {
-        std::chrono::steady_clock::duration elapsed = std::chrono::steady_clock::now() - startTime;
-        return static_cast<uint64>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
-    }
+}
 
 
-    static uint64 GetTick() {
-        return GetMs();
-    }
+inline void System::CriticalSection(bool isEnable) {
+	(void)isEnable;
+}
 
 
-    // The simulator main loop performs the reset (writes the flash image, exits) once the bootloader requested it
-    static void Reset() {
-        resetRequested = true;
-    }
+inline uint64 System::GetMs() {
+	std::chrono::steady_clock::duration elapsed = std::chrono::steady_clock::now() - VbootSim::startTime;
+	return static_cast<uint64>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
+}
 
 
-    static void Abort() {
-        std::fputs("vboot-sim: System::Abort\n", stderr);
-        std::abort();
-    }
-};
+inline uint64 System::GetTick() {
+	return GetMs();
+}
 
 
-#define SystemAssert(condition, ...) \
-    if (!(condition)) { \
-        System::Abort(); \
-    }
+inline void System::Reset() {
+	VbootSim::resetRequested = true;
+}
+
+
+inline void System::Abort(const char* message, const char* file, uint32 line) {
+	std::fprintf(stderr, "vboot-sim: System::Abort: %s (%s:%" PRIu32 ")\n", message != nullptr ? message : "no message", file != nullptr ? file : "?", line);
+	std::abort();
+}
+
+
+inline void System::CriticalError(const char* message, const char* file, uint32 line) {
+	System::Abort(message, file, line);
+}
 
 
 // NOR flash region: programming can only clear bits (cell &= value), an erase sets the bytes to 0xFF.
