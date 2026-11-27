@@ -128,7 +128,9 @@ function(vhal_size script)
 endfunction()
 
 
-# One scripted check. The script is run with cmake -P; the test name carries the arguments when there are some.
+# One scripted check. The script is run with cmake -P; the test name carries the arguments when there are some. The script gets the
+# host compiler as VHAL_CXX and the ARM compiler as VHAL_ARM_CXX (a name or a path, which the script checks before it uses it, as
+# VhalSize.cmake does); a script that cannot run prints the VHAL_SKIP: marker with its reason, and the test is reported as skipped.
 function(vhal_check script)
   cmake_parse_arguments(PARSE_ARGV 1 vhalArg "" "" "ARGS")
 
@@ -146,11 +148,12 @@ function(vhal_check script)
     NAME "${testName}"
     COMMAND "${CMAKE_COMMAND}"
       "-DVHAL_CXX=${CMAKE_CXX_COMPILER}"
+      "-DVHAL_ARM_CXX=${VHAL_ARM_CXX}"
       "-DVHAL_ROOT=${VHAL_ROOT}"
       "-DVHAL_WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/check-${stem}${suffix}"
       -P "${scriptPath}" --
       ${vhalArg_ARGS})
-  set_tests_properties("${testName}" PROPERTIES LABELS "${VHAL_MODULE_LABEL};check")
+  set_tests_properties("${testName}" PROPERTIES LABELS "${VHAL_MODULE_LABEL};check" SKIP_REGULAR_EXPRESSION "VHAL_SKIP:")
 endfunction()
 
 
