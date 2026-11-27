@@ -383,12 +383,11 @@ Not taken, and why:
 
 ## Tests
 
-`tools/vhal-host-tests/websocket/run.sh` builds and runs three suites, plain and under ASan and UBSan:
+`./test.cmd WebSocket` builds and runs the two host tests of the `.test` folder, with the SHA-1 vectors in `Crypto/SHA/.test/TestSha1.cpp`:
 
-- `sha1_tests.cpp`: SHA-1 vectors and the RFC 6455 accept example.
-- `frame_tests.cpp`: byte-exact frames against a scripted socket (`scripted_socket.h`). Covers the handshake, masks, lengths 0 to 65536, fragments, control frames, close handshake, every protocol error listed above, send-side fragmentation and a defragmenting `Heap`.
-- `live_tests.cpp`: the client over real TCP (`posix_socket.h`) against `ws_server.py`, which uses the `websockets` library as the reference peer. Covers echo, the server's ping, server close codes, fragments both ways, 401 and 403 bodies, the authorization header, subprotocols, the 64 KiB limit, a paced stream with polling, defragmentation between messages, and `Poll(0)` returning within 50 ms on a quiet connection.
+- `TestFrame.cpp`: byte-exact frames against a scripted socket (`ScriptedSocket.h`). Covers the handshake, masks, lengths 0 to 65536, fragments, control frames, close handshake, every protocol error listed above, send-side fragmentation and a defragmenting `Heap`.
+- `TestLive.cpp`: the client over real TCP (`PosixSocketAdapter.h`) against `ws_server.py`, which uses the `websockets` library as the reference peer. The test starts the server and ends it when it finishes. Covers echo, the server's ping, server close codes, fragments both ways, 401 and 403 bodies, the authorization header, subprotocols, the 64 KiB limit, a paced stream with polling, defragmentation between messages, and `Poll(0)` returning within 50 ms on a quiet connection.
+
+`TestLive` prints `VHAL_SKIP:` and is reported as skipped when Python 3, the `websockets` package or the POSIX socket headers are missing.
 
 The scripted suite also covers the timeouts: the connect timeout reaches `Open()` while reads use the handshake's remaining time, `Poll(0)` reads with a zero I/O timeout, a frame split across short polls is reassembled, and 400, 404, 429 and 500 answers keep their status and body as `connectionRefused`.
-
-Compile check on the ESP32 port: `tools/vhal-harness/main/checks/CheckWebSocket.cpp`, run by `idf.py build` (see `tools/vhal-harness/README.md`).
