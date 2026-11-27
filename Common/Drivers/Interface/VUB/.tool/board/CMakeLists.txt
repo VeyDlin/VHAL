@@ -52,3 +52,26 @@ if(WIN32)
     # One executable with no DLLs of the toolchain beside it. winmm gives the 1 ms timer period of the run.
     target_link_options(vubcheck PRIVATE -static)
 endif()
+
+# The offline tests: the number parser, and the host loopback of the PC side against the demo's device side. The loopback runs on
+# an in-memory line and needs no device.
+set(VUBCHECK_DEMO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../.demo/STM32G4/Application")
+
+find_package(Threads REQUIRED)
+
+enable_testing()
+
+add_executable(vubcheckDecimalArgumentTest test/TestDecimalArgument.cpp)
+target_compile_options(vubcheckDecimalArgumentTest PRIVATE -Wall -Wextra)
+add_test(NAME vubcheckDecimalArgument COMMAND vubcheckDecimalArgumentTest)
+
+add_executable(vubcheckLoopbackTest test/TestVubBoardLoopback.cpp)
+target_include_directories(vubcheckLoopbackTest PRIVATE ${VUBCHECK_COMMON_DIR} ${VUBCHECK_PERIPHERY_DIR} "${VUBCHECK_DEMO_DIR}")
+target_compile_options(vubcheckLoopbackTest PRIVATE -Wall -Wextra)
+target_link_libraries(vubcheckLoopbackTest PRIVATE Threads::Threads)
+if(WIN32)
+    target_link_libraries(vubcheckLoopbackTest PRIVATE winmm)
+endif()
+
+add_test(NAME vubcheckLoopbackEcho COMMAND vubcheckLoopbackTest echo 0 1 2 3)
+add_test(NAME vubcheckLoopbackRequests COMMAND vubcheckLoopbackTest requests 0 1 2 3)
