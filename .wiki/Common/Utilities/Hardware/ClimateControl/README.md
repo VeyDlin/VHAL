@@ -4,7 +4,7 @@ A temperature control library providing bang-bang (on/off) and PID-based climate
 
 ## Number types
 
-Both controls take `template <RealType Type = float>`: `float` or `IQ<Q>`. Host tests (`.tool/sim/TestClimateControl.cpp`) run the
+Both controls take `template <RealType Type = float>`: `float` or `IQ<Q>`. Host tests (`.test/TestClimateControl.cpp`) run the
 switch and the PID with `float`, `IQ<16>`, `IQ<20>` and `IQ<24>` on scripted temperatures: the switch commands and the hold events match
 the hand values for all three. The temperature and the hold must fit the type's range: `IQ<24>` holds magnitudes below 128,
 so a temperature above 128 degrees needs `IQ<23>` or less, or `float`. The range is not checked at run time: a larger value
