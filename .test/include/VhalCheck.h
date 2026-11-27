@@ -58,22 +58,17 @@ template<typename T>
 inline void PrintValue(std::FILE* stream, const T& value) {
 	if constexpr (std::is_same_v<T, bool>) {
 		std::fputs(value ? "true" : "false", stream);
-	}
-	else if constexpr (std::is_enum_v<T>) {
+	} else if constexpr (std::is_enum_v<T>) {
 		PrintValue(stream, std::to_underlying(value));
-	}
-	else if constexpr (std::is_integral_v<T>) {
+	} else if constexpr (std::is_integral_v<T>) {
 		if constexpr (std::is_signed_v<T>) {
 			std::fprintf(stream, "%lld", static_cast<long long>(value));
-		}
-		else {
+		} else {
 			std::fprintf(stream, "%llu", static_cast<unsigned long long>(value));
 		}
-	}
-	else if constexpr (std::is_floating_point_v<T>) {
+	} else if constexpr (std::is_floating_point_v<T>) {
 		std::fprintf(stream, "%.9g", static_cast<double>(value));
-	}
-	else {
+	} else {
 		std::string_view text(value);
 		std::fprintf(stream, "\"%.*s\"", static_cast<int>(text.size()), text.data());
 	}
@@ -86,11 +81,9 @@ template<typename T>
 constexpr auto IntegerValue(const T& value) {
 	if constexpr (std::is_enum_v<T>) {
 		return IntegerValue(std::to_underlying(value));
-	}
-	else if constexpr (std::is_signed_v<T>) {
+	} else if constexpr (std::is_signed_v<T>) {
 		return static_cast<long long>(value);
-	}
-	else {
+	} else {
 		return static_cast<unsigned long long>(value);
 	}
 }
@@ -124,22 +117,17 @@ inline void ExpectEqual(
 		static_assert(
 			!std::is_floating_point_v<Actual> && !std::is_floating_point_v<Expected>,
 			"VHAL_CHECK_EQ does not compare floating-point values: use VHAL_CHECK_NEAR");
-	}
-	else if constexpr (Pointer<Actual> || Pointer<Expected>) {
+	} else if constexpr (Pointer<Actual> || Pointer<Expected>) {
 		static_assert(
 			!Pointer<Actual> && !Pointer<Expected>,
 			"VHAL_CHECK_EQ does not compare pointers: use VHAL_CHECK");
-	}
-	else if constexpr (Text<Actual> && Text<Expected>) {
+	} else if constexpr (Text<Actual> && Text<Expected>) {
 		passed = std::string_view(actual) == std::string_view(expected);
-	}
-	else if constexpr (std::is_same_v<Actual, bool> && std::is_same_v<Expected, bool>) {
+	} else if constexpr (std::is_same_v<Actual, bool> && std::is_same_v<Expected, bool>) {
 		passed = actual == expected;
-	}
-	else if constexpr (IntegerLike<Actual> && IntegerLike<Expected>) {
+	} else if constexpr (IntegerLike<Actual> && IntegerLike<Expected>) {
 		passed = std::cmp_equal(IntegerValue(actual), IntegerValue(expected));
-	}
-	else {
+	} else {
 		static_assert(
 			sizeof(Actual) == 0,
 			"VHAL_CHECK_EQ compares two integers, two enums, two bools or two texts: use VHAL_CHECK for other types");
