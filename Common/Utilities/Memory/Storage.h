@@ -45,7 +45,8 @@ struct Inside {
 // The elements are a pinned block of the heap, which is a static object with a Memory::Heap type. The block is taken when the
 // container is constructed and released when it is destroyed. A pinned block does not move, so an interrupt or DMA may use it.
 //
-// The heap must be constructed before the container. A static container in another translation unit may be constructed first,
+// The heap must be constructed before the container and destroyed after it, because the destructor gives the block back to the
+// heap. A static container in another translation unit may be constructed first,
 // so a debug build asserts that the heap is constructed. A container is therefore a function-local static, or is created after
 // the heap is initialised in main.
 template <auto& heap>

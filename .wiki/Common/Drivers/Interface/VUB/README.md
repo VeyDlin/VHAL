@@ -1454,7 +1454,7 @@ using Link = VUB::Stack<+[] {
 ```
 
 The policies are those of `Memory`: `Memory::Inside` keeps the elements in the stack object, and `Memory::FromHeap<heap>` takes a pinned
-block of the heap when the stack is built and gives it back when the stack is destroyed. The heap must be constructed before the stack.
+block of the heap when the stack is built and gives it back when the stack is destroyed. The heap must be constructed before the stack and destroyed after it.
 A chain without the step is `Memory::Inside`. A chain takes one memory step; a second one is a compile error ("one memory step per
 stack"). A policy whose storage takes its memory as an argument, such as `Memory::External`, is a compile error too: the stack builds its
 storage with no arguments.

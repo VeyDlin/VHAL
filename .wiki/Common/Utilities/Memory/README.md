@@ -131,7 +131,7 @@ void Fill() {
 ```
 
 Rules for `FromHeap`:
-- The heap is a static object with external linkage. The heap object is constructed before a `FromHeap` storage is built. A debug build asserts this, through the magic word that the heap sets in its constructor. A static storage in another translation unit may be constructed before the heap, so such a container is a function-local static, or it is created after the heap is initialised in `main`.
+- The heap is a static object with external linkage. The heap object is constructed before a `FromHeap` storage is built and is destroyed after it, because the storage gives its block back to the heap in its destructor. A debug build asserts this, through the magic word that the heap sets in its constructor. A static storage in another translation unit may be constructed before the heap, so such a container is a function-local static, or it is created after the heap is initialised in `main`.
 - A pinned block is aligned to `alignof(ElementType)` or more. `Data()` stays valid until the storage is destroyed. An interrupt or a DMA may keep the pointer.
 - `Reallocate` and `Deallocate` refuse a pinned block, and only `ReleasePinned` frees it.
 - A `FromHeap` storage cannot be copied, only moved. A move takes the block: the target holds it, and the source keeps no block and is not ready. A container that moves its storage must reset its own state too, as `RingBuffer` does.
