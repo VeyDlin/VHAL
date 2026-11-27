@@ -61,10 +61,26 @@ struct FromHeap {
 		Storage& operator=(const Storage&) = delete;
 
 
-		~Storage() {
-			if (items != nullptr) {
-				heap.ReleasePinned(items);
+		// A move takes the block: the source keeps no block and is not ready.
+		Storage(Storage&& other) noexcept
+			: items(other.items) {
+			other.items = nullptr;
+		}
+
+
+		Storage& operator=(Storage&& other) noexcept {
+			if (this != &other) {
+				Release();
+				items = other.items;
+				other.items = nullptr;
 			}
+
+			return *this;
+		}
+
+
+		~Storage() {
+			Release();
 		}
 
 
@@ -90,6 +106,14 @@ struct FromHeap {
 		static ElementType* Allocate() {
 			SystemAssert(heap.IsConstructed(), "a FromHeap container is built before its heap");
 			return static_cast<ElementType*>(heap.AllocatePinned(sizeof(ElementType) * Capacity, alignof(ElementType)));
+		}
+
+
+		void Release() {
+			if (items != nullptr) {
+				heap.ReleasePinned(items);
+				items = nullptr;
+			}
 		}
 	};
 };
