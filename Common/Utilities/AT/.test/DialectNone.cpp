@@ -1,5 +1,5 @@
 // The server of a set with no dialect item: no echo, verbose, quiet, register or CME code. It is compiled for the target with -Os and
-// compared with DialectAll.cpp, the same commands with every dialect item, by run.sh. The difference is the dialect's code alone.
+// compared with DialectAll.cpp, the same commands with every dialect item, by size/Dialect.cmake. The difference is the dialect's code alone.
 #include <Utilities/AT/AtServer.h>
 
 struct SizeApp {

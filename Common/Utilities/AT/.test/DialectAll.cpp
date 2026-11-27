@@ -1,5 +1,5 @@
 // The server of a set with every dialect item: ATE, ATV, ATQ, ATS3 and ATS4, AT+CMEE, and CME text. The commands and the serving code
-// are those of DialectNone.cpp, so run.sh can read the flash cost of the dialect from the difference of the two objects.
+// are those of DialectNone.cpp, so the size/Dialect.cmake measurement reads the flash cost of the dialect from the difference of the two objects.
 #include <Utilities/AT/AtServer.h>
 
 struct SizeApp {

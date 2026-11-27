@@ -89,7 +89,7 @@ The client reads both forms, so a `+CME ERROR:` line gives the same status which
 
 ## Costs
 
-The sizes below are the server of a five-command set with every dialect option, and the same set with no dialect option. They are `arm-none-eabi-size` on the `-Os` objects for Cortex-M4, from the `run.sh` script.
+The sizes below are the server of a five-command set with every dialect option, and the same set with no dialect option. They are `arm-none-eabi-size` on the `-Os` objects for Cortex-M4, from `.test/size/Dialect.cmake`.
 
 | Object | text | data | bss |
 |---|---|---|---|

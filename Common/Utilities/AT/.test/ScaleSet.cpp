@@ -1,5 +1,5 @@
 // The scale set: about 20 ESP-AT-like commands with test, read, write and run forms, two basic commands, options and URCs. It is
-// compiled by run.sh with the host g++ and with the target compiler (arm-none-eabi-g++, -fsyntax-only), to check the compile time and
+// compiled by CheckHost.cmake with the host g++ and by CheckTarget.cmake with the target compiler (arm-none-eabi-g++, -fsyntax-only), to check the compile time and
 // the size of the description at the scale of the first ESP-AT description. It is not a test: the tests are the Test*.cpp files.
 #include <Utilities/AT/AtCommandSet.h>
 #include <Utilities/AT/Modules/AtDataMode.h>
