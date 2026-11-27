@@ -82,7 +82,7 @@ slave, and a frame with a bad CRC, get no reply.
 
 ## Sizes
 
-The numbers are the output of `Common/Drivers/Interface/Modbus/.tool/size/size.sh`, one probe per row (the `.cpp` files in that folder).
+The numbers are the output of `Common/Drivers/Interface/Modbus/.test/size/size.cmake`, one probe per row (the `.cpp` files in that folder).
 The script builds each probe with `arm-none-eabi-g++` 15.2 for a Cortex-M4, `-std=gnu++23 -mcpu=cortex-m4 -mthumb -fno-rtti
 -fno-exceptions -Os`, and prints the sections `arm-none-eabi-size` reads. The probe transport is declared and not defined, and each
 probe is an object file, so no UART and no link are in the numbers. The text column includes the 512-byte CRC table once. The data column

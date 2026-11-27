@@ -2,7 +2,7 @@
 #include <cstdio>
 
 
-// Counts the failed checks of a test. main returns the count's result, so a failing check fails run.sh.
+// Counts the failed checks of a test. main returns the count's result, so a failing check fails its test.
 inline int simFailures = 0;
 
 

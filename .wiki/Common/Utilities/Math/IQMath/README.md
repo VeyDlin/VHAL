@@ -169,7 +169,7 @@ The rules for a `float` in IQ code:
 - A float or double constant converts when the program compiles. It goes on the right of an operator (`x * 2.7f`), never on the left.
 - A run-time float converts with `IQ<Q>::FromFloat(value)`. `RealFrom<T>(value)` takes a float for an IQ `T`, and a double only for a float `T`.
 
-The object check, `Common/Utilities/Math/IQMath/.tool/sim/ObjectCheck.sh`, builds the samples in `.tool/sim/ObjectCheck/` for Cortex-M0+ with `-Os`. The samples are IQ add, multiply, divide, sqrt, sin, exp, an `Animation` step and a `LowPassFilter` step, all in `IQ<16>`. The check fails when an object references a soft-float or soft-double helper (`__aeabi_f*` or `__aeabi_d*`). `run.sh` runs it. The control sample `control_float.cpp` multiplies two run-time floats and must reference `__aeabi_fmul`; if it does not, the check cannot see soft float and fails.
+The object check, `Common/Utilities/Math/IQMath/.test/ObjectCheck.cmake`, builds the samples in `.test/ObjectCheck/` for Cortex-M0+ with `-Os`. The samples are IQ add, multiply, divide, sqrt, sin, exp, an `Animation` step and a `LowPassFilter` step, all in `IQ<16>`. The check fails when an object references a soft-float or soft-double helper (`__aeabi_f*` or `__aeabi_d*`). `./test.cmd IQMath` runs it, and it is skipped when the ARM compiler is absent. The control sample `control_float.cpp` multiplies two run-time floats and must reference `__aeabi_fmul`; if it does not, the check cannot see soft float and fails.
 
 The double tokens in `IQTrig.h` (`TaylorSin`, the sine table, `twoPiValue` and `RadiansToPhase`) are evaluated by the compiler. The sine table is placed in flash as `int32` data (1028 bytes for `LutSize` 256), and no function that takes a double is emitted in the sine object. A run-time call to `RadiansToPhase` would reference the soft-double helpers, so pass a constant angle to it.
 
@@ -207,7 +207,7 @@ The worst errors come from the phase conversion and the rounding. The bound at Q
 
 The 1 LSB target holds up to Q24. Above it the error grows, because the phase unit is `2 pi / 2^32` rad: the radians path reaches about 1.07 LSB at Q27, 1.43 at Q28 and 3.14 at Q30 (worst of 20 million random raw values), and phases reach about 2.5 LSB at Q30.
 
-The test `.tool/sim/TestTrig.cpp` uses coarser steps than the table: step 1009 over the int32 range at Q16, step 7 at Q20 and step 97 at Q24 over [-4 pi, 4 pi]. Each of its bounds is the worst error of its sweep plus 0.02 LSB, rounded up to 0.01, except the Q24 [-4 pi, 4 pi] bound, which is the exhaustive run in the table plus the same margin.
+The test `.test/TestTrig.cpp` uses coarser steps than the table: step 1009 over the int32 range at Q16, step 7 at Q20 and step 97 at Q24 over [-4 pi, 4 pi]. Each of its bounds is the worst error of its sweep plus 0.02 LSB, rounded up to 0.01, except the Q24 [-4 pi, 4 pi] bound, which is the exhaustive run in the table plus the same margin.
 
 **Cost.** On a Cortex-M4 at `-O2`, with `-mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16`, `SinPhase<24>` is 36 instructions and `sin(iq24)` is 44, both with no call. On a Cortex-M0+ the 64-bit products become `__aeabi_lmul`: `SinPhase<24>` is 95 instructions with 7 calls, and `sin(iq24)` is 106 with 8. The sine path calls no `__aeabi_ldivmod`; IQ division (`DivideRaw`) does, because it divides 64-bit values, and on a Cortex-M0+ that is a library call. The table is 1 KB of flash for `LutSize` 256.
 
@@ -285,7 +285,7 @@ Measured against `std::exp` and `std::expm1` in double. For each Q, every raw va
 | 28 | 1.70 | 1.70 | 0.85 |
 | 30 | 1.58 | 3.28 | 1.58 |
 
-The test `.tool/sim/TestExp.cpp` sets each bound to the worst error above plus 0.25 LSB, rounded up to 0.01. The bounds are 1.37, 1.71, 2.06, 2.40, 2.17, 1.96 and 3.54 LSB for exp and expm1 over the whole range, and 0.75, 0.75, 0.76, 0.76, 0.78, 1.11 and 1.83 LSB for expm1 with `|x| < 0.5`, for Q8, Q12, Q16, Q20, Q24, Q28 and Q30. The test runs Q8, Q12, Q16 and Q20 on every raw value. It samples Q24, Q28 and Q30 with steps 64, 512 and 640 to keep the test fast, so it finds an error above a bound only when a sampled value reaches it. The errors include the final rounding to Q bits (up to 0.5 LSB). The error grows with the value, because the series keeps 30 fraction bits and `2^k` scales its error. At Q30, expm1 is worst at x = 1.04, where the result is 2 times the series.
+The test `.test/TestExp.cpp` sets each bound to the worst error above plus 0.25 LSB, rounded up to 0.01. The bounds are 1.37, 1.71, 2.06, 2.40, 2.17, 1.96 and 3.54 LSB for exp and expm1 over the whole range, and 0.75, 0.75, 0.76, 0.76, 0.78, 1.11 and 1.83 LSB for expm1 with `|x| < 0.5`, for Q8, Q12, Q16, Q20, Q24, Q28 and Q30. The test runs Q8, Q12, Q16 and Q20 on every raw value. It samples Q24, Q28 and Q30 with steps 64, 512 and 640 to keep the test fast, so it finds an error above a bound only when a sampled value reaches it. The errors include the final rounding to Q bits (up to 0.5 LSB). The error grows with the value, because the series keeps 30 fraction bits and `2^k` scales its error. At Q30, expm1 is worst at x = 1.04, where the result is 2 times the series.
 
 ### abs / fabs / min / max / clamp / floor / ceil / round / copysign
 
