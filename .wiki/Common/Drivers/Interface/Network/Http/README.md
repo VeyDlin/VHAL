@@ -257,7 +257,7 @@ Read in this pass: the parsing section.
 
 ### llhttp (nodejs/llhttp)
 
-Not read in full in this pass: the fetch tool returned the repository page and not its `test/` suites. The categories named in its README are used as the checklist: chunk extensions, obs-fold, conflicting `Content-Length`, `Transfer-Encoding` with `Content-Length`, and leading CRLF. Their individual test cases should be checked against the host tests before the next revision of this page.
+The categories named in llhttp's README are the checklist, and the host tests cover each one: chunk extensions (`http-chunked-every-split`, `integ-chunked-extensions-and-trailers`), obs-fold (`http-obs-fold-refused`), conflicting `Content-Length` (`http-length-conflict-refused`), `Transfer-Encoding` with `Content-Length` (`http-length-and-chunked-refused`), and leading CRLF (`http-status-line-variants`). The cases are in `Common/Drivers/Interface/Network/Http/.test/TestHttpUnit.cpp` and `TestHttpIntegration.cpp`, run with `./test.cmd Http`.
 
 ### ESP-IDF `esp_http_client`
 
