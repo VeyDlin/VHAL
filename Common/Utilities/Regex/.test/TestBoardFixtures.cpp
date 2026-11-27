@@ -20,7 +20,7 @@ struct BoardRow {
 };
 
 
-#include <Utilities/Regex/.tool/sim/fixtures/Board.inc>
+#include <Utilities/Regex/.test/fixtures/Board.inc>
 
 
 using StatusLine = Regex<+[] {

@@ -146,7 +146,7 @@ void RunPattern(int index, const char* pattern, int mode) {
 	}>(index, pattern, skip);
 
 
-// run.sh sets REGEX_CASES_FILE to the part of the list that this translation unit holds.
+// CheckGenerated.cmake sets REGEX_CASES_FILE to the part of the list that this translation unit holds.
 #ifndef REGEX_CASES_FILE
 #define REGEX_CASES_FILE "GeneratedCases.inc"
 #endif

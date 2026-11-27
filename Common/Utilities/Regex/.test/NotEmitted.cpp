@@ -3,7 +3,7 @@
 #include <Utilities/Result/ResultStatus.h>
 
 
-// The file that CheckNotEmitted.sh compiles to an object. Without REGEX_USE_FIND it calls Matches only, so the captures loop must not be in
+// The file that CheckNotEmitted.cmake compiles to an object. Without REGEX_USE_FIND it calls Matches only, so the captures loop must not be in
 // the object. With REGEX_USE_FIND it calls Find, and the captures loop must be in the object: that proves the check can see the symbol.
 
 

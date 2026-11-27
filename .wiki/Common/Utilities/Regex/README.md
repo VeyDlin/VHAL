@@ -69,7 +69,7 @@ bool IsStatusLine(std::string_view line) {
 - **Results.** `Matches` and `Contains` return `bool`. `Find` returns `Result<Captures>` with `noMatches`, `invalidParameter` (the start offset is past the end) or `outOfRange` (the input is over 65534 bytes, see Regex.md).
 - **Semantics.** Leftmost-first, as ECMAScript and `std::regex_search`: `a|ab` finds `a` in `ab`. `Matches` asks for the whole input, as `std::regex_match` does.
 - **Pattern errors** are compile errors only. There is no run-time pattern error, and patterns are never read at run time.
-- **Captures are opt-in.** The capture loop is emitted only when `Find` is called. A program that calls only `Matches` and `Contains` has no capture code (checked by `CheckNotEmitted.sh`).
+- **Captures are opt-in.** The capture loop is emitted only when `Find` is called. A program that calls only `Matches` and `Contains` has no capture code (checked by `CheckNotEmitted.cmake`).
 - **Not in version 1.** Backreferences, lookaround, named groups, inline flags, word boundaries, multiline mode, Unicode, and matching input in pieces.
 
 ---
@@ -143,6 +143,6 @@ The host tests compare the matcher with `std::regex` (ECMAScript). These differ:
 
 ## Tests
 
-`Common/Utilities/Regex/.tool/sim/run.sh` runs the host checks: the syntax table, the generated patterns compared with `std::regex`, the linear-time ratio, the no-heap run, the stack formulas, the edge cases, the compile-time error snippets, the wiki snippets, and the board fixtures. When `arm-none-eabi-g++` is on the PATH it also runs the frame check (`CheckFrames.sh`), which compiles one caller of six calls for the Cortex-M4 and checks the frame sizes from `-fstack-usage`. The board fixtures (`fixtures/Board.inc`) are written from `std::regex` by `fixtures/WriteBoardFixtures.cpp`.
+`Common/Utilities/Regex/.test` holds the host checks, run by `./test.cmd Regex`: the syntax table, the generated patterns compared with `std::regex`, the linear-time ratio, the no-heap run, the stack formulas, the edge cases, the compile-time error snippets, the wiki snippets, and the board fixtures. The sanitizer runs are skipped when the toolchain cannot run them. When `arm-none-eabi-g++` is on the PATH it also runs the frame check (`CheckFrames.cmake`), which compiles one caller of six calls for the Cortex-M4 and checks the frame sizes from `-fstack-usage`. The board fixtures (`fixtures/Board.inc`) are written from `std::regex` by `fixtures/WriteBoardFixtures.cpp`.
 
-The snippets on this page and on the other two pages are compiled by `CheckWikiSnippets.sh`, so every example here builds.
+The snippets on this page and on the other two pages are compiled by `CheckWikiSnippets.cmake`, so every example here builds.

@@ -8,7 +8,7 @@
 // The syntax table of SyntaxCases.inc, run through std::regex (ECMAScript). The expected results of the table were written by hand, so
 // this file checks the table against an independent engine: std::regex_match for Matches, std::regex_search for Contains, and the first
 // match of std::regex_search for Find. A pattern that std::regex rejects is counted as skipped and printed.
-// This file uses exceptions and RTTI, which std::regex needs, so run.sh builds it without the device flags of -fno-exceptions and -fno-rtti.
+// This file uses exceptions and RTTI, which std::regex needs, so its test builds it without the device flags of -fno-exceptions and -fno-rtti.
 
 
 namespace {
