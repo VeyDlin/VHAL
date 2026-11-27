@@ -5,9 +5,11 @@
 #include <Utilities/Memory/.tool/sim/SimCheck.h>
 #include <Utilities/Memory/Heap.h>
 #include <Utilities/Memory/Storage.h>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <type_traits>
 
 
 // The stacks of the memory policy: a stack whose buffers are in a heap, and one whose buffers are in the stack object. Both are
@@ -130,11 +132,33 @@ void TestTooSmallHeapIsNotReady() {
 	SIM_EXPECT(line.toB.Counts().pushed == pushedBefore);
 	SIM_EXPECT(testDelivered[5] == 0);
 	SIM_EXPECT(testOutcomes[5] == 0);
+
+	// A received packet is dropped by a stack that is not ready: the call returns with nothing taken, and the stack sends nothing.
+	std::array<uint8, 4> packet = {1, 2, 3, 4};
+	stack.FeedPacket(std::span<const uint8>(packet));
+	stack.Process();
+	SIM_EXPECT(line.toB.Counts().pushed == pushedBefore);
+}
+
+
+// A heap stack takes its buffers from the heap when it is built, and gives them back when it is destroyed.
+void TestHeapStackReturnsItsBlocksOnDestruction() {
+	ResetReliableState();
+	VUB::PacketLine<64, 512> line(VUB::Faults{});
+	std::size_t usedBefore = memoryTestHeap.UsedBytes();
+	{
+		HeapReliable stack(line.a);
+		SIM_EXPECT(stack.Ready());
+		SIM_EXPECT(memoryTestHeap.UsedBytes() > usedBefore);
+	}
+
+	SIM_EXPECT(memoryTestHeap.UsedBytes() == usedBefore);
 }
 
 
 int main() {
 	TestHeapAndInsideExchangeBothWays();
 	TestTooSmallHeapIsNotReady();
+	TestHeapStackReturnsItsBlocksOnDestruction();
 	return SimFinish("TestVubMemory");
 }
