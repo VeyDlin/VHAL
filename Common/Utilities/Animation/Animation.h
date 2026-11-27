@@ -346,9 +346,9 @@ private:
 			onUpdateValue(value);
 		}
 
-		// A step that leaves the value and the velocity unchanged repeats at the same time step, so the spring stays where it is.
-		// A low-precision IQ reaches such a step one raw step away from the target, where the epsilon test does not fire. A
-		// zero time step changes nothing in any state, so it is not such a repeat.
+		// A step that leaves the value and the velocity unchanged repeats at the same time step, so the spring never moves
+		// again. A low-precision IQ can reach such a step before the epsilon test fires, and then the value may lie further
+		// from the target than one raw step. A zero time step changes nothing in any state, so it is not such a repeat.
 		using std::fabs;
 		bool settled = fabs(diff) < springEpsilon && fabs(springVelocity) < springEpsilon;
 		if (!settled && dt > T(0)) {

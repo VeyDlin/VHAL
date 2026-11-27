@@ -85,9 +85,10 @@ anim.SetTarget(0.5f);
 
 **Completion:** the spring completes when the distance to the target and the velocity are both below the epsilon. It also
 completes on a step that leaves both the value and the velocity exactly as they were, compared in the value's own type. Such
-a step repeats at the same time step, so the spring stays where it is; a low-precision IQ reaches one a raw step away from the
-target, where the epsilon test does not fire. On completion the value is set to the target, the velocity to zero, and `onStop`
-is called, as for the epsilon case. A step with a zero time step does not complete the spring. With `float` and the default
+a step repeats at the same time step, so the spring never moves again. A low-precision IQ can reach one before the epsilon test
+fires, and then the value may lie further from the target than one raw step. On completion the value is set to the target, the
+velocity to zero, and `onStop` is called, as for the epsilon case. When a low-precision IQ stalls well away from the target, that
+completion is a visible jump. A step with a zero time step does not complete the spring. With `float` and the default
 parameters at 16 ms steps, the epsilon test completes the spring.
 
 ## Easing Functions
