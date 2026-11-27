@@ -12,6 +12,10 @@ set(usbTestIncludes
 
 vhal_test(GLOB Test*.cpp INCLUDES ${usbTestIncludes})
 
+# The FAT12 test builds a volume of the largest size as a constant expression. It compiles with half of GCC's default operation
+# limit, so a change that brings the builder near the default limit fails here first, on any compiler.
+set_source_files_properties(TestFat12ImageBuilder.cpp PROPERTIES COMPILE_OPTIONS "-fconstexpr-ops-limit=16777216")
+
 vhal_fail(BuilderErrors INCLUDES
   "${CMAKE_CURRENT_SOURCE_DIR}/shim"
   "${VHAL_ROOT}/Periphery"
