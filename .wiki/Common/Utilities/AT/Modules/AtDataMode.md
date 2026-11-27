@@ -93,7 +93,7 @@ A server URC with `Data()` is not in version 1. `server.Urc<"+IPD">(...)` with a
 
 ## Rules Checked at Compile Time
 
-Each rule is a compile error with its message. The snippets for each one are in `Common/Utilities/AT/.tool/sim/BuilderErrors/`.
+Each rule is a compile error with its message. The snippets for each one are in `Common/Utilities/AT/.test/BuilderErrors/`.
 
 | Rule | Message |
 |---|---|

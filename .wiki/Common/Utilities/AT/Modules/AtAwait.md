@@ -159,7 +159,7 @@ A done entry is never abandoned. When the wait ends at the limit, the entry is r
 | `AwaitWrite` on a prompt command | `a prompt command takes AwaitSendData, not AwaitWrite` |
 | `AwaitRead` on a `ReadRows` command | `AT command's read form is ReadRows: call AwaitReadRows` |
 
-The snippets are in `Common/Utilities/AT/.tool/sim/BuilderErrors/await_*.cpp`.
+The snippets are in `Common/Utilities/AT/.test/BuilderErrors/await_*.cpp`.
 
 ---
 
@@ -175,7 +175,7 @@ The snippets are in `Common/Utilities/AT/.tool/sim/BuilderErrors/await_*.cpp`.
 
 ## Tests
 
-`Common/Utilities/AT/.tool/sim/TestAtAwait.cpp` runs the client on the host with a scripted module. The RTOS handle advances the fake tick by one millisecond, runs `Process()` with that tick, and answers each request line that the client writes. The tests check:
+`Common/Utilities/AT/.test/TestAtAwait.cpp` runs the client on the host with a scripted module. The RTOS handle advances the fake tick by one millisecond, runs `Process()` with that tick, and answers each request line that the client writes. The tests check:
 
 - each form returns its value or its status, and a `+CME ERROR` reply returns its code;
 - a request queued behind another is answered after it, in one wait;

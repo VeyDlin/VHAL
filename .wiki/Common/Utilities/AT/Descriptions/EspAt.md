@@ -215,9 +215,9 @@ The check runs on an ESP32 with the flashed release. Each item below is checked,
 
 ## Tests
 
-`Common/Utilities/AT/.tool/sim/TestAtEspAt.cpp` builds one client with `AtEcho`, `AtRows<8>` and `AtAwait`, and one server from the description. Both must compile. The server binds every form except the prompt. The test checks the server's answers on the text they must have.
+`Common/Utilities/AT/.test/TestAtEspAt.cpp` builds one client with `AtEcho`, `AtRows<8>` and `AtAwait`, and one server from the description. Both must compile. The server binds every form except the prompt. The test checks the server's answers on the text they must have.
 
-The client runs these transcripts, in `.tool/sim/transcripts/espat_*.txt`. They are written by hand from the reference, and each one says so in a comment line. Each is fed whole, cut at every byte, and one byte at a time.
+The client runs these transcripts, in `.test/transcripts/espat_*.txt`. They are written by hand from the reference, and each one says so in a comment line. Each is fed whole, cut at every byte, and one byte at a time.
 
 | Transcript | What it covers |
 |---|---|
@@ -244,7 +244,7 @@ The host test has 2456 checks (`TestAtEspAt: all 2456 checks passed`).
 
 ### Sizes
 
-The client objects at -Os for Cortex-M4 (from `run.sh`). Each holds the same calls, except the rows call, which needs `AtRows`, and the await calls, which need `AtAwait`.
+The client objects at -Os for Cortex-M4 (from `.test/size/EspAt.cmake`). Each holds the same calls, except the rows call, which needs `AtRows`, and the await calls, which need `AtAwait`.
 
 | Object | text | data | bss |
 |---|---|---|---|

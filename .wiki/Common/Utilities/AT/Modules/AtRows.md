@@ -75,7 +75,7 @@ constexpr auto NetworkRow = AtRow<Network>(
 
 ## Rules Checked at Compile Time
 
-Each rule is a compile error with its message. The snippets are in `Common/Utilities/AT/.tool/sim/BuilderErrors/`.
+Each rule is a compile error with its message. The snippets are in `Common/Utilities/AT/.test/BuilderErrors/`.
 
 - a row has at least one field;
 - a field's member belongs to the row's struct, and its type is one the grammar carries;
