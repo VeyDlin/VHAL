@@ -13,6 +13,46 @@ set(VHAL_TEST_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
 set(VHAL_ARM_CXX "arm-none-eabi-g++" CACHE STRING "The ARM compiler of the size tests; GCC 14 or newer")
 set(VHAL_ARM_SIZE "arm-none-eabi-size" CACHE STRING "The size tool that reads the ARM images")
+set(VHAL_ARM_NM "" CACHE STRING "The nm tool that reads the ARM objects; empty derives it from VHAL_ARM_CXX")
+option(VHAL_SANITIZE "Builds the host tests with the address and undefined-behaviour sanitizers" OFF)
+
+# The nm tool is the compiler's neighbour: arm-none-eabi-g++ gives arm-none-eabi-nm, and the .exe suffix is kept.
+if(VHAL_ARM_NM STREQUAL "")
+  string(REGEX REPLACE "g\\+\\+(-[0-9.]+)?(\\.exe)?$" "nm" derivedArmNm "${VHAL_ARM_CXX}")
+  if(VHAL_ARM_CXX MATCHES "\\.exe$")
+    string(APPEND derivedArmNm ".exe")
+  endif()
+  set(VHAL_ARM_NM "${derivedArmNm}")
+endif()
+
+# The sanitizer flags of the host tests. The compiler must build and run a sanitized program; a compiler without the runtime stops
+# the configure here, so an explicit request for sanitizers never runs without them. A sanitizer report exits with 1, and it fails
+# the test, which is what the environment of each test asks for.
+set(VHAL_SANITIZE_FLAGS "")
+set(VHAL_SANITIZER_ENVIRONMENT "")
+if(VHAL_SANITIZE)
+  set(VHAL_SANITIZE_FLAGS -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
+  set(VHAL_SANITIZER_ENVIRONMENT
+    "ASAN_OPTIONS=exitcode=1:detect_leaks=1"
+    "UBSAN_OPTIONS=exitcode=1:halt_on_error=1:print_stacktrace=1")
+
+  try_run(
+    vhalProbeRun
+    vhalProbeBuild
+    "${CMAKE_BINARY_DIR}/sanitizer-probe"
+    "${CMAKE_CURRENT_SOURCE_DIR}/SanitizerProbe.cpp"
+    CMAKE_FLAGS "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined"
+    LINK_OPTIONS -fsanitize=address,undefined
+    COMPILE_OUTPUT_VARIABLE vhalProbeCompileOutput
+    RUN_OUTPUT_VARIABLE vhalProbeRunOutput)
+
+  if(NOT vhalProbeBuild OR NOT vhalProbeRun EQUAL 0)
+    message(FATAL_ERROR
+      "VHAL_SANITIZE: the compiler \"${CMAKE_CXX_COMPILER}\" cannot build and run a program with -fsanitize=address,undefined. "
+      "Its sanitizer runtime is missing (the MinGW toolchain has none). Run ./test.cmd without --sanitize, or set CXX to a GCC 14 "
+      "or newer compiler with the runtime, as on the Linux runner.")
+  endif()
+endif()
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
