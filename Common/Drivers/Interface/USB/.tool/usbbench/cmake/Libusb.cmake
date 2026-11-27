@@ -5,6 +5,12 @@
 # libarchive fails on the archive's ARM64 filter and keeps only part of the files, so the two files usbbench needs are
 # unpacked with 7-Zip and checked against their own SHA-256 values. A stamp file records a finished extraction.
 # Other platforms: the system libusb-1.0, found through pkg-config.
+#
+# In the test mode (VHAL_TOOL_TEST set by the test runner) nothing is downloaded: a Windows build whose libusb is not in
+# third_party is skipped, and so is a build with no libusb-1.0 from pkg-config. The skip prints the VHAL_SKIP: marker, and no target
+# is defined; the caller returns when USBBENCH_LIBUSB_TARGET is empty.
+
+set(USBBENCH_LIBUSB_TARGET "")
 
 if(WIN32)
 	set(USBBENCH_LIBUSB_VERSION "1.0.30")
@@ -17,6 +23,11 @@ if(WIN32)
 	set(USBBENCH_LIBUSB_LIBRARY "${USBBENCH_LIBUSB_ROOT}/MinGW64/static/libusb-1.0.a")
 	set(USBBENCH_LIBUSB_HEADER "${USBBENCH_LIBUSB_ROOT}/include/libusb.h")
 	set(USBBENCH_LIBUSB_STAMP "${USBBENCH_LIBUSB_ROOT}/extracted.stamp")
+
+	if(VHAL_TOOL_TEST AND NOT EXISTS "${USBBENCH_LIBUSB_STAMP}")
+		message("VHAL_SKIP: libusb ${USBBENCH_LIBUSB_VERSION} is not in third_party: build usbbench outside the tests once to download it")
+		return()
+	endif()
 
 	if(NOT EXISTS "${USBBENCH_LIBUSB_STAMP}" OR NOT EXISTS "${USBBENCH_LIBUSB_LIBRARY}")
 		file(MAKE_DIRECTORY "${USBBENCH_THIRD_PARTY}")
@@ -102,7 +113,18 @@ if(WIN32)
 	)
 	set(USBBENCH_LIBUSB_TARGET usbbenchLibusb)
 else()
-	find_package(PkgConfig REQUIRED)
-	pkg_check_modules(USBBENCH_LIBUSB REQUIRED IMPORTED_TARGET libusb-1.0)
+	find_package(PkgConfig)
+	if(PkgConfig_FOUND)
+		pkg_check_modules(USBBENCH_LIBUSB IMPORTED_TARGET libusb-1.0)
+	endif()
+
+	if(NOT USBBENCH_LIBUSB_FOUND)
+		if(VHAL_TOOL_TEST)
+			message("VHAL_SKIP: libusb-1.0 is not found through pkg-config: usbbench was not built")
+			return()
+		endif()
+		message(FATAL_ERROR "usbbench: libusb-1.0 is needed; it is found through pkg-config")
+	endif()
+
 	set(USBBENCH_LIBUSB_TARGET PkgConfig::USBBENCH_LIBUSB)
 endif()

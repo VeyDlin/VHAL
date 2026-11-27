@@ -17,15 +17,38 @@ get_filename_component(VUBCHECK_IDS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../US
 # The core's Stack.h includes System/System.h, which is in the Periphery folder.
 get_filename_component(VUBCHECK_PERIPHERY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../Periphery" ABSOLUTE)
 
+# The system libraries of the build. A library that the linker does not find skips the build: the counterpart test reports the skip.
+if(WIN32)
+    set(VUBCHECK_LIBS winmm winusb setupapi cfgmgr32 hid)
+else()
+    set(VUBCHECK_LIBS usb-1.0)
+endif()
+
+include(CheckCXXSourceCompiles)
+
+set(VUBCHECK_MISSING "")
+foreach(VUBCHECK_LIB IN LISTS VUBCHECK_LIBS)
+    set(CMAKE_REQUIRED_LIBRARIES ${VUBCHECK_LIB})
+    check_cxx_source_compiles("int main() { return 0; }" VUBCHECK_LINKS_${VUBCHECK_LIB})
+    unset(CMAKE_REQUIRED_LIBRARIES)
+    if(NOT VUBCHECK_LINKS_${VUBCHECK_LIB})
+        list(APPEND VUBCHECK_MISSING ${VUBCHECK_LIB})
+    endif()
+endforeach()
+
+if(VUBCHECK_MISSING)
+    message("VHAL_SKIP: the system libraries ${VUBCHECK_MISSING} are absent: vubcheck was not built")
+    return()
+endif()
+
 add_executable(vubcheck src/main.cpp)
 
 target_include_directories(vubcheck PRIVATE ${VUBCHECK_COMMON_DIR} ${VUBCHECK_IDS_DIR} ${VUBCHECK_PERIPHERY_DIR})
 target_compile_options(vubcheck PRIVATE -Wall -Wextra)
 
+target_link_libraries(vubcheck PRIVATE ${VUBCHECK_LIBS})
+
 if(WIN32)
     # One executable with no DLLs of the toolchain beside it. winmm gives the 1 ms timer period of the run.
-    target_link_libraries(vubcheck PRIVATE winmm winusb setupapi cfgmgr32 hid)
     target_link_options(vubcheck PRIVATE -static)
-else()
-    target_link_libraries(vubcheck PRIVATE usb-1.0)
 endif()
