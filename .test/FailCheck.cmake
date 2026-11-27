@@ -60,7 +60,7 @@ if(expectedPosition EQUAL -1)
 endif()
 
 if(secondLine STREQUAL "// one error")
-  string(REGEX MATCHALL ": (fatal )?error:" errorLines "${diagnostic}")
+  string(REGEX MATCHALL "[^\n]*: error:[^\n]*" errorLines "${diagnostic}")
   list(LENGTH errorLines errorCount)
   if(NOT errorCount EQUAL 1)
     message(FATAL_ERROR "NOT ONE ERROR: ${snippetName} (${errorCount} error lines)")
