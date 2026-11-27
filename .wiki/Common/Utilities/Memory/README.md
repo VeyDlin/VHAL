@@ -50,7 +50,7 @@ A `Handle` is an index into the entry table with a generation. `Data()` returns 
 
 ## Blocks
 
-Each block has a 12-byte header on a 32-bit target: the entry, the size, the free and pinned flags, the alignment and the offset from the header to the data. The data of a movable block is 8-byte aligned. When a block moves, its data keeps its alignment because the offset is set again for the new position.
+Each block has a 12-byte header on a 32-bit target: the entry, the size, the free and pinned flags and the offset from the header to the data. The entry of a block holds the same offset, so `Deallocate` and `Reallocate` find the header from the handle without a walk over the blocks. The data of a movable block is 8-byte aligned. When a block moves, its data keeps its alignment because the offset is set again for the new position.
 
 Freed blocks merge with the free blocks next to them. Free space at the end of the used data returns to the unallocated tail.
 
@@ -74,6 +74,8 @@ Rules:
 
 Placement rule: a pinned block is placed by the same first fit as a movable block. A pinned block is not placed at an end of the arena (measurements below).
 
+A program that calls only `Allocate`, `Deallocate` and `Reallocate` carries none of the aligned and pinned code. The default path and the pinned path are separate instantiations, and the pinned one exists only in a program that calls `AllocatePinned` or `AllocatePinnedHandle`.
+
 ## Interrupts
 
 Allocation (`Allocate`, `Reallocate`, `AllocatePinned`, `AllocatePinnedHandle`) is not for an interrupt. Debug builds assert `!System::IsInterrupt()` on each of these calls, through `SystemAssert`. The check is compiled out with `NDEBUG`. A port provides `System::IsInterrupt()`.
@@ -82,14 +84,16 @@ Allocation (`Allocate`, `Reallocate`, `AllocatePinned`, `AllocatePinnedHandle`) 
 
 `Vector`, `String`, `PoolAllocator` and `SharedPtr` take their allocator explicitly. There is no default heap: a container with no allocator cannot grow, and its growing operations return false (`PushBack`, `Reserve`, `Assign`) or an empty result (`String` constructors and `operator+`).
 
-```cpp
-Memory::Vector<int> values(&adapter);        // grows in blocks of adapter
-values.PushBack(1);
+The second template parameter names the allocator type. The default, `IAllocator`, takes any allocator through a pointer and calls it through a virtual table, which allows the choice at run time. A heap type (`Memory::Heap<>`) or a pool (`Memory::PoolAllocator<...>`) named as the type has its members called directly, with no virtual table and no adapter. `Memory::Heap` is not an `IAllocator`; wrap it in `AllocatorOf` to use it through the default form.
 
-Memory::String text("hello", &adapter);
+```cpp
+Memory::Vector<int> values(&adapter);                                          // IAllocator, from AllocatorOf<Memory::Heap<>> adapter(heap)
+Memory::Vector<int, Memory::Heap<>> fixed(&heap);                              // the heap type, called directly
+
+Memory::String<Memory::Heap<>> text("hello", &heap);                           // String is a class template: Memory::String<> in a declaration
 text.Append(" world");
 
-Memory::SharedPtr<int> shared = Memory::AllocateShared<int>(&adapter, 42);
+Memory::SharedPtr<int, Memory::Heap<>> direct = Memory::AllocateShared<int, Memory::Heap<>>(&heap, 42);
 ```
 
 `String` keeps its text as a `char` vector with a terminator. `String::ToView()` returns a `std::string_view`.
@@ -132,29 +136,27 @@ Storage costs, Cortex-M0+ and M4, measured with a `RingBuffer<uint8, 16>` (see t
 
 ## Measurements
 
-Object sizes, Cortex-M0+ and Cortex-M4F (`arm-none-eabi-g++` 15.2, `-std=c++20 -Os -fno-exceptions -fno-rtti`, the size read from `.rodata`):
+Object sizes, Cortex-M0+ and Cortex-M4F (`arm-none-eabi-g++` 15.2, `-std=c++23 -Os -fno-exceptions -fno-rtti`, `sizeof` values read from the compiled image; the same on both targets):
 
-| Type | `VSTD` | `Memory` |
-|---|---|---|
-| `Heap<>` | 64 B | 24 B with debug checks, 20 B with `NDEBUG` |
-| `BlockHeader` | 12 B | 12 B |
-| `Handle` | 8 B | 8 B |
-| `Entry` | 16 B | 16 B |
-
-The `Heap<>` size drops because the out-of-memory callback (40 B) and the virtual table pointer are gone.
+| Type | Size |
+|---|---|
+| `Heap<>` | 24 B with debug checks, 20 B with `NDEBUG` |
+| `BlockHeader` | 12 B |
+| `Handle` | 8 B |
+| `Entry` | 16 B |
 
 Header layout, Cortex-M0+ (layout arithmetic, not measured on a target):
 - Option A, an 8-byte aligned header: 16 B of header per block, always.
 - Option B, the chosen layout: a 12-byte header, and the data starts at the next 8-byte boundary. The data offset is 12 B when the header is at 4 mod 8 and 16 B when it is at 0 mod 8, so the header costs 12 B or 16 B per block.
 
-Text of one allocation and one free (`.text` of the object file, Cortex-M0+, `-Os`):
+Text of the linked image (`-std=c++23 -Os -ffunction-sections -fdata-sections -Wl,--gc-sections`, nano newlib). Each program uses a `Heap<>` over a 512-byte buffer, and only through the container:
 
-| Program | Debug | `NDEBUG` |
-|---|---|---|
-| `VSTD::Heap` | 992 B | 992 B |
-| `Memory::Heap` | 416 B | 388 B |
+| Program | M0+ debug | M0+ `NDEBUG` | M4F debug | M4F `NDEBUG` |
+|---|---|---|---|---|
+| `Memory::Vector<int, Memory::Heap<>>`, 20 `PushBack` | 1904 B | 1896 B | 1804 B | 1796 B |
+| `Memory::String<Memory::Heap<>>`, two `Append` | 2232 B | 2224 B | 2148 B | 2140 B |
 
-The `Memory::Heap` text is smaller because the heap is not a virtual class. The debug difference (28 B) is the interrupt assert.
+The Vector program contains no instance of the aligned or pinned path.
 
 Placement of pinned blocks (prototype, host, 4096-byte arena, 50000 steps, 20 percent of the requests are pinned, two defragmentation steps per step; `Mean` is the mean over all steps):
 
