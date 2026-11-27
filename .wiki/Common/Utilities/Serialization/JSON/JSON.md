@@ -340,11 +340,11 @@ Two functions reach into nested values without copying. Both return a `std::stri
 - `GetRaw(json, key)` returns the raw JSON text of a top-level value: an object, array, string (with its quotes), number, boolean or null.
 - `GetArrayElement(array, index)` returns the raw text of element `index` of a JSON array. It is empty when the index is out of range or the text is not a complete array.
 
-The xAI streaming chat chunk shows the pattern. The content of the first choice is reached as `choices` -> element 0 -> `delta` -> `content`:
+A streaming chat chunk shows the pattern. The content of the first choice is reached as `choices` -> element 0 -> `delta` -> `content`:
 
 ```cpp
-// data: {"id":"94dbec57-...","object":"chat.completion.chunk","created":1794956456,
-//        "model":"grok-4.20-0309-non-reasoning",
+// data: {"id":"3f2a9c1e-...","object":"example.chunk","created":1700000000,
+//        "model":"sample-model-1.0-standard",
 //        "choices":[{"index":0,"delta":{"content":"Grüße"}}]}
 std::string_view chunk = /* one SSE data payload */;
 
