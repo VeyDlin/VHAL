@@ -428,8 +428,8 @@ private:
 	}
 
 
-	// The header of the block that an entry describes. The entry holds the distance back from its data to the header, so
-	// no walk over the blocks is needed.
+	// The header of the block that an entry describes. The entry holds the distance back from its data to the header,
+	// so no walk over the blocks is needed.
 	static BlockHeader* HeaderOf(const Entry* entry) {
 		return reinterpret_cast<BlockHeader*>(static_cast<std::uint8_t*>(entry->data) - entry->headerOffset);
 	}
@@ -664,8 +664,9 @@ private:
 	}
 
 
-	// The caller holds the lock. Called for a block that has just become free. Merges it with a free block that precedes it
-	// and with the free blocks after it. A free block that ends the used region returns its space to the tail.
+	// The caller holds the lock. Called for a block that has just become free. Merges it with a free block that
+	// precedes it and with the free blocks after it. A free block that ends the used region returns its space to the
+	// tail.
 	void MergeFreeBlock(std::size_t offset) {
 		std::size_t previous = PreviousBlockOffset(offset);
 		if (previous != NoBlock && HeaderAt(previous)->free) {
@@ -687,7 +688,8 @@ private:
 
 
 	// Moves the movable block at blockOffset down to freeOffset, the free block in front of it. The block takes the
-	// default alignment, so its new data offset may differ. Returns false when the block does not fit in the two blocks.
+	// default alignment, so its new data offset may differ. Returns false when the block does not fit in the two
+	// blocks.
 	bool MoveBlockDown(std::size_t freeOffset, std::size_t blockOffset) {
 		BlockHeader* blockHdr = HeaderAt(blockOffset);
 		std::size_t regionLen = blockOffset - freeOffset + BlockTotal(blockHdr);
