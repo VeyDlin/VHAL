@@ -58,6 +58,7 @@ Rules:
 - A Ref made from a function pointer or a function name holds the pointer itself, so it stays valid after the full expression that built it.
 - A null function pointer makes an empty Ref, and `static_cast<bool>` gives `false`. A lambda or a functor is never empty. A function that takes a Ref and may receive an empty one checks it and returns an error.
 - A Ref is two words and holds no allocation.
+- A copy of a Ref refers to the same callable as the Ref it was copied from. It does not wrap the source Ref. A copy of a Ref to a lambda or a functor is valid only while that callable exists, as the Ref itself is.
 
 ## Choosing
 
