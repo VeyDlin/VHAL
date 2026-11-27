@@ -3,6 +3,7 @@
 #include <cstring>
 #include <limits>
 #include <Utilities/Memory/Heap.h>
+#include <Utilities/Memory/PoolAllocator.h>
 #include "SimCheck.h"
 
 namespace {
@@ -415,6 +416,46 @@ void PinnedBlocksHonourTheirAlignment() {
     SIM_CHECK(heap.UsedBytes() == 0);
 }
 
+// A handle of another heap, or of a pool, is left alone by Deallocate() and is copied by Reallocate(), as a handle that
+// this heap does not know is. Neither heap's blocks change.
+void ForeignHandlesAreIgnored() {
+    static uint8_t firstBuffer[512];
+    static uint8_t secondBuffer[512];
+    Memory::Heap<> first(firstBuffer, sizeof(firstBuffer));
+    Memory::Heap<> second(secondBuffer, sizeof(secondBuffer));
+
+    Memory::Handle mine = first.Allocate(32);
+    Memory::Handle theirs = second.Allocate(32);
+    SIM_CHECK(mine.IsValid());
+    SIM_CHECK(theirs.IsValid());
+    const std::size_t firstUsed = first.UsedBytes();
+    const std::size_t secondUsed = second.UsedBytes();
+
+    first.Deallocate(theirs);
+    SIM_CHECK(theirs.IsValid());
+    SIM_CHECK(first.UsedBytes() == firstUsed);
+    SIM_CHECK(second.UsedBytes() == secondUsed);
+    SIM_CHECK(mine.IsValid());
+
+    Memory::PoolAllocator<32, 4> pool;
+    Memory::Handle pooled = pool.Allocate(32);
+    SIM_CHECK(pooled.IsValid());
+
+    first.Deallocate(pooled);
+    SIM_CHECK(pooled.IsValid());
+    SIM_CHECK(first.UsedBytes() == firstUsed);
+
+    Memory::Handle copy = first.Reallocate(pooled, 64);
+    SIM_CHECK(copy.IsValid());
+    SIM_CHECK(pooled.IsValid());
+    SIM_CHECK(first.UsedBytes() == firstUsed + 64);
+
+    first.Deallocate(copy);
+    SIM_CHECK(first.UsedBytes() == firstUsed);
+    SIM_CHECK(mine.IsValid());
+    SIM_CHECK(theirs.IsValid());
+}
+
 // The heap object reports that its constructor ran.
 void HeapReportsItsConstruction() {
     static uint8_t buffer[128];
@@ -442,6 +483,7 @@ int main() {
     FragmentationCountsTheHoleBetweenBlocks();
     PinnedBlocksStayAndRefuseHandleOperations();
     PinnedBlocksHonourTheirAlignment();
+    ForeignHandlesAreIgnored();
     HeapReportsItsConstruction();
     return VstdSim::Finish("TestHeap");
 }

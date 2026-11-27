@@ -359,7 +359,8 @@ private:
 	}
 
 
-	// Data offset of a block that is not pinned: the data starts at the first multiple of kBlockAlignment after the header.
+	// Data offset of a block that is not pinned: the data starts at the first multiple of kBlockAlignment after the
+	// header.
 	static constexpr std::size_t DefaultDataOffset(std::uintptr_t headerAddress) {
 		std::uintptr_t alignment = static_cast<std::uintptr_t>(kBlockAlignment);
 		std::uintptr_t data = (headerAddress + kHeaderSize + alignment - 1) & ~(alignment - 1);
@@ -367,8 +368,8 @@ private:
 	}
 
 
-	// A pinned block is aligned to alignLog2. Any other block takes the default alignment, so its code has no alignment
-	// argument.
+	// A pinned block is aligned to alignLog2. Any other block takes the default alignment, so its code has no
+	// alignment argument.
 	template <bool Pinned>
 	static std::size_t DataOffset(std::uintptr_t headerAddress, [[maybe_unused]] std::uint8_t alignLog2) {
 		if constexpr (Pinned) {
@@ -455,8 +456,39 @@ private:
 	}
 
 
-	bool IsPinned(const Handle& handle) const {
+	// The entry of a valid handle when its block belongs to this heap, or nullptr. An entry of another heap or of a pool
+	// lies outside the entry table of this heap, so its bytes are not read as a header.
+	Entry* OwnEntry(const Handle& handle) const {
 		Entry* entry = handle.GetEntry();
+		if (entry == nullptr || !InEntryTable(entry)) {
+			return nullptr;
+		}
+
+		std::uintptr_t header = reinterpret_cast<std::uintptr_t>(entry->data) - entry->headerOffset;
+		std::uintptr_t start = reinterpret_cast<std::uintptr_t>(buffer);
+		if (header < start || header - start + kHeaderSize > dataTop) {
+			return nullptr;
+		}
+
+		const BlockHeader* hdr = reinterpret_cast<const BlockHeader*>(header);
+		if (hdr->free || hdr->entry != entry) {
+			return nullptr;
+		}
+		return entry;
+	}
+
+
+	// True when entry is one of the slots in use at the top of the buffer.
+	bool InEntryTable(const Entry* entry) const {
+		std::uintptr_t address = reinterpret_cast<std::uintptr_t>(entry);
+		std::uintptr_t end = reinterpret_cast<std::uintptr_t>(buffer) + capacity;
+		std::uintptr_t start = end - entryCount * sizeof(Entry);
+		return address >= start && address < end && (end - address) % sizeof(Entry) == 0;
+	}
+
+
+	bool IsPinned(const Handle& handle) const {
+		Entry* entry = OwnEntry(handle);
 		if (entry == nullptr) {
 			return false;
 		}
@@ -493,9 +525,9 @@ private:
 
 
 	// The caller holds the lock. Frees the block of handle and clears handle. Other copies of the handle become
-	// invalid. A pinned block is left as it is.
+	// invalid. A pinned block, and a handle of another heap or of a pool, are left as they are.
 	void DeallocateLocked(Handle& handle) {
-		Entry* entry = handle.GetEntry();
+		Entry* entry = OwnEntry(handle);
 		if (entry == nullptr) {
 			return;
 		}
