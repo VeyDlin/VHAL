@@ -7,7 +7,8 @@ cmake_minimum_required(VERSION 3.25)
 
 set(sampleDir "${CMAKE_CURRENT_LIST_DIR}/ObjectCheck")
 
-string(REGEX REPLACE "g\\+\\+(\\.exe)?$" "nm\\1" armNm "${VHAL_ARM_CXX}")
+# The nm tool is named after the compiler with the g++ suffix (and its version, when there is one) replaced by nm.
+string(REGEX REPLACE "g\\+\\+(-[0-9.]+)?(\\.exe)?$" "nm\\2" armNm "${VHAL_ARM_CXX}")
 
 execute_process(
   COMMAND "${VHAL_ARM_CXX}" --version
@@ -19,8 +20,24 @@ execute_process(
   RESULT_VARIABLE nmResult
   OUTPUT_QUIET
   ERROR_QUIET)
+execute_process(
+  COMMAND "${VHAL_ARM_CXX}" -dumpfullversion
+  RESULT_VARIABLE versionResult
+  OUTPUT_VARIABLE armVersion
+  ERROR_QUIET
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
 if(NOT armResult EQUAL 0 OR NOT nmResult EQUAL 0)
   message("VHAL_SKIP: ${VHAL_ARM_CXX} or ${armNm} is absent: the IQ object check was not run")
+  return()
+endif()
+
+# The object check needs GCC 14 or newer, the lowest supported compiler (as the size tests do).
+set(armMajor "")
+if(versionResult EQUAL 0 AND armVersion MATCHES "^[0-9]+")
+  string(REGEX MATCH "^[0-9]+" armMajor "${armVersion}")
+endif()
+if(armMajor STREQUAL "" OR armMajor LESS 14)
+  message("VHAL_SKIP: ${VHAL_ARM_CXX} is older than GCC 14 or its version is unknown: the IQ object check was not run")
   return()
 endif()
 
