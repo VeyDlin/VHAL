@@ -5,6 +5,7 @@
 // model of its peripheral (Stm32F4I2cSim.h, Stm32F4SpiSim.h) before the adapter. GetTick32 reads System::tickLow, which
 // only TickHandler writes, so it stays at 0 here: a test that waits in I2CAdapter::Await must complete the transfer first.
 #include <System/System.h>
+#include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
@@ -27,7 +28,7 @@ inline void System::DelayUs(uint32) { }
 
 
 inline void System::Abort(const char* message, const char* file, uint32 line) {
-	std::fprintf(stderr, "sim abort: %s (%s:%u)\n", message != nullptr ? message : "no message", file != nullptr ? file : "?", line);
+	std::fprintf(stderr, "sim abort: %s (%s:%" PRIu32 ")\n", message != nullptr ? message : "no message", file != nullptr ? file : "?", line);
 	std::abort();
 }
 

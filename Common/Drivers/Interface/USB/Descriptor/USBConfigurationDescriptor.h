@@ -5,6 +5,7 @@
 #include <Adapter/Utilities/USBTypes.h>
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorUtility.h>
 #include <Drivers/Interface/USB/USBProtocol.h>
+#include <Utilities/CompileTime/Require.h>
 
 
 // Configuration descriptor and the descriptors it holds: interface (USB 2.0 section 9.6.5), endpoint (9.6.6), interface
@@ -64,30 +65,30 @@ constexpr std::array<uint8, 7> MakeUSBEndpointDescriptor(
 	USBIsoSync sync = USBIsoSync::None,
 	USBIsoUsage usage = USBIsoUsage::Data)
 {
-	USBDescriptorRequire(USBEndpoint::Number(address) != 0, "endpoint 0 belongs to the control pipe, not to a configuration");
+	Require<"USB: endpoint 0 belongs to the control pipe, not to a configuration">(USBEndpoint::Number(address) != 0);
 	// Bits 6..4 of bEndpointAddress are reserved and must be zero (USB 2.0 section 9.6.6). USBEndpoint::Number() ignores them,
 	// so a set bit would make the descriptor and the controller disagree about the endpoint.
 	constexpr uint8 reservedBits = 0x70;
-	USBDescriptorRequire((address & reservedBits) == 0, "endpoint address bits 6..4 are reserved");
+	Require<"USB: endpoint address bits 6..4 are reserved">((address & reservedBits) == 0);
 
 	std::array<uint8, 7> bytes{};
 	bytes[0] = 7;
 	bytes[1] = static_cast<uint8>(USBDescriptorType::Endpoint);
 	bytes[2] = address;
 	if (type == USBEndpointType::Bulk) {
-		USBDescriptorRequire(maxPacketSize == 8 || maxPacketSize == 16 || maxPacketSize == 32 || maxPacketSize == 64, "full-speed bulk packets are 8, 16, 32 or 64 bytes");
-		USBDescriptorRequire(interval == 0, "bInterval of a full-speed bulk endpoint is 0");
-		USBDescriptorRequire(sync == USBIsoSync::None && usage == USBIsoUsage::Data, "sync type and usage are isochronous only");
+		Require<"USB: full-speed bulk packets are 8, 16, 32 or 64 bytes">(maxPacketSize == 8 || maxPacketSize == 16 || maxPacketSize == 32 || maxPacketSize == 64);
+		Require<"USB: bInterval of a full-speed bulk endpoint is 0">(interval == 0);
+		Require<"USB: sync type and usage are isochronous only">(sync == USBIsoSync::None && usage == USBIsoUsage::Data);
 		bytes[3] = 0x02;
 	} else if (type == USBEndpointType::Isochronous) {
-		USBDescriptorRequire(maxPacketSize >= 1 && maxPacketSize <= 1023, "full-speed isochronous packets are 1 to 1023 bytes");
-		USBDescriptorRequire(interval == 1, "bInterval of a full-speed isochronous endpoint is 1");
+		Require<"USB: full-speed isochronous packets are 1 to 1023 bytes">(maxPacketSize >= 1 && maxPacketSize <= 1023);
+		Require<"USB: bInterval of a full-speed isochronous endpoint is 1">(interval == 1);
 		bytes[3] = static_cast<uint8>(0x01 | (static_cast<uint8>(sync) << 2) | (static_cast<uint8>(usage) << 4));
 	} else {
-		USBDescriptorRequire(type == USBEndpointType::Interrupt, "the stack has bulk, interrupt and isochronous endpoints only");
-		USBDescriptorRequire(maxPacketSize >= 1 && maxPacketSize <= 64, "full-speed interrupt packets are 1 to 64 bytes");
-		USBDescriptorRequire(interval >= 1, "an interrupt endpoint needs bInterval 1 to 255");
-		USBDescriptorRequire(sync == USBIsoSync::None && usage == USBIsoUsage::Data, "sync type and usage are isochronous only");
+		Require<"USB: the stack has bulk, interrupt and isochronous endpoints only">(type == USBEndpointType::Interrupt);
+		Require<"USB: full-speed interrupt packets are 1 to 64 bytes">(maxPacketSize >= 1 && maxPacketSize <= 64);
+		Require<"USB: an interrupt endpoint needs bInterval 1 to 255">(interval >= 1);
+		Require<"USB: sync type and usage are isochronous only">(sync == USBIsoSync::None && usage == USBIsoUsage::Data);
 		bytes[3] = 0x03;
 	}
 
@@ -112,8 +113,8 @@ constexpr std::array<uint8, 9> MakeUSBAudioEndpointDescriptor(
 	uint8 refresh = 0,
 	uint8 synchAddress = 0)
 {
-	USBDescriptorRequire(type == USBEndpointType::Bulk || type == USBEndpointType::Isochronous, "the 9-byte endpoint form is bulk or isochronous");
-	USBDescriptorRequire(type == USBEndpointType::Isochronous || (refresh == 0 && synchAddress == 0), "bRefresh and bSynchAddress are 0 for bulk endpoints");
+	Require<"USB: the 9-byte endpoint form is bulk or isochronous">(type == USBEndpointType::Bulk || type == USBEndpointType::Isochronous);
+	Require<"USB: bRefresh and bSynchAddress are 0 for bulk endpoints">(type == USBEndpointType::Isochronous || (refresh == 0 && synchAddress == 0));
 	std::array<uint8, 7> standard = MakeUSBEndpointDescriptor(address, type, maxPacketSize, interval, sync, usage);
 	std::array<uint8, 9> bytes{};
 	for (std::size_t index = 0; index < standard.size(); index++) {
@@ -136,8 +137,8 @@ constexpr std::array<uint8, 8> MakeUSBInterfaceAssociationDescriptor(
 	uint8 functionProtocol,
 	uint8 functionStringIndex)
 {
-	USBDescriptorRequire(interfaceCount >= 1, "an association covers at least one interface");
-	USBDescriptorRequire(static_cast<uint16>(firstInterface) + interfaceCount <= 256, "an association covers interfaces 0 to 255");
+	Require<"USB: an association covers at least one interface">(interfaceCount >= 1);
+	Require<"USB: an association covers interfaces 0 to 255">(static_cast<uint16>(firstInterface) + interfaceCount <= 256);
 
 	std::array<uint8, 8> bytes{};
 	bytes[0] = 8;
@@ -157,14 +158,14 @@ constexpr std::array<uint8, 8> MakeUSBInterfaceAssociationDescriptor(
 // and are rejected here, so the composition can count and check them.
 template<std::size_t Size>
 constexpr std::array<uint8, Size> MakeUSBRawDescriptor(const uint8 (&bytes)[Size]) {
-	USBDescriptorRequire(Size >= 2 && Size <= 255, "a descriptor is 2 to 255 bytes");
-	USBDescriptorRequire(static_cast<std::size_t>(bytes[0]) == Size, "bLength must equal the size of the array");
+	Require<"USB: a descriptor is 2 to 255 bytes">(Size >= 2 && Size <= 255);
+	Require<"USB: bLength must equal the size of the array">(static_cast<std::size_t>(bytes[0]) == Size);
 
 	uint8 type = bytes[1];
-	USBDescriptorRequire(type != static_cast<uint8>(USBDescriptorType::Configuration), "configuration descriptors come from MakeUSBConfigurationDescriptor");
-	USBDescriptorRequire(type != static_cast<uint8>(USBDescriptorType::Interface), "interface descriptors come from MakeUSBInterfaceDescriptor");
-	USBDescriptorRequire(type != static_cast<uint8>(USBDescriptorType::Endpoint), "endpoint descriptors come from MakeUSBEndpointDescriptor");
-	USBDescriptorRequire(type != static_cast<uint8>(USBDescriptorType::InterfaceAssociation), "association descriptors come from MakeUSBInterfaceAssociationDescriptor");
+	Require<"USB: configuration descriptors come from MakeUSBConfigurationDescriptor">(type != static_cast<uint8>(USBDescriptorType::Configuration));
+	Require<"USB: interface descriptors come from MakeUSBInterfaceDescriptor">(type != static_cast<uint8>(USBDescriptorType::Interface));
+	Require<"USB: endpoint descriptors come from MakeUSBEndpointDescriptor">(type != static_cast<uint8>(USBDescriptorType::Endpoint));
+	Require<"USB: association descriptors come from MakeUSBInterfaceAssociationDescriptor">(type != static_cast<uint8>(USBDescriptorType::InterfaceAssociation));
 
 	std::array<uint8, Size> copy{};
 	for (std::size_t index = 0; index < Size; index++) {
@@ -201,14 +202,14 @@ constexpr uint8 USBFinalizeConfiguration(std::array<uint8, Size>& bytes) {
 	std::size_t endpointCount = 0;
 	std::size_t offset = 9;
 	while (offset < Size) {
-		USBDescriptorRequire(offset + 2 <= Size, "a descriptor header is cut off");
+		Require<"USB: a descriptor header is cut off">(offset + 2 <= Size);
 		std::size_t length = bytes[offset];
-		USBDescriptorRequire(length >= 2, "a descriptor is at least 2 bytes");
-		USBDescriptorRequire(offset + length <= Size, "a descriptor runs past the configuration");
+		Require<"USB: a descriptor is at least 2 bytes">(length >= 2);
+		Require<"USB: a descriptor runs past the configuration">(offset + length <= Size);
 		uint8 type = bytes[offset + 1];
-		USBDescriptorRequire(!USBIsDeviceLevelType(type), "a device-level descriptor cannot be part of a configuration");
+		Require<"USB: a device-level descriptor cannot be part of a configuration">(!USBIsDeviceLevelType(type));
 		if (type == static_cast<uint8>(USBDescriptorType::Interface)) {
-			USBDescriptorRequire(length == 9, "an interface descriptor is 9 bytes");
+			Require<"USB: an interface descriptor is 9 bytes">(length == 9);
 			if (inInterface) {
 				bytes[currentInterface + 4] = static_cast<uint8>(endpointCount);
 			}
@@ -216,55 +217,55 @@ constexpr uint8 USBFinalizeConfiguration(std::array<uint8, Size>& bytes) {
 			uint8 number = bytes[offset + 2];
 			uint8 alternate = bytes[offset + 3];
 			if (alternate == 0) {
-				USBDescriptorRequire(!interfaceSeen[number], "interface numbers are unique");
+				Require<"USB: interface numbers are unique">(!interfaceSeen[number]);
 				interfaceSeen[number] = true;
 				interfaceCount++;
 			} else {
-				USBDescriptorRequire(interfaceSeen[number], "an alternate setting follows its default setting");
+				Require<"USB: an alternate setting follows its default setting">(interfaceSeen[number]);
 			}
 
 			currentInterface = offset;
 			inInterface = true;
 			endpointCount = 0;
 		} else if (type == static_cast<uint8>(USBDescriptorType::Endpoint)) {
-			USBDescriptorRequire(inInterface, "an endpoint follows an interface");
-			USBDescriptorRequire(length == 7 || length == 9, "an endpoint descriptor is 7 bytes, or 9 bytes in the audio form");
+			Require<"USB: an endpoint follows an interface">(inInterface);
+			Require<"USB: an endpoint descriptor is 7 bytes, or 9 bytes in the audio form">(length == 7 || length == 9);
 			// Bits 6..4 of bEndpointAddress are reserved, as MakeUSBEndpointDescriptor() checks. A plain array gets the same rule here.
-			USBDescriptorRequire((bytes[offset + 2] & 0x70) == 0, "endpoint address bits 6..4 are reserved");
+			Require<"USB: endpoint address bits 6..4 are reserved">((bytes[offset + 2] & 0x70) == 0);
 			uint8 transferType = bytes[offset + 3] & 0x03;
 			if (transferType == 0x01) {
 				// The isochronous rules of MakeUSBEndpointDescriptor(), for a plain array as well: one frame, and 1 to 1023 bytes.
 				uint16 packetSize = static_cast<uint16>(bytes[offset + 4] | (bytes[offset + 5] << 8));
-				USBDescriptorRequire(bytes[offset + 6] == 1, "bInterval of a full-speed isochronous endpoint is 1");
-				USBDescriptorRequire(packetSize >= 1 && packetSize <= 1023, "full-speed isochronous packets are 1 to 1023 bytes");
+				Require<"USB: bInterval of a full-speed isochronous endpoint is 1">(bytes[offset + 6] == 1);
+				Require<"USB: full-speed isochronous packets are 1 to 1023 bytes">(packetSize >= 1 && packetSize <= 1023);
 			}
 
 			if (length == 9) {
 				// The audio form adds bRefresh and bSynchAddress. The audio class defines it for bulk and isochronous endpoints only, so
 				// an interrupt endpoint is refused. A bulk endpoint has both fields zero. An isochronous endpoint names its feedback endpoint
 				// in bSynchAddress: 0, or an IN address (bit 7 set, number 1 to 15, bits 6..4 clear).
-				USBDescriptorRequire(transferType == 0x01 || transferType == 0x02, "the 9-byte endpoint form is bulk or isochronous");
+				Require<"USB: the 9-byte endpoint form is bulk or isochronous">(transferType == 0x01 || transferType == 0x02);
 				if (transferType == 0x02) {
-					USBDescriptorRequire(bytes[offset + 7] == 0 && bytes[offset + 8] == 0, "bRefresh and bSynchAddress are 0 for bulk endpoints");
+					Require<"USB: bRefresh and bSynchAddress are 0 for bulk endpoints">(bytes[offset + 7] == 0 && bytes[offset + 8] == 0);
 				} else {
 					uint8 synchAddress = bytes[offset + 8];
 					bool feedbackAddress = (synchAddress & 0x80) != 0 && (synchAddress & 0x70) == 0 && (synchAddress & 0x0F) != 0;
-					USBDescriptorRequire(synchAddress == 0 || feedbackAddress, "bSynchAddress is 0 or an IN endpoint address");
+					Require<"USB: bSynchAddress is 0 or an IN endpoint address">(synchAddress == 0 || feedbackAddress);
 				}
 			}
 
 			uint8 address = bytes[offset + 2];
-			USBDescriptorRequire(!endpointSeen[address], "endpoint addresses are unique in the configuration");
+			Require<"USB: endpoint addresses are unique in the configuration">(!endpointSeen[address]);
 			endpointSeen[address] = true;
 			endpointCount++;
 		} else if (type == static_cast<uint8>(USBDescriptorType::InterfaceAssociation)) {
-			USBDescriptorRequire(length == 8, "an interface association descriptor is 8 bytes");
+			Require<"USB: an interface association descriptor is 8 bytes">(length == 8);
 			std::size_t first = bytes[offset + 2];
 			std::size_t count = bytes[offset + 3];
-			USBDescriptorRequire(count >= 1 && first + count <= 256, "an association covers one or more interfaces from 0 to 255");
+			Require<"USB: an association covers one or more interfaces from 0 to 255">(count >= 1 && first + count <= 256);
 			for (std::size_t number = first; number < first + count; number++) {
-				USBDescriptorRequire(!interfaceSeen[number], "an association precedes the interfaces it covers");
-				USBDescriptorRequire(!interfaceAssociated[number], "an interface belongs to one association");
+				Require<"USB: an association precedes the interfaces it covers">(!interfaceSeen[number]);
+				Require<"USB: an interface belongs to one association">(!interfaceAssociated[number]);
 				interfaceAssociated[number] = true;
 			}
 		}
@@ -276,11 +277,11 @@ constexpr uint8 USBFinalizeConfiguration(std::array<uint8, Size>& bytes) {
 		bytes[currentInterface + 4] = static_cast<uint8>(endpointCount);
 	}
 
-	USBDescriptorRequire(interfaceCount >= 1, "a configuration has at least one interface");
-	USBDescriptorRequire(interfaceCount <= 255, "bNumInterfaces is one byte");
+	Require<"USB: a configuration has at least one interface">(interfaceCount >= 1);
+	Require<"USB: bNumInterfaces is one byte">(interfaceCount <= 255);
 	for (std::size_t number = 0; number < 256; number++) {
 		if (interfaceAssociated[number]) {
-			USBDescriptorRequire(interfaceSeen[number], "an association covers an interface the configuration lacks");
+			Require<"USB: an association covers an interface the configuration lacks">(interfaceSeen[number]);
 		}
 	}
 
@@ -300,9 +301,9 @@ constexpr std::array<uint8, 9 + (std::tuple_size_v<Pieces> + ... + 0)> MakeUSBCo
 	const Pieces&... pieces)
 {
 	constexpr std::size_t total = 9 + (std::tuple_size_v<Pieces> + ... + 0);
-	USBDescriptorRequire(configurationValue >= 1, "bConfigurationValue 0 means not configured");
-	USBDescriptorRequire(total <= 0xFFFF, "wTotalLength is 16 bits");
-	USBDescriptorRequire(maxPower <= 250, "bMaxPower is at most 500 mA");
+	Require<"USB: bConfigurationValue 0 means not configured">(configurationValue >= 1);
+	Require<"USB: wTotalLength is 16 bits">(total <= 0xFFFF);
+	Require<"USB: bMaxPower is at most 500 mA">(maxPower <= 250);
 
 	std::array<uint8, total> bytes{};
 	std::size_t offset = 9;
@@ -335,16 +336,16 @@ constexpr std::array<uint8, 9 + (std::tuple_size_v<Pieces> + ... + 0)> MakeUSBCo
 // a malformed descriptor after the association is rejected too.
 template<std::size_t Size>
 constexpr bool USBConfigurationUsesAssociation(const std::array<uint8, Size>& configuration) {
-	USBDescriptorRequire(Size >= 9, "a configuration descriptor is at least 9 bytes");
-	USBDescriptorRequire(configuration[1] == static_cast<uint8>(USBDescriptorType::Configuration), "the bytes are a configuration descriptor");
-	USBDescriptorRequire(USBDescriptorRead16(configuration, 2) == Size, "wTotalLength must equal the configuration's size");
+	Require<"USB: a configuration descriptor is at least 9 bytes">(Size >= 9);
+	Require<"USB: the bytes are a configuration descriptor">(configuration[1] == static_cast<uint8>(USBDescriptorType::Configuration));
+	Require<"USB: wTotalLength must equal the configuration's size">(USBDescriptorRead16(configuration, 2) == Size);
 	bool associated = false;
 	std::size_t offset = 9;
 	while (offset < Size) {
-		USBDescriptorRequire(offset + 2 <= Size, "a descriptor header is cut off");
+		Require<"USB: a descriptor header is cut off">(offset + 2 <= Size);
 		std::size_t length = configuration[offset];
-		USBDescriptorRequire(length >= 2, "a descriptor is at least 2 bytes");
-		USBDescriptorRequire(offset + length <= Size, "a descriptor runs past the configuration");
+		Require<"USB: a descriptor is at least 2 bytes">(length >= 2);
+		Require<"USB: a descriptor runs past the configuration">(offset + length <= Size);
 		if (configuration[offset + 1] == static_cast<uint8>(USBDescriptorType::InterfaceAssociation)) {
 			associated = true;
 		}

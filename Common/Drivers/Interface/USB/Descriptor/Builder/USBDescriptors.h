@@ -36,7 +36,7 @@ template<std::size_t Size>
 constexpr std::array<uint8, Size> USBFinalizeExactConfiguration(const USBBuildBuffer& buffer) {
 	std::array<uint8, Size> bytes = USBBuildExact<Size>(buffer);
 	uint8 count = USBFinalizeConfiguration(bytes);
-	Require<"bNumInterfaces must match the interfaces the configuration holds">(count == bytes[4]);
+	Require<"USB: bNumInterfaces must match the interfaces the configuration holds">(count == bytes[4]);
 	return bytes;
 }
 
@@ -169,7 +169,7 @@ public:
 	// of the configuration descriptor (its interface association first, when it has one). consteval: the call is evaluated at
 	// compile time, so a call with an index that is not a constant is a compile error and cannot reach the link.
 	static consteval USBFunctionLayout Function(std::size_t index) {
-		Require<"function index is outside the configuration">(index < USBBuiltParts<Make>.functionCount);
+		Require<"USB: function index is outside the configuration">(index < USBBuiltParts<Make>.functionCount);
 		const USBFunctionRecord& record = USBBuiltParts<Make>.functions[index];
 		return USBFunctionLayout{
 			std::span<const uint8>(InterfaceNumbers).subspan(record.firstInterface, record.interfaceCount),

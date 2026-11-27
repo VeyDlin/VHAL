@@ -97,6 +97,7 @@ Each call adds one feature. The table gives what it adds, its default, and the R
 | `SendQueue(packets)` | packets held for the link while it is busy (see [Send and receive](#send-and-receive)) | 0 where a stream link, or a packet link with `Ready()` and no bulk layer, allows it; otherwise 1 | the packets, each as large as the largest packet; none when 0 |
 | `Concurrent()` | `Send` from another task, and the critical sections that guard the shared state (see [Concurrent](#concurrent-the-concurrent-option-and-the-concurrent-flag)) | off | no storage; the code of the sections, only in a concurrent chain |
 | `StageQueue(packets)` | the staging ring that another task's `Send` fills; needs `Concurrent()` | 0, which gives no ring | `(packets + 1) * (MaxPayload + 3) + 4` bytes, rounded up to an even count |
+| `Memory<Policy>()` | where the stack's buffers are kept: `Memory::Inside`, or `Memory::FromHeap<heap>` (see [Memory](#memory)); one step per stack | `Memory::Inside` | in the stack object, or in the heap with `FromHeap` |
 | `CountDrops()` | the drop counters and `Drops()` (see [Drop counters](#drop-counters)) | off | 16 bytes: eight 16-bit counters |
 | `HighWater()` | the highest fill of the receive ring and of the control queue, for a layer that reads them (see [Counters](#counters-usescounters-counted-and-highwater)) | off | 2 bytes |
 | `PerProcess(packets)` | the most packets one `Process` call sends | 8 | none |
@@ -1432,6 +1433,53 @@ using GuardedBoard = VUB::Stack<+[] {
 		.Concurrent();
 }>;
 ```
+
+## Memory
+
+The stack's buffers are sized by the chain: the packets, the send queue, the staging ring, the receive ring, the receive queue and the
+stamps. A memory step sets where they are kept. The entries and the settings of the chain are the same after the step.
+
+```cpp
+Memory::Heap<> stackHeap(arena, sizeof(arena));
+
+using Link = VUB::Stack<+[] {
+	return VUB::Builder()
+		.Memory<Memory::FromHeap<stackHeap>>()
+		.SendQueue(4)
+		.Link<UartLink>()
+		.MaxPayload(32)
+		.OnReceive<&HandlePacket>()
+		.Clock<&MicrosecondClock>();
+}>;
+```
+
+The policies are those of `Memory`: `Memory::Inside` keeps the elements in the stack object, and `Memory::FromHeap<heap>` takes a pinned
+block of the heap when the stack is built and gives it back when the stack is destroyed. The heap must be constructed before the stack and destroyed after it.
+A chain without the step is `Memory::Inside`. A chain takes one memory step; a second one is a compile error ("one memory step per
+stack"). A policy whose storage takes its memory as an argument, such as `Memory::External`, is a compile error too: the stack builds its
+storage with no arguments.
+
+`Ready()` is true when every storage of the stack has its memory. On `Memory::Inside` it is always true, and it is a constant. A
+`FromHeap` stack whose heap has no block for one of its storages is not ready. While it is not ready, `Send` and every call that
+queues return `ResultStatus::notReady`, `Process` does nothing, and `Feed` and `FeedPacket` drop what they are given, without a count.
+
+The windows of the layers (the `Reliable` windows and the requests tables) are kept in the stack object under every policy. They do not
+take part in `Ready()`.
+
+Measured on a 32-bit target (Cortex-M4 and Cortex-M0+ give the same values) for the chain of the size table's `ConfigMinimal` with
+`SendQueue(4)` and `CountDrops()` added (CRC-16/MODBUS over COBS over a stream link, `MaxPayload(32)`): `sizeof` of the stack is 596 bytes on
+`Memory::Inside` and 80 bytes on `FromHeap`. The `FromHeap` stack takes 584 bytes of the heap on a 64-bit host; the target value is not
+measured. The whole programs are one stack of that chain with the stream link and the size table's `SizeMain`, `arm-none-eabi-g++`
+with `-std=c++23 -Os -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti`, and `--gc-sections`:
+
+| Target | `Memory::Inside` text | `Memory::FromHeap` text | `Inside` data + bss | `FromHeap` data + bss |
+|---|---:|---:|---:|---:|
+| Cortex-M4 | 1856 | 2940 | 3264 | 2744 |
+| Cortex-M0+ | 2160 | 3276 | 3264 | 2744 |
+
+The text of `FromHeap` includes the allocator of `Memory::Heap`, which the program would not otherwise link. The `FromHeap` program has
+a 2048-byte arena in its bss. The layers' windows stay in the stack object under both policies, so the stack object of `FromHeap` is
+not the whole of its RAM.
 
 ## Compilers
 

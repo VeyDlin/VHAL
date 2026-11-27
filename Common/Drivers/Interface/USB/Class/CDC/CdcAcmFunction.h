@@ -7,7 +7,7 @@
 #include <Drivers/Interface/USB/Device/USBFunction.h>
 #include <Drivers/Interface/USB/USBProtocol.h>
 #include <System/System.h>
-#include <Utilities/VSTD/utility/Delegate.h>
+#include <Utilities/Callback/Delegate.h>
 #include <array>
 #include <span>
 
@@ -35,11 +35,11 @@ template<uint16 TxBufferSize, uint16 RxBufferSize, uint8 PacketsPerTransfer = 8>
 class CdcAcmFunction : public USBFunction, private BulkEndpointEngine {
 public:
 	// SET_LINE_CODING: the coding the host asked for, after it is stored.
-	using LineCodingDelegate = VSTD::Delegate<void(const USBCdcLineCoding& coding)>;
+	using LineCodingDelegate = Callback::Delegate<void(const USBCdcLineCoding& coding)>;
 	// SET_CONTROL_LINE_STATE: DTR and RTS as the host sets them. DTR is the "terminal open" signal.
-	using ControlLineDelegate = VSTD::Delegate<void(bool dtr, bool rts)>;
+	using ControlLineDelegate = Callback::Delegate<void(bool dtr, bool rts)>;
 	// SEND_BREAK: the duration in milliseconds, 0 to end a break, 0xFFFF for a break that lasts until the next SEND_BREAK(0).
-	using BreakDelegate = VSTD::Delegate<void(uint16 durationMs)>;
+	using BreakDelegate = Callback::Delegate<void(uint16 durationMs)>;
 
 
 private:

@@ -137,7 +137,7 @@ Rules:
 - The producer returns a count of at most `packets.size()`. Without a producer, the IN endpoint sends nothing.
 - Without a consumer, the OUT endpoint is not armed, so the host's data waits.
 - A producer that needs an unbroken sequence must resynchronise after a halt. The function does not replay bytes. A halt or a failed start loses the bytes the producer already handed out for every IN stage, the one in flight and any filled behind it.
-- The callables are `VSTD::Delegate`s: a function pointer and a context pointer, so they never allocate. A stateful producer or consumer passes its object as the context to `Delegate::FromRaw()`, and the object must outlive the function. A lambda that captures is not used. Setting one happens before `Start()`, not on the data path.
+- The callables are `Callback::Delegate`s: a function pointer and a context pointer, so they never allocate. A stateful producer or consumer passes its object as the context to `Delegate::FromRaw()`, and the object must outlive the function. A lambda that captures is not used. Setting one happens before `Start()`, not on the data path.
 
 ## Interrupt Context and Critical Sections
 

@@ -3,6 +3,7 @@
 // section is a recursive mutex here, so a test thread and a stand-in for an interrupt exclude each other as they would on a
 // port. The shim counts the enters, so a test can check how many sections a call takes.
 #include <System/System.h>
+#include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
@@ -35,7 +36,7 @@ inline void System::CriticalSection(bool isEnable) {
 
 
 inline void System::Abort(const char* message, const char* file, uint32 line) {
-	std::fprintf(stderr, "sim abort: %s (%s:%u)\n", message != nullptr ? message : "no message", file != nullptr ? file : "?", line);
+	std::fprintf(stderr, "sim abort: %s (%s:%" PRIu32 ")\n", message != nullptr ? message : "no message", file != nullptr ? file : "?", line);
 	std::abort();
 }
 

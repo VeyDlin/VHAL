@@ -1,5 +1,5 @@
 #pragma once
-#include <Drivers/Interface/VUB/Require.h>
+#include <Utilities/CompileTime/Require.h>
 #include <Utilities/DataTypes.h>
 #include <cstddef>
 
@@ -60,7 +60,7 @@ public:
 
 	// The largest packet the link carries, in bytes. The packet is what the blocks build; framing bytes of a byte-stream link are not in it.
 	constexpr LinkTraits MaxPacket(std::size_t bytes) const {
-		Require<"the MaxPacket of a link is zero">(bytes > 0);
+		Require<"VUB: the MaxPacket of a link is zero">(bytes > 0);
 
 		LinkTraits next = *this;
 		next.maxPacket = bytes;

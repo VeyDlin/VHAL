@@ -69,7 +69,7 @@ void SwitchHeating(const char* name) {
 		if (index < 5) {
 			ExpectNear(static_cast<double>(static_cast<float>(dirty)), expectedArgs[index], __LINE__);
 		}
-		Type value = Type(temps[index < 5 ? index : 4]);
+		Type value = RealFrom<Type>(static_cast<float>(temps[index < 5 ? index : 4]));
 		index++;
 		return value;
 	};
@@ -101,7 +101,7 @@ void SwitchCooling(const char* name) {
 		if (index < 5) {
 			ExpectNear(static_cast<double>(static_cast<float>(dirty)), expectedArgs[index], __LINE__);
 		}
-		Type value = Type(temps[index < 5 ? index : 4]);
+		Type value = RealFrom<Type>(static_cast<float>(temps[index < 5 ? index : 4]));
 		index++;
 		return value;
 	};

@@ -39,7 +39,6 @@ private:
 	T springEpsilon = 0.001f;
 
 	uint64 lastTick = 0;
-	static constexpr double springStiffnessRange = 200.0;
 
 
 public:
@@ -198,7 +197,7 @@ private:
 	// once the distance exceeds the range divided by 200 (about 10 for IQ<20>). That limit depends on run-time values, so it is
 	// documented, not checked. Tweens have no such limit.
 	static void CheckSpringRange() {
-		static_assert(RangeAtLeast<T, springStiffnessRange>, "The spring needs a number type whose range holds the stiffness 200. The force is 200 times the distance, so distances above range / 200 saturate. Use IQ with Q of 23 or less, or float.");
+		static_assert(RangeAtLeast<T, 200.0>, "The spring needs a number type whose range holds the stiffness 200. The force is 200 times the distance, so distances above range / 200 saturate. Use IQ with Q of 23 or less, or float.");
 	}
 
 
@@ -209,7 +208,7 @@ private:
 		if constexpr (IQType<T>) {
 			return T::FromRaw(static_cast<int32>(FixedFraction(elapsed, duration, T::q)));
 		} else {
-			return static_cast<T>(static_cast<double>(elapsed)) / static_cast<T>(static_cast<double>(duration));
+			return static_cast<T>(elapsed) / static_cast<T>(duration);
 		}
 	}
 
@@ -234,25 +233,25 @@ private:
 	}
 
 
-	// Duration of a constant-speed tween. A speed that is not positive gives 0 ms, so the tween ends at its target on the next update.
+	// Duration of a constant-speed tween, in whole milliseconds, truncated. A speed or a distance that is not positive gives 0 ms,
+	// so the tween ends at its target on the next update. An IQ divides the raw values in 64-bit integers. A float divides in T
+	// and saturates a duration beyond the range of uint64, and NaN gives 0.
 	static uint64 SpeedToDuration(T distance, T speed) {
-		double speedValue = static_cast<double>(speed);
-		if (!(speedValue > 0.0)) {
-			return 0;
+		if constexpr (IQType<T>) {
+			if (distance.raw <= 0 || speed.raw <= 0) {
+				return 0;
+			}
+			return static_cast<uint64>(static_cast<int64>(distance.raw) * 1000 / speed.raw);
+		} else {
+			if (!(distance > T(0)) || !(speed > T(0))) {
+				return 0;
+			}
+			T ms = distance / speed * T(1000);
+			if (ms >= T(18446744073709551616.0f)) {
+				return ~static_cast<uint64>(0);
+			}
+			return static_cast<uint64>(ms);
 		}
-		return DoubleToUint64(static_cast<double>(distance) / speedValue * 1000.0);
-	}
-
-
-	// Converts without undefined behaviour: NaN and negatives give 0, values beyond uint64 saturate.
-	static uint64 DoubleToUint64(double value) {
-		if (!(value > 0.0)) {
-			return 0;
-		}
-		if (value >= 18446744073709551616.0) {
-			return ~static_cast<uint64>(0);
-		}
-		return static_cast<uint64>(value);
 	}
 
 
@@ -320,7 +319,7 @@ private:
 		if constexpr (IQType<T>) {
 			return FractionOf(ms, 1000);
 		} else {
-			return static_cast<T>(static_cast<double>(ms)) / static_cast<T>(1000);
+			return static_cast<T>(ms) / static_cast<T>(1000);
 		}
 	}
 
@@ -333,6 +332,9 @@ private:
 		}
 		T dt = SpringStep(elapsedMs);
 
+		T previousValue = value;
+		T previousVelocity = springVelocity;
+
 		T diff = target - value;
 		T force = diff * springStiffness;
 		springVelocity = springVelocity + force * dt;
@@ -344,8 +346,16 @@ private:
 			onUpdateValue(value);
 		}
 
+		// A step that leaves the value and the velocity unchanged repeats at the same time step, so the spring never moves
+		// again. A low-precision IQ can reach such a step before the epsilon test fires, and then the value may lie further
+		// from the target than one raw step. A zero time step changes nothing in any state, so it is not such a repeat.
 		using std::fabs;
-		if (fabs(diff) < springEpsilon && fabs(springVelocity) < springEpsilon) {
+		bool settled = fabs(diff) < springEpsilon && fabs(springVelocity) < springEpsilon;
+		if (!settled && dt > T(0)) {
+			settled = value == previousValue && springVelocity == previousVelocity;
+		}
+
+		if (settled) {
 			value = target;
 			if (onUpdateValue) {
 				onUpdateValue(value);

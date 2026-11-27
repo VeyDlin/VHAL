@@ -18,7 +18,7 @@
 //
 // The parser runs in two passes. The first pass parses the pattern into a tree of nodes and checks every rule. It also counts the
 // instructions and the classes. The second pass writes the program into arrays of exactly the counted size, and a size that does not
-// match is a compile error. Every failure is a RegexError with its message and its value (see RegexError.h).
+// match is a compile error. Every failure is a RequireValue check with its message and its value (see RegexError.h).
 //
 // Syntax, as the regex design lists it: literals, ., classes, the shorthand escapes, ^ and $, capturing and (?:) groups, alternation,
 // the quantifiers * + ? {m} {m,} {m,n} with one optional lazy ?, and IgnoreCase() for ASCII letters. Anything else is an error.

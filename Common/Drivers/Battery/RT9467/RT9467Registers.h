@@ -307,7 +307,8 @@ struct RT9467Registers {
             uint32 max;
             uint32 step;
             inline constexpr uint8 Encode(float value) const {
-                return static_cast<uint8>((static_cast<uint32>(std::clamp(static_cast<uint32>(value * 1e6f), min, max)) - min) / step);
+                float scaled = std::clamp(value * 1e6f, static_cast<float>(min), static_cast<float>(max));
+                return static_cast<uint8>((static_cast<uint32>(scaled) - min) / step);
             }
         };
 

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <Drivers/Interface/USB/Descriptor/USBBosDescriptor.h>
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorUtility.h>
+#include <Utilities/CompileTime/Require.h>
 
 
 // Optional component. Microsoft OS 2.0 descriptors let Windows bind WinUSB without an INF file; other hosts ignore them.
@@ -25,9 +26,9 @@ constexpr std::array<uint8, 28> MakeMsOs20PlatformCapability(
 	uint8 vendorCode,
 	uint8 alternateEnumerationCode)
 {
-	USBDescriptorRequire(SetSize >= 10 && SetSize <= 0xFFFF, "a descriptor set is 10 to 65535 bytes");
-	USBDescriptorRequire(USBDescriptorRead16(descriptorSet, 0) == 10, "the set starts with a 10-byte set header");
-	USBDescriptorRequire(USBDescriptorRead16(descriptorSet, 8) == SetSize, "the set header's wTotalLength must equal the set's size");
+	Require<"USB: a descriptor set is 10 to 65535 bytes">(SetSize >= 10 && SetSize <= 0xFFFF);
+	Require<"USB: the set starts with a 10-byte set header">(USBDescriptorRead16(descriptorSet, 0) == 10);
+	Require<"USB: the set header's wTotalLength must equal the set's size">(USBDescriptorRead16(descriptorSet, 8) == SetSize);
 
 	std::array<uint8, 8> data{};
 	for (std::size_t index = 0; index < 4; index++) {

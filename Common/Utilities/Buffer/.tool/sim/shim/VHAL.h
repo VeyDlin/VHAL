@@ -4,6 +4,7 @@
 // on the PC, so a section protects nothing by itself, but the shim keeps the depth and counts the enters: a test can check how
 // many sections a call takes. A leave at depth 0 has no matching enter on any port, so it aborts.
 #include <System/System.h>
+#include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
 
@@ -36,8 +37,14 @@ inline int SimCriticalDepth() {
 
 
 inline void System::Abort(const char* message, const char* file, uint32 line) {
-	std::fprintf(stderr, "sim abort: %s (%s:%u)\n", message != nullptr ? message : "no message", file != nullptr ? file : "?", line);
+	std::fprintf(stderr, "sim abort: %s (%s:%" PRIu32 ")\n", message != nullptr ? message : "no message", file != nullptr ? file : "?", line);
 	std::abort();
+}
+
+
+// The heap asserts that it is not called from an interrupt. The shim runs in no interrupt.
+inline bool System::IsInterrupt() {
+	return false;
 }
 
 

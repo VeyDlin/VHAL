@@ -2,25 +2,25 @@
 #include <Drivers/Interface/VUB/TestKit/Random.h>
 #include <Drivers/Interface/VUB/Blocks.h>
 #include <Drivers/Interface/VUB/Meta.h>
-#include <Drivers/Interface/VUB/Require.h>
+#include <Utilities/CompileTime/Require.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
-#include <Utilities/TextLiteral.h>
+#include <Utilities/CompileTime/TextLiteral.h>
 #include <array>
 #include <cstddef>
 #include <span>
 
-namespace VUB {
-
-
-// The compile-time checks of a block call CheckFailed, which the library declares and never defines. A failed check is still a compile
-// error: a call to a function that is not constexpr is ill-formed in a constant expression, and the diagnostic prints the message. A
-// block's Growth is also called at run time by the checks below, and a call that is not in a constant expression needs a definition, so
-// the test kit gives one. It does nothing.
+// The compile-time checks of a block call CompileTimeError, which the library declares and never defines. A failed check is still a
+// compile error: a call to a function that is not constexpr is ill-formed in a constant expression, and the diagnostic prints the
+// message. A block's Growth is also called at run time by the checks below, and a call that is not in a constant expression needs a
+// definition, so the test kit gives one. It does nothing.
 template<TextLiteral Message>
-void CheckFailed() {
+void CompileTimeError() {
 }
+
+
+namespace VUB {
 
 
 // Contract checks a user runs on their own block. Each returns true when every round passes. They use a fixed seed for the random

@@ -3,7 +3,7 @@
 #include <Drivers/Interface/USB/Class/DFU/USBDfuProtocol.h>
 #include <Drivers/Interface/USB/Device/USBFunction.h>
 #include <System/System.h>
-#include <Utilities/VSTD/utility/Delegate.h>
+#include <Utilities/Callback/Delegate.h>
 
 
 // The run-time function of a DFU device: the interface a running application exposes so a host can ask it to restart into its
@@ -24,7 +24,7 @@
 class DfuRuntimeFunction : public USBFunction {
 public:
 	// The application's reaction to DFU_DETACH: restart into the loader, or detach itself when willDetach is true.
-	using DetachDelegate = VSTD::Delegate<void(bool willDetach)>;
+	using DetachDelegate = Callback::Delegate<void(bool willDetach)>;
 
 
 private:

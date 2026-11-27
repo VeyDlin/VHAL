@@ -120,7 +120,7 @@ A framing that uses time (the gap framing) is checked by `VUB::CheckTimedFraming
 Each frame comes after a silence of three gaps, its bytes are spaced by less than a gap, and the check polls the framing at random
 between them. Without loss every packet comes out whole and in order; with loss it is checked as `VUB::CheckResync` checks it.
 
-The checks of the blocks, `VUB::Require` in the library, are declared and not defined. The test kit defines `VUB::CheckFailed` as a no-op, so a
+The checks of the blocks, `Require` in `Utilities/CompileTime/Require.h`, are declared and not defined. The test kit defines `CompileTimeError` as a no-op, so a
 block's `Growth` can be called at run time by the checks; a failed check stays a compile error in a constant expression.
 
 A link is checked by running a stack over a line with faults: the packets that the handler gets, plus the drops that the stack counts,

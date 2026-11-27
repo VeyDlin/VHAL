@@ -3,6 +3,17 @@
 #include <cstdio>
 
 
+// A float or IQ value as a double. An IQ is read through its raw value, so the read adds no rounding.
+template <typename Number>
+double AsDouble(Number value) {
+	if constexpr (IQType<Number>) {
+		return static_cast<double>(value.raw) / static_cast<double>(Number::one);
+	} else {
+		return static_cast<double>(value);
+	}
+}
+
+
 // Host tests for TIMOutputCompareHelper: the frequency and duty it writes, and what GetFrequencyInfo reads back. The clock is
 // 32 MHz in Hz. The expected values are worked out by hand in each case.
 
@@ -49,21 +60,21 @@ void SixteenBitCases() {
 	// Read back: 32000000 / 1 / 1 / 32000 = 1000 Hz. The duty is 8000 / 32000 * 100 = 25 %.
 	Type readFrequency = pwm.GetFrequencyInfo().frequencyHz;
 	Type readDuty = pwm.GetFrequencyInfo().duty;
-	ExpectValue(static_cast<double>(readFrequency), 1000.0, "frequency after 1 kHz", __LINE__);
-	ExpectValue(static_cast<double>(readDuty), 25.0, "duty after 1 kHz", __LINE__);
+	ExpectValue(AsDouble(readFrequency), 1000.0, "frequency after 1 kHz", __LINE__);
+	ExpectValue(AsDouble(readDuty), 25.0, "duty after 1 kHz", __LINE__);
 
 	// SetDuty(50): the pulse is 32000 * 50 / 100 = 16000 ticks, and the frequency stays at 1000 Hz.
 	pwm.SetDuty(Type(50.0));
 	ExpectEqual(adapter.GetOutputCompareParameters(ATIM::ChannelOption::Ch1).compare, 16000, "compare after 50 %", __LINE__);
-	ExpectValue(static_cast<double>(pwm.GetFrequencyInfo().duty), 50.0, "duty after SetDuty", __LINE__);
+	ExpectValue(AsDouble(pwm.GetFrequencyInfo().duty), 50.0, "duty after SetDuty", __LINE__);
 
 	// SetFrequency(2000) keeps the 50 %. 32000000 / 2000 = 16000 ticks, so the period is 15999 at prescaler 0.
 	// The pulse is 16000 * 50 / 100 = 8000 ticks.
 	pwm.SetFrequency(Type(2000.0));
 	ExpectEqual(adapter.GetParameters().period, 15999, "period after 2 kHz", __LINE__);
 	ExpectEqual(adapter.GetOutputCompareParameters(ATIM::ChannelOption::Ch1).compare, 8000, "compare after 2 kHz", __LINE__);
-	ExpectValue(static_cast<double>(pwm.GetFrequencyInfo().frequencyHz), 2000.0, "frequency after SetFrequency", __LINE__);
-	ExpectValue(static_cast<double>(pwm.GetFrequencyInfo().duty), 50.0, "duty after SetFrequency", __LINE__);
+	ExpectValue(AsDouble(pwm.GetFrequencyInfo().frequencyHz), 2000.0, "frequency after SetFrequency", __LINE__);
+	ExpectValue(AsDouble(pwm.GetFrequencyInfo().duty), 50.0, "duty after SetFrequency", __LINE__);
 
 	// TunePrescaler with period 31999: the clock divided by the period gives 32000000 / 32000 = 1000 ticks per second at
 	// prescaler 0. For 1 kHz the register is 0, and the readback is 32000000 / 1 / 32000 = 1000 Hz.
@@ -72,7 +83,7 @@ void SixteenBitCases() {
 	tune.SetFrequencyInfo({ .frequencyHz = Type(1000.0), .duty = Type(50.0) });
 	tune.TunePrescaler(Type(1000.0));
 	ExpectEqual(tuneAdapter.GetParameters().prescaler, 0, "prescaler after TunePrescaler 1 kHz", __LINE__);
-	ExpectValue(static_cast<double>(tune.GetFrequencyInfo().frequencyHz), 1000.0, "frequency after TunePrescaler", __LINE__);
+	ExpectValue(AsDouble(tune.GetFrequencyInfo().frequencyHz), 1000.0, "frequency after TunePrescaler", __LINE__);
 
 	// TunePrescaler with period 9: 32000000 / 10 = 3200000 ticks per second at prescaler 0. A 1 Hz target needs a prescaler
 	// of 3199999, above the 16-bit range, so the register is the largest value 0xFFFF.
@@ -133,8 +144,8 @@ void Q24Cases() {
 	ExpectEqual(adapter.GetOutputCompareParameters(ATIM::ChannelOption::Ch1).compare, 32653, "IQ<24> compare at 50 %", __LINE__);
 
 	// Read back: 32000000 * 2^24 / (196 * 65306) = 41943117 raw units, which is 2.5000046 Hz. The duty is exactly 50 %.
-	ExpectValue(static_cast<double>(pwm.GetFrequencyInfo().frequencyHz), 2.5, "IQ<24> frequency after 2.5 Hz", __LINE__);
-	ExpectValue(static_cast<double>(pwm.GetFrequencyInfo().duty), 50.0, "IQ<24> duty after 2.5 Hz", __LINE__);
+	ExpectValue(AsDouble(pwm.GetFrequencyInfo().frequencyHz), 2.5, "IQ<24> frequency after 2.5 Hz", __LINE__);
+	ExpectValue(AsDouble(pwm.GetFrequencyInfo().duty), 50.0, "IQ<24> duty after 2.5 Hz", __LINE__);
 
 	// Raw 2 is 2^-23 Hz. The counts are 32000000 * 2^23, about 2.7e14, far above 2^32, so the period is 0xFFFFFFFF. A duty of
 	// 100 % is 2^32 ticks, clamped to 0xFFFFFFFF. The product (2^32) * (100 << 24), about 7.2e18, is below 2^63.
@@ -288,8 +299,8 @@ void SameRegisterCases() {
 						TIMOutputCompareHelper<IQ<24>> iq24Helper(iq24Adapter, ATIM::ChannelOption::Ch1);
 
 						floatHelper.SetFrequencyInfo({ .frequencyHz = static_cast<float>(targetHz), .duty = static_cast<float>(dutyPercent) });
-						iq16Helper.SetFrequencyInfo({ .frequencyHz = IQ<16>(targetHz), .duty = IQ<16>(dutyPercent) });
-						iq24Helper.SetFrequencyInfo({ .frequencyHz = IQ<24>(targetHz), .duty = IQ<24>(dutyPercent) });
+						iq16Helper.SetFrequencyInfo({ .frequencyHz = RealFrom<IQ<16>>(static_cast<float>(targetHz)), .duty = RealFrom<IQ<16>>(static_cast<float>(dutyPercent)) });
+						iq24Helper.SetFrequencyInfo({ .frequencyHz = RealFrom<IQ<24>>(static_cast<float>(targetHz)), .duty = RealFrom<IQ<24>>(static_cast<float>(dutyPercent)) });
 
 						ExpectSameRegisters(iq16Adapter, iq24Adapter, "iq16 and iq24 registers", __LINE__);
 

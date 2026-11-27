@@ -4,7 +4,7 @@
 #include <Drivers/Interface/USB/USBProtocol.h>
 #include <Drivers/Memory/BlockDevice/IBlockDevice.h>
 #include <System/System.h>
-#include <Utilities/VSTD/utility/Delegate.h>
+#include <Utilities/Callback/Delegate.h>
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -51,7 +51,7 @@ class MscFunction : public USBFunction {
 
 public:
 	// Called from the interrupt when the host ejects the medium: START STOP UNIT with LOEJ set and START clear. Non-allocating.
-	using EjectDelegate = VSTD::Delegate<void()>;
+	using EjectDelegate = Callback::Delegate<void()>;
 
 
 	// The lengths of the fixed answers. The data buffer holds all of them.

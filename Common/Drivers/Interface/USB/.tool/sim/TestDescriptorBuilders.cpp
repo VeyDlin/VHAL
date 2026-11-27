@@ -469,8 +469,8 @@ int main() {
 	ExpectBytes("DeviceInterfaceGUIDs registry property", BuiltGuidProperty, SpecGuidProperty);
 
 	// The device descriptor claims bcdUSB 2.01, the lowest version that USBDeviceSupportsBos() accepts for a BOS.
-	// The rule is evaluated as a constant, because a run-time call of a builder helper would not link: USBDescriptorRejected
-	// is declared and never defined, and a run-time call keeps the reference (see USBDescriptorUtility.h).
+	// The rule is evaluated as a constant, because a run-time call of a builder helper would not link: a failed Require check
+	// is declared and never defined, and a run-time call keeps the reference (see Utilities/CompileTime/Require.h).
 	constexpr bool bosRuleHolds = USBDeviceSupportsBos(BuiltDevice);
 	SIM_EXPECT(bosRuleHolds);
 

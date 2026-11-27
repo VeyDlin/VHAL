@@ -66,8 +66,8 @@ public:
 		SetupReal<T> x = -(motor.Rs / motor.Ls) * motor.Ts;
 
 		Constants c;
-		c.Fsmopos = T(exp(x));
-		c.Gsmopos = T((motor.Vb / motor.Ib) * (SetupReal<T>(1) / motor.Rs) * -expm1(x));
+		c.Fsmopos = RealFrom<T>(exp(x));
+		c.Gsmopos = RealFrom<T>((motor.Vb / motor.Ib) * (SetupReal<T>(1) / motor.Rs) * -expm1(x));
 		return c;
 	}
 

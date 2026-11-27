@@ -1,6 +1,6 @@
 # Regex
 
-`Common/Utilities/Regex/`: a small regular-expression matcher. The pattern is a template argument, and it is compiled at compile time into a program in flash. Matching takes time linear in the input length, times the program size (and times the slot count for `Find`), with no backtracking. No heap, exception, RTTI, `std::function` or `VSTD` is used. A bad pattern is a compile error that prints a message and a value.
+`Common/Utilities/Regex/`: a small regular-expression matcher. The pattern is a template argument, and it is compiled at compile time into a program in flash. Matching takes time linear in the input length, times the program size (and times the slot count for `Find`), with no backtracking. No heap, exception, RTTI or `std::function` is used. The library headers it includes are `Utilities/DataTypes.h`, `Utilities/Result/Result.h`, `Utilities/Result/ResultStatus.h` and `Utilities/CompileTime/Require.h`. A bad pattern is a compile error that prints a message and a value.
 
 Status: the builder, the parser, both matching loops and the host tests are done, and the sizes are measured on the Cortex-M4 target. The board demo (`.demo/STM32G4/Application/DemoRegex`) builds for the G431 in two variants, but it is not yet run on a board. No caller in the repository uses the matcher yet.
 

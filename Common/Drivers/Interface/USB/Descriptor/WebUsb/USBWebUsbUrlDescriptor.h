@@ -6,7 +6,7 @@
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorString.h>
 #include <Drivers/Interface/USB/Descriptor/USBDescriptorUtility.h>
 #include <System/System.h>
-#include <Utilities/TextLiteral.h>
+#include <Utilities/CompileTime/TextLiteral.h>
 
 
 // Optional component: the URL descriptor that WebUSB GET_URL returns. A landing page URL that starts with https:// or http://
@@ -59,10 +59,10 @@ constexpr std::string_view USBWebUsbRestOf(std::string_view url) {
 
 // Appends the URL descriptor for url: bLength, bDescriptorType 3, bScheme, then the UTF-8 text without a terminator.
 constexpr void USBAppendWebUsbUrlDescriptor(USBBuildBuffer& buffer, std::string_view url) {
-	Require<"a WebUSB URL is valid UTF-8">(USBCountUtf16Units(url.data(), url.size()).valid);
+	Require<"USB: a WebUSB URL is valid UTF-8">(USBCountUtf16Units(url.data(), url.size()).valid);
 	std::string_view rest = USBWebUsbRestOf(url);
-	Require<"a WebUSB URL has text after its scheme">(!rest.empty());
-	Require<"a WebUSB URL is at most 252 bytes after its scheme">(rest.size() <= USBWebUsbMaxUrlBytes);
+	Require<"USB: a WebUSB URL has text after its scheme">(!rest.empty());
+	Require<"USB: a WebUSB URL is at most 252 bytes after its scheme">(rest.size() <= USBWebUsbMaxUrlBytes);
 	buffer.Put(static_cast<uint8>(3 + rest.size()));
 	buffer.Put(USBWebUsbUrlDescriptorType);
 	buffer.Put(USBWebUsbSchemeOf(url));

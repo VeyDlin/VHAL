@@ -39,6 +39,10 @@ if ! "$simDir/BuilderErrors/check.sh"; then
     failures=$((failures + 1))
 fi
 
+if ! "$simDir/ObjectCheck.sh"; then
+    failures=$((failures + 1))
+fi
+
 if [ "$failures" -ne 0 ]; then
     echo "$failures check group(s) failed"
     exit 1

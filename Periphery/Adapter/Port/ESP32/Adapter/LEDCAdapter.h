@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <Adapter/IAdapter.h>
 
 #define VHAL_LEDC_ADAPTER
@@ -48,7 +49,8 @@ public:
 	}
 
 	ResultStatus SetDutyPercent(ChannelOption channel, float percent) {
-		uint32 duty = static_cast<uint32>((percent / 100.0f) * GetMaxDuty());
+		float clamped = std::clamp(percent, 0.0f, 100.0f);
+		uint32 duty = static_cast<uint32>((clamped / 100.0f) * GetMaxDuty());
 		return SetDuty(channel, duty);
 	}
 

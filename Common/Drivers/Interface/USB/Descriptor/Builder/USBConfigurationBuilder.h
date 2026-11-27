@@ -34,17 +34,17 @@ struct USBFunctionRecord {
 // Returns the 1-based index of text in table, adding it when it is new. Equal texts share one index, so a string is numbered in
 // order of its first use. count is the number of entries in use.
 constexpr std::size_t USBInternString(std::array<std::string_view, USBMaxStrings>& table, std::size_t& count, std::string_view text) {
-	Require<"a string is not empty">(!text.empty());
+	Require<"USB: a string is not empty">(!text.empty());
 	USBUtf16Count units = USBCountUtf16Units(text.data(), text.size());
-	Require<"string is not valid UTF-8">(units.valid);
-	Require<"a string descriptor holds at most 126 UTF-16 code units">(units.units <= 126);
+	Require<"USB: string is not valid UTF-8">(units.valid);
+	Require<"USB: a string descriptor holds at most 126 UTF-16 code units">(units.units <= 126);
 	for (std::size_t index = 0; index < count; index++) {
 		if (table[index] == text) {
 			return index + 1;
 		}
 	}
 
-	Require<"too many strings in one device">(count < USBMaxStrings);
+	Require<"USB: too many strings in one device">(count < USBMaxStrings);
 	table[count] = text;
 	count++;
 	return count;
@@ -84,8 +84,8 @@ private:
 public:
 	// Maximum bus current in mA, a multiple of 2 up to 500 (bMaxPower counts 2 mA). Required.
 	constexpr USBConfigurationBuilder& MaxPowerMilliamps(uint16 milliamps) {
-		Require<"bMaxPower is at most 500 mA">(milliamps <= 500);
-		Require<"bMaxPower counts 2 mA steps, so the value is even">(milliamps % 2 == 0);
+		Require<"USB: bMaxPower is at most 500 mA">(milliamps <= 500);
+		Require<"USB: bMaxPower counts 2 mA steps, so the value is even">(milliamps % 2 == 0);
 		maxPower = static_cast<uint8>(milliamps / 2);
 		maxPowerSet = true;
 		return *this;
@@ -109,21 +109,21 @@ public:
 	template<USBClassFunctionBuilder FunctionType>
 	constexpr USBConfigurationBuilder& Function(const FunctionType& function) {
 		std::size_t count = function.InterfaceCount();
-		Require<"a function has at least one interface">(count >= 1);
-		Require<"interface numbers are one byte">(interfaceCount + count <= 256);
-		Require<"too many functions in one configuration">(functionCount < USBMaxFunctions);
+		Require<"USB: a function has at least one interface">(count >= 1);
+		Require<"USB: interface numbers are one byte">(interfaceCount + count <= 256);
+		Require<"USB: too many functions in one configuration">(functionCount < USBMaxFunctions);
 
 		USBFunctionSlot slot;
 		slot.firstInterface = static_cast<uint8>(interfaceCount);
 		slot.interfaceCount = count;
 		slot.stringCount = function.StringCount();
-		Require<"a function names at most 4 strings">(slot.stringCount <= USBMaxFunctionStrings);
+		Require<"USB: a function names at most 4 strings">(slot.stringCount <= USBMaxFunctionStrings);
 		for (std::size_t index = 0; index < slot.stringCount; index++) {
 			slot.strings[index] = RegisterString(function.String(index));
 		}
 
 		slot.endpointCount = function.EndpointCount();
-		Require<"a function has at most 16 endpoints">(slot.endpointCount <= USBMaxFunctionEndpoints);
+		Require<"USB: a function has at most 16 endpoints">(slot.endpointCount <= USBMaxFunctionEndpoints);
 		for (std::size_t index = 0; index < slot.endpointCount; index++) {
 			slot.requests[index] = function.Endpoint(index);
 			slot.addresses[index] = ResolveEndpoint(slot.requests[index]);
@@ -131,7 +131,7 @@ public:
 
 		slot.runtimeStart = runtimeStringCount;
 		slot.runtimeCount = USBRuntimeStringCount(function);
-		Require<"too many run-time strings in one configuration">(runtimeStringCount + slot.runtimeCount <= USBMaxRuntimeStrings);
+		Require<"USB: too many run-time strings in one configuration">(runtimeStringCount + slot.runtimeCount <= USBMaxRuntimeStrings);
 		runtimeStringCount += slot.runtimeCount;
 
 		USBFunctionRecord record;
@@ -142,7 +142,7 @@ public:
 		record.runtimeStart = slot.runtimeStart;
 		record.runtimeCount = slot.runtimeCount;
 		for (std::size_t index = 0; index < slot.endpointCount; index++) {
-			Require<"too many endpoints in one configuration">(endpointAddressCount < USBMaxEndpoints);
+			Require<"USB: too many endpoints in one configuration">(endpointAddressCount < USBMaxEndpoints);
 			endpointAddresses[endpointAddressCount] = slot.addresses[index];
 			endpointAddressCount++;
 		}
@@ -165,8 +165,8 @@ public:
 		record.descriptorSize = body.size - record.descriptorOffset;
 		record.winUsb = function.HasWinUsb();
 		record.guid = function.WinUsbGuid();
-		Require<"a WinUSB GUID is given with WinUsb()">(record.guid.empty() || record.winUsb);
-		Require<"a WinUSB GUID is {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX} in braces">(record.guid.empty() || USBGuidIsValid(record.guid));
+		Require<"USB: a WinUSB GUID is given with WinUsb()">(record.guid.empty() || record.winUsb);
+		Require<"USB: a WinUSB GUID is {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX} in braces">(record.guid.empty() || USBGuidIsValid(record.guid));
 		functions[functionCount] = record;
 		functionCount++;
 		interfaceCount += count;
@@ -184,17 +184,17 @@ private:
 	// The address of one endpoint request: the explicit address as given, or the smallest number that neither direction uses
 	// yet, from 1. A number above the device's limit is rejected when the configuration joins the device.
 	constexpr uint8 ResolveEndpoint(const USBEndpointRequest& request) {
-		Require<"endpoints are bulk, interrupt or isochronous">(
+		Require<"USB: endpoints are bulk, interrupt or isochronous">(
 			request.type == USBEndpointType::Bulk
 			|| request.type == USBEndpointType::Interrupt
 			|| request.type == USBEndpointType::Isochronous);
 		bool in = request.direction == USBDirection::In;
 		if (request.address != 0) {
 			uint8 address = request.address;
-			Require<"endpoint address bits 6..4 are reserved">(USBEndpoint::IsValid(address));
-			Require<"endpoint direction does not match the endpoint request">(USBEndpoint::IsIn(address) == in);
-			Require<"endpoint 0 belongs to the control pipe">(USBEndpoint::Number(address) != 0);
-			Require<"duplicate endpoint address">(!addressUsed[EndpointSlot(address)]);
+			Require<"USB: endpoint address bits 6..4 are reserved">(USBEndpoint::IsValid(address));
+			Require<"USB: endpoint direction does not match the endpoint request">(USBEndpoint::IsIn(address) == in);
+			Require<"USB: endpoint 0 belongs to the control pipe">(USBEndpoint::Number(address) != 0);
+			Require<"USB: duplicate endpoint address">(!addressUsed[EndpointSlot(address)]);
 			addressUsed[EndpointSlot(address)] = true;
 			highestEndpointNumber = Max(highestEndpointNumber, USBEndpoint::Number(address));
 			return address;
@@ -210,7 +210,7 @@ private:
 			}
 		}
 
-		Require<"no endpoint number is free">(false);
+		Require<"USB: no endpoint number is free">(false);
 		return 0;
 	}
 

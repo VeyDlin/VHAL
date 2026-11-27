@@ -7,6 +7,7 @@
 // SimAssertNoCriticalSection() where no section may be open, so a section that a function left open fails the test.
 #include <System/System.h>
 #include <chrono>
+#include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
 
@@ -74,7 +75,7 @@ inline uint64 System::GetMs() {
 
 
 inline void System::Abort(const char* message, const char* file, uint32 line) {
-	std::fprintf(stderr, "sim abort: %s (%s:%u)\n", message != nullptr ? message : "no message", file != nullptr ? file : "?", line);
+	std::fprintf(stderr, "sim abort: %s (%s:%" PRIu32 ")\n", message != nullptr ? message : "no message", file != nullptr ? file : "?", line);
 	std::abort();
 }
 

@@ -1,8 +1,8 @@
 #pragma once
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
-#include <Utilities/VSTD/memory/IAllocator.h>
-#include <Utilities/VSTD/utility/Function.h>
+#include <Utilities/Memory/IAllocator.h>
+#include <Utilities/Callback/Delegate.h>
 #include "HttpByteBuffer.h"
 #include <cstddef>
 #include <span>
@@ -17,9 +17,7 @@
 // a defragment step inside onEvent.
 class ServerSentEvents {
 public:
-	using EventCallback = VSTD::Function<void(std::string_view, std::string_view, std::string_view)>;
-
-	EventCallback onEvent;
+	Callback::Delegate<void(std::string_view, std::string_view, std::string_view)> onEvent;
 
 private:
 	enum class Field : uint8 {
@@ -34,7 +32,7 @@ private:
 	static constexpr uint32 MaxRetryValue = 0xFFFFFFFFu;
 	static constexpr uint8 Bom[3] = { 0xEF, 0xBB, 0xBF };
 
-	VSTD::IAllocator& allocator;
+	Memory::IAllocator& allocator;
 	uint32 maxEventBytes;
 	HttpByteBuffer eventType;
 	HttpByteBuffer data;
@@ -74,7 +72,7 @@ private:
 	uint8 utfBytes[4] = {};
 
 public:
-	ServerSentEvents(VSTD::IAllocator& memory, uint32 maxEventBytesValue)
+	ServerSentEvents(Memory::IAllocator& memory, uint32 maxEventBytesValue)
 		: allocator(memory),
 		  maxEventBytes(maxEventBytesValue),
 		  eventType(memory),

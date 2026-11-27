@@ -57,9 +57,9 @@ public:
 		SetupReal<T> Tr = motor.Lr / motor.Rr;
 
 		Constants c;
-		c.Kr = T(motor.Ts / Tr);
-		c.Kt = T(SetupReal<T>(1) / (Tr * SetupReal<T>(2) * pi * motor.fb));
-		c.K = T(motor.Ts * motor.fb);
+		c.Kr = RealFrom<T>(motor.Ts / Tr);
+		c.Kt = RealFrom<T>(SetupReal<T>(1) / (Tr * SetupReal<T>(2) * pi * motor.fb));
+		c.K = RealFrom<T>(motor.Ts * motor.fb);
 		return c;
 	}
 

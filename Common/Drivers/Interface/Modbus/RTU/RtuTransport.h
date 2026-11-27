@@ -5,25 +5,10 @@
 #include <Utilities/Buffer/RingBuffer.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
-#include <Utilities/TextLiteral.h>
+#include <Utilities/CompileTime/Require.h>
 #include <Utilities/DataTypes.h>
 #include <cstddef>
 #include <span>
-
-
-// A message of a failed compile-time check. Declared, never defined: a call from a constant expression is ill-formed, and the
-// diagnostic prints the message in the template argument.
-template<TextLiteral Message>
-void RtuError();
-
-
-// Calls RtuError<Message>() when the condition does not hold. Used only inside constant expressions.
-template<TextLiteral Message>
-constexpr void RtuRequire(bool condition) {
-	if (!condition) {
-		RtuError<Message>();
-	}
-}
 
 
 // The settings of an RTU transport, built in the captureless lambda that names the transport:
@@ -47,7 +32,7 @@ public:
 
 public:
 	constexpr RtuBuilder Turnaround(uint8 characters) const {
-		RtuRequire<TextLiteral{"turnaround must be under 3.5 character times"}>(characters <= 3);
+		Require<"RTU: turnaround must be under 3.5 character times">(characters <= 3);
 
 		RtuBuilder next = *this;
 		next.turnaroundCharacters = characters;
@@ -71,7 +56,7 @@ public:
 
 
 	constexpr bool Check() const {
-		RtuRequire<TextLiteral{"clock is missing: add Clock<&Fn>() to the RtuBuilder"}>(clockFn != nullptr);
+		Require<"RTU: clock is missing: add Clock<&Fn>() to the RtuBuilder">(clockFn != nullptr);
 		return true;
 	}
 };

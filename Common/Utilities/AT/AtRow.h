@@ -79,12 +79,12 @@ struct AtFieldDecl {
 	// Narrows the range of an integer field to low through high. Other types have no range, so the call is refused for them.
 	template<typename Number>
 	constexpr AtFieldDecl Range(Number low, Number high) const {
-		AtRequire<"a range is for an integer field">(AtIsRangedType<Base>);
+		Require<"AT: a range is for an integer field">(AtIsRangedType<Base>);
 
 		if constexpr (AtIsRangedType<Base>) {
-			AtRequire<"a range takes integers">(std::is_integral_v<Number>);
-			AtRequire<"a range bound is outside the type of the field">(CommandFitsType<Base>(low) && CommandFitsType<Base>(high));
-			AtRequire<"a range has its minimum above its maximum">(low <= high);
+			Require<"AT: a range takes integers">(std::is_integral_v<Number>);
+			Require<"AT: a range bound is outside the type of the field">(CommandFitsType<Base>(low) && CommandFitsType<Base>(high));
+			Require<"AT: a range has its minimum above its maximum">(low <= high);
 
 			AtFieldDecl copy = *this;
 			copy.minimum = static_cast<int64>(low);
@@ -103,8 +103,8 @@ constexpr AtFieldDecl<Member> AtField(std::string_view name) {
 	using Field = AtFieldDecl<Member>;
 	using Base = typename Field::Base;
 
-	AtRequire<"a row field has no name">(!name.empty());
-	AtRequire<"a row field has a type the grammar does not carry">(AtIsSupported<Base>);
+	Require<"AT: a row field has no name">(!name.empty());
+	Require<"AT: a row field has a type the grammar does not carry">(AtIsSupported<Base>);
 
 	Field field{};
 	field.name = name;
@@ -133,7 +133,7 @@ struct AtRowDecl {
 
 	// The text that a row starts with, after the reply prefix, such as "(".
 	constexpr AtRowDecl Open(std::string_view text) const {
-		AtRequire<"an Open text is empty">(!text.empty());
+		Require<"AT: an Open text is empty">(!text.empty());
 
 		AtRowDecl changed = *this;
 		changed.open = text;
@@ -143,7 +143,7 @@ struct AtRowDecl {
 
 	// The text that a row ends with, such as ")".
 	constexpr AtRowDecl Close(std::string_view text) const {
-		AtRequire<"a Close text is empty">(!text.empty());
+		Require<"AT: a Close text is empty">(!text.empty());
 
 		AtRowDecl changed = *this;
 		changed.close = text;
@@ -170,13 +170,13 @@ constexpr void AtCheckRowFields(const Fields&... fields) {
 		if (optional[index]) {
 			seenOptional = true;
 		} else {
-			AtRequire<"a required field comes after an optional one">(!seenOptional);
+			Require<"AT: a required field comes after an optional one">(!seenOptional);
 		}
 
-		AtRequire<"RawString is the last field of a row">(!raw[index] || index + 1 == names.size());
+		Require<"AT: RawString is the last field of a row">(!raw[index] || index + 1 == names.size());
 
 		for (std::size_t other = 0; other < index; other++) {
-			AtRequire<"two fields of a row have the same name">(names[index] != names[other]);
+			Require<"AT: two fields of a row have the same name">(names[index] != names[other]);
 		}
 	}
 }
@@ -185,8 +185,8 @@ constexpr void AtCheckRowFields(const Fields&... fields) {
 // A record or a row with its fields. A row type with no fields is refused, and every field must be a member of RowT.
 template<typename RowT, typename... Fields>
 constexpr AtRowDecl<RowT, Fields...> AtRow(Fields... fields) {
-	AtRequire<"a row has no fields">(sizeof...(Fields) > 0);
-	AtRequire<"a row field is a member of another struct">((std::is_same_v<typename Fields::Owner, RowT> && ...));
+	Require<"AT: a row has no fields">(sizeof...(Fields) > 0);
+	Require<"AT: a row field is a member of another struct">((std::is_same_v<typename Fields::Owner, RowT> && ...));
 	AtCheckRowFields(fields...);
 	return AtRowDecl<RowT, Fields...>{CommandPackOf(fields...)};
 }

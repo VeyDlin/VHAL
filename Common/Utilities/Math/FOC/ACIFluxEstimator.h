@@ -87,14 +87,14 @@ public:
 		SetupReal<T> leakage = m.Ls * m.Lr - m.Lm * m.Lm;
 
 		Constants c;
-		c.K1 = T(Tr / (Tr + m.Ts));
-		c.K2 = T(m.Ts / (Tr + m.Ts));
-		c.K3 = T(m.Lm / m.Lr);
-		c.K4 = T(leakage / (m.Lr * m.Lm));
-		c.K5 = T(m.Ib * m.Rs / m.Vb);
-		c.K6 = T(m.Vb * m.Ts / (m.Lm * m.Ib));
-		c.K7 = T(m.Lr / m.Lm);
-		c.K8 = T(leakage / (m.Lm * m.Lm));
+		c.K1 = RealFrom<T>(Tr / (Tr + m.Ts));
+		c.K2 = RealFrom<T>(m.Ts / (Tr + m.Ts));
+		c.K3 = RealFrom<T>(m.Lm / m.Lr);
+		c.K4 = RealFrom<T>(leakage / (m.Lr * m.Lm));
+		c.K5 = RealFrom<T>(m.Ib * m.Rs / m.Vb);
+		c.K6 = RealFrom<T>(m.Vb * m.Ts / (m.Lm * m.Ib));
+		c.K7 = RealFrom<T>(m.Lr / m.Lm);
+		c.K8 = RealFrom<T>(leakage / (m.Lm * m.Lm));
 		return c;
 	}
 

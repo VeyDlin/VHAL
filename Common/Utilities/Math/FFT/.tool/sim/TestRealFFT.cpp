@@ -38,7 +38,7 @@ double Real(T value) {
 	if constexpr (std::is_floating_point_v<T>) {
 		return static_cast<double>(value);
 	} else {
-		return value.ToDouble();
+		return static_cast<double>(value.raw) / static_cast<double>(value.one);
 	}
 }
 
@@ -46,7 +46,11 @@ double Real(T value) {
 // Converts a double to the tested type: float rounds, IQ rounds to nearest.
 template <typename T>
 T Make(double value) {
-	return static_cast<T>(value);
+	if constexpr (IQType<T>) {
+		return RealFrom<T>(static_cast<float>(value));
+	} else {
+		return static_cast<T>(value);
+	}
 }
 
 

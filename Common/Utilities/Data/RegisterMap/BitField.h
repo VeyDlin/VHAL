@@ -1,6 +1,6 @@
 #pragma once
 #include <Utilities/DataTypes.h>
-#include <Utilities/Data/RegisterMap/RegisterCheck.h>
+#include <Utilities/CompileTime/Require.h>
 #include <cstddef>
 #include <type_traits>
 
@@ -35,7 +35,7 @@ struct RegisterBitField {
 
 
 	constexpr RegisterBitField(Descriptor target, uint8 position) : reg(target), shift(position) {
-		RegisterRequire<"bit field is outside the register width">(static_cast<std::size_t>(position) + Width <= 8 * sizeof(RawType));
+		Require<"RegisterMap: bit field is outside the register width">(static_cast<std::size_t>(position) + Width <= 8 * sizeof(RawType));
 	}
 
 

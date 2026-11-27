@@ -1,0 +1,157 @@
+#pragma once
+
+#include <System/System.h>
+#include <array>
+#include <cstddef>
+#include <span>
+
+namespace Memory {
+
+
+// Storage policies for a container. A container takes one as its last template argument and holds the storage as a member:
+//
+//     typename Policy::template Storage<ElementType, Capacity> storage;
+//
+// A storage exposes Ready(), which is false when the storage has no memory, and Data(), which points to Capacity elements only
+// while Ready() is true. A container refuses its writes while Ready() is false, and a container that is not ready holds no elements.
+
+
+// The elements are a member array of the container. This is the default policy.
+struct Inside {
+	template <typename ElementType, std::size_t Capacity>
+	class Storage {
+	public:
+		constexpr bool Ready() const {
+			return true;
+		}
+
+
+		ElementType* Data() {
+			return items.data();
+		}
+
+
+		const ElementType* Data() const {
+			return items.data();
+		}
+
+
+	private:
+		std::array<ElementType, Capacity> items;
+	};
+};
+
+
+// The elements are a pinned block of the heap, which is a static object with a Memory::Heap type. The block is taken when the
+// container is constructed and released when it is destroyed. A pinned block does not move, so an interrupt or DMA may use it.
+//
+// The heap must be constructed before the container and destroyed after it, because the destructor gives the block back to the
+// heap. A static container in another translation unit may be constructed first,
+// so a debug build asserts that the heap is constructed. A container is therefore a function-local static, or is created after
+// the heap is initialised in main.
+template <auto& heap>
+struct FromHeap {
+	template <typename ElementType, std::size_t Capacity>
+	class Storage {
+	public:
+		Storage()
+			: items(Allocate()) {
+		}
+
+
+		Storage(const Storage&) = delete;
+		Storage& operator=(const Storage&) = delete;
+
+
+		// A move takes the block: the source keeps no block and is not ready.
+		Storage(Storage&& other) noexcept
+			: items(other.items) {
+			other.items = nullptr;
+		}
+
+
+		Storage& operator=(Storage&& other) noexcept {
+			if (this != &other) {
+				Release();
+				items = other.items;
+				other.items = nullptr;
+			}
+
+			return *this;
+		}
+
+
+		~Storage() {
+			Release();
+		}
+
+
+		ElementType* Data() {
+			return items;
+		}
+
+
+		const ElementType* Data() const {
+			return items;
+		}
+
+
+		bool Ready() const {
+			return items != nullptr;
+		}
+
+
+	private:
+		ElementType* items;
+
+
+		static ElementType* Allocate() {
+			SystemAssert(heap.IsConstructed(), "a FromHeap container is built before its heap");
+			return static_cast<ElementType*>(heap.AllocatePinned(sizeof(ElementType) * Capacity, alignof(ElementType)));
+		}
+
+
+		void Release() {
+			if (items != nullptr) {
+				heap.ReleasePinned(items);
+				items = nullptr;
+			}
+		}
+	};
+};
+
+
+// The elements are in memory that the caller gives. The span must hold at least Capacity elements, or the storage is not ready.
+// The caller keeps the memory for the life of the container.
+struct External {
+	template <typename ElementType, std::size_t Capacity>
+	class Storage {
+	public:
+		explicit Storage(std::span<ElementType> memory)
+			: items(memory.data())
+			, size(memory.size()) {
+		}
+
+
+		bool Ready() const {
+			return size >= Capacity;
+		}
+
+
+		ElementType* Data() {
+			return items;
+		}
+
+
+		const ElementType* Data() const {
+			return items;
+		}
+
+
+	private:
+		ElementType* items;
+		std::size_t size;
+	};
+};
+
+}

@@ -65,7 +65,7 @@ The core counts every error. It acts on `DataOverrun` only.
 
 ## Events
 
-Assign them before `Connect()`. They run in interrupt context, so a handler must be short. It must not block or allocate. Each event is a `VSTD::Delegate` (the same type the USB classes use), a function pointer with a context made by `Bind()` on a member function. A lambda with captures does not fit it. An empty delegate is skipped.
+Assign them before `Connect()`. They run in interrupt context, so a handler must be short. It must not block or allocate. Each event is a `Callback::Delegate` (the same type the USB classes use), a function pointer with a context made by `Bind()` on a member function. A lambda with captures does not fit it. An empty delegate is skipped.
 
 | Event | Arguments | When |
 |-------|-----------|------|

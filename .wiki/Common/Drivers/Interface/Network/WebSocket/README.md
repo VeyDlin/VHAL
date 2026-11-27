@@ -6,7 +6,7 @@ The client does one job: connect, send and receive WebSocket messages, and close
 
 Header: `#include <Drivers/Interface/Network/WebSocket/WebSocketClient.h>`
 
-The class is header-only. It needs `SocketAdapter`, [SHA1](../../../../Utilities/Crypto/SHA/SHA1.md), [Base64](../../../../Utilities/Encoding/Base/Base64.md) and the `VSTD` allocator.
+The class is header-only. It needs `SocketAdapter`, [SHA1](../../../../Utilities/Crypto/SHA/SHA1.md), [Base64](../../../../Utilities/Encoding/Base/Base64.md) and the `Memory::IAllocator`.
 
 ## Table of Contents
 
@@ -37,7 +37,7 @@ One task drives the client. There are no background threads and no timers: every
 ## Construction and Options
 
 ```cpp
-WebSocketClient(SocketAdapter& adapter, VSTD::IAllocator& memory);
+WebSocketClient(SocketAdapter& adapter, Memory::IAllocator& memory);
 ```
 
 `adapter` carries the bytes. `memory` holds reassembled messages. Both must outlive the client. The client is not copyable.
@@ -163,7 +163,7 @@ A protocol error sends the close frame first and then closes the socket without 
 
 ## Memory and the Allocator
 
-Only message reassembly uses dynamic memory, through the `VSTD::IAllocator&` given to the constructor. Everything else is a fixed member.
+Only message reassembly uses dynamic memory, through the `Memory::IAllocator&` given to the constructor. Everything else is a fixed member.
 
 | Buffer | Size | Holds |
 |--------|------|-------|
@@ -172,7 +172,7 @@ Only message reassembly uses dynamic memory, through the `VSTD::IAllocator&` giv
 | control | 125 | Ping, pong and close payloads |
 | message | `maxMessageSize` at most | One reassembled message, allocated with `Allocate` and grown with `Reallocate` (doubling, capped at `maxMessageSize`) |
 
-**Handles can move.** The `Heap` in `VSTD` can defragment (`Defragment()`, `DefragStep()`), which moves blocks and updates the `Handle`. The client keeps the message as a `Handle`, never as a raw pointer, and resolves `Data()` again for each copy. An application that keeps data across calls must do the same.
+**Handles can move.** The `Memory::Heap` can defragment (`Defragment()`, `DefragStep()`), which moves blocks and updates the `Handle`. The client keeps the message as a `Handle`, never as a raw pointer, and resolves `Data()` again for each copy. An application that keeps data across calls must do the same.
 
 Rules for the application:
 
@@ -182,7 +182,7 @@ Rules for the application:
 - The allocator must have room for `maxMessageSize` when a large message arrives. A `Heap` that is too small returns `outOfMemory` and the connection closes with 1011.
 
 ```cpp
-VSTD::Heap<VSTD::IncrementalDefrag<2>> heap(32768);
+Memory::Heap<Memory::IncrementalDefrag<2>> heap(32768);
 WebSocketClient client(socket, heap);
 ```
 
@@ -198,13 +198,13 @@ Connects to the xAI streaming transcription endpoint with a bearer token, sends 
 
 ```cpp
 #include <Drivers/Interface/Network/WebSocket/WebSocketClient.h>
-#include <Utilities/VSTD/memory/Heap.h>
+#include <Utilities/Memory/Heap.h>
 #include <esp_random.h>
 #include <algorithm>
 
 
 static ASOCKET sttSocket;
-static VSTD::Heap<VSTD::IncrementalDefrag<2>> sttHeap(32768);
+static Memory::Heap<Memory::IncrementalDefrag<2>> sttHeap(32768);
 static WebSocketClient stt(sttSocket, sttHeap);
 static constexpr size_t kFrameBytes = 3200; // 100 ms of 16 kHz PCM16 mono
 

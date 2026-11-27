@@ -1,5 +1,5 @@
 #pragma once
-#include <Drivers/Interface/VUB/Require.h>
+#include <Utilities/CompileTime/Require.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -322,7 +322,7 @@ struct FieldsBuilder {
 
 	template<auto Member>
 	constexpr FieldsBuilder<T, Count + 1> Field() const {
-		Require<"a required field follows an Optional field: Optional fields come last">(!hasOptional);
+		Require<"VUB: a required field follows an Optional field: Optional fields come last">(!hasOptional);
 		return Append<Member, false>();
 	}
 

@@ -78,12 +78,12 @@ bool OrderIs(const EventLog& log, std::string_view expected) {
 
 void Attach(SimUSBDeviceAdapter& sim, EventLog& log) {
 	log.sim = &sim;
-	sim.onBusReset = VSTD::Delegate<void(USBSpeed)>::Bind<EventLog, &EventLog::OnBusReset>(&log);
-	sim.onSetup = VSTD::Delegate<void(const USBSetupBytes&)>::Bind<EventLog, &EventLog::OnSetup>(&log);
-	sim.onTransferComplete = VSTD::Delegate<void(uint8, uint32)>::Bind<EventLog, &EventLog::OnTransferComplete>(&log);
-	sim.onError = VSTD::Delegate<void(SimUSBDeviceAdapter::Error)>::Bind<EventLog, &EventLog::OnError>(&log);
-	sim.onResume = VSTD::Delegate<void()>::Bind<EventLog, &EventLog::OnResume>(&log);
-	sim.onStartOfFrame = VSTD::Delegate<void(uint16)>::Bind<EventLog, &EventLog::OnStartOfFrame>(&log);
+	sim.onBusReset = Callback::Delegate<void(USBSpeed)>::Bind<EventLog, &EventLog::OnBusReset>(&log);
+	sim.onSetup = Callback::Delegate<void(const USBSetupBytes&)>::Bind<EventLog, &EventLog::OnSetup>(&log);
+	sim.onTransferComplete = Callback::Delegate<void(uint8, uint32)>::Bind<EventLog, &EventLog::OnTransferComplete>(&log);
+	sim.onError = Callback::Delegate<void(SimUSBDeviceAdapter::Error)>::Bind<EventLog, &EventLog::OnError>(&log);
+	sim.onResume = Callback::Delegate<void()>::Bind<EventLog, &EventLog::OnResume>(&log);
+	sim.onStartOfFrame = Callback::Delegate<void(uint16)>::Bind<EventLog, &EventLog::OnStartOfFrame>(&log);
 }
 
 

@@ -69,10 +69,10 @@ public:
 		SetupReal<T> Wb = SetupReal<T>(2) * pi * m.fb;
 
 		Constants c;
-		c.K1 = T(SetupReal<T>(1) / (Wb * Tr));
-		c.K2 = T(SetupReal<T>(1) / (m.fb * m.Ts));
-		c.K3 = T(Tc / (Tc + m.Ts));
-		c.K4 = T(m.Ts / (Tc + m.Ts));
+		c.K1 = RealFrom<T>(SetupReal<T>(1) / (Wb * Tr));
+		c.K2 = RealFrom<T>(SetupReal<T>(1) / (m.fb * m.Ts));
+		c.K3 = RealFrom<T>(Tc / (Tc + m.Ts));
+		c.K4 = RealFrom<T>(m.Ts / (Tc + m.Ts));
 		return c;
 	}
 

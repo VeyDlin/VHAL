@@ -7,7 +7,7 @@
 #include <Drivers/Interface/USB/Device/USBFunction.h>
 #include <System/System.h>
 #include <Utilities/Result/Result.h>
-#include <Utilities/VSTD/utility/Delegate.h>
+#include <Utilities/Callback/Delegate.h>
 
 
 // The DFU 1.1 mode function (DFU 1.1 sections 6 and 7, appendix A). It runs the state machine over an IDfuTarget. The states,
@@ -49,7 +49,7 @@ public:
 	// Called from Process(). willDetach is true when the device must detach and attach itself (bitWillDetach, after the
 	// manifestation). It is false when a device that does not stay on the bus must restart after the host's reset. In both cases the
 	// application restarts the device: a reset of the MCU, since USBDevice::Stop() and Start() present the same descriptors again.
-	using DetachDelegate = VSTD::Delegate<void(bool willDetach)>;
+	using DetachDelegate = Callback::Delegate<void(bool willDetach)>;
 
 
 private:

@@ -175,7 +175,7 @@ A name the description does not declare is an error at the call: `client.Read<"+
 | `AtServer.h` | `AtServer` | [AtServer](AtServer.md) |
 | `AtClient.h` | `AtClient`, `AtQueue` | [AtClient](AtClient.md) |
 | `AtDialect.h` | `AtDialect`, `AtCmeMode` | [AtDialect](AtDialect.md) |
-| `AtError.h` | `AtStatus`, `AtCmeError`, the error messages | [AtClient](AtClient.md) |
+| `AtError.h` | `AtStatus`, `AtCmeError` | [AtClient](AtClient.md) |
 | `Modules/AtEcho.h` | the client's echo module | [AtEcho](Modules/AtEcho.md) |
 | `Descriptions/EspAt.h` | the ESP-AT description and its two structs, `EspAtAccessPoint` and `EspAtJoinedNetwork` | [EspAt](Descriptions/EspAt.md) |
 | `Modules/AtRows.h` | the client's row module `AtRows<N>` and the list `AtRowList` | [AtRows](Modules/AtRows.md) |

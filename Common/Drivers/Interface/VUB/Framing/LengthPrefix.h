@@ -1,7 +1,7 @@
 #pragma once
 #include <Drivers/Interface/VUB/Blocks.h>
 #include <Drivers/Interface/VUB/Meta.h>
-#include <Drivers/Interface/VUB/Require.h>
+#include <Utilities/CompileTime/Require.h>
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
@@ -48,7 +48,7 @@ struct LengthPrefix {
 
 	// The header: sync, length and check. It does not depend on the length of the payload.
 	static constexpr std::size_t Growth(std::size_t length) {
-		Require<"a one byte length holds packets of 255 bytes at most: use VUB::LengthPrefix<2> for a longer packet">(
+		Require<"VUB: a one byte length holds packets of 255 bytes at most: use VUB::LengthPrefix<2> for a longer packet">(
 			Width == 2 || length <= 255);
 		return HeaderBytes;
 	}
