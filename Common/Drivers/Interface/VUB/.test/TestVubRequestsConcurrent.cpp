@@ -1,4 +1,3 @@
-// libs-linux: pthread
 #include "Chains.h"
 #include "SimCheck.h"
 #include <Drivers/Interface/VUB/Layer/Reliable.h>

@@ -1,5 +1,3 @@
-// libs-windows: winusb setupapi cfgmgr32
-// libs-linux: usb-1.0
 #include "SimCheck.h"
 #include <Drivers/Interface/VUB/Blocks.h>
 #include <Drivers/Interface/VUB/PC/BulkLink.h>

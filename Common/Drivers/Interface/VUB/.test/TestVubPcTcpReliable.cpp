@@ -1,4 +1,3 @@
-// libs-windows: ws2_32
 #include "SimCheck.h"
 #include <Drivers/Interface/VUB/Framing/Cobs.h>
 #include <Drivers/Interface/VUB/Layer/Reliable.h>

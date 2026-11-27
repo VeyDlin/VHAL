@@ -1,4 +1,3 @@
-// libs-linux: pthread
 #include <Drivers/Interface/VUB/Bytes.h>
 #include <Drivers/Interface/VUB/LinkTraits.h>
 #include <Drivers/Interface/VUB/Meta.h>

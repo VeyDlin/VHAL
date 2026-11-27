@@ -1,5 +1,3 @@
-// libs-windows: ws2_32 setupapi cfgmgr32 winusb hid
-// libs-linux: usb-1.0
 #include "SimCheck.h"
 #include <Drivers/Interface/VUB/Framing/Cobs.h>
 #include <Drivers/Interface/VUB/Meta.h>

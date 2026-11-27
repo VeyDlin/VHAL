@@ -1,4 +1,3 @@
-// libs-windows: hid setupapi
 #include "SimCheck.h"
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/ResultStatus.h>
