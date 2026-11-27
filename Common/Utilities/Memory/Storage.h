@@ -1,6 +1,7 @@
 #pragma once
 
 #include <System/System.h>
+#include <array>
 #include <cstddef>
 #include <span>
 
@@ -11,8 +12,8 @@ namespace Memory {
 //
 //     typename Policy::template Storage<ElementType, Capacity> storage;
 //
-// A storage exposes Data(), which points to Capacity elements, and Ready(), which is false when the storage has no memory.
-// A container refuses its writes while Ready() is false.
+// A storage exposes Ready(), which is false when the storage has no memory, and Data(), which points to Capacity elements only
+// while Ready() is true. A container refuses its writes while Ready() is false, and a container that is not ready holds no elements.
 
 
 // The elements are a member array of the container. This is the default policy.
@@ -26,17 +27,17 @@ struct Inside {
 
 
 		ElementType* Data() {
-			return items;
+			return items.data();
 		}
 
 
 		const ElementType* Data() const {
-			return items;
+			return items.data();
 		}
 
 
 	private:
-		ElementType items[Capacity];
+		std::array<ElementType, Capacity> items;
 	};
 };
 
