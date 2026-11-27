@@ -202,7 +202,7 @@ Each of these is a compile error with the message in the second column.
 | `Help` listed with a set that has no commands or groups | `Help needs a command or a group in the set` |
 | A module that takes characters, keys or events listed before `Help` (`LineEditing` and `History` exempt) | `Help must be listed before a module that takes characters, keys or events` |
 
-The rules are checked by `Common/Utilities/CommandLine/.tool/sim/BuilderErrors/check.sh`, one snippet per rule.
+The rules are checked by the snippets in `Common/Utilities/CommandLine/.test/BuilderErrors/`, one snippet per rule.
 
 ---
 
@@ -422,7 +422,7 @@ There is no line buffer in the core. `LineEditing` adds one, of its size. Flash 
 
 ## Tests and checks
 
-The sim tests are in `Common/Utilities/CommandLine/.tool/sim`, run by `run.sh` with `-std=c++23 -Wall -Wextra -Werror`:
+The host tests are in `Common/Utilities/CommandLine/.test`, built with `-std=c++23 -Wall -Wextra -Werror` and run by `./test.cmd CommandLine`:
 
 - `TestCommandTree.cpp`, `TestCommandArguments.cpp`, `TestCommandCalls.cpp`: the declarations, the tables, the readers and the handler calls;
 - `TestCommandLine.cpp`: the console, every event and range, the line ends, the quotes, Ctrl+C, the terminal and Backspace at every position of each line;
@@ -435,7 +435,7 @@ The sim tests are in `Common/Utilities/CommandLine/.tool/sim`, run by `run.sh` w
 - `TestCommandHiddenInput.cpp`: the echo of a secret as `*`, Backspace, a quoted secret (every character of it hidden), a secret past its capacity, History and secret lines, the tail redraw, and Help;
 - `TestCommandAnsi.cpp`: the green prompt, red standard errors, Ctrl+L, a console without Ansi, and a set with its own `Default()`;
 - `TestCommandFloatArguments.cpp`: float and double reading, the default, signs and exponents, the range at Enter, infinity and nan in both types, a double with no range, a number that is not one, a missing value, and Help;
-- `BuilderErrors/check.sh`: many of the compile-time rules, as snippets that must fail with their message, including `History` without `LineEditing`, `Completion` before `Help`, `Ansi` before `Help`, a long command, a float and a secret without their modules, a float range and default, a ring size of zero, one that is not a power of two, and one above 2^30, and a long state that is not trivially destructible.
+- `BuilderErrors/`: many of the compile-time rules, as snippets that must fail with their message, including `History` without `LineEditing`, `Completion` before `Help`, `Ansi` before `Help`, a long command, a float and a secret without their modules, a float range and default, a ring size of zero, one that is not a power of two, and one above 2^30, and a long state that is not trivially destructible.
 
 ---
 

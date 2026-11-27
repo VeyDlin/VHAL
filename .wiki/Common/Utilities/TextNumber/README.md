@@ -156,7 +156,7 @@ static_assert(ParseFloat<double>("0.1").value == 0.1);
 
 ## Tests
 
-Host tests in `Common/Utilities/TextNumber/.tool/sim`, run with `run.sh`, which compiles each `Test*.cpp` with g++ and `-Werror`:
+Host tests in `Common/Utilities/TextNumber/.test`, run with `./test.cmd TextNumber`, which compiles each `Test*.cpp` with g++ and `-Werror`:
 
 - `TestIntegerParser.cpp`: the limits of every integer type, bases and prefixes, sign rules, ranges, each error, `Pop` at every position, rejected characters, a cross-check against `strtoll` and `strtoull`.
 - `TestFloatParser.cpp`: a table and random texts against `strtod` and `strtof`, inf and nan, exponents, many digits, halfway points (exact decimals of midpoints between neighbouring floats, with and without a non-zero digit far out), random texts of 1 to 800 digits, `Pop` at every position, compile-time cases.
