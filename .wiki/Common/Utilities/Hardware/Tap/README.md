@@ -14,7 +14,7 @@ Number types: `float` only. `TapDetector` is not a template: its inputs are floa
 has `sqrt` and `abs`, so the reason is not the functions. Converting would change the tuned behaviour, and the thresholds would
 need re-checking on the board first.
 
-Host tests: `tools/vhal-host-tests/motion/` (the `motion.tap.*` tests, on synthetic traces).
+Host tests: `Utilities/Hardware/Tap/.test/TestTapDetector.cpp` (`./test.cmd Tap`), on synthetic traces.
 
 ---
 
@@ -81,8 +81,8 @@ An event starts when the jerk norm reaches `candidateGPerS` and ends after `even
 Why the earliest lobe and not the largest one: the case rings after the impact. In the test firmware's data (summary of
 `tools/tilt-scroll-test/user_session.log`) the largest-jerk rule put the bottom edge on +Y, because the ringing of the case
 was larger than the knock on the bottom axis. The impact is always the first lobe; ringing comes after it, so the earliest
-lobe keeps the top knock on its face. Tests `motion.tap.ringing_keeps_top_face` and
-`motion.tap.back_knock_ringing_keeps_back_face` check this.
+lobe keeps the top knock on its face. The checks `CheckRingingKeepsTopFace` and
+`CheckBackKnockRingingKeepsBackFace` in `TestTapDetector.cpp` check this.
 
 ## Acceptance
 
@@ -143,5 +143,5 @@ The 80 ms refractory window was kept. The session log has no timestamps, so the 
 ## Files
 
 - `VHAL/Common/Utilities/Hardware/Tap/TapDetector.h`: the detector and `AccelHighPass`.
-- `tools/vhal-host-tests/motion/tests/TapDetectorTests.cpp`: the host tests (`[HOST] motion.tap.*`).
+- `Utilities/Hardware/Tap/.test/TestTapDetector.cpp`: the host tests (`Tap.TestTapDetector`).
 - `tools/tilt-scroll-test/`: the on-board test that uses the detector (its README has the procedure).

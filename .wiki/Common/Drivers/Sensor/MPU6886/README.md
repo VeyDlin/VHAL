@@ -106,15 +106,14 @@ measured x 1.026, y 0.874, z 0.134 deg/s on the board (lying still).
 
 ## Tests
 
-`tools/vhal-host-tests/motion/run.sh` (`[HOST] motion.mpu6886.*`). The driver compiles against `stubs/VHAL.h`, a simulated
+`Drivers/Sensor/MPU6886/.test/TestMpu6886.cpp` (`./test.cmd MPU6886`). The driver compiles against `.test/shim/VHAL.h`, a simulated
 device with a register file, a write log, the FIFO, read-to-clear INT_STATUS and FIFO_RST. The tests check the write
 sequence of `Init`, a dropped configuration write (readback mismatch), wrong `WHO_AM_I`, the burst decode and scaling,
 gyroscope bias calibration (and that it rejects motion), the FIFO drain, the overflow reset and the sleep write (`Sleep`:
 one PWR_MGMT_1 write, 0x41).
 
 `Sleep` stops the accelerometer and gyroscope and keeps the registers, so the caller can put the device to sleep whenever it
-does not need samples. The current drawn in sleep is not measured here. The compile check is
-`tools/vhal-harness/main/checks/CheckMotion.cpp`.
+does not need samples. The current drawn in sleep is not measured here.
 
 ## Sources
 
