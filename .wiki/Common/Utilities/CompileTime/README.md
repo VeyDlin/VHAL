@@ -38,7 +38,7 @@ AT: a command name is empty
 Modbus: timeout must be above 0 ms
 ```
 
-The module name is the first word a reader sees in the build output, so it tells which library reports the failure. A `RequireValue` message does not write the value into its text: the value is a separate template argument, and the diagnostic prints it.
+The module name opens the message, so the text names the library that reports the failure. A `RequireValue` message does not write the value into its text: the value is a separate template argument, and the diagnostic prints it.
 
 `TextLiteral<Size>` is the type of a message. It is a class with a `char` array and a constructor from a string literal of the same size. `GetLength()` gives the length without the terminating NUL, and `View()` gives a `std::string_view` of the text.
 
@@ -89,4 +89,4 @@ The prefixes in use in the tree, from the `Require<"...">` and `RequireValue<"..
 | `USB` | `Drivers/Interface/USB` |
 | `VUB` | `Drivers/Interface/VUB` |
 
-The host tests of this module use the prefix `CompileTime`. A new module takes a new prefix, written in the same form.
+The host tests of this module use the prefix `CompileTime`. A module that adds a check takes its own prefix, in the same form.
