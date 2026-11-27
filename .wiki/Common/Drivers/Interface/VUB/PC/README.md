@@ -85,7 +85,7 @@ itself, without that macro, before a PC header gets the full Windows header, and
 
 ## Tests
 
-The tests are in `Common/Drivers/Interface/VUB/.tool/sim/`. They never open a device, a serial port or a USB interface. The TCP tests bind
+The tests are in `Common/Drivers/Interface/VUB/.test/`. They never open a device, a serial port or a USB interface. The TCP tests bind
 `127.0.0.1` and let the system pick the port. The serial test on Linux uses a pseudo-terminal pair (`openpty`). The bulk and HID tests are
 compiled on both systems and check their pure parts (the serial match, the GUID text, the report layout, the usage page, the size of the
 device detail buffer on Windows) as plain functions. `TestVubPcRelease.cpp` checks the release (`TransferRelease.h`) with a fake handle layer: the waits, the bound of 200 ms, and that
