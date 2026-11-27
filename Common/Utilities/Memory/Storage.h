@@ -1,6 +1,7 @@
 #pragma once
 
 #include <System/System.h>
+#include <array>
 #include <cstddef>
 #include <span>
 
@@ -11,8 +12,8 @@ namespace Memory {
 //
 //     typename Policy::template Storage<ElementType, Capacity> storage;
 //
-// A storage exposes Data(), which points to Capacity elements, and Ready(), which is false when the storage has no memory.
-// A container refuses its writes while Ready() is false.
+// A storage exposes Ready(), which is false when the storage has no memory, and Data(), which points to Capacity elements only
+// while Ready() is true. A container refuses its writes while Ready() is false, and a container that is not ready holds no elements.
 
 
 // The elements are a member array of the container. This is the default policy.
@@ -26,17 +27,17 @@ struct Inside {
 
 
 		ElementType* Data() {
-			return items;
+			return items.data();
 		}
 
 
 		const ElementType* Data() const {
-			return items;
+			return items.data();
 		}
 
 
 	private:
-		ElementType items[Capacity];
+		std::array<ElementType, Capacity> items;
 	};
 };
 
@@ -44,7 +45,8 @@ struct Inside {
 // The elements are a pinned block of the heap, which is a static object with a Memory::Heap type. The block is taken when the
 // container is constructed and released when it is destroyed. A pinned block does not move, so an interrupt or DMA may use it.
 //
-// The heap must be constructed before the container. A static container in another translation unit may be constructed first,
+// The heap must be constructed before the container and destroyed after it, because the destructor gives the block back to the
+// heap. A static container in another translation unit may be constructed first,
 // so a debug build asserts that the heap is constructed. A container is therefore a function-local static, or is created after
 // the heap is initialised in main.
 template <auto& heap>
@@ -61,10 +63,26 @@ struct FromHeap {
 		Storage& operator=(const Storage&) = delete;
 
 
-		~Storage() {
-			if (items != nullptr) {
-				heap.ReleasePinned(items);
+		// A move takes the block: the source keeps no block and is not ready.
+		Storage(Storage&& other) noexcept
+			: items(other.items) {
+			other.items = nullptr;
+		}
+
+
+		Storage& operator=(Storage&& other) noexcept {
+			if (this != &other) {
+				Release();
+				items = other.items;
+				other.items = nullptr;
 			}
+
+			return *this;
+		}
+
+
+		~Storage() {
+			Release();
 		}
 
 
@@ -90,6 +108,14 @@ struct FromHeap {
 		static ElementType* Allocate() {
 			SystemAssert(heap.IsConstructed(), "a FromHeap container is built before its heap");
 			return static_cast<ElementType*>(heap.AllocatePinned(sizeof(ElementType) * Capacity, alignof(ElementType)));
+		}
+
+
+		void Release() {
+			if (items != nullptr) {
+				heap.ReleasePinned(items);
+				items = nullptr;
+			}
 		}
 	};
 };

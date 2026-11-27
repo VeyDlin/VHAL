@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <span>
+#include <utility>
 
 // Host tests of the RingBuffer storage policies: External, FromHeap and the not-ready refusal. The static ring of a second
 // translation unit (RingSecondUnit.cpp) is built from the heap defined here.
@@ -111,6 +112,28 @@ void FromHeapExhausted() {
 }
 
 
+void FromHeapMovedRing() {
+	std::size_t usedBefore = ringTestHeap.UsedBytes();
+	{
+		RingBuffer<uint8, 16, Memory::FromHeap<ringTestHeap>> source;
+		std::array<uint8, 3> three = {1, 2, 3};
+		RS_EQ(source.Push(std::span<const uint8>(three)), 3);
+
+		RingBuffer<uint8, 16, Memory::FromHeap<ringTestHeap>> target(std::move(source));
+		RS_EQ(target.Size(), 3);
+		RS_EQ(target.Pop().ValueOr(0), 1);
+
+		RS_EQ(source.Size(), 0);
+		RS_EXPECT(source.IsEmpty());
+		RS_EQ(source.Push(static_cast<uint8>(4)), static_cast<int>(ResultStatus::notReady));
+		RS_EXPECT(source.Pop().IsErr());
+		std::array<uint8, 4> none = {};
+		RS_EQ(source.Pop(std::span<uint8>(none)), 0);
+	}
+	RS_EQ(ringTestHeap.UsedBytes(), usedBefore);
+}
+
+
 void SecondUnit() {
 	RS_EQ(RingSecondUnitPushes(), 3);
 }
@@ -124,6 +147,7 @@ int main() {
 	ExternalTooSmall();
 	FromHeapRing();
 	FromHeapExhausted();
+	FromHeapMovedRing();
 	SecondUnit();
 
 	if (SimCriticalDepth() != 0) {

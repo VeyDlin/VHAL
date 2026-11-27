@@ -485,5 +485,5 @@ int main() {
     PinnedBlocksHonourTheirAlignment();
     ForeignHandlesAreIgnored();
     HeapReportsItsConstruction();
-    return VstdSim::Finish("TestHeap");
+    return MemorySim::Finish("TestHeap");
 }

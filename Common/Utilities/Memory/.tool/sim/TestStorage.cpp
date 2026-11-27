@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <utility>
 
 // Host tests of the storage policies: Inside, External and FromHeap. The heap of the FromHeap cases is a static object with
 // external linkage, as a container's policy needs.
@@ -83,6 +84,34 @@ void FromHeapAlignmentCase() {
 }
 
 
+void FromHeapMoveCase() {
+	using Block = Memory::FromHeap<storageTestHeap>::Storage<std::uint32_t, 4>;
+
+	std::size_t usedBefore = storageTestHeap.UsedBytes();
+	{
+		Block source;
+		std::uint32_t* block = source.Data();
+		block[1] = 0xCAFEu;
+
+		Block moved(std::move(source));
+		ST_EXPECT(moved.Ready());
+		ST_EXPECT(moved.Data() == block);
+		ST_EXPECT(moved.Data()[1] == 0xCAFEu);
+		ST_EXPECT(!source.Ready());
+		ST_EXPECT(source.Data() == nullptr);
+
+		Block assigned;
+		std::size_t usedWithTwo = storageTestHeap.UsedBytes();
+		assigned = std::move(moved);
+		ST_EXPECT(assigned.Ready());
+		ST_EXPECT(assigned.Data() == block);
+		ST_EXPECT(!moved.Ready());
+		ST_EXPECT(storageTestHeap.UsedBytes() < usedWithTwo);
+	}
+	ST_EXPECT(storageTestHeap.UsedBytes() == usedBefore);
+}
+
+
 void FromHeapExhaustedCase() {
 	Memory::FromHeap<storageTinyHeap>::Storage<std::uint8_t, 4096> large;
 	ST_EXPECT(!large.Ready());
@@ -98,7 +127,8 @@ int main() {
 	ExternalCase();
 	FromHeapCase();
 	FromHeapAlignmentCase();
+	FromHeapMoveCase();
 	FromHeapExhaustedCase();
 
-	return VstdSim::Finish("TestStorage");
+	return MemorySim::Finish("TestStorage");
 }

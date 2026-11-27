@@ -79,5 +79,5 @@ int main() {
 	ObjectFollowsDefragment();
 	RefusedAllocationIsEmpty();
 	SharedPtrOverHeapType();
-	return VstdSim::Finish("TestSharedPtr");
+	return MemorySim::Finish("TestSharedPtr");
 }

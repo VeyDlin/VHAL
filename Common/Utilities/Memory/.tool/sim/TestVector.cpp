@@ -169,5 +169,5 @@ int main() {
 	VectorDefaultsToIAllocator();
 	VectorOverHeapTypeUsesTheHeap();
 	VectorOverPoolAllocatorType();
-	return VstdSim::Finish("TestVector");
+	return MemorySim::Finish("TestVector");
 }

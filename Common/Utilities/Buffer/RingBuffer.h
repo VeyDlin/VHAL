@@ -48,6 +48,37 @@ public:
 	RingBuffer() : readIndex(0), size(0) {}
 
 
+	RingBuffer(const RingBuffer&) = default;
+	RingBuffer& operator=(const RingBuffer&) = default;
+
+
+	// A move takes the elements with the storage. The source is left empty, so its indexes and marks are reset with them.
+	RingBuffer(RingBuffer&& other) noexcept
+		: storage(std::move(other.storage))
+		, readIndex(other.readIndex)
+		, size(other.size)
+		, uncommittedReadCount(other.uncommittedReadCount) {
+		other.readIndex = 0;
+		other.size = 0;
+		other.uncommittedReadCount = 0;
+	}
+
+
+	RingBuffer& operator=(RingBuffer&& other) noexcept {
+		if (this != &other) {
+			storage = std::move(other.storage);
+			readIndex = other.readIndex;
+			size = other.size;
+			uncommittedReadCount = other.uncommittedReadCount;
+			other.readIndex = 0;
+			other.size = 0;
+			other.uncommittedReadCount = 0;
+		}
+
+		return *this;
+	}
+
+
 	// The arguments go to the policy's storage, for example the memory of Memory::External.
 	template <typename... Arguments>
 		requires(sizeof...(Arguments) > 0 && std::constructible_from<typename Policy::template Storage<ElementType, BufferSize>, Arguments...>)
