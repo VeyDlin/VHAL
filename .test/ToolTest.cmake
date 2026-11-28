@@ -1,8 +1,9 @@
-# Runs the tests of a counterpart tool of a module's .tool folder. The inputs are VHAL_TOOL_DIR and, optionally, VHAL_TOOL_PREPARE. The
-# tool kind is found from its files:
+# Runs the tests of a counterpart tool of a module's .tool folder. The inputs are VHAL_TOOL_DIR and, optionally, VHAL_TOOL_SCRIPT and
+# VHAL_TOOL_PREPARE. The tool kind is found from its files:
 #
-# - a package.json: npm test, skipped when npm is absent. The script never runs npm ci or any download. When VHAL_TOOL_PREPARE names
-#   an npm script, that script runs first, when a g++ is on the PATH (the tests of a device simulator need it).
+# - a package.json: npm run <VHAL_TOOL_SCRIPT, default test>, skipped when npm is absent. The script never runs npm ci or any download.
+#   When VHAL_TOOL_PREPARE names an npm script, that script runs first, when a g++ is on the PATH (the tests of a device simulator need
+#   it). When that script fails, the tests are skipped with the VHAL_SKIP: marker and its output is kept in the log.
 # - a project or solution file: dotnet test, skipped when dotnet is absent.
 # - a CMakeLists.txt: the tool is configured and built in .test-build/tools/<folder path>, with the generator and the host compiler
 #   of the main build (read from its cache). The tool is built with VHAL_TOOL_TEST set to ON, so that it never downloads a library
@@ -22,7 +23,8 @@ if(EXISTS "${VHAL_TOOL_DIR}/package.json")
   endif()
 
   # The npm script that prepares the tests (a device simulator, for one) runs when a g++ is on the PATH, because the simulator is built
-  # with it. Without one the tests that need the simulator skip themselves, and the other tests run.
+  # with it. Without one the tests that need the simulator skip themselves. When the script fails, the tests that need its output
+  # cannot run, so the test is skipped with the marker; the compiler's errors are in the log above it.
   if(VHAL_TOOL_PREPARE)
     find_program(vhalGxx NAMES g++ g++.exe)
     if(vhalGxx)
@@ -31,17 +33,24 @@ if(EXISTS "${VHAL_TOOL_DIR}/package.json")
         WORKING_DIRECTORY "${VHAL_TOOL_DIR}"
         RESULT_VARIABLE prepareResult)
       if(NOT prepareResult EQUAL 0)
-        message(FATAL_ERROR "npm run ${VHAL_TOOL_PREPARE} failed in ${VHAL_TOOL_DIR} (${prepareResult})")
+        message("VHAL_SKIP: npm run ${VHAL_TOOL_PREPARE} failed in ${VHAL_TOOL_DIR} (${prepareResult}): the tests were not run")
+        return()
       endif()
     endif()
   endif()
 
+  if(VHAL_TOOL_SCRIPT)
+    set(vhalScript "${VHAL_TOOL_SCRIPT}")
+  else()
+    set(vhalScript "test")
+  endif()
+
   execute_process(
-    COMMAND "${vhalNpm}" test
+    COMMAND "${vhalNpm}" run "${vhalScript}"
     WORKING_DIRECTORY "${VHAL_TOOL_DIR}"
     RESULT_VARIABLE testResult)
   if(NOT testResult EQUAL 0)
-    message(FATAL_ERROR "npm test failed in ${VHAL_TOOL_DIR} (${testResult})")
+    message(FATAL_ERROR "npm run ${vhalScript} failed in ${VHAL_TOOL_DIR} (${testResult})")
   endif()
   return()
 endif()

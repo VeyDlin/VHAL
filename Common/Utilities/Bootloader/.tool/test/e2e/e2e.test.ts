@@ -6,23 +6,23 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 
-import { encryptImage } from "../src/crypto/ImageCipher.ts";
-import { keyId } from "../src/crypto/KeyFile.ts";
-import { BootloaderClient } from "../src/protocol/BootloaderClient.ts";
-import type { ClientOptions } from "../src/protocol/BootloaderClient.ts";
-import { Status } from "../src/protocol/Bootloader.ts";
-import type { CipherId, DeviceInfo } from "../src/protocol/Bootloader.ts";
-import { flash } from "../src/protocol/FlashProcedure.ts";
-import type { FlashSource } from "../src/protocol/FlashProcedure.ts";
-import { decodePackage, encodePackage } from "../src/image/Package.ts";
-import type { FirmwarePackage, PackageManifest } from "../src/image/Package.ts";
-import { simTransport } from "../src/transport/sim/SimTransport.ts";
-import type { Transport } from "../src/transport/Transport.ts";
-import { concatBytes, readU32 } from "../src/util/Bytes.ts";
-import { crc32 } from "../src/util/Crc32.ts";
-import { DeviceError, VbootError } from "../src/util/Errors.ts";
-import { fromHex, toHex } from "../src/util/Hex.ts";
-import { Log } from "../src/util/Log.ts";
+import { encryptImage } from "../../src/crypto/ImageCipher.ts";
+import { keyId } from "../../src/crypto/KeyFile.ts";
+import { BootloaderClient } from "../../src/protocol/BootloaderClient.ts";
+import type { ClientOptions } from "../../src/protocol/BootloaderClient.ts";
+import { Status } from "../../src/protocol/Bootloader.ts";
+import type { CipherId, DeviceInfo } from "../../src/protocol/Bootloader.ts";
+import { flash } from "../../src/protocol/FlashProcedure.ts";
+import type { FlashSource } from "../../src/protocol/FlashProcedure.ts";
+import { decodePackage, encodePackage } from "../../src/image/Package.ts";
+import type { FirmwarePackage, PackageManifest } from "../../src/image/Package.ts";
+import { simTransport } from "../../src/transport/sim/SimTransport.ts";
+import type { Transport } from "../../src/transport/Transport.ts";
+import { concatBytes, readU32 } from "../../src/util/Bytes.ts";
+import { crc32 } from "../../src/util/Crc32.ts";
+import { DeviceError, VbootError } from "../../src/util/Errors.ts";
+import { fromHex, toHex } from "../../src/util/Hex.ts";
+import { Log } from "../../src/util/Log.ts";
 
 
 interface EncryptedImage {
@@ -31,7 +31,7 @@ interface EncryptedImage {
 }
 
 
-const toolDir: string = path.resolve(import.meta.dirname, "..");
+const toolDir: string = path.resolve(import.meta.dirname, "..", "..");
 const simCandidates: string[] = [
     path.join(toolDir, "..", ".test", "build", "vboot-sim.exe"),
     path.join(toolDir, "..", ".test", "build", "vboot-sim")

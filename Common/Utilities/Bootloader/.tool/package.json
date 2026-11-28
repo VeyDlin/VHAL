@@ -12,7 +12,8 @@
     },
     "scripts": {
         "check": "tsc --noEmit",
-        "test": "node --test \"test/**/*.test.ts\"",
+        "test": "node --test \"test/*.test.ts\"",
+        "test:e2e": "node --test \"test/e2e/*.test.ts\"",
         "sim:build": "node scripts/build-sim.ts",
         "vboot": "node src/cli.ts"
     },
