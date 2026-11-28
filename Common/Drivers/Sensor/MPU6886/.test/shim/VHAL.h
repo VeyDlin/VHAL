@@ -1,21 +1,16 @@
 #pragma once
-// Host stand-in for the bus and timing part of the VHAL umbrella header, for the MPU6886 host tests. System only needs the delay.
+// Host stand-in for the VHAL umbrella header, for the MPU6886 host tests. The shared shim supplies the System functions (the
+// simulated clock and the critical section); this file adds the simulated bus.
 // AI2C is a simulated device: a register file, a log of the writes, a FIFO that the FIFO data register reads from, and two
 // faults a test can switch on: a register whose writes are dropped (so the readback check has something to catch), and a gyroscope
 // X value that alternates between two levels on every burst read (so the bias calibration sees motion).
+#include "../../../../../../.test/shim/VHAL.h"
 #include <Utilities/DataTypes.h>
 #include <Utilities/Result/Result.h>
 #include <Utilities/Result/ResultStatus.h>
 #include <cstdint>
 #include <utility>
 #include <vector>
-
-
-struct System {
-	static void DelayMs(uint32 ms) {
-		(void)ms;
-	}
-};
 
 
 class AI2C {
