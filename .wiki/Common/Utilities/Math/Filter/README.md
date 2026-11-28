@@ -242,7 +242,7 @@ the default time constant. A host test checks the settled error with a time cons
 (`motion.complementary.gyro_bias_settles_at_bias_times_tau`).
 
 A caller that sees a gap in the samples calls `Reset` instead of `Update`: the angles restart from gravity rather than
-integrating across the gap. `TiltScroll` does this for gaps longer than its `maxGapSec`.
+integrating across the gap. The caller decides which gap counts, for example one longer than a limit it sets for the sample rate.
 
 ### Usage
 
