@@ -15,7 +15,6 @@ set(unusedObject "${VHAL_WORK_DIR}/UnusedDescriptor.o")
 
 execute_process(
   COMMAND "${VHAL_CXX}" -std=c++23 -Os -Wall -Wextra -Werror
-    -I "${VHAL_ROOT}/.test/shim"
     -I "${VHAL_ROOT}/Periphery"
     -I "${VHAL_ROOT}/Common"
     -I "${CMAKE_CURRENT_LIST_DIR}"

@@ -5,6 +5,7 @@ vhal_test(
   GLOB Test*.cpp
   INCLUDES
     "${VHAL_ROOT}/Common"
+    "${VHAL_ROOT}/Periphery"
     "."
   OPTIONS
     -Wconversion)

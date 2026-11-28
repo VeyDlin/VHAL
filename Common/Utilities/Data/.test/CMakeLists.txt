@@ -12,6 +12,5 @@ vhal_check(RuntimeFailures/BitOutOfRange.cmake)
 vhal_fail(
   ByteConverterErrors
   INCLUDES
-    "${VHAL_TEST_DIR}/shim"
     "${VHAL_ROOT}/Periphery"
     "${VHAL_ROOT}/Common")

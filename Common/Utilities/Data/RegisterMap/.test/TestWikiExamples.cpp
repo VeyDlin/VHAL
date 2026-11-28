@@ -1,4 +1,3 @@
-#include <Utilities/Data/ByteConverter.h>
 #include <Utilities/Data/RegisterMap/BitField.h>
 #include <Utilities/Data/RegisterMap/RegisterAccess.h>
 #include <Utilities/Data/RegisterMap/RegisterBus.h>

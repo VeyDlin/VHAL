@@ -5,7 +5,6 @@
 vhal_test(
   GLOB Test*.cpp
   INCLUDES
-    "${VHAL_TEST_DIR}/shim"
     "${VHAL_ROOT}/Periphery"
     "${VHAL_ROOT}/Common"
     "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -14,7 +13,6 @@ vhal_test(
 vhal_fail(
   BuilderErrors
   INCLUDES
-    "${VHAL_TEST_DIR}/shim"
     "${VHAL_ROOT}/Periphery"
     "${VHAL_ROOT}/Common")
 
@@ -25,7 +23,6 @@ vhal_headers(
   INCLUDES
     "${VHAL_ROOT}/Common"
     "."
-    "${VHAL_TEST_DIR}/shim"
     "${VHAL_ROOT}/Periphery"
   OPTIONS
     -Wconversion)
