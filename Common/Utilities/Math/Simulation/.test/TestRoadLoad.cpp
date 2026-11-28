@@ -2,6 +2,7 @@
 #include <Utilities/Math/Simulation/Integrator.h>
 #include <Utilities/Math/Simulation/Mechanics/Rotor.h>
 #include <Utilities/Math/Simulation/Mechanics/RoadLoad.h>
+#include <Utilities/Math/Simulation/Mechanics/TwoMassShaft.h>
 #include <array>
 #include <cmath>
 
@@ -60,6 +61,129 @@ struct Drivetrain {
 		}
 	};
 };
+
+
+}
+
+
+// The two-mass shaft with the road on its load side, accelerating from rest on a grade with rolling and drag resistance. The
+// reference is the same system written out in this file, with its own right-hand side and its own step. The road force takes the
+// load-side speed, so a road that read the motor speed would differ from the reference by more than the tolerance.
+namespace {
+
+
+constexpr double motorInertia = 0.01;
+constexpr double loadInertia = 0.02;
+constexpr double shaftStiffness = 2000.0;
+constexpr double motorTorqueStep = 50.0;
+constexpr double roadGrade = 0.02;
+constexpr double reflectedInertia = mass * wheelRadius * wheelRadius / (gearRatio * gearRatio);
+
+
+// The road torque at the motor-referred load side, F r / G, with F from the road-load equation. The rolling term has the sign of
+// the speed, which is zero at standstill.
+double ReferenceRoadTorque(double loadSpeed) {
+	const double wheelSpeed = loadSpeed * wheelRadius / gearRatio;
+	double direction = 0.0;
+
+	if (wheelSpeed > 0.0) {
+		direction = 1.0;
+	} else if (wheelSpeed < 0.0) {
+		direction = -1.0;
+	}
+
+	const double force = 0.5 * airDensity * dragArea * wheelSpeed * std::fabs(wheelSpeed)
+		+ rollingResistance * mass * gravity * std::cos(roadGrade) * direction
+		+ mass * gravity * std::sin(roadGrade);
+
+	return force * wheelRadius / gearRatio;
+}
+
+
+// The reference system. The state is the motor speed, the motor angle, the load speed and the load angle.
+struct ReferenceSystem {
+	void operator()(const double* state, double* derivative) const {
+		const double twist = state[1] - state[3];
+
+		derivative[0] = (motorTorqueStep - shaftStiffness * twist) / motorInertia;
+		derivative[1] = state[0];
+		derivative[2] = (shaftStiffness * twist - ReferenceRoadTorque(state[2])) / (loadInertia + reflectedInertia);
+		derivative[3] = state[2];
+	}
+};
+
+
+struct ShaftRoadBus : Simulation::TwoMassShaft<double>::Signals, Vehicle::Signals {
+	double torque = 0.0;
+};
+
+
+// The blocks: the two-mass shaft publishes the load speed, and the road reads it at the same stage.
+struct AccelerationPlant {
+	Simulation::TwoMassShaft<double> shaft;
+	Vehicle road;
+
+
+	void Evaluate(const double* state, double* derivative) const {
+		ShaftRoadBus bus;
+		bus.torque = motorTorqueStep;
+		shaft.Publish(state, bus);
+		road.Publish(state, bus);
+		shaft.Derivative(state, bus, derivative);
+	}
+
+
+	struct Evaluator {
+		const AccelerationPlant* owner;
+
+
+		void operator()(const double* state, double* derivative) const {
+			owner->Evaluate(state, derivative);
+		}
+	};
+};
+
+
+// The tolerance of 1e-4 rad/s. The classic Runge-Kutta error of the plant step is (w h)^4 w t / 120 times the amplitude of the
+// oscillation, with w = 450 rad/s, h = 2.5e-5 s, t = 1 s and an amplitude of about 12 rad/s: about 1e-6 rad/s. The rolling term
+// has a sign at zero speed, and the start passes through zero speed, which adds about 1e-5 rad/s. A road that read the motor speed
+// differs from the reference by about 0.3 rad/s, so the check separates the two.
+void CheckTwoMassAcceleration() {
+	AccelerationPlant plant;
+	plant.shaft.SetMotorInertia(motorInertia);
+	plant.shaft.SetLoadInertia(loadInertia);
+	plant.shaft.SetStiffness(shaftStiffness);
+	plant.road.SetMass(mass);
+	plant.road.SetWheelRadius(wheelRadius);
+	plant.road.SetGearRatio(gearRatio);
+	plant.road.SetRollingResistance(rollingResistance);
+	plant.road.SetDragArea(dragArea);
+	plant.road.SetAirDensity(airDensity);
+	plant.road.SetGrade(roadGrade);
+
+	std::array<double, 4> state{ 0.0, 0.0, 0.0, 0.0 };
+	const double step = 2.5e-5;
+	const int steps = 40000;
+	AccelerationPlant::Evaluator evaluator{ &plant };
+
+	for (int i = 0; i < steps; i++) {
+		Simulation::Integrator<double, 4>::Step(state, step, evaluator);
+	}
+
+	std::array<double, 4> reference{ 0.0, 0.0, 0.0, 0.0 };
+	const ReferenceSystem system;
+	const double referenceStep = 1.0e-5;
+	const int referenceSteps = 100000;
+
+	for (int i = 0; i < referenceSteps; i++) {
+		Simulation::Integrator<double, 4>::Step(reference, referenceStep, system);
+	}
+
+	VHAL_CHECK(reference[2] > 0.0);
+	VHAL_CHECK_NEAR(state[0], reference[0], 1.0e-4);
+	VHAL_CHECK_NEAR(state[2], reference[2], 1.0e-4);
+	VHAL_CHECK_NEAR(state[3], reference[3], 1.0e-4);
+}
 
 
 }
@@ -140,6 +264,8 @@ int main() {
 
 	VHAL_CHECK(steadySpeed > 0.0);
 	VHAL_CHECK_NEAR(state[0], steadyRotorSpeed, 1.0e-4 * steadyRotorSpeed);
+
+	CheckTwoMassAcceleration();
 
 	return VhalCheck::Finish("Simulation road load");
 }

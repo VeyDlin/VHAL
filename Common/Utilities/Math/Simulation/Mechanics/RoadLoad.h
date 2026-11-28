@@ -5,14 +5,15 @@
 #include <cstddef>
 
 
-// A vehicle on a road, as a load on the rotor. It has no state. The road force is the road-load equation (Ecomodder wiki,
-// https://ecomodder.com/wiki/Road_Load_Equation), with the rolling term taken with the sign of the speed, so that it opposes the
-// motion and is zero at standstill:
+// A vehicle on a road, as a load on the rotor. It has no state. The road force is the sum of the rolling, aerodynamic and grade
+// resistances (Gillespie, Fundamentals of Vehicle Dynamics, SAE, 1992, the road-load forces of the vehicle-performance chapter).
+// The rolling term takes the sign of the speed, so that it opposes the motion and is zero at standstill:
 //
 //   F = 1/2 rho CdA v |v| + Crr m g cos(theta) sign(v) + m g sin(theta)
 //
-// The wheel speed is v = wm r / G and the torque at the motor is F r / G. The reflected inertia is m r^2 / G^2. The grade theta is
-// an angle in radians. The vehicle values are the caller's: the library holds no vehicle.
+// The wheel speed is v = w r / G, where w is the speed of the shaft the vehicle turns with: the rotor speed, or the load-side speed
+// of a two-mass shaft. The torque at the motor is F r / G, and the reflected inertia is m r^2 / G^2. The grade theta is an angle
+// in radians. The vehicle values are the caller's: the library holds no vehicle.
 namespace Simulation {
 
 
@@ -88,7 +89,14 @@ public:
 
 	template<typename Bus>
 	void Publish(const T*, Bus& bus) const {
-		const T wheelSpeed = bus.speed * wheelRadius / gearRatio;
+		// The wheels turn with the load side of a two-mass shaft, and with the rotor otherwise.
+		T shaftSpeed = bus.speed;
+
+		if constexpr (requires { bus.loadSpeed; }) {
+			shaftSpeed = bus.loadSpeed;
+		}
+
+		const T wheelSpeed = shaftSpeed * wheelRadius / gearRatio;
 		const T dragForce = static_cast<T>(0.5) * airDensity * dragArea * wheelSpeed * std::abs(wheelSpeed);
 		const T rollingForce = rollingResistance * mass * StandardGravity<T>() * std::cos(grade) * Sign(wheelSpeed);
 		const T gradeForce = mass * StandardGravity<T>() * std::sin(grade);
