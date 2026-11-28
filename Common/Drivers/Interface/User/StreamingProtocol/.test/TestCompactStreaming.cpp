@@ -459,7 +459,7 @@ TEST_CASE(T38_CspOutOfSequenceDropped) {
 
 
 // A peer that never ACKs makes the sender retransmit MAX_RETRIES (3) times, then give up. The stream completion reports Timeout
-// once, and the sender is no longer transmitting.
+// once, and the sender stops transmitting.
 TEST_CASE(T39_CspAbandonReported) {
 	ResetSystem();
 	ProtocolRecorder recorder;
