@@ -1,4 +1,5 @@
 #pragma once
+#include <Utilities/CompileTime/Require.h>
 #include <Utilities/Math/Simulation/Angles.h>
 #include <cmath>
 #include <concepts>
@@ -67,6 +68,14 @@ public:
 	// The initial pole angle from upright, rad.
 	constexpr void SetInitialAngle(T value) {
 		initialAngle = value;
+	}
+
+
+	// Checks the parameters when the chain is complete.
+	constexpr void Validate() const {
+		Require<"Simulation: the cart mass must be positive">(parameters.cartMass > static_cast<T>(0));
+		Require<"Simulation: the pole mass must be positive">(parameters.poleMass > static_cast<T>(0));
+		Require<"Simulation: the pole length must be positive">(parameters.length > static_cast<T>(0));
 	}
 
 

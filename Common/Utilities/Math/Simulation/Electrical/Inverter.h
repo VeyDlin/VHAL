@@ -1,4 +1,5 @@
 #pragma once
+#include <Utilities/CompileTime/Require.h>
 #include <cmath>
 #include <concepts>
 #include <cstddef>
@@ -35,6 +36,12 @@ public:
 	// The DC bus voltage, V.
 	constexpr void SetDcBus(T value) {
 		dcBus = value;
+	}
+
+
+	// Checks the parameters when the chain is complete. A plant with an inverter needs its DC bus, so the default of zero is refused.
+	constexpr void Validate() const {
+		Require<"Simulation: the DC bus must be positive">(dcBus > static_cast<T>(0));
 	}
 
 

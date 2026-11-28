@@ -1,4 +1,5 @@
 #pragma once
+#include <Utilities/CompileTime/Require.h>
 #include <concepts>
 #include <cstddef>
 
@@ -83,6 +84,13 @@ public:
 	// The initial twist of the shaft is the initial motor angle, the load starting at zero.
 	constexpr void SetInitialMotorAngle(T value) {
 		initialMotorAngle = value;
+	}
+
+
+	// Checks the parameters when the chain is complete.
+	constexpr void Validate() const {
+		Require<"Simulation: the motor inertia must be positive">(motorInertia > static_cast<T>(0));
+		Require<"Simulation: the load inertia must be positive">(loadInertia > static_cast<T>(0));
 	}
 
 

@@ -1,4 +1,5 @@
 #pragma once
+#include <Utilities/CompileTime/Require.h>
 #include <Utilities/Math/Simulation/Thermal/DelayLine.h>
 #include <concepts>
 #include <cstddef>
@@ -75,6 +76,13 @@ public:
 	// The heater power, W. Settable while the plant runs: the value of one period is delayed and applied later.
 	constexpr void SetPower(T value) {
 		power = value;
+	}
+
+
+	// Checks the parameters when the chain is complete.
+	constexpr void Validate() const {
+		Require<"Simulation: the thermal resistance must be positive">(resistance > static_cast<T>(0));
+		Require<"Simulation: the thermal capacitance must be positive">(capacitance > static_cast<T>(0));
 	}
 
 

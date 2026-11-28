@@ -1,4 +1,5 @@
 #pragma once
+#include <Utilities/CompileTime/Require.h>
 #include <Utilities/Math/Simulation/Angles.h>
 #include <concepts>
 #include <cstddef>
@@ -65,6 +66,12 @@ public:
 
 	constexpr void SetInitialAngle(T value) {
 		initialAngle = value;
+	}
+
+
+	// Checks the parameters when the chain is complete.
+	constexpr void Validate() const {
+		Require<"Simulation: the rotor inertia must be positive">(inertia > static_cast<T>(0));
 	}
 
 

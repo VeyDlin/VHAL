@@ -1,4 +1,5 @@
 #pragma once
+#include <Utilities/CompileTime/Require.h>
 #include <Utilities/Math/Simulation/Angles.h>
 #include <cmath>
 #include <concepts>
@@ -84,6 +85,14 @@ public:
 	// The road grade as an angle, rad, positive uphill. Settable while the plant runs.
 	constexpr void SetGrade(T value) {
 		grade = value;
+	}
+
+
+	// Checks the parameters when the chain is complete.
+	constexpr void Validate() const {
+		Require<"Simulation: the vehicle mass must be positive">(mass > static_cast<T>(0));
+		Require<"Simulation: the wheel radius must be positive">(wheelRadius > static_cast<T>(0));
+		Require<"Simulation: the gear ratio must be positive">(gearRatio > static_cast<T>(0));
 	}
 
 

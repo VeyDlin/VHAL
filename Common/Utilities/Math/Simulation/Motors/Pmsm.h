@@ -1,4 +1,5 @@
 #pragma once
+#include <Utilities/CompileTime/Require.h>
 #include <Utilities/Math/Simulation/Angles.h>
 #include <concepts>
 #include <cstddef>
@@ -63,6 +64,14 @@ public:
 	constexpr void SetVoltageCommand(T vd, T vq) {
 		commandD = vd;
 		commandQ = vq;
+	}
+
+
+	// Checks the parameters when the chain is complete.
+	constexpr void Validate() const {
+		Require<"Simulation: the d-axis inductance must be positive">(parameters.ld > static_cast<T>(0));
+		Require<"Simulation: the q-axis inductance must be positive">(parameters.lq > static_cast<T>(0));
+		Require<"Simulation: the pole pair count must be positive">(parameters.polePairs > 0);
 	}
 
 

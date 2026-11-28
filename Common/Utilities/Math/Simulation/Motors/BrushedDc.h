@@ -1,4 +1,5 @@
 #pragma once
+#include <Utilities/CompileTime/Require.h>
 #include <concepts>
 #include <cstddef>
 
@@ -51,6 +52,13 @@ public:
 	// The terminal voltage command, V.
 	constexpr void SetVoltageCommand(T value) {
 		command = value;
+	}
+
+
+	// Checks the parameters when the chain is complete.
+	constexpr void Validate() const {
+		Require<"Simulation: the armature inductance must be positive">(parameters.inductance > static_cast<T>(0));
+		Require<"Simulation: the torque constant must be positive">(parameters.torqueConstant > static_cast<T>(0));
 	}
 
 

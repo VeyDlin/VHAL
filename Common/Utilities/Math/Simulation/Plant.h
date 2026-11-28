@@ -145,6 +145,10 @@ struct BlockList<> {
 
 	void Commit() {
 	}
+
+
+	constexpr void Validate() const {
+	}
 };
 
 
@@ -222,6 +226,16 @@ struct BlockList<Head, Tail...> {
 		}
 
 		tail.Commit();
+	}
+
+
+	// Checks the parameters of every block. A plant is checked when its chain is complete.
+	constexpr void Validate() const {
+		if constexpr (requires { head.Validate(); }) {
+			head.Validate();
+		}
+
+		tail.Validate();
 	}
 };
 
@@ -547,6 +561,7 @@ public:
 
 
 	static constexpr BuilderType config = Make();
+	static_assert((config.blocks.Validate(), true), "Simulation: a block of the chain has an invalid parameter");
 	static constexpr std::size_t stateCount = Chain::stateCount;
 
 

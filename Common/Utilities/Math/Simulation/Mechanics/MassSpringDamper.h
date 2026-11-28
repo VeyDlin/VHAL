@@ -1,4 +1,5 @@
 #pragma once
+#include <Utilities/CompileTime/Require.h>
 #include <concepts>
 #include <cstddef>
 
@@ -60,6 +61,12 @@ public:
 
 	constexpr void SetInitialVelocity(T value) {
 		initialVelocity = value;
+	}
+
+
+	// Checks the parameters when the chain is complete.
+	constexpr void Validate() const {
+		Require<"Simulation: the mass must be positive">(parameters.mass > static_cast<T>(0));
 	}
 
 
