@@ -6,3 +6,5 @@ vhal_test(
     "${VHAL_TEST_DIR}/shim"
     "${VHAL_ROOT}/Periphery"
     "${VHAL_ROOT}/Common")
+
+vhal_check(RuntimeFailures/BitOutOfRange.cmake)
