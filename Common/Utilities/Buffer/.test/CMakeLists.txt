@@ -31,4 +31,58 @@ vhal_test(
     "${VHAL_ROOT}/Periphery"
     "${VHAL_ROOT}/Common")
 
-vhal_declared(Test*.cpp TestRingBuffer.cpp TestRingBufferStorage.cpp TestRingBufferModel.cpp TestRingBufferReadme.cpp)
+vhal_test(
+  TestRingModes.cpp
+  INCLUDES
+    shim
+    "${VHAL_ROOT}/Periphery"
+    "${VHAL_ROOT}/Common")
+
+vhal_test(
+  TestRingAccessModel.cpp
+  INCLUDES
+    shim
+    "${VHAL_ROOT}/Periphery"
+    "${VHAL_ROOT}/Common")
+
+vhal_test(
+  TestRingSingleWriterThreads.cpp
+  INCLUDES
+    shim
+    "${VHAL_ROOT}/Periphery"
+    "${VHAL_ROOT}/Common")
+
+vhal_test(
+  TestPacketQueue.cpp
+  INCLUDES
+    shim
+    "${VHAL_ROOT}/Periphery"
+    "${VHAL_ROOT}/Common")
+
+vhal_test(
+  TestRingAccessReadme.cpp
+  INCLUDES
+    shim
+    "${VHAL_ROOT}/Periphery"
+    "${VHAL_ROOT}/Common")
+
+vhal_size(size/Size.cmake)
+
+vhal_fail(
+  RefusedMembers
+  INCLUDES
+    shim
+    "${VHAL_ROOT}/Periphery"
+    "${VHAL_ROOT}/Common")
+
+vhal_declared(
+  Test*.cpp
+  TestRingBuffer.cpp
+  TestRingBufferStorage.cpp
+  TestRingBufferModel.cpp
+  TestRingBufferReadme.cpp
+  TestRingModes.cpp
+  TestRingAccessModel.cpp
+  TestRingSingleWriterThreads.cpp
+  TestPacketQueue.cpp
+  TestRingAccessReadme.cpp)

@@ -1,5 +1,6 @@
 #pragma once
 #include <VHAL.h>
+#include <Utilities/Buffer/RingIndexes.h>
 #include <Utilities/Memory/Storage.h>
 #include <algorithm>
 #include <concepts>
@@ -8,44 +9,30 @@
 #include <utility>
 
 
-// A ring of BufferSize elements. Policy says where the elements are kept (Memory::Inside, Memory::FromHeap or Memory::External).
-template <typename ElementType, uint16 BufferSize, typename Policy = Memory::Inside>
+// A ring of BufferSize elements in one of the access modes of RingAccess. Policy says where the elements are kept (Memory::Inside,
+// Memory::FromHeap or Memory::External). A ring holds BufferSize elements in every mode.
+//
+// The locked and callerLocked modes keep a read index and a count, so their storage holds BufferSize elements. The singleWriter mode
+// keeps head and tail indexes (RingIndexes), which leave one slot empty: its storage holds BufferSize + 1 elements, and
+// Memory::External needs that many. The singleWriter mode is for one producer context, which calls Push, and one consumer context, which
+// calls every other member; it takes no critical section. The callerLocked mode takes no critical section either, and the caller
+// serializes every access.
+//
+// The pointers from Front() and Peek(index) stay valid until the element is popped or dropped. In locked mode the caller makes sure no
+// other context pops meanwhile.
+template <typename ElementType, uint16 BufferSize, typename Policy = Memory::Inside, RingAccess Access = RingAccess::locked>
 class RingBuffer {
 	static_assert(BufferSize > 0, "RingBuffer with size 0 are forbidden");
-
-
-private:
-	typename Policy::template Storage<ElementType, BufferSize> storage;
-	uint16 readIndex;
-	uint16 size;
-	uint16 uncommittedReadCount = 0;  // How many reads are uncommitted
-
-
-private:
-	uint16 WriteIndex() {
-		uint32 writeIndex = readIndex + size;
-		if (writeIndex >= BufferSize) {
-			writeIndex -= BufferSize;
-		}
-		if (size < BufferSize) {
-			size++;
-		}
-		return static_cast<uint16>(writeIndex);
-	}
-
-
-	uint16 ReadIndex() {
-		uint16 out = readIndex;
-		readIndex = (readIndex + 1) % BufferSize;
-		if (size > 0) {
-			size--;
-		}
-		return out;
-	}
+	static_assert(
+		Access != RingAccess::singleWriter || BufferSize < std::numeric_limits<uint16>::max(),
+		"A singleWriter RingBuffer keeps N + 1 indexes: N must be below 65535");
 
 
 public:
-	RingBuffer() : readIndex(0), size(0) {}
+	// The storage is value-initialized here and only here, so a static ring is constant-initialized and needs no start-up code.
+	constexpr RingBuffer()
+		: storage() {
+	}
 
 
 	RingBuffer(const RingBuffer&) = default;
@@ -55,24 +42,16 @@ public:
 	// A move takes the elements with the storage. The source is left empty, so its indexes and marks are reset with them.
 	RingBuffer(RingBuffer&& other) noexcept
 		: storage(std::move(other.storage))
-		, readIndex(other.readIndex)
-		, size(other.size)
-		, uncommittedReadCount(other.uncommittedReadCount) {
-		other.readIndex = 0;
-		other.size = 0;
-		other.uncommittedReadCount = 0;
+		, cursor(other.cursor) {
+		other.cursor.Reset();
 	}
 
 
 	RingBuffer& operator=(RingBuffer&& other) noexcept {
 		if (this != &other) {
 			storage = std::move(other.storage);
-			readIndex = other.readIndex;
-			size = other.size;
-			uncommittedReadCount = other.uncommittedReadCount;
-			other.readIndex = 0;
-			other.size = 0;
-			other.uncommittedReadCount = 0;
+			cursor = other.cursor;
+			other.cursor.Reset();
 		}
 
 		return *this;
@@ -81,75 +60,65 @@ public:
 
 	// The arguments go to the policy's storage, for example the memory of Memory::External.
 	template <typename... Arguments>
-		requires(sizeof...(Arguments) > 0 && std::constructible_from<typename Policy::template Storage<ElementType, BufferSize>, Arguments...>)
+		requires(
+			sizeof...(Arguments) > 0
+			&& std::constructible_from<
+				typename Policy::template Storage<ElementType, RingCursor<Access == RingAccess::singleWriter>::SlotCount(BufferSize)>,
+				Arguments...>)
 	explicit RingBuffer(Arguments&&... arguments)
-		: storage(std::forward<Arguments>(arguments)...)
-		, readIndex(0)
-		, size(0) {
+		: storage(std::forward<Arguments>(arguments)...) {
 	}
 
 
+	// Producer: pushes one element at the back.
 	ResultStatus Push(const ElementType inElement) {
 		if (!storage.Ready()) {
 			return ResultStatus::notReady;
 		}
 
-		System::CriticalSection(true);
-		if (IsFull()) {
-			System::CriticalSection(false);
+		EnterSection();
+		uint16 writeSlot = 0;
+		if (cursor.Room(BufferSize, writeSlot) == 0) {
+			LeaveSection();
 			return ResultStatus::filled;
 		}
 
-		storage.Data()[WriteIndex()] = inElement;
-		System::CriticalSection(false);
+		storage.Data()[writeSlot] = inElement;
+		cursor.Produce(BufferSize, writeSlot, 1);
+		LeaveSection();
 
 		return ResultStatus::ok;
 	}
 
 
+	// Producer: pushes the element that the pointer points to. A null pointer is an error.
 	ResultStatus Push(const ElementType* const inElement) {
 		if (!inElement) {
 			return ResultStatus::error;
 		}
 
-		if (!storage.Ready()) {
-			return ResultStatus::notReady;
-		}
-
-		System::CriticalSection(true);
-		if (IsFull()) {
-			System::CriticalSection(false);
-			return ResultStatus::filled;
-		}
-
-		storage.Data()[WriteIndex()] = *inElement;
-		System::CriticalSection(false);
-
-		return ResultStatus::ok;
+		return Push(*inElement);
 	}
 
 
-	// Pushes as many of elements as fit and returns how many were pushed. The whole copy runs in one critical section, where a
+	// Producer: pushes as many of elements as fit and returns how many were pushed. The whole copy runs in one critical section, where a
 	// Push() per element would take one each. The copy is at most two segments: up to the end of the buffer and from its start.
 	uint16 Push(std::span<const ElementType> elements) {
 		if (!storage.Ready()) {
 			return 0;
 		}
 
-		System::CriticalSection(true);
+		EnterSection();
 
+		uint16 writeSlot = 0;
 		uint32 count = static_cast<uint32>(elements.size());
-		uint32 freeSpace = BufferSize - size;
+		uint32 freeSpace = cursor.Room(BufferSize, writeSlot);
 		if (count > freeSpace) {
 			count = freeSpace;
 		}
 
-		uint32 writeIndex = static_cast<uint32>(readIndex) + size;
-		if (writeIndex >= BufferSize) {
-			writeIndex -= BufferSize;
-		}
-
-		uint32 firstSegment = BufferSize - writeIndex;
+		uint32 writeIndex = writeSlot;
+		uint32 firstSegment = slotCount - writeIndex;
 		if (firstSegment > count) {
 			firstSegment = count;
 		}
@@ -159,86 +128,136 @@ public:
 		if (count > firstSegment) {
 			std::copy_n(elements.data() + firstSegment, count - firstSegment, items);
 		}
-		size = static_cast<uint16>(size + count);
-		System::CriticalSection(false);
+		cursor.Produce(BufferSize, writeSlot, static_cast<uint16>(count));
+		LeaveSection();
 
 		return static_cast<uint16>(count);
 	}
 
 
+	// Consumer: pops the oldest element.
 	Result<ElementType> Pop() {
-		System::CriticalSection(true);
+		EnterSection();
 		// Marked elements must stay in place until CommitReads or RollbackReads
-		if (uncommittedReadCount > 0) {
-			System::CriticalSection(false);
+		if (cursor.Uncommitted() > 0) {
+			LeaveSection();
 			return ResultStatus::busy;
 		}
-		if (IsEmpty()) {
-			System::CriticalSection(false);
+
+		uint16 readSlot = 0;
+		if (cursor.Available(BufferSize, readSlot) == 0) {
+			LeaveSection();
 			return ResultStatus::empty;
 		}
 
-		ElementType data = storage.Data()[ReadIndex()];
-		System::CriticalSection(false);
+		ElementType data = storage.Data()[readSlot];
+		cursor.Consume(BufferSize, readSlot, 1);
+		LeaveSection();
 
 		return data;
 	}
 
 
-	// Pops up to out.size() elements into out and returns how many were popped. Like Pop(), it refuses with 0 while marked reads
+	// Consumer: pops up to out.size() elements into out and returns how many were popped. Like Pop(), it refuses with 0 while marked reads
 	// are uncommitted. The copy runs in one critical section, in at most two segments, so keep out to what the caller can afford
 	// to copy with interrupts masked.
 	uint16 Pop(std::span<ElementType> out) {
-		System::CriticalSection(true);
+		EnterSection();
 		// Marked elements must stay in place until CommitReads or RollbackReads
-		if (uncommittedReadCount > 0) {
-			System::CriticalSection(false);
+		if (cursor.Uncommitted() > 0) {
+			LeaveSection();
 			return 0;
 		}
 
+		uint16 readSlot = 0;
 		uint32 count = static_cast<uint32>(out.size());
-		if (count > size) {
-			count = size;
+		uint32 held = cursor.Available(BufferSize, readSlot);
+		if (count > held) {
+			count = held;
 		}
 
-		uint32 firstSegment = BufferSize - readIndex;
+		uint32 firstSegment = slotCount - readSlot;
 		if (firstSegment > count) {
 			firstSegment = count;
 		}
 
 		ElementType* items = storage.Data();
-		std::copy_n(&items[readIndex], firstSegment, out.data());
+		std::copy_n(&items[readSlot], firstSegment, out.data());
 		std::copy_n(items, count - firstSegment, out.data() + firstSegment);
-		readIndex = static_cast<uint16>((readIndex + count) % BufferSize);
-		size = static_cast<uint16>(size - count);
-		System::CriticalSection(false);
+		cursor.Consume(BufferSize, readSlot, static_cast<uint16>(count));
+		LeaveSection();
 
 		return static_cast<uint16>(count);
 	}
 
 
+	// Consumer: removes up to count of the oldest elements without copying them, and returns how many were removed. Like Pop(), it
+	// removes nothing while marked reads are uncommitted.
+	uint16 Drop(uint16 count) {
+		EnterSection();
+		uint16 dropped = cursor.Drop(BufferSize, count);
+		LeaveSection();
+
+		return dropped;
+	}
+
+
+	// Consumer: the oldest element, in place, or nullptr when the ring is empty. Marked elements are included.
+	const ElementType* Front() const {
+		EnterSection();
+		uint16 readSlot = 0;
+		if (cursor.Available(BufferSize, readSlot) == 0) {
+			LeaveSection();
+			return nullptr;
+		}
+
+		const ElementType* item = &storage.Data()[readSlot];
+		LeaveSection();
+
+		return item;
+	}
+
+
+	// Consumer: the element at index (0 is the oldest), in place, or nullptr when index is not held.
+	const ElementType* Peek(uint16 index) const {
+		EnterSection();
+		uint16 readSlot = 0;
+		if (index >= cursor.Available(BufferSize, readSlot)) {
+			LeaveSection();
+			return nullptr;
+		}
+
+		const ElementType* item = &storage.Data()[Cursor::Advance(readSlot, index, slotCount)];
+		LeaveSection();
+
+		return item;
+	}
+
+
 	bool IsFull() const {
-		return size == BufferSize;
+		return cursor.Size(BufferSize) == BufferSize;
 	}
 
 
 	bool IsEmpty() const {
-		return size == 0;
+		return cursor.Size(BufferSize) == 0;
 	}
 
 
 	// Empties the ring and drops its marks too. It is the reset path: a reset must not keep the bytes of the old session.
 	void Clear() {
-		System::CriticalSection(true);
-		readIndex = 0;
-		size = 0;
-		uncommittedReadCount = 0;
-		System::CriticalSection(false);
+		static_assert(
+			Access != RingAccess::singleWriter,
+			"RingBuffer::Clear is not offered in singleWriter mode: the consumer empties the ring with Drop(Size())");
+
+		EnterSection();
+		cursor.Reset();
+		LeaveSection();
 	}
 
 
 	uint16 Size() const {
-		return size;
+		return cursor.Size(BufferSize);
 	}
 
 
@@ -248,28 +267,27 @@ public:
 
 
 	uint16 GetFreeSpace() const {
-		return BufferSize - size;
+		return static_cast<uint16>(BufferSize - cursor.Size(BufferSize));
 	}
 
 
 	Result<ElementType> Peek() const {
-		if (IsEmpty()) {
+		uint16 readSlot = 0;
+		if (cursor.Available(BufferSize, readSlot) == 0) {
 			return ResultStatus::empty;
 		}
-		return storage.Data()[readIndex];
+		return storage.Data()[readSlot];
 	}
 
 
 	ElementType operator[](uint16 inIndex) const {
-		SystemAssert(inIndex < size);
+		EnterSection();
+		uint16 readSlot = 0;
+		uint16 held = cursor.Available(BufferSize, readSlot);
+		SystemAssert(inIndex < held);
 
-		System::CriticalSection(true);
-		uint32 index = static_cast<uint32>(readIndex) + inIndex;
-		if (index >= BufferSize) {
-			index -= BufferSize;
-		}
-		ElementType data = storage.Data()[static_cast<uint16>(index)];
-		System::CriticalSection(false);
+		ElementType data = storage.Data()[Cursor::Advance(readSlot, inIndex, slotCount)];
+		LeaveSection();
 
 		return data;
 	}
@@ -278,11 +296,13 @@ public:
 	// Peek at multiple elements without removing them
 	// Returns actual number of elements peeked (may be less than requested)
 	uint16 PeekMultiple(ElementType* outBuffer, uint16 count, uint16 offset = 0) const {
-		System::CriticalSection(true);
+		EnterSection();
 
+		uint16 readSlot = 0;
+		uint16 size = cursor.Available(BufferSize, readSlot);
 		// Can't peek more than we have
 		if (offset >= size) {
-			System::CriticalSection(false);
+			LeaveSection();
 			return 0;
 		}
 
@@ -290,60 +310,67 @@ public:
 		uint16 toPeek = (count < available) ? count : available;
 
 		for (uint16 i = 0; i < toPeek; i++) {
-			uint32 index = static_cast<uint32>(readIndex) + offset + i;
-			if (index >= BufferSize) {
-				index -= BufferSize;
-			}
-			outBuffer[i] = storage.Data()[static_cast<uint16>(index)];
+			outBuffer[i] = storage.Data()[Cursor::Advance(readSlot, static_cast<uint32>(offset) + i, slotCount)];
 		}
 
-		System::CriticalSection(false);
+		LeaveSection();
 		return toPeek;
 	}
 
 
 	// Mark elements as read but don't remove them yet
 	ResultStatus MarkRead(uint16 count) {
-		System::CriticalSection(true);
+		EnterSection();
+		bool marked = cursor.MarkRead(BufferSize, count);
+		LeaveSection();
 
-		if (count > size - uncommittedReadCount) {
-			System::CriticalSection(false);
-			return ResultStatus::error;  // Can't mark more than available
-		}
-
-		uncommittedReadCount += count;
-
-		System::CriticalSection(false);
-		return ResultStatus::ok;
+		return marked ? ResultStatus::ok : ResultStatus::error;  // Can't mark more than available
 	}
 
 
 	// Commit all marked reads - actually remove them from buffer
 	void CommitReads() {
 		// One step, not one per element: a whole transfer can be committed at once, and the interrupts stay masked meanwhile.
-		System::CriticalSection(true);
-		uint32 nextIndex = static_cast<uint32>(readIndex) + uncommittedReadCount;
-		if (nextIndex >= BufferSize) {
-			nextIndex -= BufferSize;
-		}
-
-		readIndex = static_cast<uint16>(nextIndex);
-		size = static_cast<uint16>(size - uncommittedReadCount);
-		uncommittedReadCount = 0;
-		System::CriticalSection(false);
+		EnterSection();
+		cursor.CommitReads(BufferSize);
+		LeaveSection();
 	}
 
 
 	// Rollback marked reads - cancel uncommitted reads
 	void RollbackReads() {
-		System::CriticalSection(true);
-		uncommittedReadCount = 0;
-		System::CriticalSection(false);
+		EnterSection();
+		cursor.RollbackReads();
+		LeaveSection();
 	}
 
 
 	// Get number of uncommitted reads
 	uint16 GetUncommittedCount() const {
-		return uncommittedReadCount;
+		return cursor.Uncommitted();
+	}
+
+
+private:
+	using Cursor = RingCursor<Access == RingAccess::singleWriter>;
+
+	static constexpr bool isLocked = Access == RingAccess::locked;
+	static constexpr uint16 slotCount = Cursor::SlotCount(BufferSize);
+
+	typename Policy::template Storage<ElementType, slotCount> storage;
+	Cursor cursor;
+
+
+	static void EnterSection() {
+		if constexpr (isLocked) {
+			System::CriticalSection(true);
+		}
+	}
+
+
+	static void LeaveSection() {
+		if constexpr (isLocked) {
+			System::CriticalSection(false);
+		}
 	}
 };
