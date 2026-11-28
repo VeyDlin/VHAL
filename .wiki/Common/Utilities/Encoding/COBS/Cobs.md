@@ -179,3 +179,5 @@ The tests are in `Common/Utilities/Encoding/COBS/.test/`. `./test.cmd COBS` buil
 
 - `TestCobsVectors.cpp`: the vectors of the paper and of the Wikipedia article, written by hand, including the blocks of 253, 254 and 255 bytes. Every packet of 0 to 3 bytes over `00`, `01` and `FF`. Random packets of 0 to 1000 bytes, checked against a reference encoder written from the block rules. Round trips with in-place and two-span decoding. `EncodedSize` bounds. Errors.
 - `TestCobsStream.cpp`: the decoder one byte at a time, garbage and resynchronisation, overflow, `Reset`, and constant-expression use.
+- `TestCobsDecodeErrors.cpp`: each error row of `Decode` in the table above, with the status it names, and the leading-zero rule.
+- `TestCobsReadme.cpp`: the examples of this page, as the page writes them.
