@@ -44,8 +44,8 @@ crc.Reset();                     // back to the initial register
 
 ## Resume
 
-`Resume` makes an object from a finished value, so that a message continues from a CRC that was kept. The rule: a finished value
-continues the message. `Resume(Calculate(head))` followed by `Add(tail)` gives the CRC of `head` followed by `tail`, for every
+`Resume` makes an object from a finished value, so that a message continues from the finished CRC of its head. The rule: a finished
+value continues the message. `Resume(Calculate(head))` followed by `Add(tail)` gives the CRC of `head` followed by `tail`, for every
 parameter set and every engine, at any split.
 
 ```cpp

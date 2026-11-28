@@ -149,8 +149,8 @@ constexpr uint64 CrcFinish(CrcRegister<Parameters.width> remainder) {
 }
 
 
-// The register that CrcFinish turns into finished: the inverse of CrcFinish, so a message can continue from its finished value. The
-// register is in the form CrcStart gives, which is the form every engine keeps.
+// The register whose CrcFinish is the finished value: the inverse of CrcFinish. The finished value is the CRC of the head of a
+// message, so the register continues that message. The register is in the form CrcStart gives, which is the form every engine keeps.
 template<CrcParameters Parameters>
 constexpr CrcRegister<Parameters.width> CrcResume(uint64 finished) {
 	using Register = CrcRegister<Parameters.width>;
