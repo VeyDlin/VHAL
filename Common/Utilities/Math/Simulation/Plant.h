@@ -506,6 +506,7 @@ public:
 	static constexpr std::size_t encoderCount = Chain::template Count<Simulation::Encoder<Real>>();
 	static constexpr std::size_t magneticCount = Chain::template Count<Simulation::MagneticSensor<Real>>();
 	static constexpr std::size_t senseCount = Chain::template Count<Simulation::CurrentSense<Real>>();
+	static constexpr std::size_t pmsmCount = Chain::template Count<Simulation::Pmsm<Real>>();
 
 
 	static_assert(motorCount <= 1, "Simulation: one motor per chain");
@@ -516,8 +517,8 @@ public:
 	static_assert(loadCount == 0 || rotorCount == 1, "Simulation: the loads need a rotor");
 	static_assert(inverterCount == 0 || Chain::template Count<Simulation::Pmsm<Real>>() == 1, "Simulation: the inverter needs a PMSM");
 	static_assert(encoderCount == 0 || rotorCount == 1, "Simulation: the encoder needs a rotor");
-	static_assert(magneticCount == 0 || motorCount == 1, "Simulation: the magnetic sensor needs a motor");
-	static_assert(senseCount == 0 || motorCount == 1, "Simulation: the current sense needs a motor");
+	static_assert(magneticCount == 0 || pmsmCount == 1, "Simulation: the magnetic sensor needs a PMSM");
+	static_assert(senseCount == 0 || pmsmCount == 1, "Simulation: the current sense needs a PMSM");
 
 
 	Plant() : chain(config.blocks), substeps(config.substepCount), state{} {
