@@ -1,5 +1,5 @@
 #include "Harness.h"
-#include "TestRunner.h"
+#include <TestRunner.h>
 
 #include <string>
 #include <vector>
@@ -267,5 +267,6 @@ TEST_CASE(T41_FinalizeRetryIsIdempotent) {
 
 
 int main() {
-	return TestRunner::RunAll("BootloaderFlash");
+	TestRunner::RunAll();
+	return VhalCheck::Finish("BootloaderFlash");
 }

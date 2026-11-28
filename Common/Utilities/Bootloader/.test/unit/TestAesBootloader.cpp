@@ -1,5 +1,5 @@
 #include "Harness.h"
-#include "TestRunner.h"
+#include <TestRunner.h>
 
 #include <array>
 #include <vector>
@@ -222,5 +222,6 @@ TEST_CASE(T43_SetIvRules) {
 
 
 int main() {
-	return TestRunner::RunAll("AesBootloader");
+	TestRunner::RunAll();
+	return VhalCheck::Finish("AesBootloader");
 }

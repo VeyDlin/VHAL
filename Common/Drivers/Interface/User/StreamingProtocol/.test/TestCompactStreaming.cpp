@@ -1,4 +1,5 @@
-#include "TestRunner.h"
+#include <TestHelpers.h>
+#include <TestRunner.h>
 
 #include <VHAL.h>
 #include <Drivers/Interface/User/StreamingProtocol/CompactStreamingProtocol.h>
@@ -10,6 +11,8 @@
 #include <vector>
 
 using Protocol = CompactStreamingProtocol<>;
+using TestHelpers::AsBytes;
+using TestHelpers::ResetSystem;
 
 
 namespace {
@@ -37,16 +40,6 @@ uint8 Crc8Ccitt(std::span<const uint8> data) {
 	}
 
 	return crc;
-}
-
-
-std::vector<uint8> AsBytes(std::string_view text) {
-	return std::vector<uint8>(text.begin(), text.end());
-}
-
-
-void ResetSystem() {
-	VhalSim::SetMs(1000);
 }
 
 
@@ -489,5 +482,6 @@ TEST_CASE(T39_CspAbandonReported) {
 
 
 int main() {
-	return TestRunner::RunAll("CompactStreaming");
+	TestRunner::RunAll();
+	return VhalCheck::Finish("CompactStreaming");
 }

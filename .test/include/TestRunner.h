@@ -1,7 +1,7 @@
 #pragma once
 // Runs the test cases of a test program. A test case is declared with TEST_CASE. A case stops at its first failed CHECK or
-// CHECK_EQ; the checks themselves are the VhalCheck macros, which print each failure with its file and line. The program ends with
-// return TestRunner::RunAll("<program name>"), which prints the name of every case that failed and the summary of VhalCheck::Finish.
+// CHECK_EQ; the checks themselves are the VhalCheck macros, which print each failure with its file and line. A test program calls
+// TestRunner::RunAll() and ends with return VhalCheck::Finish("<program name>"). RunAll prints the name of every case that failed.
 #include <VhalCheck.h>
 
 #include <cstdio>
@@ -31,7 +31,7 @@ struct Registrar {
 };
 
 
-inline int RunAll(const char* programName) {
+inline void RunAll() {
 	for (const TestEntry& entry : Registry()) {
 		const int failsBefore = VhalCheck::failCount;
 		entry.function();
@@ -40,8 +40,6 @@ inline int RunAll(const char* programName) {
 			std::printf("failed: %s\n", entry.name.c_str());
 		}
 	}
-
-	return VhalCheck::Finish(programName);
 }
 
 

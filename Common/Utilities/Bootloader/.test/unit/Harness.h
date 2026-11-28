@@ -1,5 +1,6 @@
 #pragma once
 
+#include <TestHelpers.h>
 #include <VHAL.h>
 #include <Utilities/Bootloader/Loader/AESFLASHBootloader.h>
 #include <Utilities/Crypto/AES/AES.h>
@@ -47,10 +48,8 @@ constexpr uint8 kStatusChecksumMismatch = 0x0A;
 namespace Harness {
 
 
-inline void ResetSystem() {
-	VhalSim::SetMs(1000);
-	VhalSim::resetCalled = false;
-}
+using TestHelpers::AsBytes;
+using TestHelpers::ResetSystem;
 
 
 // Reference CRC-32 (IEEE 802.3, reflected), the same parameters as Crc::CRC_32().
@@ -109,11 +108,6 @@ inline std::vector<uint8> MakeImage(size_t size, uint8 seed) {
 	}
 
 	return image;
-}
-
-
-inline std::vector<uint8> AsBytes(std::string_view text) {
-	return std::vector<uint8>(text.begin(), text.end());
 }
 
 

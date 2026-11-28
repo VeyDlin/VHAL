@@ -1,5 +1,5 @@
 #include "Harness.h"
-#include "TestRunner.h"
+#include <TestRunner.h>
 
 #include <array>
 #include <span>
@@ -581,5 +581,6 @@ TEST_CASE(T44_GetInfoReportsCipherAndPacketSize) {
 
 
 int main() {
-	return TestRunner::RunAll("BootloaderProtocol");
+	TestRunner::RunAll();
+	return VhalCheck::Finish("BootloaderProtocol");
 }
