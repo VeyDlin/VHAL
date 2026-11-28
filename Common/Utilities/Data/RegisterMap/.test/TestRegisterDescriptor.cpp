@@ -1,3 +1,4 @@
+#include <Utilities/Data/ByteConverter.h>
 #include <Utilities/Data/RegisterMap/BitField.h>
 #include <Utilities/Data/RegisterMap/RegisterSet.h>
 #include <Utilities/Data/RegisterMap/RegisterDescriptor.h>
@@ -15,14 +16,14 @@ constexpr auto ChargeControl = RegisterDescriptor<uint8>(0x09, 0x01).ReadWrite()
 constexpr auto ChargeStatus = RegisterDescriptor<uint8>(0x09, 0x02).ReadOnly();
 constexpr auto ChargeDisable = BitField<1>(ChargeControl, 3);
 constexpr auto WideField = BitField<9>(RegisterDescriptor<uint16>(0x68, 0x10), 7);
-constexpr auto Measured = RegisterDescriptor<uint16>(0x68, 0x3B).AddressWidth(2).ByteOrder(RegisterByteOrder::LittleEndian).Table(RegisterTable::Input).ReadOnly();
+constexpr auto Measured = RegisterDescriptor<uint16>(0x68, 0x3B).AddressWidth(2).Order(ByteOrder::little).Table(RegisterTable::Input).ReadOnly();
 
 
 // Defaults: address width 1, big-endian, read and write, holding table.
 static_assert(ChargeControl.device == 0x09);
 static_assert(ChargeControl.address == 0x01);
 static_assert(ChargeControl.addressWidth == 1);
-static_assert(ChargeControl.byteOrder == RegisterByteOrder::BigEndian);
+static_assert(ChargeControl.byteOrder == ByteOrder::big);
 static_assert(ChargeControl.table == RegisterTable::Holding);
 static_assert(ChargeControl.CanRead() && ChargeControl.CanWrite());
 static_assert(ChargeControl.ByteCount() == 1);
@@ -31,7 +32,7 @@ static_assert(ChargeControl.ByteCount() == 1);
 // Each builder method changes one property and keeps the rest.
 static_assert(!ChargeStatus.CanWrite() && ChargeStatus.CanRead());
 static_assert(Measured.addressWidth == 2);
-static_assert(Measured.byteOrder == RegisterByteOrder::LittleEndian);
+static_assert(Measured.byteOrder == ByteOrder::little);
 static_assert(Measured.table == RegisterTable::Input);
 static_assert(Measured.ByteCount() == 2);
 
@@ -62,14 +63,14 @@ static_assert(!BitField<2>(ChargeControl, 0).Fits(4));
 
 
 // Big-endian and little-endian packing. 0x1234 is 12 34 big-endian and 34 12 little-endian.
-constexpr std::array<uint8, 2> bigBytes = RegisterToBytes<uint16>(0x1234, RegisterByteOrder::BigEndian);
-constexpr std::array<uint8, 2> littleBytes = RegisterToBytes<uint16>(0x1234, RegisterByteOrder::LittleEndian);
+constexpr std::array<uint8, 2> bigBytes = ByteConverter::ToBytes<uint16, ByteOrder::big>(0x1234);
+constexpr std::array<uint8, 2> littleBytes = ByteConverter::ToBytes<uint16, ByteOrder::little>(0x1234);
 static_assert(bigBytes[0] == 0x12 && bigBytes[1] == 0x34);
 static_assert(littleBytes[0] == 0x34 && littleBytes[1] == 0x12);
 
 constexpr std::array<uint8, 2> readBytes{ 0xFF, 0xFE };
-static_assert(RegisterFromBytes<int16>(readBytes, RegisterByteOrder::BigEndian) == -2);
-static_assert(RegisterFromBytes<uint16>(readBytes, RegisterByteOrder::LittleEndian) == 0xFEFF);
+static_assert(ByteConverter::FromBytes<int16, ByteOrder::big>(readBytes) == -2);
+static_assert(ByteConverter::FromBytes<uint16, ByteOrder::little>(readBytes) == 0xFEFF);
 
 
 // A register set with distinct registers is a constant. Two registers with one device and address are not unique.

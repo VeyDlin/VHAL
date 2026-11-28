@@ -1,3 +1,4 @@
+#include <Utilities/Data/ByteConverter.h>
 #include <Utilities/Data/RegisterMap/BitField.h>
 #include <Utilities/Data/RegisterMap/RegisterAccess.h>
 #include <Utilities/Data/RegisterMap/RegisterBus.h>
@@ -18,10 +19,10 @@ namespace DescriptorPage {
 	constexpr auto ChargeControl = RegisterDescriptor<uint8>(0x09, 0x01).ReadWrite();
 	constexpr auto Measured = RegisterDescriptor<uint16>(0x68, 0x3B)
 		.AddressWidth(2)
-		.ByteOrder(RegisterByteOrder::LittleEndian)
+		.Order(ByteOrder::little)
 		.Table(RegisterTable::Input)
 		.ReadOnly();
-	constexpr std::array<uint8, 2> packed = RegisterToBytes<uint16>(0x1234, RegisterByteOrder::BigEndian);
+	constexpr std::array<uint8, 2> packed = ByteConverter::ToBytes<uint16, ByteOrder::big>(0x1234);
 	static_assert(packed[0] == 0x12);
 	static_assert(Measured.Ref().addressWidth == 2);
 	static_assert(ChargeControl.ByteCount() == 1);
