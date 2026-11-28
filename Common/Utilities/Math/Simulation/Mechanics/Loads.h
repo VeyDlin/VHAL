@@ -58,7 +58,8 @@ public:
 };
 
 
-// A load that grows with the square of the speed, a fan: tau = k wm |wm|, N m for k in N m s^2/rad^2.
+// A load that grows with the square of the speed, a fan: tau = k w |w|, N m for k in N m s^2/rad^2. The speed w is the rotor speed,
+// or the load-side speed of a two-mass shaft.
 template<std::floating_point T>
 class QuadraticLoad {
 public:
@@ -91,7 +92,13 @@ public:
 
 	template<typename Bus>
 	constexpr void Publish(const T*, Bus& bus) const {
-		bus.quadraticLoad = coefficient * bus.speed * std::abs(bus.speed);
+		T shaftSpeed = bus.speed;
+
+		if constexpr (requires { bus.loadSpeed; }) {
+			shaftSpeed = bus.loadSpeed;
+		}
+
+		bus.quadraticLoad = coefficient * shaftSpeed * std::abs(shaftSpeed);
 	}
 
 

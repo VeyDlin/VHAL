@@ -11,8 +11,8 @@
 //   Jl d(wl)/dt = k (thm - thl) + c (wm - wl) - tau_load - bl wl
 //   d(thm)/dt = wm,  d(thl)/dt = wl
 //
-// The load side takes the constant and road loads of the chain, and the reflected inertia of a road load. The quadratic load is
-// not read: it needs one speed, and the shaft has two. The Coulomb friction of the Rotor is not in this model.
+// The load side takes the constant, quadratic and road loads of the chain, and the reflected inertia of a road load. The Coulomb
+// friction of the Rotor is not in this model.
 namespace Simulation {
 
 
@@ -110,6 +110,10 @@ public:
 
 		if constexpr (requires { bus.constantLoad; }) {
 			load += bus.constantLoad;
+		}
+
+		if constexpr (requires { bus.quadraticLoad; }) {
+			load += bus.quadraticLoad;
 		}
 
 		if constexpr (requires { bus.roadLoad; }) {
