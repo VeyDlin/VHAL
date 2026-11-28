@@ -8,41 +8,39 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Libusb.cmake")
 
-# Without libusb, nothing is defined: the counterpart test reports the skip.
-if(NOT USBBENCH_LIBUSB_TARGET)
-	return()
-endif()
-
 find_package(Threads REQUIRED)
 
-add_executable(usbbench
-	src/BackendFactory.cpp
-	src/BulkLane.cpp
-	src/Commands.cpp
-	src/DeviceSelection.cpp
-	src/LibUsbBackend.cpp
-	src/Options.cpp
-	src/Summary.cpp
-	src/main.cpp
-)
+# Without libusb, usbbench itself is not built; the offline tests below need neither libusb nor a device, and they still run.
+if(USBBENCH_LIBUSB_TARGET)
+	add_executable(usbbench
+		src/BackendFactory.cpp
+		src/BulkLane.cpp
+		src/Commands.cpp
+		src/DeviceSelection.cpp
+		src/LibUsbBackend.cpp
+		src/Options.cpp
+		src/Summary.cpp
+		src/main.cpp
+	)
 
-# The benchmark protocol header is shared with the firmware and lives one folder up.
-target_include_directories(usbbench PRIVATE
-	"${CMAKE_CURRENT_SOURCE_DIR}/src"
-	"${CMAKE_CURRENT_SOURCE_DIR}/../common"
-)
+	# The benchmark protocol header is shared with the firmware and lives one folder up.
+	target_include_directories(usbbench PRIVATE
+		"${CMAKE_CURRENT_SOURCE_DIR}/src"
+		"${CMAKE_CURRENT_SOURCE_DIR}/../common"
+	)
 
-target_compile_options(usbbench PRIVATE
-	-Wall
-	-Wextra
-	-Wpedantic
-)
+	target_compile_options(usbbench PRIVATE
+		-Wall
+		-Wextra
+		-Wpedantic
+	)
 
-target_link_libraries(usbbench PRIVATE ${USBBENCH_LIBUSB_TARGET} Threads::Threads)
+	target_link_libraries(usbbench PRIVATE ${USBBENCH_LIBUSB_TARGET} Threads::Threads)
 
-if(WIN32)
-	target_sources(usbbench PRIVATE src/WinUsbBackend.cpp)
-	target_link_libraries(usbbench PRIVATE setupapi ole32 winusb)
+	if(WIN32)
+		target_sources(usbbench PRIVATE src/WinUsbBackend.cpp)
+		target_link_libraries(usbbench PRIVATE setupapi ole32 winusb)
+	endif()
 endif()
 
 # Offline test of the lane scheduling and pattern check. It needs no device and no libusb.

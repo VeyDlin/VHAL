@@ -36,13 +36,17 @@ const simCandidates: string[] = [
     path.join(toolDir, "..", ".test", "build", "vboot-sim.exe"),
     path.join(toolDir, "..", ".test", "build", "vboot-sim")
 ];
+const simSkipReason: string = "simulator not built: run `npm run sim:build` to create .test/build/vboot-sim[.exe]";
 const simFound: boolean = simCandidates.some((candidate: string): boolean => existsSync(candidate));
 const suiteOptions: { skip?: string; timeout: number } = simFound
     ? { timeout: 120000 }
-    : {
-        skip: "simulator not built: run `npm run sim:build` to create .test/build/vboot-sim[.exe]",
-        timeout: 120000
-    };
+    : { skip: simSkipReason, timeout: 120000 };
+
+// A skipped suite is known to node only, and CTest reads the output of the tool test. The marker makes CTest report the tool test
+// as skipped, with the reason.
+if (!simFound) {
+    console.log(`VHAL_SKIP: the end-to-end suite of the simulator did not run: ${simSkipReason}`);
+}
 const regionStart: number = 0x08020000;
 const regionSize: number = 0x40000;
 const log: Log = new Log("quiet");

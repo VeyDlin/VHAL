@@ -375,6 +375,14 @@ static void ConfigureBootloader(Bootloader& bootloader, const SimOptions& option
 }
 
 
+// The simulated clock follows the wall clock from the first call, so the bootloader's timeouts run in real time.
+static uint64 ElapsedMs() {
+    static const std::chrono::steady_clock::time_point startTime = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::duration elapsed = std::chrono::steady_clock::now() - startTime;
+    return static_cast<uint64>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
+}
+
+
 template<typename Bootloader>
 static int RunBootloader(Bootloader& bootloader, StdioCommunication& comm) {
     if (bootloader.Initialize() != ResultStatus::ok) {
@@ -383,9 +391,10 @@ static int RunBootloader(Bootloader& bootloader, StdioCommunication& comm) {
     }
 
     while (true) {
+        VhalSim::SetMs(ElapsedMs());
         bootloader.Process();
 
-        if (System::resetRequested) {
+        if (VhalSim::resetCalled) {
             ExitSimulator("RESET");
         }
 

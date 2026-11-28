@@ -27,9 +27,11 @@
 #     CMAKE_ARGV, the last one being the last argument. The script gets the nm tool of the ARM objects as VHAL_ARM_NM.
 # vhal_declared(<pattern> <file>...)
 #     fails the configure when a file of the module folder matches the pattern and is not one of the declared files.
-# vhal_tool_test(<dir>)
-#     runs the tests of a counterpart program in the .tool folder: npm test for a package.json, dotnet test for a project file.
-#     The test is skipped when its tool is absent.
+# vhal_tool_test(<dir> [PREPARE <npm script>])
+#     runs the tests of a counterpart program in the .tool folder: npm test for a package.json, dotnet test for a project file, and
+#     the CTest tests of a CMakeLists.txt. The test is skipped when its tool is absent. PREPARE names an npm script that runs before
+#     npm test when a g++ is on the PATH (a device simulator is built that way).
+#     The test is named <module label>.tool for the module's .tool folder, and <module label>.tool.<sub folder> below it.
 
 
 # Adds one host test executable for a source file of the module folder, and the test that runs it.
@@ -265,14 +267,29 @@ endfunction()
 
 # One counterpart-tool test. A package.json is tested with npm, a project file with dotnet; the tool's own test suite runs.
 function(vhal_tool_test dir)
+  cmake_parse_arguments(PARSE_ARGV 1 vhalArg "" "PREPARE" "")
+
   cmake_path(ABSOLUTE_PATH dir BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE OUTPUT_VARIABLE toolDir)
-  get_filename_component(stem "${toolDir}" NAME)
-  set(testName "${VHAL_MODULE_LABEL}.tool.${stem}")
+
+  # The folder's place in the module's .tool folder gives the name: the root gives <label>.tool, a sub folder <label>.tool.<path>.
+  get_filename_component(moduleDir "${CMAKE_CURRENT_SOURCE_DIR}" DIRECTORY)
+  file(RELATIVE_PATH toolSubPath "${moduleDir}/.tool" "${toolDir}")
+  set(toolSuffix "")
+  if(NOT toolSubPath STREQUAL "" AND NOT toolSubPath STREQUAL ".")
+    string(REPLACE "/" "." toolSuffix ".${toolSubPath}")
+  endif()
+  set(testName "${VHAL_MODULE_LABEL}.tool${toolSuffix}")
+
+  set(prepareArg "")
+  if(vhalArg_PREPARE)
+    set(prepareArg "-DVHAL_TOOL_PREPARE=${vhalArg_PREPARE}")
+  endif()
 
   add_test(
     NAME "${testName}"
     COMMAND "${CMAKE_COMMAND}"
       "-DVHAL_TOOL_DIR=${toolDir}"
+      ${prepareArg}
       -P "${VHAL_TEST_DIR}/ToolTest.cmake")
   set_tests_properties("${testName}" PROPERTIES LABELS "${VHAL_MODULE_LABEL};tool" SKIP_REGULAR_EXPRESSION "VHAL_SKIP:")
 endfunction()
