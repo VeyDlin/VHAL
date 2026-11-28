@@ -5,8 +5,8 @@
 #include <chrono>
 #include <string>
 
-// The examples of the Buttons wiki page, run on the host. The code between the markers is the code of the page. The host stands in for
-// the RTOS: it supplies the tick and the GPIO level.
+// The examples of the Buttons wiki page, run on the host. The code from a `--- wiki: <name> ---` line to the next `--- end ---` line
+// is the code of the page. The host stands in for the RTOS: it supplies the tick and the GPIO level.
 
 using namespace std::chrono_literals;
 
