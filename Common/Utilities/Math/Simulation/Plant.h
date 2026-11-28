@@ -546,13 +546,7 @@ public:
 	}
 
 
-	// The rotor, a Rotor or a TwoMassShaft.
-	Simulation::Rotor<Real>& RotorBlock() {
-		static_assert(rotorCount == 1, "Simulation: the chain has no rotor");
-		return chain.template Get<Simulation::Rotor<Real>>();
-	}
-
-
+	// The road load of the chain. Its block is named, so that its absence has a message.
 	Simulation::RoadLoad<Real>& Road() {
 		static_assert(roadCount == 1, "Simulation: the chain has no Road block");
 		return chain.template Get<Simulation::RoadLoad<Real>>();

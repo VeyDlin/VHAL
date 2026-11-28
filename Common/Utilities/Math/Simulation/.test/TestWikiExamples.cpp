@@ -105,6 +105,34 @@ void Run() {
 }
 
 
+namespace PagePlantMembers {
+
+
+void Run() {
+	constexpr auto chain = Simulation::Builder().Add<Simulation::Rotor>().Inertia(1.0e-4).Substeps(20);
+	VHAL_CHECK(chain.substepCount == 20u);
+
+	using Plant = Simulation::Plant<+[] {
+		return Simulation::Builder()
+			.Add<Simulation::Pmsm>(Simulation::Pmsm<double>::Parameters{ 0.5, 2.0e-3, 2.0e-3, 0.01, 4 })
+			.Add<Simulation::Rotor>()
+				.Inertia(2.0e-5)
+				.Viscous(1.0e-6)
+			.Add<Simulation::Inverter>()
+				.DcBus(14.8)
+			.Substeps(20);
+	}>;
+
+	Plant plant;
+	plant.Advance(100.0e-6);
+	Simulation::Rotor<double>& rotor = plant.Get<Simulation::Rotor>();
+	VHAL_CHECK(rotor.Speed() == 0.0);
+}
+
+
+}
+
+
 namespace PageInteger {
 
 
@@ -114,6 +142,7 @@ void Run() {
 	VHAL_CHECK(Simulation::Sign(-3.0) == -1.0);
 	VHAL_CHECK(Simulation::Sign(0.0) == 0.0);
 	VHAL_CHECK(Simulation::TwoPi<double>() > 6.28);
+	VHAL_CHECK(Simulation::Pi<double>() > 3.14);
 	VHAL_CHECK(Simulation::StandardGravity<double>() > 9.8);
 }
 
@@ -265,6 +294,17 @@ void Run() {
 namespace PageLoads {
 
 
+using Fan = Simulation::Plant<+[] {
+	return Simulation::Builder()
+		.Add<Simulation::Pmsm>(Simulation::Pmsm<double>::Parameters{ 0.5, 2.0e-3, 2.0e-3, 0.01, 4 })
+		.Add<Simulation::Rotor>()
+			.Inertia(2.0e-5)
+			.Coulomb(1.0e-6)
+		.Add<Simulation::QuadraticLoad>()
+			.Coefficient(1.0e-6);
+}>;
+
+
 void Run() {
 	Simulation::ConstantLoad<double> constant;
 	constant.SetTorque(0.01);
@@ -273,6 +313,10 @@ void Run() {
 	Simulation::QuadraticLoad<double> fan;
 	fan.SetCoefficient(1.0e-6);
 	VHAL_CHECK(fan.Coefficient() == 1.0e-6);
+
+	Fan plant;
+	plant.Advance(1.0e-4);
+	VHAL_CHECK(plant.Get<Simulation::QuadraticLoad>().Coefficient() == 1.0e-6);
 }
 
 
@@ -358,6 +402,15 @@ void Run() {
 	heater.Advance(0.1);
 	VHAL_CHECK(heater.Get<Simulation::FirstOrderThermal>().Temperature() == 25.0);
 
+	Simulation::FirstOrderThermal<double> block;
+	block.SetAmbient(25.0);
+	block.SetResistance(5.0);
+	block.SetCapacitance(10.0);
+	block.SetDelaySteps(5);
+	block.SetPower(10.0);
+	VHAL_CHECK(block.Temperature() == 0.0);
+	VHAL_CHECK(Simulation::FirstOrderThermal<double>::maxDelaySteps == 256u);
+
 	Simulation::DelayLine<double, 8> line;
 	line.Push(1.5);
 	VHAL_CHECK(line.Delayed(1) == 1.5);
@@ -411,6 +464,7 @@ void Run() {
 
 int main() {
 	PagePlant::Run();
+	PagePlantMembers::Run();
 	PageInteger::Run();
 	PageIntegrator::Run();
 	PageNoise::Run();
