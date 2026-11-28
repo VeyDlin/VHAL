@@ -7,7 +7,8 @@
 #include <utility>
 
 // Host tests of the access modes of RingBuffer, member by member: the members each mode offers, the critical sections each mode takes,
-// capacity N in every mode, Memory::External with N + 1 elements, and the move of a ring in every mode. The shim counts the critical
+// capacity N in every mode, Memory::External with N elements in locked and callerLocked mode and N + 1 in singleWriter mode, and the
+// move of a ring in every mode. The shim counts the critical
 // sections, so a call that must take none is checked against the count before and after it.
 
 

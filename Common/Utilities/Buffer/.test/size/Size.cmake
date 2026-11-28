@@ -74,7 +74,7 @@ foreach(opt IN LISTS bufferSizeOptimisations)
       "packetLocked|PacketQueue<64, 8>, locked|${vhalSizeDir}/SizePacket.cpp|-DSIZE_ACCESS=locked"
       "packetSingleWriter|PacketQueue<64, 8>, singleWriter|${vhalSizeDir}/SizePacket.cpp|-DSIZE_ACCESS=singleWriter"
       "packetCallerLocked|PacketQueue<64, 8>, callerLocked|${vhalSizeDir}/SizePacket.cpp|-DSIZE_ACCESS=callerLocked"
-      "vubRing|VUB ring form, 64 slots|${vhalSizeDir}/SizeVub.cpp|-DSIZE_VUB=1")
+      "vubRing|VUB single-core ring form, 64 slots (VUB's own operations)|${vhalSizeDir}/SizeVub.cpp|-DSIZE_VUB=1")
 
     foreach(row IN LISTS rows)
       string(REPLACE "|" ";" rowParts "${row}")

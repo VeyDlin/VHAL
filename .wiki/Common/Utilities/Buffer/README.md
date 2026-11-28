@@ -39,7 +39,7 @@ if (result.IsOk()) {
 }
 ```
 
-`Push` and `Clear` return a `ResultStatus`. `Pop` and `Peek` return a `Result<T>`: check `IsOk()`, read the element with `Value()`, and read the failure reason with `Error()` when `IsErr()` is true. `Front` and `Peek(index)` return a pointer, which is `nullptr` when no element is held.
+`Push` returns a `ResultStatus`, and `Clear` returns nothing. `Pop` and `Peek` return a `Result<T>`: check `IsOk()`, read the element with `Value()`, and read the failure reason with `Error()` when `IsErr()` is true. `Front` and `Peek(index)` return a pointer, which is `nullptr` when no element is held.
 
 ---
 
@@ -156,7 +156,7 @@ RingBuffer<uint8, 256, Memory::External> given{std::span<uint8>(dmaBuffer)};
 ```
 
 - `FromHeap` takes its block when the ring is constructed and releases it when the ring is destroyed. The heap must be a static object, and it must be constructed before the ring. A debug build asserts this. A ring that is a static object in another translation unit is built on first use (a function-local static), so the heap exists by then.
-- `External` needs a span of at least as many elements as the ring's storage: `BufferSize` in locked mode, and `BufferSize + 1` in singleWriter and callerLocked mode, because those modes keep one slot empty for the indexes. A shorter span leaves the ring not ready.
+- `External` needs a span of at least as many elements as the ring's storage: `BufferSize` in locked and callerLocked mode, and `BufferSize + 1` in singleWriter mode, which keeps one slot empty for its indexes. A shorter span leaves the ring not ready.
 - A ring that is not ready refuses its writes: `Push` returns `ResultStatus::notReady` and the bulk `Push` returns 0. `Size()` stays 0, and `Pop` and `Peek` return empty.
 - The policy changes only where the elements are. The operations and the transactional reads are the same for every policy.
 
@@ -174,9 +174,9 @@ Memory costs of the locked mode, measured on Cortex-M0+ and M4 with a ring of 16
 |---|---|---|---|---|---|
 | `RingAccess::locked` (default) | any context, any member | one per call, and one for a whole bulk copy | none needed | `BufferSize` elements | several writers, such as a task and an interrupt that both push |
 | `RingAccess::singleWriter` | one producer calls `Push`; one consumer calls every other member | none | release store after the data, acquire load of the other index | `BufferSize + 1` elements | an interrupt that produces and a main loop that consumes |
-| `RingAccess::callerLocked` | the caller makes sure one call runs at a time | none | none | `BufferSize + 1` elements | one thread, or a caller that already holds a section |
+| `RingAccess::callerLocked` | the caller makes sure one call runs at a time | none | none | `BufferSize` elements | one thread, or a caller that already holds a section |
 
-A singleWriter ring takes no critical section, so the producer may be an interrupt that runs while the consumer is in the middle of a call. Each index is written by one context only, and the release and acquire orders make the data of an element visible before the index that publishes it. A callerLocked ring uses the same index arithmetic with relaxed accesses and no section.
+A singleWriter ring takes no critical section, so the producer may be an interrupt that runs while the consumer is in the middle of a call. Each index is written by one context only, and the release and acquire orders make the data of an element visible before the index that publishes it. A callerLocked ring keeps the read index and the count that a locked ring keeps, with no critical section and no barrier.
 
 ```cpp
 // The receive interrupt pushes the byte it received.
@@ -224,18 +224,19 @@ In locked mode the caller makes sure that no other context pops or drops the ele
 
 ### Cost of the Modes
 
-Measured with the size table of the module (`-Os`, bytes of text, RAM is the same for the three modes), with the ring's critical section stubbed, so the locked row excludes the section of a port:
+Measured with the size table of the module (`-Os`), with the ring's critical section stubbed, so the locked row excludes the section of a port. The text is the cost over a program that makes the same call with no ring, and RAM is the data and bss of the image over that program. Each program pushes 32 bytes and reads them back: a ring pushes each byte and reads it in place with `Front()` and `Drop(1)`, and a packet queue pushes 4-byte packets and reads them the same way. The rows of a program make the same calls. The VUB row is the single-core ring of VUB, which has its own operations (a push and a pop of a byte), so it is not a row of the same calls.
 
 | Program | Cortex-M0+ text | Cortex-M4 text | RAM |
 |---|---:|---:|---:|
-| `RingBuffer<uint8, 64>`, `locked` | 160 | 136 | 76 |
-| `RingBuffer<uint8, 64>`, `singleWriter` | 208 | 200 | 76 |
-| `RingBuffer<uint8, 64>`, `callerLocked` | 192 | 184 | 76 |
-| `PacketQueue<64, 8>`, `locked` | 260 | 204 | 604 |
-| `PacketQueue<64, 8>`, `singleWriter` | 276 | 220 | 604 |
-| `PacketQueue<64, 8>`, `callerLocked` | 260 | 204 | 604 |
+| `RingBuffer<uint8, 64>`, `locked` | 136 | 108 | 72 |
+| `RingBuffer<uint8, 64>`, `singleWriter` | 212 | 204 | 72 |
+| `RingBuffer<uint8, 64>`, `callerLocked` | 136 | 108 | 72 |
+| `PacketQueue<64, 8>`, `locked` | 220 | 156 | 540 |
+| `PacketQueue<64, 8>`, `singleWriter` | 288 | 232 | 604 |
+| `PacketQueue<64, 8>`, `callerLocked` | 220 | 156 | 540 |
+| VUB single-core ring form, 64 slots (VUB's own operations) | 92 | 88 | 68 |
 
-The VUB ring form (volatile indexes and `std::atomic_signal_fence`, 64 slots) costs 92 bytes of text on Cortex-M0+ and 88 on Cortex-M4, with 68 bytes of RAM.
+The singleWriter mode costs the most text of the three modes: its operations load the other context's index with an acquire load and publish with a release store. A packet queue in singleWriter mode holds one more slot, so its RAM is larger.
 
 ### RingBuffer API Reference
 
@@ -300,7 +301,7 @@ packets.Pop();
 | `Count()`, `Full()`, `Empty()` | `uint16`, `bool`, `bool` | The number of packets held, and whether there are none or the maximum. |
 | `Clear()` | `void` | Remove all packets. Not offered in singleWriter mode. |
 
-`DropFlagged` writes the head index, which belongs to the producer. It is offered in locked mode, where the call holds a critical section for its whole run, and in callerLocked mode, where the caller keeps any push out during the call. In singleWriter mode the consumer drops packets with `Drop`.
+`DropFlagged` rewrites the packets and the count of the queue, which the producer must not change during the call. It is offered in locked mode, where the call holds a critical section for its whole run, and in callerLocked mode, where the caller keeps any push out during the call. In singleWriter mode the producer owns the head, so the consumer drops packets with `Drop`.
 
 ```cpp
 PacketQueue<64, 8, Memory::Inside, RingAccess::locked> queue;
@@ -313,13 +314,13 @@ queue.Push(std::span<const uint8>(normal), 0x00);
 uint16 dropped = queue.DropFlagged(0x01); // the urgent packet is dropped, the normal one stays
 ```
 
-A packet queue with `Memory::External` takes three memory blocks: the bytes of `Slots + 1` slots, and the lengths and the flags of `Slots + 1` entries each.
+A packet queue with `Memory::External` takes three memory blocks: the bytes of `Slots` slots, and the lengths and the flags of `Slots` entries each. In singleWriter mode the blocks hold `Slots + 1` slots and entries, because that mode keeps one slot empty for its indexes.
 
 ```cpp
-// Eight slots of 64 bytes are held, so the memory needs nine slots.
-uint8 bytes[9 * 64];
-uint8 lengths[9];
-uint8 flags[9];
+// Eight slots of 64 bytes are held, so the memory needs eight slots.
+uint8 bytes[8 * 64];
+uint8 lengths[8];
+uint8 flags[8];
 
 PacketQueue<64, 8, Memory::External, RingAccess::callerLocked> queue{
     std::span<uint8>(bytes),

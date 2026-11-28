@@ -4,8 +4,8 @@
 #include <span>
 
 // One size program of a packet queue of 8 slots of 64 bytes, in the access mode named by SIZE_ACCESS. The program pushes the buffer as
-// packets of 4 bytes and pops them, so the image holds the code of Push, Front and Pop and the storage. The critical section of a port
-// is stubbed, as in SizeRing.cpp.
+// packets of 4 bytes, reads each packet in place with Front() and removes it with Drop(1), so the image holds the code of Push, Front
+// and Drop and the storage. The critical section of a port is stubbed, as in SizeRing.cpp.
 
 
 void System::CriticalSection(bool) {
@@ -25,7 +25,7 @@ uint64 SizeRun(const uint8* data, std::size_t length) {
 	uint8 flags = 0;
 	while (queue.Front(packet, flags) == ResultStatus::ok) {
 		sum += packet[0] + flags;
-		queue.Pop();
+		queue.Drop(1);
 	}
 
 	return sum;
