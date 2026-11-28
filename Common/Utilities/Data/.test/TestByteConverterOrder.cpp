@@ -52,6 +52,42 @@ static_assert(ByteConverter::ToBytes<uint16, ByteOrder::little>(0x1234)[0] == 0x
 static_assert(ByteConverter::ToBytes<int32, ByteOrder::big>(-1)[3] == 0xFF);
 
 
+// Every width from 1 to 8, in both orders: the template and the run-time width forms write the same bytes, and the template Get and
+// the run-time Get read the value back.
+template<ByteOrder order, std::size_t width>
+constexpr bool WidthFormsAgree() {
+	const uint64 value = pattern >> (8 * (8 - width));
+	std::array<uint8, 8> typed{};
+	std::array<uint8, 8> runtime{};
+	ByteConverter::Put<width, order>(typed, 0, value);
+	ByteConverter::Put<order>(runtime, 0, value, width);
+	for (std::size_t index = 0; index < width; index++) {
+		if (typed[index] != runtime[index]) {
+			return false;
+		}
+	}
+	return ByteConverter::Get<width, order>(typed, 0) == value && ByteConverter::Get<order>(runtime, 0, width) == value;
+}
+
+
+static_assert(WidthFormsAgree<ByteOrder::big, 1>());
+static_assert(WidthFormsAgree<ByteOrder::big, 2>());
+static_assert(WidthFormsAgree<ByteOrder::big, 3>());
+static_assert(WidthFormsAgree<ByteOrder::big, 4>());
+static_assert(WidthFormsAgree<ByteOrder::big, 5>());
+static_assert(WidthFormsAgree<ByteOrder::big, 6>());
+static_assert(WidthFormsAgree<ByteOrder::big, 7>());
+static_assert(WidthFormsAgree<ByteOrder::big, 8>());
+static_assert(WidthFormsAgree<ByteOrder::little, 1>());
+static_assert(WidthFormsAgree<ByteOrder::little, 2>());
+static_assert(WidthFormsAgree<ByteOrder::little, 3>());
+static_assert(WidthFormsAgree<ByteOrder::little, 4>());
+static_assert(WidthFormsAgree<ByteOrder::little, 5>());
+static_assert(WidthFormsAgree<ByteOrder::little, 6>());
+static_assert(WidthFormsAgree<ByteOrder::little, 7>());
+static_assert(WidthFormsAgree<ByteOrder::little, 8>());
+
+
 // A value written in one order and read back in the same order is the value.
 void RoundTripSignedAndEnum() {
 	uint8 bytes[8] = {};
