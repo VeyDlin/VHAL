@@ -1,13 +1,19 @@
 #pragma once
-#include <Utilities/Math/FOC/ClarkeTransformation.h>
-#include <Utilities/Math/FOC/ParkTransformation.h>
+#include <cmath>
 #include <concepts>
 #include <cstddef>
 
 
 // Phase-current sensing with an offset and a gain error on each phase: the measured current is (1 + g) i + o. The phase currents
-// are the true ones, from the dq currents and the electrical angle through the library's inverse Park and inverse Clarke
-// transforms (the amplitude-invariant form, so a balanced set sums to zero). The sensor has no state.
+// are the true ones, from the dq currents and the electrical angle theta in radians. They are the inverse of the amplitude-invariant
+// Park and Clarke transforms (Krause, Wasynczuk, Sudhoff and Pekarek, Analysis of Electric Machinery and Drive Systems, the
+// amplitude-invariant transformation of the stator variables):
+//
+//   alpha = id cos(theta) - iq sin(theta),  beta = id sin(theta) + iq cos(theta)
+//   ia = alpha,  ib = -alpha / 2 + (sqrt(3) / 2) beta,  ic = -alpha / 2 - (sqrt(3) / 2) beta
+//
+// A balanced set sums to zero. The transforms are written here, not taken from the FOC module, so that an error in the FOC
+// transforms cannot cancel in a closed-loop test. The sensor has no state. It needs the PMSM of the chain (the builder checks it).
 namespace Simulation {
 
 
@@ -61,22 +67,16 @@ public:
 
 	template<typename Bus>
 	void Publish(const T*, Bus& bus) const {
-		ParkTransformation<T> park;
-		park.SetPark(typename ParkTransformation<T>::Park{ bus.currentD, bus.currentQ, bus.thetaE });
-		park.ResolveInverse();
-
-		const typename ParkTransformation<T>::Axis axis = park.GetAxis();
-
-		ClarkeTransformation<T> clarke;
-		clarke.SetClarke(typename ClarkeTransformation<T>::Clarke{ axis.alpha, axis.beta });
-		clarke.ResolveInverse();
-
-		const typename ClarkeTransformation<T>::Phase phase = clarke.GetPhase();
+		const T cosine = std::cos(bus.thetaE);
+		const T sine = std::sin(bus.thetaE);
+		const T alpha = bus.currentD * cosine - bus.currentQ * sine;
+		const T beta = bus.currentD * sine + bus.currentQ * cosine;
+		const T halfRootThree = std::sqrt(static_cast<T>(3)) / static_cast<T>(2);
 		const T scale = static_cast<T>(1) + gainError;
 
-		bus.phaseA = scale * phase.a + offsetA;
-		bus.phaseB = scale * phase.b + offsetB;
-		bus.phaseC = scale * phase.c + offsetC;
+		bus.phaseA = scale * alpha + offsetA;
+		bus.phaseB = scale * (static_cast<T>(-0.5) * alpha + halfRootThree * beta) + offsetB;
+		bus.phaseC = scale * (static_cast<T>(-0.5) * alpha - halfRootThree * beta) + offsetC;
 	}
 
 
