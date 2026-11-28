@@ -1,6 +1,6 @@
 # CompileTime
 
-The compile-time checks of the library are in `Common/Utilities/CompileTime/`. `Require.h` holds the checks, and `TextLiteral.h` holds the string literal type that carries their messages.
+The compile-time checks of the library are in `Common/Utilities/CompileTime/`. `Require.h` holds the checks, and `TextLiteral.h` holds the string literal type that carries their messages. `TypeList.h` holds the searches over a list of types, described on the [TypeList](TypeList.md) page.
 
 | Function | Checks | Diagnostic |
 |---|---|---|
