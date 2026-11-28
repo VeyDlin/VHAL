@@ -28,30 +28,6 @@ class RingBuffer {
 		"A singleWriter RingBuffer keeps N + 1 indexes: N must be below 65535");
 
 
-private:
-	using Cursor = RingCursor<Access == RingAccess::singleWriter>;
-
-	static constexpr bool isLocked = Access == RingAccess::locked;
-	static constexpr uint16 slotCount = Cursor::SlotCount(BufferSize);
-
-	typename Policy::template Storage<ElementType, slotCount> storage;
-	Cursor cursor;
-
-
-	static void EnterSection() {
-		if constexpr (isLocked) {
-			System::CriticalSection(true);
-		}
-	}
-
-
-	static void LeaveSection() {
-		if constexpr (isLocked) {
-			System::CriticalSection(false);
-		}
-	}
-
-
 public:
 	// The storage is value-initialized here and only here, so a static ring is constant-initialized and needs no start-up code.
 	constexpr RingBuffer()
@@ -84,7 +60,11 @@ public:
 
 	// The arguments go to the policy's storage, for example the memory of Memory::External.
 	template <typename... Arguments>
-		requires(sizeof...(Arguments) > 0 && std::constructible_from<typename Policy::template Storage<ElementType, slotCount>, Arguments...>)
+		requires(
+			sizeof...(Arguments) > 0
+			&& std::constructible_from<
+				typename Policy::template Storage<ElementType, RingCursor<Access == RingAccess::singleWriter>::SlotCount(BufferSize)>,
+				Arguments...>)
 	explicit RingBuffer(Arguments&&... arguments)
 		: storage(std::forward<Arguments>(arguments)...) {
 	}
@@ -368,5 +348,29 @@ public:
 	// Get number of uncommitted reads
 	uint16 GetUncommittedCount() const {
 		return cursor.Uncommitted();
+	}
+
+
+private:
+	using Cursor = RingCursor<Access == RingAccess::singleWriter>;
+
+	static constexpr bool isLocked = Access == RingAccess::locked;
+	static constexpr uint16 slotCount = Cursor::SlotCount(BufferSize);
+
+	typename Policy::template Storage<ElementType, slotCount> storage;
+	Cursor cursor;
+
+
+	static void EnterSection() {
+		if constexpr (isLocked) {
+			System::CriticalSection(true);
+		}
+	}
+
+
+	static void LeaveSection() {
+		if constexpr (isLocked) {
+			System::CriticalSection(false);
+		}
 	}
 };

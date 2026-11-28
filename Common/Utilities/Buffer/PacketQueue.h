@@ -30,49 +30,6 @@ class PacketQueue {
 		"A singleWriter PacketQueue keeps Slots + 1 indexes: Slots must be below 65535");
 
 
-private:
-	using LengthType = std::conditional_t<(SlotBytes <= 255), uint8, uint16>;
-	using Cursor = RingCursor<Access == RingAccess::singleWriter>;
-
-	static constexpr bool isLocked = Access == RingAccess::locked;
-	static constexpr uint16 slotCount = Cursor::SlotCount(Slots);
-	static constexpr std::size_t storageSlots = static_cast<std::size_t>(slotCount);
-
-	using ByteStorage = typename Policy::template Storage<uint8, storageSlots * SlotBytes>;
-	using LengthStorage = typename Policy::template Storage<LengthType, storageSlots>;
-	using FlagStorage = typename Policy::template Storage<uint8, storageSlots>;
-
-	ByteStorage bytes;
-	LengthStorage lengths;
-	FlagStorage flags;
-	Cursor cursor;
-
-
-	bool Ready() const {
-		return bytes.Ready() && lengths.Ready() && flags.Ready();
-	}
-
-
-	// The packet of a slot, in place. The slot must hold a packet.
-	std::span<const uint8> PacketAt(uint16 slot) const {
-		return std::span<const uint8>(bytes.Data() + static_cast<std::size_t>(slot) * SlotBytes, lengths.Data()[slot]);
-	}
-
-
-	static void EnterSection() {
-		if constexpr (isLocked) {
-			System::CriticalSection(true);
-		}
-	}
-
-
-	static void LeaveSection() {
-		if constexpr (isLocked) {
-			System::CriticalSection(false);
-		}
-	}
-
-
 public:
 	PacketQueue() {}
 
@@ -272,5 +229,48 @@ public:
 		EnterSection();
 		cursor.Reset();
 		LeaveSection();
+	}
+
+
+private:
+	using LengthType = std::conditional_t<(SlotBytes <= 255), uint8, uint16>;
+	using Cursor = RingCursor<Access == RingAccess::singleWriter>;
+
+	static constexpr bool isLocked = Access == RingAccess::locked;
+	static constexpr uint16 slotCount = Cursor::SlotCount(Slots);
+	static constexpr std::size_t storageSlots = static_cast<std::size_t>(slotCount);
+
+	using ByteStorage = typename Policy::template Storage<uint8, storageSlots * SlotBytes>;
+	using LengthStorage = typename Policy::template Storage<LengthType, storageSlots>;
+	using FlagStorage = typename Policy::template Storage<uint8, storageSlots>;
+
+	ByteStorage bytes;
+	LengthStorage lengths;
+	FlagStorage flags;
+	Cursor cursor;
+
+
+	bool Ready() const {
+		return bytes.Ready() && lengths.Ready() && flags.Ready();
+	}
+
+
+	// The packet of a slot, in place. The slot must hold a packet.
+	std::span<const uint8> PacketAt(uint16 slot) const {
+		return std::span<const uint8>(bytes.Data() + static_cast<std::size_t>(slot) * SlotBytes, lengths.Data()[slot]);
+	}
+
+
+	static void EnterSection() {
+		if constexpr (isLocked) {
+			System::CriticalSection(true);
+		}
+	}
+
+
+	static void LeaveSection() {
+		if constexpr (isLocked) {
+			System::CriticalSection(false);
+		}
 	}
 };

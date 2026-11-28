@@ -4,8 +4,8 @@
 
 
 // The RingBuffer examples of the Buffer wiki page, run as the page writes them. The values the examples state in their comments
-// are checked. The one addition is in TransactionalReads: four Push calls before the reads, marked in that function, so that the
-// example has data to read. The examples of the fixed-size and dynamic FIFOs are not here: those classes are not part of VHAL.
+// are checked. TransactionalReads pushes four elements before its reads, marked in that function, so that the example has data to
+// read. The examples of the fixed-size and dynamic FIFOs are not here: those classes are not part of VHAL.
 
 
 void QuickStart() {
