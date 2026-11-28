@@ -24,13 +24,13 @@ public:
 	std::atomic<uint16> tail;
 
 
-	RingIndexes()
+	constexpr RingIndexes()
 		: head(0)
 		, tail(0) {
 	}
 
 
-	RingIndexes(const RingIndexes& other)
+	constexpr RingIndexes(const RingIndexes& other)
 		: head(other.head.load(std::memory_order_relaxed))
 		, tail(other.tail.load(std::memory_order_relaxed)) {
 	}

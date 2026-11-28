@@ -113,7 +113,10 @@ private:
 
 
 public:
-	RingBuffer() {}
+	// The storage is value-initialized here and only here, so a static ring is constant-initialized and needs no start-up code.
+	constexpr RingBuffer()
+		: storage() {
+	}
 
 
 	RingBuffer(const RingBuffer&) = default;
