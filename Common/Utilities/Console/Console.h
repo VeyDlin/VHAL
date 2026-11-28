@@ -98,8 +98,7 @@ public:
 	template <typename T, size_t bufferSize = 32>
 	T Read() {
 		char buffer[bufferSize] = {0};
-		size_t count = Read(buffer, sizeof(buffer));
-		size_t pos = 0;
+		Read(buffer, sizeof(buffer));
 
 		if constexpr (std::is_integral_v<T>) {
 			T result{};

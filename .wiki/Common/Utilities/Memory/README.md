@@ -100,7 +100,7 @@ text.Append(" world");
 Memory::SharedPtr<int, Memory::Heap<>> direct = Memory::AllocateShared<int, Memory::Heap<>>(&heap, 42);
 ```
 
-`String` keeps its text as a `char` vector with a terminator. `String::ToView()` returns a `std::string_view`.
+`String` keeps its text as a `char` vector with a terminator. `String::ToView()` returns a `std::string_view`. `String::Substr` builds its result with the allocator of the output string when that string has one, and with the allocator of the source string otherwise; a refused allocation returns false and leaves the output unchanged. `Append` and `Insert` copy a source that lies in the string's own text with the string's allocator.
 
 `SharedPtr` is compared with `std::shared_ptr`. `std::shared_ptr` allocates its control block from `operator new` (or from an allocator through `std::allocate_shared`), and the object it points to stays at the address it was given. `Memory::SharedPtr` keeps the object in a heap block and reaches it through a `Handle`, so the object follows a block that `Defragment()` moves. It takes the allocator it is given and no other. It is kept for that reason.
 

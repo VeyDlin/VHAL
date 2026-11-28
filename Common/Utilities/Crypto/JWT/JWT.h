@@ -176,7 +176,6 @@ private:
             // For larger payloads, decode directly without intermediate buffer
             // This is less efficient but handles any size
             outputSize = 0;
-            size_t pos = 0;
             
             // Process each group of 4 characters
             std::array<char, 4> group;
@@ -259,21 +258,16 @@ private:
         
         // Now check for custom claim "name" - we'll try to use a buffer that's not in use
         size_t nameLen = 0;
-        bool hasName = false;
-        
+
         // Try to find an unused buffer for "name"
         if (!hasIss && JSON::GetString(claimsJson, "name", workBuffer1, nameLen)) {
             claims.AddCustomClaim("name", std::string_view(workBuffer1.data(), nameLen));
-            hasName = true;
         } else if (!hasSub && JSON::GetString(claimsJson, "name", workBuffer2, nameLen)) {
             claims.AddCustomClaim("name", std::string_view(workBuffer2.data(), nameLen));
-            hasName = true;
         } else if (!hasAud && JSON::GetString(claimsJson, "name", workBuffer3, nameLen)) {
             claims.AddCustomClaim("name", std::string_view(workBuffer3.data(), nameLen));
-            hasName = true;
         } else if (!hasJti && JSON::GetString(claimsJson, "name", workBuffer4, nameLen)) {
             claims.AddCustomClaim("name", std::string_view(workBuffer4.data(), nameLen));
-            hasName = true;
         }
         
         // Set standard claims after custom claims to avoid buffer conflicts

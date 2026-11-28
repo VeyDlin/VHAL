@@ -279,6 +279,11 @@ public:
 	std::size_t Capacity() const { return capacity_; }
 	bool Empty() const { return size_ == 0; }
 
+	// The allocator the vector was given. Returns nullptr when there is none, and then no buffer can be made.
+	AllocatorType* GetAlloc() const {
+		return allocator_;
+	}
+
 
 	void Clear() {
 		DestroyElements();
@@ -324,11 +329,6 @@ public:
 private:
 	// The most elements a buffer can hold without its byte count overflowing size_t.
 	static constexpr std::size_t kMaxCapacity = static_cast<std::size_t>(-1) / sizeof(T);
-
-	// The allocator the vector was given. Returns nullptr when there is none, and then no buffer can be made.
-	AllocatorType* GetAlloc() const {
-		return allocator_;
-	}
 
 	// Frees the buffer to the allocator that holds it. Callers destroy the elements first.
 	void ReleaseBuffer() {
