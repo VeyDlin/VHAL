@@ -2,6 +2,13 @@
 
 Consistent Overhead Byte Stuffing (COBS) by Cheshire and Baker. The codec turns a packet into a frame that has no zero byte except the last one, so a zero on a serial line marks the end of a frame. It keeps no buffer: the caller provides every span.
 
+This is standard COBS, the format of the paper: no start byte, no escaping, and a zero byte only as the delimiter. `Common/Utilities`
+has a second COBS, `Serialization/COBS`, which is a different format: it frames with a start byte and escapes the start, stop and escape
+bytes of the payload. The two frame formats are not interchangeable.
+
+Use this codec when the link ends each frame with a zero byte. Use `Serialization/COBS` only where its start byte and escape codes are the
+agreed format of the link.
+
 Header: `Common/Utilities/Encoding/COBS/Cobs.h`, namespace `Encoding`, class `Cobs`.
 
 ## Table of Contents

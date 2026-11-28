@@ -2,6 +2,16 @@
 
 Consistent Overhead Byte Stuffing (COBS) encoder/decoder with configurable framing and escape bytes, designed for embedded serial communication.
 
+This is not standard COBS. A frame starts with a start byte (0xFF by default) and ends with a stop byte (0x00 by default). The payload is
+escaped first: the start, stop and escape bytes become the escape byte followed by a code (by default 0xFE then 0x01, 0x02 or 0x03).
+The escaped bytes are then split into blocks of at most 254 bytes, each block preceded by a code byte that counts the block's bytes plus
+one (0xFF for a full block). With the default configuration the escaped bytes hold no zero, so a block ends only when it is full or the payload ends. A zero
+in the escaped bytes, which a stop byte other than zero allows, ends a block as in standard COBS.
+
+The standard format is `Encoding/COBS` (`Common/Utilities/Encoding/COBS/Cobs.h`): it has no start byte and no escaping, and its frame
+has a zero byte only as the delimiter. Use `Encoding/COBS` for a link that ends each frame with a zero byte. Use this class where the
+start byte and the escape codes are the agreed format of the link, and the framing is configured through `Config`.
+
 ## Table of Contents
 
 - [Quick Start](#quick-start)
