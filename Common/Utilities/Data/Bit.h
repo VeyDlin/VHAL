@@ -29,7 +29,7 @@ public:
 	// After:   0000 1000 (bit 3 is set)
 	template<typename T, typename T1>
 	static inline void Set(T &value, T1 bit) {
-		SystemAssert((sizeof(T) * 8U) > bit);
+		SystemAssert((sizeof(T) * 8U) > static_cast<size_t>(bit));
 		value |= static_cast<T>(static_cast<T>(1) << static_cast<T>(bit));
 	}
 
@@ -43,7 +43,7 @@ public:
 	// After:    1111 1011 (bit 2 is cleared)
 	template<typename T, typename T1>
 	static inline void Clear(T &value, T1 bit) {
-		SystemAssert((sizeof(T) * 8U) > bit);
+		SystemAssert((sizeof(T) * 8U) > static_cast<size_t>(bit));
 		value &= ~static_cast<T>(static_cast<T>(1) << static_cast<T>(bit));
 	}
 
@@ -57,7 +57,7 @@ public:
 	// After:    0000 0000 (bit 2 is toggled)
 	template<typename T, typename T1>
 	static inline void Toggle(T &value, T1 bit) {
-		SystemAssert((sizeof(T) * 8U) > bit);
+		SystemAssert((sizeof(T) * 8U) > static_cast<size_t>(bit));
 		value ^= static_cast<T>(static_cast<T>(1) << static_cast<T>(bit));
 	}
 
@@ -71,7 +71,7 @@ public:
 	// Result: true (bit 2 is set)
 	template<typename T, typename T1>
 	static inline bool Check(const T &value, T1 bit) {
-		SystemAssert((sizeof(T) * 8U) > bit);
+		SystemAssert((sizeof(T) * 8U) > static_cast<size_t>(bit));
 		return !((value & (static_cast<T>(1) << static_cast<T>(bit))) == static_cast<T>(0U));
 	}
 
@@ -85,7 +85,7 @@ public:
 	// After:   0000 0010 (bit 1 is set)
 	template<typename T, typename T1>
 	static inline void SetValue(T &value, T1 bit) {
-		SystemAssert((sizeof(T) * 8U) > bit);
+		SystemAssert((sizeof(T) * 8U) > static_cast<size_t>(bit));
 		value = static_cast<T>(static_cast<T>(1) << static_cast<T>(bit));
 	}
 
@@ -99,7 +99,7 @@ public:
 	// After:   0011 0000 (bits are set starting from position 4)
 	template<typename T, typename T1, typename T2>
 	static inline void SetAt(T &value, T1 bits, T2 position) {
-		SystemAssert((sizeof(T) * 8U) > position);
+		SystemAssert((sizeof(T) * 8U) > static_cast<size_t>(position));
 		value |= (static_cast<T>(static_cast<T>(bits) << static_cast<T>(position)));
 	}
 
@@ -113,7 +113,7 @@ public:
 	// After:   1100 1111 (bits are cleared starting from position 4)
 	template<typename T, typename T1, typename T2>
 	static inline void ClearAt(T &value, T1 bits, T2 position) {
-		SystemAssert((sizeof(T) * 8U) > position);
+		SystemAssert((sizeof(T) * 8U) > static_cast<size_t>(position));
 		value &= ~(static_cast<T>(static_cast<T>(bits) << static_cast<T>(position)));
 	}
 
