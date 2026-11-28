@@ -147,6 +147,18 @@ static_assert(TypeList::IndexWhereOnce<Commands, IsKey<CommandId::read, true>>()
 static_assert(TypeList::IndexWhereOnce<TypeList::List<Alpha, Beta>, IsType<Beta>>() == 1);
 
 
+// The type search: the index of an exact type, the size when it is absent, and the exactly-once form. A const type is another type.
+static_assert(TypeList::IndexOf<Beta, std::tuple<Alpha, Beta, Gamma>>() == 1);
+static_assert(TypeList::IndexOf<Gamma, TypeList::List<Alpha, Beta, Gamma>>() == 2);
+static_assert(TypeList::IndexOf<Alpha, std::tuple<Alpha, Beta, Alpha>>() == 0);
+static_assert(TypeList::IndexOf<Gamma, std::tuple<Alpha, Beta>>() == 2);
+static_assert(TypeList::IndexOf<Alpha, std::tuple<>>() == 0);
+static_assert(TypeList::IndexOf<const Alpha, std::tuple<Alpha>>() == 1);
+static_assert(TypeList::IndexOf<Alpha, std::tuple<const Alpha>>() == 1);
+static_assert(TypeList::IndexOfOnce<Beta, std::tuple<Alpha, Beta>>() == 1);
+static_assert(TypeList::IndexOfOnce<Gamma, TypeList::List<Gamma>>() == 0);
+
+
 // A search with a run-time key, where the key is an object's member.
 static_assert(TypeList::IndexWhere<Commands>(KeyOf{CommandId::read, true}) == 1);
 static_assert(TypeList::IndexWhere<Commands>(KeyOf{CommandId::ping, false}) == 2);

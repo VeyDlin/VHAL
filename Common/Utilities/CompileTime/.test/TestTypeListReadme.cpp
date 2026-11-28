@@ -25,6 +25,14 @@ namespace TypeExample {
 }
 
 
+namespace TypeOfExample {
+	static_assert(TypeList::IndexOf<char, std::tuple<int, char, float>>() == 1);
+	static_assert(TypeList::IndexOf<double, std::tuple<int, char>>() == 2);
+	static_assert(TypeList::IndexOf<const char, std::tuple<char>>() == 1);
+	static_assert(TypeList::IndexOfOnce<char, TypeList::List<int, char, float>>() == 1);
+}
+
+
 namespace BlockExample {
 	template<typename Block>
 	struct HasBlock {

@@ -102,6 +102,31 @@ constexpr std::size_t IndexWhereOnce() {
 }
 
 
+// The predicate that holds for the element whose type is exactly Type. A const or derived type is another type.
+template<typename Type>
+struct IsExactly {
+	template<typename Element>
+	static constexpr bool Holds() {
+		return std::is_same_v<Element, Type>;
+	}
+};
+
+
+// The index of the first element of the container whose type is exactly Type, or the number of elements when there is none.
+template<typename Type, typename Container>
+constexpr std::size_t IndexOf() {
+	return IndexWhere<Container>(IsExactly<Type>{});
+}
+
+
+// The index of the only element of the container whose type is exactly Type. A type that is absent, or that is there twice, is a
+// compile error that names the type.
+template<typename Type, typename Container>
+constexpr std::size_t IndexOfOnce() {
+	return IndexWhereOnce<Container, IsExactly<Type>>();
+}
+
+
 // The index of the first item of an array for which the predicate holds, or the number of items when none holds. The predicate is called
 // with a const reference to each item and gives a bool; a lambda or a function object serves. It searches a table of values, such as a
 // table of commands looked up by id.

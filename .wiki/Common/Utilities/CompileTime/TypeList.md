@@ -8,6 +8,8 @@ Searches over a list of types, at compile time. The code is in `Common/Utilities
 | `TypeList::CountWhere<Container>(predicate)` | the number of elements for which the predicate holds |
 | `TypeList::IndexWhereOnce<Container, Predicate>()` | the index of the only element for which the predicate holds; a compile error that names the predicate when there are none or more than one |
 | `TypeList::IndexWhereItem(array, predicate)` | the index of the first item of a `std::array` for which the predicate holds, or the array's size |
+| `TypeList::IndexOf<Type, Container>()` | the index of the first element whose type is exactly `Type`, or the number of elements when there is none |
+| `TypeList::IndexOfOnce<Type, Container>()` | the index of the only element whose type is exactly `Type`; a compile error that names the type when there is none or more than one |
 
 A predicate is a type or an object with a member template `Holds<Element>()` that gives a `bool`. `Holds` is called for each element type. A predicate that compares a value keeps it as a template argument, or as a member of the object.
 
@@ -105,6 +107,27 @@ struct KeyOf {
 };
 
 constexpr std::size_t found = TypeList::IndexWhere<Items>(KeyOf{Id::ping, false});  // 1
+```
+
+## Types
+
+`IndexOf` searches for a type itself. The type must be the element's type exactly: a `const` version of it, or a derived class, is another type:
+
+```cpp
+#include <Utilities/CompileTime/TypeList.h>
+#include <tuple>
+
+static_assert(TypeList::IndexOf<char, std::tuple<int, char, float>>() == 1);
+static_assert(TypeList::IndexOf<double, std::tuple<int, char>>() == 2);
+static_assert(TypeList::IndexOf<const char, std::tuple<char>>() == 1);
+```
+
+The second line is the not-found value, the size of the tuple. The third line finds nothing, because `const char` is not `char`.
+
+`IndexOfOnce` takes the same arguments and requires the type to be there exactly once. It is a compile error when the type is absent or appears twice, and the diagnostic names the type:
+
+```cpp
+static_assert(TypeList::IndexOfOnce<char, TypeList::List<int, char, float>>() == 1);
 ```
 
 ## Lists
