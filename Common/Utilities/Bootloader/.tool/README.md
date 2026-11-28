@@ -31,7 +31,8 @@ vboot flash app.vbp --start
 ```
 npm run check        # type check
 npm run sim:build    # build the simulator (needs g++ with C++23)
-npm test             # unit tests, plus end-to-end tests when the simulator is built
+npm test             # unit tests
+npm run test:e2e     # end-to-end tests against the simulator (needs sim:build first)
 ```
 
 Layout: `src/protocol` (bootloader packets, client, flash procedure), `src/transport` (one folder per transport,
