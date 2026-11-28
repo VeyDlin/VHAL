@@ -8,7 +8,7 @@ SCL 22) at address 0x68, and `WHO_AM_I` (0x75) reads 0x19.
 
 ## Board facts
 
-- The INT pin is not connected to the ESP32 on this board (measured with `tools/imu-wake-probe`). Every read is polled,
+- The INT pin is not connected to the ESP32 on this board (measured on the board). Every read is polled,
   and no interrupt is configured. The FIFO is drained on a timer instead.
 - The caller starts the bus before `Init`: `imuBus.SetParameters({ .speed = AI2C::Speed::Fast })`. The driver does not
   reconfigure the bus.

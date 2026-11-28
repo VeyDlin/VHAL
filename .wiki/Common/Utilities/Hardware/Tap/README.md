@@ -78,9 +78,8 @@ An event starts when the jerk norm reaches `candidateGPerS` and ends after `even
   axis; otherwise the candidate is `other_face`. A candidate with no lobe on either calibrated axis (a side edge, a
   diagonal knock) is `other_face` too.
 
-Why the earliest lobe and not the largest one: the case rings after the impact. In the test firmware's data (summary of
-`tools/tilt-scroll-test/user_session.log`) the largest-jerk rule put the bottom edge on +Y, because the ringing of the case
-was larger than the knock on the bottom axis. The impact is always the first lobe; ringing comes after it, so the earliest
+Why the earliest lobe and not the largest one: the case rings after the impact. In a recorded session on the board the
+largest-jerk rule put the bottom edge on +Y, because the ringing of the case was larger than the knock on the bottom axis. The impact is always the first lobe; ringing comes after it, so the earliest
 lobe keeps the top knock on its face. The checks `CheckRingingKeepsTopFace` and
 `CheckBackKnockRingingKeepsBackFace` in `TestTapDetector.cpp` check this.
 
@@ -117,9 +116,8 @@ a queue is full, so the caller must drain them regularly (the test firmware does
 ## Thresholds and the Measured Floor
 
 The header defaults: `candidateGPerS` = 25 g/s and `faceGPerS` = 25 g/s on every face; `movingGPerS` = 12 g/s;
-`highPassHz` = 20 Hz; `SixFaces`; `doubleTapEnabled` = true. The test firmware sets the threshold after calibration as
-described in `tools/tilt-scroll-test/README.md` (candidate `clamp(0.15 x median, 15 x floor, 0.35 x median)`), and the page
-level as 3 x median.
+`highPassHz` = 20 Hz; `SixFaces`; `doubleTapEnabled` = true. The test firmware sets the threshold after calibration (candidate
+`clamp(0.15 x median, 15 x floor, 0.35 x median)`), and the page level as 3 x median.
 
 The 25 g/s default comes from the measured noise and from the knocks the person made:
 
@@ -144,4 +142,3 @@ The 80 ms refractory window was kept. The session log has no timestamps, so the 
 
 - `VHAL/Common/Utilities/Hardware/Tap/TapDetector.h`: the detector and `AccelHighPass`.
 - `Utilities/Hardware/Tap/.test/TestTapDetector.cpp`: the host tests (`Tap.TestTapDetector`).
-- `tools/tilt-scroll-test/`: the on-board test that uses the detector (its README has the procedure).
