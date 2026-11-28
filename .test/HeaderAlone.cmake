@@ -23,7 +23,8 @@ execute_process(
 
 if(NOT compileResult EQUAL 0)
   message("${compileOut}${compileErr}")
-  message(FATAL_ERROR "HEADER DOES NOT COMPILE ALONE: ${VHAL_PROBE_LINE}")
+  # The indented line is not wrapped by CMake, so the include stays on one line
+  message(FATAL_ERROR "HEADER DOES NOT COMPILE ALONE:\n  ${VHAL_PROBE_LINE}")
 endif()
 
 message("header compiles alone: ${VHAL_PROBE_LINE}")

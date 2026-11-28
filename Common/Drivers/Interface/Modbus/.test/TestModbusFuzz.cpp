@@ -15,7 +15,7 @@
 // Fuzz: 100 000 random frames go into a server, a mix of well-formed requests with a valid CRC and random bytes. Each frame must be
 // answered or dropped without an abort, and every reply must be a valid frame from the server's address. After each frame the three
 // variables of the view must hold what the frame allows: the values of a write the server accepted, or the values from before. A
-// broadcast write gets no reply, so either outcome is allowed there. Memory outside the view is checked by a build with -fsanitize, which no test runs by default.
+// broadcast write gets no reply, so either outcome is allowed there. Memory outside the view is checked by the sanitizer run (./test.cmd --sanitize).
 
 
 constexpr int FuzzFrames = 100000;

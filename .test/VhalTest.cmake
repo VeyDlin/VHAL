@@ -174,7 +174,7 @@ function(vhal_headers)
 
     set(headerInclude "")
     foreach(includeDir IN LISTS includeDirs)
-      cmake_path(IS_PREFIX includeDir headerPath NORMALIZE underRoot)
+      cmake_path(IS_PREFIX includeDir "${headerPath}" NORMALIZE underRoot)
       if(underRoot AND headerInclude STREQUAL "")
         cmake_path(RELATIVE_PATH headerPath BASE_DIRECTORY "${includeDir}" OUTPUT_VARIABLE headerInclude)
       endif()

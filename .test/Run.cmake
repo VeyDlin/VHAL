@@ -104,6 +104,10 @@ while(vhalIndex LESS_EQUAL vhalLastIndex)
   math(EXPR vhalIndex "${vhalIndex} + 1")
 endwhile()
 
+if(vhalPendingOption)
+  message(FATAL_ERROR "test.cmd: ${vhalPendingOption} needs a value")
+endif()
+
 if(vhalRegexes)
   string(REPLACE ";" "|" vhalRegexPattern "${vhalRegexes}")
   list(APPEND vhalCtestArgs -R "${vhalRegexPattern}")
