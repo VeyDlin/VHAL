@@ -138,7 +138,7 @@ The parser ignores the `retry` value itself; reconnecting is the caller's job.
 - Do not call `Defragment()` inside `onEvent` or a body callback passed to `ReadBody()`. Defragmenting from `SocketAdapter::ReadByteArray()` is fine: the client re-reads its handles afterwards.
 - Set up a heap large enough for one header block and for the event buffers. A failed allocation is `outOfMemory` (header) or a dropped event (SSE), and the rest of the stream is still parsed.
 
-## Example: xAI Chat Completions
+## Example: Chat Completions
 
 POST a JSON body with `"stream": true` and print each `choices[0].delta.content`.
 
@@ -167,12 +167,12 @@ ResultStatus StreamChat(SocketAdapter& socket, const char *apiKey) {
         { "Content-Type", "application/json" },
     };
     static const char body[] =
-        "{\"model\":\"grok-4.20-0309-non-reasoning\",\"stream\":true,"
+        "{\"model\":\"test-model\",\"stream\":true,"
         "\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}]}";
 
     HttpClient::Request request;
     request.method = HttpClient::Method::Post;
-    request.url = "https://api.x.ai/v1/chat/completions";
+    request.url = "https://api.example.test/v1/chat/completions";
     request.headers = headers;
     request.body = std::span<const uint8>(reinterpret_cast<const uint8 *>(body), sizeof(body) - 1);
 
@@ -257,7 +257,7 @@ Read in this pass: the parsing section.
 
 ### llhttp (nodejs/llhttp)
 
-Not read in full in this pass: the fetch tool returned the repository page and not its `test/` suites. The categories named in its README are used as the checklist: chunk extensions, obs-fold, conflicting `Content-Length`, `Transfer-Encoding` with `Content-Length`, and leading CRLF. Their individual test cases should be checked against the host tests before the next revision of this page.
+The categories named in llhttp's README are the checklist, and the host tests cover each one: chunk extensions (`http-chunked-every-split`, `integ-chunked-extensions-and-trailers`), obs-fold (`http-obs-fold-refused`), conflicting `Content-Length` (`http-length-conflict-refused`), `Transfer-Encoding` with `Content-Length` (`http-length-and-chunked-refused`), and leading CRLF (`http-status-line-variants`). The cases are in `Common/Drivers/Interface/Network/Http/.test/TestHttpUnit.cpp` and `TestHttpIntegration.cpp`, run with `./test.cmd Http`.
 
 ### ESP-IDF `esp_http_client`
 

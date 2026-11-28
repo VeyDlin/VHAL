@@ -194,7 +194,7 @@ Not thread-safe. Use one task for `Connect`, `Send*`, `Poll`, `Close` and the ge
 
 ## Example: Streaming Speech-to-Text
 
-Connects to the xAI streaming transcription endpoint with a bearer token, sends 100 ms of 16 kHz PCM16 mono audio (3200 bytes) per binary frame, and reads the `transcript.partial` events between frames.
+Connects to a streaming speech-to-text endpoint with a bearer token, sends 100 ms of 16 kHz PCM16 mono audio (3200 bytes) per binary frame, and reads the `event.partial` events between frames.
 
 ```cpp
 #include <Drivers/Interface/Network/WebSocket/WebSocketClient.h>
@@ -203,16 +203,16 @@ Connects to the xAI streaming transcription endpoint with a bearer token, sends 
 #include <algorithm>
 
 
-static ASOCKET sttSocket;
-static Memory::Heap<Memory::IncrementalDefrag<2>> sttHeap(32768);
-static WebSocketClient stt(sttSocket, sttHeap);
+static ASOCKET channelSocket;
+static Memory::Heap<Memory::IncrementalDefrag<2>> channelHeap(32768);
+static WebSocketClient channel(channelSocket, channelHeap);
 static constexpr size_t kFrameBytes = 3200; // 100 ms of 16 kHz PCM16 mono
 
 
 static void OnText(std::string_view json) {
     // The view is valid only during this call: copy anything that must outlive it.
-    if (json.find("\"transcript.partial\"") != std::string_view::npos) {
-        // Parse "text" and "speech_final" here.
+    if (json.find("\"event.partial\"") != std::string_view::npos) {
+        // Parse "text" and "is_final" here.
     }
 }
 
@@ -223,11 +223,11 @@ static void OnClose(uint16 code, std::string_view reason) {
 
 
 // authorization is the full header value, "Bearer <api key>". On failure, GetRejectBody() holds the server's JSON error.
-ResultStatus OpenTranscription(std::string_view authorization) {
+ResultStatus OpenChannel(std::string_view authorization) {
     static const WebSocketClient::Header headers[] = { { "Authorization", authorization } };
 
-    stt.onText = OnText;
-    stt.onClose = OnClose;
+    channel.onText = OnText;
+    channel.onClose = OnClose;
 
     WebSocketClient::ConnectOptions options;
     options.headers = headers;
@@ -235,38 +235,38 @@ ResultStatus OpenTranscription(std::string_view authorization) {
     options.randomSource = []() { return static_cast<uint32>(esp_random()); };
     options.clockMs = []() { return static_cast<uint32>(System::GetMs()); };
 
-    return stt.Connect("wss://api.x.ai/v1/stt?model=grok-voice-transcribe-2.0&encoding=pcm"
+    return channel.Connect("wss://api.example.test/v1/stream?model=test-model&encoding=pcm"
                        "&sample_rate=16000&interim_results=true&language=en", options);
 }
 
 
 // Sends the clip one 100 ms frame at a time. The BSP's timer paces the frames; Poll drains events between them.
-ResultStatus StreamClip(const uint8* pcm, size_t size) {
+ResultStatus SendClip(const uint8* pcm, size_t size) {
     size_t offset = 0;
     while (offset < size) {
         size_t count = std::min(kFrameBytes, size - offset);
-        ResultStatus status = stt.SendBinary(std::span<const uint8>(pcm + offset, count));
+        ResultStatus status = channel.SendBinary(std::span<const uint8>(pcm + offset, count));
         if (status != ResultStatus::ok) {
             return status;
         }
 
         offset += count;
-        stt.Poll(0);
+        channel.Poll(0);
         // Wait here for the BSP's 100 ms tick.
     }
 
-    stt.SendText("{\"type\":\"audio.done\"}");
+    channel.SendText("{\"type\":\"input.done\"}");
 
-    // Bounded drain: the server closes after transcript.done.
-    for (uint32 attempt = 0; attempt < 20 && stt.IsOpen(); attempt++) {
-        stt.Poll(500);
+    // Bounded drain: the peer closes the socket after its final event.
+    for (uint32 attempt = 0; attempt < 20 && channel.IsOpen(); attempt++) {
+        channel.Poll(500);
     }
 
-    return stt.IsOpen() ? ResultStatus::timeout : ResultStatus::ok;
+    return channel.IsOpen() ? ResultStatus::timeout : ResultStatus::ok;
 }
 ```
 
-If `OpenTranscription()` returns `authenticationFailed` or `authorizationFailed`, show `stt.GetRejectBody()` (the server's JSON error) to the user before you retry.
+If `OpenChannel()` returns `authenticationFailed` or `authorizationFailed`, show `channel.GetRejectBody()` (the server's JSON error) to the user before you retry.
 
 ## Behaviour
 
@@ -383,12 +383,13 @@ Not taken, and why:
 
 ## Tests
 
-`tools/vhal-host-tests/websocket/run.sh` builds and runs three suites, plain and under ASan and UBSan:
+`./test.cmd WebSocket` builds and runs the two host tests of the `.test` folder:
 
-- `sha1_tests.cpp`: SHA-1 vectors and the RFC 6455 accept example.
-- `frame_tests.cpp`: byte-exact frames against a scripted socket (`scripted_socket.h`). Covers the handshake, masks, lengths 0 to 65536, fragments, control frames, close handshake, every protocol error listed above, send-side fragmentation and a defragmenting `Heap`.
-- `live_tests.cpp`: the client over real TCP (`posix_socket.h`) against `ws_server.py`, which uses the `websockets` library as the reference peer. Covers echo, the server's ping, server close codes, fragments both ways, 401 and 403 bodies, the authorization header, subprotocols, the 64 KiB limit, a paced stream with polling, defragmentation between messages, and `Poll(0)` returning within 50 ms on a quiet connection.
+- `TestFrame.cpp`: byte-exact frames against a scripted socket (`ScriptedSocket.h`). Covers the handshake, masks, lengths 0 to 65536, fragments, control frames, close handshake, every protocol error listed above, send-side fragmentation and a defragmenting `Heap`.
+- `TestLive.cpp`: the client over real TCP (`PosixSocketAdapter.h`) against `ws_server.py`, which uses the `websockets` library as the reference peer. The test starts the server and ends it when it finishes. Covers echo, the server's ping, server close codes, fragments both ways, 401 and 403 bodies, the authorization header, subprotocols, the 64 KiB limit, a paced stream with polling, defragmentation between messages, and `Poll(0)` returning within 50 ms on a quiet connection.
+
+`TestLive` prints `VHAL_SKIP:` and is reported as skipped when Python 3, the `websockets` package or the POSIX socket headers are missing.
+
+The SHA-1 vectors are in `Crypto/SHA/.test/TestSha1.cpp`; they run under `./test.cmd SHA`, not under the WebSocket label.
 
 The scripted suite also covers the timeouts: the connect timeout reaches `Open()` while reads use the handshake's remaining time, `Poll(0)` reads with a zero I/O timeout, a frame split across short polls is reassembled, and 400, 404, 429 and 500 answers keep their status and body as `connectionRefused`.
-
-Compile check on the ESP32 port: `tools/vhal-harness/main/checks/CheckWebSocket.cpp`, run by `idf.py build` (see `tools/vhal-harness/README.md`).
