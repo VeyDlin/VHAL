@@ -1,6 +1,6 @@
 # Plant
 
-`Simulation::Plant<Make>` is a chain of blocks, built by a captureless lambda that returns a `Simulation::Builder`. The type of the
+`Simulation::Plant<Make>` is a chain of blocks, built by a captureless lambda that returns a `Simulation::PlantBuilder<T>()`. The type of the
 builder lists every block in the chain, so a block that is not in the chain has no code, no state and no signal in the image.
 
 ```cpp
@@ -11,7 +11,7 @@ builder lists every block in the chain, so a block that is not in the chain has 
 
 // The smallest chain: a PMSM with an ideal rotor and an average inverter.
 using Smallest = Simulation::Plant<+[] {
-	return Simulation::Builder()
+	return Simulation::PlantBuilder<double>()
 		.Add<Simulation::Pmsm>(Simulation::Pmsm<double>::Parameters{ 0.5, 2.0e-3, 2.0e-3, 0.01, 4 })
 		.Add<Simulation::Rotor>()
 			.Inertia(2.0e-5)
@@ -34,9 +34,9 @@ void Run() {
 }
 ```
 
-## Builder
+## PlantBuilder
 
-`Simulation::Builder<T = double>()` starts an empty chain. `T` is `float` or `double`; an `IQ` number type is refused with
+`Simulation::PlantBuilder<T>()` starts an empty chain. `T` is `float` or `double`; an `IQ` number type is refused with
 `Simulation: a plant is float or double`.
 
 ### Add
@@ -44,7 +44,7 @@ void Run() {
 `Add<Block>()` adds a block that takes no parameters. `Add<Block>(parameters)` adds a block with its `Parameters` struct.
 
 ```cpp
-Simulation::Builder()
+Simulation::PlantBuilder<double>()
 	.Add<Simulation::Pmsm>(Simulation::Pmsm<double>::Parameters{ 0.5, 2.0e-3, 2.0e-3, 0.01, 4 })
 	.Add<Simulation::Rotor>();
 ```
@@ -55,7 +55,7 @@ Simulation::Builder()
 a chain is written as a `constexpr` value, which is what the refusal messages need.
 
 ```cpp
-constexpr auto chain = Simulation::Builder().Add<Simulation::Rotor>().Inertia(1.0e-4).Substeps(20);
+constexpr auto chain = Simulation::PlantBuilder<double>().Add<Simulation::Rotor>().Inertia(1.0e-4).Substeps(20);
 ```
 
 ### Setters
@@ -69,7 +69,7 @@ in the chain. The setters are: `Inertia`, `Viscous`, `Coulomb` (rotor); `MotorIn
 
 ```cpp
 using Largest = Simulation::Plant<+[] {
-	return Simulation::Builder()
+	return Simulation::PlantBuilder<double>()
 		.Add<Simulation::Pmsm>(Simulation::Pmsm<double>::Parameters{ 0.5, 2.0e-3, 3.0e-3, 0.01, 4 })
 		.Add<Simulation::TwoMassShaft>()
 			.MotorInertia(1.0e-4)
@@ -106,7 +106,7 @@ The loads of a chain are `Torque` for the constant load and `Coefficient` for th
 
 ```cpp
 using Fan = Simulation::Plant<+[] {
-	return Simulation::Builder()
+	return Simulation::PlantBuilder<double>()
 		.Add<Simulation::Pmsm>(Simulation::Pmsm<double>::Parameters{ 0.5, 2.0e-3, 2.0e-3, 0.01, 4 })
 		.Add<Simulation::Rotor>()
 			.Inertia(2.0e-5)

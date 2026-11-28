@@ -12,7 +12,7 @@ namespace {
 
 
 using Heater = Simulation::Plant<+[] {
-	return Simulation::Builder()
+	return Simulation::PlantBuilder<double>()
 		.Add<Simulation::FirstOrderThermal>()
 			.Ambient(25.0)
 			.ThermalResistance(5.0)

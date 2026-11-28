@@ -55,7 +55,7 @@ double SteadySpeed(double load, double low, double high) {
 
 // The rotor inertia of the reverse-load run: 5e-5 kg m^2, so the mechanical time constant is 0.2 s.
 using Reverse = Simulation::Plant<+[] {
-	return Simulation::Builder()
+	return Simulation::PlantBuilder<double>()
 		.Add<Simulation::Pmsm>(Simulation::Pmsm<double>::Parameters{ resistance, inductance, inductance, flux, 1 })
 		.Add<Simulation::Rotor>()
 			.Inertia(5.0e-5)
@@ -68,7 +68,7 @@ using Reverse = Simulation::Plant<+[] {
 
 // The light rotor of the spin-up run: 5e-5 kg m^2.
 using Light = Simulation::Plant<+[] {
-	return Simulation::Builder()
+	return Simulation::PlantBuilder<double>()
 		.Add<Simulation::Pmsm>(Simulation::Pmsm<double>::Parameters{ resistance, inductance, inductance, flux, 1 })
 		.Add<Simulation::Rotor>()
 			.Inertia(5.0e-5)
@@ -79,7 +79,7 @@ using Light = Simulation::Plant<+[] {
 
 // The heavy rotor of the spin-up run: 20 times the light inertia, 1e-3 kg m^2, a mechanical time constant of 4 s.
 using Heavy = Simulation::Plant<+[] {
-	return Simulation::Builder()
+	return Simulation::PlantBuilder<double>()
 		.Add<Simulation::Pmsm>(Simulation::Pmsm<double>::Parameters{ resistance, inductance, inductance, flux, 1 })
 		.Add<Simulation::Rotor>()
 			.Inertia(1.0e-3)

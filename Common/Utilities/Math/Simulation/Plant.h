@@ -12,7 +12,7 @@
 // chain lists every block in it. A block that is not in the chain has no code, no state and no signal in the image.
 //
 //   using Smallest = Simulation::Plant<+[] {
-//       return Simulation::Builder()
+//       return Simulation::PlantBuilder<double>()
 //           .Add<Simulation::Pmsm>(Simulation::Pmsm<double>::Parameters{ ... })
 //           .Add<Simulation::Rotor>()
 //               .Inertia(2.0e-5)
@@ -221,9 +221,9 @@ struct PlantBusOf<BlockList<Blocks...>> {
 
 // The fluent builder of a chain. Each Add returns a new builder whose type lists the block, so the plant knows the chain at compile
 // time. A setter exists only when its block is in the chain, and it sets the block's run-time value; the builder gives the initial
-// value. The number type is the template argument: float or double (a plant on IQ is refused).
-template<typename T = double, typename... Blocks>
-class Builder {
+// value. The number type is the template argument: float or double (a plant on IQ is refused). A chain starts with PlantBuilder.
+template<typename T, typename... Blocks>
+class PlantChainBuilder {
 	static_assert(std::is_floating_point_v<T>, "Simulation: a plant is float or double");
 
 
@@ -236,249 +236,256 @@ public:
 	std::size_t substepCount = 1;
 
 
-	constexpr Builder() = default;
+	constexpr PlantChainBuilder() = default;
 
 
-	constexpr Builder(ChainType chain, std::size_t count) : blocks(chain), substepCount(count) {
+	constexpr PlantChainBuilder(ChainType chain, std::size_t count) : blocks(chain), substepCount(count) {
 	}
 
 
 	// Adds a block that takes no parameters.
 	template<template<std::floating_point> class Block>
-	constexpr Builder<T, Blocks..., Block<T>> Add() const {
-		return Builder<T, Blocks..., Block<T>>(AppendBlock(blocks, Block<T>()), substepCount);
+	constexpr PlantChainBuilder<T, Blocks..., Block<T>> Add() const {
+		return PlantChainBuilder<T, Blocks..., Block<T>>(AppendBlock(blocks, Block<T>()), substepCount);
 	}
 
 
 	// Adds a block with its parameters.
 	template<template<std::floating_point> class Block>
-	constexpr Builder<T, Blocks..., Block<T>> Add(typename Block<T>::Parameters parameters) const {
-		return Builder<T, Blocks..., Block<T>>(AppendBlock(blocks, Block<T>(parameters)), substepCount);
+	constexpr PlantChainBuilder<T, Blocks..., Block<T>> Add(typename Block<T>::Parameters parameters) const {
+		return PlantChainBuilder<T, Blocks..., Block<T>>(AppendBlock(blocks, Block<T>(parameters)), substepCount);
 	}
 
 
 	// The number of RK4 steps of one control period. A period is split into this many equal steps.
-	constexpr Builder Substeps(std::size_t count) const {
+	constexpr PlantChainBuilder Substeps(std::size_t count) const {
 		Require<"Simulation: substeps must be positive">(count > 0);
 
-		Builder result(*this);
+		PlantChainBuilder result(*this);
 		result.substepCount = count;
 		return result;
 	}
 
 
 	// The setters of the blocks. Each one exists only with its block.
-	constexpr Builder Inertia(T value) const requires (ChainType::template Count<Rotor<T>>() == 1) {
+	constexpr PlantChainBuilder Inertia(T value) const requires (ChainType::template Count<Rotor<T>>() == 1) {
 		Require<"Simulation: the rotor inertia must be positive">(value > static_cast<T>(0));
 
-		Builder result(*this);
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<Rotor<T>>().SetInertia(value);
 		return result;
 	}
 
 
-	constexpr Builder Viscous(T value) const requires (ChainType::template Count<Rotor<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder Viscous(T value) const requires (ChainType::template Count<Rotor<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<Rotor<T>>().SetViscous(value);
 		return result;
 	}
 
 
-	constexpr Builder Coulomb(T value) const requires (ChainType::template Count<Rotor<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder Coulomb(T value) const requires (ChainType::template Count<Rotor<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<Rotor<T>>().SetCoulomb(value);
 		return result;
 	}
 
 
-	constexpr Builder MotorInertia(T value) const requires (ChainType::template Count<TwoMassShaft<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder MotorInertia(T value) const requires (ChainType::template Count<TwoMassShaft<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<TwoMassShaft<T>>().SetMotorInertia(value);
 		return result;
 	}
 
 
-	constexpr Builder LoadInertia(T value) const requires (ChainType::template Count<TwoMassShaft<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder LoadInertia(T value) const requires (ChainType::template Count<TwoMassShaft<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<TwoMassShaft<T>>().SetLoadInertia(value);
 		return result;
 	}
 
 
-	constexpr Builder Stiffness(T value) const requires (ChainType::template Count<TwoMassShaft<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder Stiffness(T value) const requires (ChainType::template Count<TwoMassShaft<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<TwoMassShaft<T>>().SetStiffness(value);
 		return result;
 	}
 
 
-	constexpr Builder Damping(T value) const requires (ChainType::template Count<TwoMassShaft<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder Damping(T value) const requires (ChainType::template Count<TwoMassShaft<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<TwoMassShaft<T>>().SetDamping(value);
 		return result;
 	}
 
 
-	constexpr Builder Mass(T value) const requires (ChainType::template Count<RoadLoad<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder Mass(T value) const requires (ChainType::template Count<RoadLoad<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<RoadLoad<T>>().SetMass(value);
 		return result;
 	}
 
 
-	constexpr Builder WheelRadius(T value) const requires (ChainType::template Count<RoadLoad<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder WheelRadius(T value) const requires (ChainType::template Count<RoadLoad<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<RoadLoad<T>>().SetWheelRadius(value);
 		return result;
 	}
 
 
-	constexpr Builder GearRatio(T value) const requires (ChainType::template Count<RoadLoad<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder GearRatio(T value) const requires (ChainType::template Count<RoadLoad<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<RoadLoad<T>>().SetGearRatio(value);
 		return result;
 	}
 
 
-	constexpr Builder RollingResistance(T value) const requires (ChainType::template Count<RoadLoad<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder RollingResistance(T value) const requires (ChainType::template Count<RoadLoad<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<RoadLoad<T>>().SetRollingResistance(value);
 		return result;
 	}
 
 
-	constexpr Builder DragArea(T value) const requires (ChainType::template Count<RoadLoad<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder DragArea(T value) const requires (ChainType::template Count<RoadLoad<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<RoadLoad<T>>().SetDragArea(value);
 		return result;
 	}
 
 
-	constexpr Builder AirDensity(T value) const requires (ChainType::template Count<RoadLoad<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder AirDensity(T value) const requires (ChainType::template Count<RoadLoad<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<RoadLoad<T>>().SetAirDensity(value);
 		return result;
 	}
 
 
-	constexpr Builder Grade(T value) const requires (ChainType::template Count<RoadLoad<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder Grade(T value) const requires (ChainType::template Count<RoadLoad<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<RoadLoad<T>>().SetGrade(value);
 		return result;
 	}
 
 
-	constexpr Builder DcBus(T value) const requires (ChainType::template Count<Inverter<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder DcBus(T value) const requires (ChainType::template Count<Inverter<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<Inverter<T>>().SetDcBus(value);
 		return result;
 	}
 
 
-	constexpr Builder Torque(T value) const requires (ChainType::template Count<ConstantLoad<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder Torque(T value) const requires (ChainType::template Count<ConstantLoad<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<ConstantLoad<T>>().SetTorque(value);
 		return result;
 	}
 
 
-	constexpr Builder Coefficient(T value) const requires (ChainType::template Count<QuadraticLoad<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder Coefficient(T value) const requires (ChainType::template Count<QuadraticLoad<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<QuadraticLoad<T>>().SetCoefficient(value);
 		return result;
 	}
 
 
-	constexpr Builder Counts(std::uint32_t value) const requires (ChainType::template Count<Encoder<T>>() == 1) {
+	constexpr PlantChainBuilder Counts(std::uint32_t value) const requires (ChainType::template Count<Encoder<T>>() == 1) {
 		Require<"Simulation: counts must be positive">(value > 0);
 
-		Builder result(*this);
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<Encoder<T>>().SetCounts(value);
 		return result;
 	}
 
 
-	constexpr Builder NoiseDeg(T value) const requires (ChainType::template Count<MagneticSensor<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder NoiseDeg(T value) const requires (ChainType::template Count<MagneticSensor<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<MagneticSensor<T>>().SetNoiseDeg(value);
 		return result;
 	}
 
 
-	constexpr Builder Seed(std::uint32_t value) const requires (ChainType::template Count<MagneticSensor<T>>() == 1) {
+	constexpr PlantChainBuilder Seed(std::uint32_t value) const requires (ChainType::template Count<MagneticSensor<T>>() == 1) {
 		Require<"Simulation: the seed must not be zero">(value != 0);
 
-		Builder result(*this);
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<MagneticSensor<T>>().SetSeed(value);
 		return result;
 	}
 
 
-	constexpr Builder OffsetA(T value) const requires (ChainType::template Count<CurrentSense<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder OffsetA(T value) const requires (ChainType::template Count<CurrentSense<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<CurrentSense<T>>().SetOffsetA(value);
 		return result;
 	}
 
 
-	constexpr Builder OffsetB(T value) const requires (ChainType::template Count<CurrentSense<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder OffsetB(T value) const requires (ChainType::template Count<CurrentSense<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<CurrentSense<T>>().SetOffsetB(value);
 		return result;
 	}
 
 
-	constexpr Builder OffsetC(T value) const requires (ChainType::template Count<CurrentSense<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder OffsetC(T value) const requires (ChainType::template Count<CurrentSense<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<CurrentSense<T>>().SetOffsetC(value);
 		return result;
 	}
 
 
-	constexpr Builder GainError(T value) const requires (ChainType::template Count<CurrentSense<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder GainError(T value) const requires (ChainType::template Count<CurrentSense<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<CurrentSense<T>>().SetGainError(value);
 		return result;
 	}
 
 
-	constexpr Builder Ambient(T value) const requires (ChainType::template Count<FirstOrderThermal<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder Ambient(T value) const requires (ChainType::template Count<FirstOrderThermal<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<FirstOrderThermal<T>>().SetAmbient(value);
 		return result;
 	}
 
 
-	constexpr Builder ThermalResistance(T value) const requires (ChainType::template Count<FirstOrderThermal<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder ThermalResistance(T value) const requires (ChainType::template Count<FirstOrderThermal<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<FirstOrderThermal<T>>().SetResistance(value);
 		return result;
 	}
 
 
-	constexpr Builder ThermalCapacitance(T value) const requires (ChainType::template Count<FirstOrderThermal<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder ThermalCapacitance(T value) const requires (ChainType::template Count<FirstOrderThermal<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<FirstOrderThermal<T>>().SetCapacitance(value);
 		return result;
 	}
 
 
-	constexpr Builder DelaySteps(std::size_t value) const requires (ChainType::template Count<FirstOrderThermal<T>>() == 1) {
+	constexpr PlantChainBuilder DelaySteps(std::size_t value) const requires (ChainType::template Count<FirstOrderThermal<T>>() == 1) {
 		Require<"Simulation: depth must be positive">(value > 0);
 		Require<"Simulation: the delay is longer than the line">(value <= FirstOrderThermal<T>::maxDelaySteps);
 
-		Builder result(*this);
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<FirstOrderThermal<T>>().SetDelaySteps(value);
 		return result;
 	}
 
 
-	constexpr Builder Power(T value) const requires (ChainType::template Count<FirstOrderThermal<T>>() == 1) {
-		Builder result(*this);
+	constexpr PlantChainBuilder Power(T value) const requires (ChainType::template Count<FirstOrderThermal<T>>() == 1) {
+		PlantChainBuilder result(*this);
 		result.blocks.template Get<FirstOrderThermal<T>>().SetPower(value);
 		return result;
 	}
 };
+
+
+// An empty chain of the number type T, the start of a plant's builder: Simulation::PlantBuilder<double>().Add<...>()...
+template<typename T>
+constexpr PlantChainBuilder<T> PlantBuilder() {
+	return PlantChainBuilder<T>();
+}
 
 
 // The plant: the chain of a builder, its states and its integration. Make is a captureless lambda that returns the builder.

@@ -6,7 +6,7 @@
 
 
 using Smallest = Simulation::Plant<+[] {
-	return Simulation::Builder()
+	return Simulation::PlantBuilder<double>()
 		.Add<Simulation::BrushedDc>(Simulation::BrushedDc<double>::Parameters{ 1.0, 1.0e-3, 0.05 })
 		.Add<Simulation::Rotor>()
 			.Inertia(1.0e-4)

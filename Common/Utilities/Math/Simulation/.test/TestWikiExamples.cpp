@@ -29,7 +29,7 @@ namespace PagePlant {
 
 // The smallest chain: a PMSM with an ideal rotor and an average inverter.
 using Smallest = Simulation::Plant<+[] {
-	return Simulation::Builder()
+	return Simulation::PlantBuilder<double>()
 		.Add<Simulation::Pmsm>(Simulation::Pmsm<double>::Parameters{ 0.5, 2.0e-3, 2.0e-3, 0.01, 4 })
 		.Add<Simulation::Rotor>()
 			.Inertia(2.0e-5)
@@ -42,7 +42,7 @@ using Smallest = Simulation::Plant<+[] {
 
 // A chain with every kind of sensor and load, and a two-mass shaft in place of the rotor.
 using Largest = Simulation::Plant<+[] {
-	return Simulation::Builder()
+	return Simulation::PlantBuilder<double>()
 		.Add<Simulation::Pmsm>(Simulation::Pmsm<double>::Parameters{ 0.5, 2.0e-3, 3.0e-3, 0.01, 4 })
 		.Add<Simulation::TwoMassShaft>()
 			.MotorInertia(1.0e-4)
@@ -109,11 +109,11 @@ namespace PagePlantMembers {
 
 
 void Run() {
-	constexpr auto chain = Simulation::Builder().Add<Simulation::Rotor>().Inertia(1.0e-4).Substeps(20);
+	constexpr auto chain = Simulation::PlantBuilder<double>().Add<Simulation::Rotor>().Inertia(1.0e-4).Substeps(20);
 	VHAL_CHECK(chain.substepCount == 20u);
 
 	using Plant = Simulation::Plant<+[] {
-		return Simulation::Builder()
+		return Simulation::PlantBuilder<double>()
 			.Add<Simulation::Pmsm>(Simulation::Pmsm<double>::Parameters{ 0.5, 2.0e-3, 2.0e-3, 0.01, 4 })
 			.Add<Simulation::Rotor>()
 				.Inertia(2.0e-5)
@@ -295,7 +295,7 @@ namespace PageLoads {
 
 
 using Fan = Simulation::Plant<+[] {
-	return Simulation::Builder()
+	return Simulation::PlantBuilder<double>()
 		.Add<Simulation::Pmsm>(Simulation::Pmsm<double>::Parameters{ 0.5, 2.0e-3, 2.0e-3, 0.01, 4 })
 		.Add<Simulation::Rotor>()
 			.Inertia(2.0e-5)
@@ -386,7 +386,7 @@ namespace PageThermal {
 
 
 using Heater = Simulation::Plant<+[] {
-	return Simulation::Builder()
+	return Simulation::PlantBuilder<double>()
 		.Add<Simulation::FirstOrderThermal>()
 			.Ambient(25.0)
 			.ThermalResistance(5.0)

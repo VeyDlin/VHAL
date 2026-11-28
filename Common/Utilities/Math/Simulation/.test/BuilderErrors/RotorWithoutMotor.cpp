@@ -4,7 +4,7 @@
 
 
 using Smallest = Simulation::Plant<+[] {
-	return Simulation::Builder()
+	return Simulation::PlantBuilder<double>()
 		.Add<Simulation::Rotor>()
 			.Inertia(1.0e-4);
 }>;

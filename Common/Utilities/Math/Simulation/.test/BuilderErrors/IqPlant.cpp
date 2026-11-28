@@ -4,7 +4,7 @@
 
 
 using Smallest = Simulation::Plant<+[] {
-	return Simulation::Builder<IQ<24>>();
+	return Simulation::PlantBuilder<IQ<24>>();
 }>;
 
 

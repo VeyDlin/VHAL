@@ -19,7 +19,7 @@ namespace {
 
 
 using Largest = Simulation::Plant<+[] {
-	return Simulation::Builder()
+	return Simulation::PlantBuilder<double>()
 		.Add<Simulation::Pmsm>(Simulation::Pmsm<double>::Parameters{ 0.5, 2.0e-3, 3.0e-3, 0.01, 4 })
 		.Add<Simulation::Rotor>()
 			.Inertia(1.0e-3)
@@ -42,7 +42,7 @@ using Largest = Simulation::Plant<+[] {
 
 
 using Brushed = Simulation::Plant<+[] {
-	return Simulation::Builder()
+	return Simulation::PlantBuilder<double>()
 		.Add<Simulation::BrushedDc>(Simulation::BrushedDc<double>::Parameters{ 1.0, 1.0e-3, 0.05 })
 		.Add<Simulation::Rotor>()
 			.Inertia(1.0e-4)
