@@ -147,4 +147,20 @@ constexpr uint64 CrcFinish(CrcRegister<Parameters.width> remainder) {
 
 	return (value ^ Parameters.finalXor) & CrcMask(Parameters.width);
 }
+
+
+// The register that CrcFinish turns into finished: the inverse of CrcFinish, so a message can continue from its finished value. The
+// register is in the form CrcStart gives, which is the form every engine keeps.
+template<CrcParameters Parameters>
+constexpr CrcRegister<Parameters.width> CrcResume(uint64 finished) {
+	using Register = CrcRegister<Parameters.width>;
+	constexpr uint8 registerBits = sizeof(Register) * 8;
+	const uint64 value = (finished ^ Parameters.finalXor) & CrcMask(Parameters.width);
+	if constexpr (Parameters.reflectIn) {
+		return static_cast<Register>(Parameters.reflectOut ? value : CrcReverse(value, Parameters.width));
+	} else {
+		const uint64 aligned = Parameters.reflectOut ? CrcReverse(value, Parameters.width) : value;
+		return static_cast<Register>(aligned << (registerBits - Parameters.width));
+	}
+}
 }
