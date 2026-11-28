@@ -194,7 +194,7 @@ Not thread-safe. Use one task for `Connect`, `Send*`, `Poll`, `Close` and the ge
 
 ## Example: Streaming Speech-to-Text
 
-Connects to the xAI streaming transcription endpoint with a bearer token, sends 100 ms of 16 kHz PCM16 mono audio (3200 bytes) per binary frame, and reads the `transcript.partial` events between frames.
+Connects to a streaming speech-to-text endpoint with a bearer token, sends 100 ms of 16 kHz PCM16 mono audio (3200 bytes) per binary frame, and reads the `event.partial` events between frames.
 
 ```cpp
 #include <Drivers/Interface/Network/WebSocket/WebSocketClient.h>
@@ -211,7 +211,7 @@ static constexpr size_t kFrameBytes = 3200; // 100 ms of 16 kHz PCM16 mono
 
 static void OnText(std::string_view json) {
     // The view is valid only during this call: copy anything that must outlive it.
-    if (json.find("\"transcript.partial\"") != std::string_view::npos) {
+    if (json.find("\"event.partial\"") != std::string_view::npos) {
         // Parse "text" and "speech_final" here.
     }
 }
@@ -235,7 +235,7 @@ ResultStatus OpenTranscription(std::string_view authorization) {
     options.randomSource = []() { return static_cast<uint32>(esp_random()); };
     options.clockMs = []() { return static_cast<uint32>(System::GetMs()); };
 
-    return stt.Connect("wss://api.x.ai/v1/stt?model=grok-voice-transcribe-2.0&encoding=pcm"
+    return stt.Connect("wss://api.example.test/v1/stream?model=test-model&encoding=pcm"
                        "&sample_rate=16000&interim_results=true&language=en", options);
 }
 
