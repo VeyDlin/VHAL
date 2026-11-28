@@ -125,16 +125,16 @@ public:
 		}
 
 		EnterSection();
-		if (Count() == Slots) {
+		uint16 head = 0;
+		if (cursor.Room(Slots, head) == 0) {
 			LeaveSection();
 			return ResultStatus::busy;
 		}
 
-		uint16 head = cursor.WriteSlot(Slots);
 		std::copy(packet.begin(), packet.end(), bytes.Data() + static_cast<std::size_t>(head) * SlotBytes);
 		lengths.Data()[head] = static_cast<LengthType>(packet.size());
 		flags.Data()[head] = packetFlags;
-		cursor.Produce(Slots, 1);
+		cursor.Produce(Slots, head, 1);
 		LeaveSection();
 
 		return ResultStatus::ok;
@@ -144,12 +144,12 @@ public:
 	// Consumer: the oldest packet, in place. empty when the queue has no packet.
 	ResultStatus Front(std::span<const uint8>& packet, uint8& packetFlags) const {
 		EnterSection();
-		if (Count() == 0) {
+		uint16 slot = 0;
+		if (cursor.Available(Slots, slot) == 0) {
 			LeaveSection();
 			return ResultStatus::empty;
 		}
 
-		uint16 slot = cursor.ReadSlot();
 		packet = PacketAt(slot);
 		packetFlags = flags.Data()[slot];
 		LeaveSection();
@@ -161,12 +161,13 @@ public:
 	// Consumer: the packet at index (0 is the oldest), in place. outOfRange when index is not held.
 	ResultStatus Peek(uint16 index, std::span<const uint8>& packet, uint8& packetFlags) const {
 		EnterSection();
-		if (index >= Count()) {
+		uint16 slot = 0;
+		if (index >= cursor.Available(Slots, slot)) {
 			LeaveSection();
 			return ResultStatus::outOfRange;
 		}
 
-		uint16 slot = Cursor::Advance(cursor.ReadSlot(), index, slotCount);
+		slot = Cursor::Advance(slot, index, slotCount);
 		packet = PacketAt(slot);
 		packetFlags = flags.Data()[slot];
 		LeaveSection();
@@ -178,12 +179,13 @@ public:
 	// Consumer: removes the oldest packet. empty when the queue has no packet.
 	ResultStatus Pop() {
 		EnterSection();
-		if (Count() == 0) {
+		uint16 slot = 0;
+		if (cursor.Available(Slots, slot) == 0) {
 			LeaveSection();
 			return ResultStatus::empty;
 		}
 
-		cursor.Consume(Slots, 1);
+		cursor.Consume(Slots, slot, 1);
 		LeaveSection();
 
 		return ResultStatus::ok;
@@ -193,9 +195,10 @@ public:
 	// Consumer: removes up to count of the oldest packets and returns how many were removed.
 	uint16 Drop(uint16 count) {
 		EnterSection();
-		uint16 available = Count();
+		uint16 slot = 0;
+		uint16 available = cursor.Available(Slots, slot);
 		uint16 dropped = count < available ? count : available;
-		cursor.Consume(Slots, dropped);
+		cursor.Consume(Slots, slot, dropped);
 		LeaveSection();
 
 		return dropped;
@@ -212,8 +215,8 @@ public:
 			"PacketQueue::DropFlagged writes the head, which the producer owns in singleWriter mode: the consumer drops with Drop(count)");
 
 		EnterSection();
-		uint16 held = cursor.Size(Slots);
-		uint16 readSlot = cursor.ReadSlot();
+		uint16 readSlot = 0;
+		uint16 held = cursor.Available(Slots, readSlot);
 		uint16 writeSlot = readSlot;
 		uint16 slot = readSlot;
 		uint16 kept = 0;

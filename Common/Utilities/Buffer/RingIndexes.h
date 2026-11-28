@@ -88,11 +88,39 @@ public:
 	}
 
 
-	// The count of elements held.
-	uint16 Size(uint16 capacity) const {
+	// The count of elements held. A snapshot: both indexes are read.
+	uint16 Size([[maybe_unused]] uint16 capacity) const {
 		if constexpr (Concurrent) {
 			return Held(indexes.head.load(std::memory_order_acquire), indexes.tail.load(std::memory_order_acquire), SlotCount(capacity));
 		} else {
+			return indexes.size;
+		}
+	}
+
+
+	// Producer: the free elements, and the slot where the next element goes. Each index is read once: the producer's own head plainly,
+	// the consumer's tail with an acquire load, so the slot is free before the caller writes it.
+	_AInline uint16 Room(uint16 capacity, uint16& writeSlot) const {
+		if constexpr (Concurrent) {
+			writeSlot = indexes.head.load(std::memory_order_relaxed);
+			uint16 used = Held(writeSlot, indexes.tail.load(std::memory_order_acquire), SlotCount(capacity));
+			return static_cast<uint16>(capacity - used);
+		} else {
+			uint16 used = indexes.size;
+			writeSlot = Advance(indexes.readIndex, used, capacity);
+			return static_cast<uint16>(capacity - used);
+		}
+	}
+
+
+	// Consumer: the held elements, and the slot of the oldest one. Each index is read once: the consumer's own tail plainly, the
+	// producer's head with an acquire load, so the data behind the head is visible.
+	_AInline uint16 Available([[maybe_unused]] uint16 capacity, uint16& readSlot) const {
+		if constexpr (Concurrent) {
+			readSlot = indexes.tail.load(std::memory_order_relaxed);
+			return Held(indexes.head.load(std::memory_order_acquire), readSlot, SlotCount(capacity));
+		} else {
+			readSlot = indexes.readIndex;
 			return indexes.size;
 		}
 	}
@@ -108,32 +136,22 @@ public:
 	}
 
 
-	// The slot where the next element goes.
-	uint16 WriteSlot(uint16 capacity) const {
+	// Publishes count elements written from writeSlot, which Room returned.
+	_AInline void Produce(uint16 capacity, [[maybe_unused]] uint16 writeSlot, uint16 count) {
 		if constexpr (Concurrent) {
-			return indexes.head.load(std::memory_order_relaxed);
-		} else {
-			return Advance(indexes.readIndex, indexes.size, capacity);
-		}
-	}
-
-
-	// Publishes count elements written at the back.
-	void Produce(uint16 capacity, uint16 count) {
-		if constexpr (Concurrent) {
-			indexes.head.store(Advance(WriteSlot(capacity), count, SlotCount(capacity)), std::memory_order_release);
+			indexes.head.store(Advance(writeSlot, count, SlotCount(capacity)), std::memory_order_release);
 		} else {
 			indexes.size = static_cast<uint16>(indexes.size + count);
 		}
 	}
 
 
-	// Releases count elements from the front. The data of them must be read first.
-	void Consume(uint16 capacity, uint16 count) {
+	// Releases count elements from readSlot, which Available returned. The data of them must be read first.
+	_AInline void Consume(uint16 capacity, uint16 readSlot, uint16 count) {
 		if constexpr (Concurrent) {
-			indexes.tail.store(Advance(ReadSlot(), count, SlotCount(capacity)), std::memory_order_release);
+			indexes.tail.store(Advance(readSlot, count, SlotCount(capacity)), std::memory_order_release);
 		} else {
-			indexes.readIndex = Advance(indexes.readIndex, count, capacity);
+			indexes.readIndex = Advance(readSlot, count, capacity);
 			indexes.size = static_cast<uint16>(indexes.size - count);
 		}
 	}
@@ -145,9 +163,10 @@ public:
 			return 0;
 		}
 
-		uint16 available = Size(capacity);
+		uint16 readSlot = 0;
+		uint16 available = Available(capacity, readSlot);
 		uint16 dropped = count < available ? count : available;
-		Consume(capacity, dropped);
+		Consume(capacity, readSlot, dropped);
 
 		return dropped;
 	}
@@ -166,7 +185,7 @@ public:
 
 	// Removes the marked elements.
 	void CommitReads(uint16 capacity) {
-		Consume(capacity, uncommittedReadCount);
+		Consume(capacity, ReadSlot(), uncommittedReadCount);
 		uncommittedReadCount = 0;
 	}
 

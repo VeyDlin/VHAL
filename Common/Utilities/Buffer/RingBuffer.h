@@ -97,13 +97,14 @@ public:
 		}
 
 		EnterSection();
-		if (IsFull()) {
+		uint16 writeSlot = 0;
+		if (cursor.Room(BufferSize, writeSlot) == 0) {
 			LeaveSection();
 			return ResultStatus::filled;
 		}
 
-		storage.Data()[cursor.WriteSlot(BufferSize)] = inElement;
-		cursor.Produce(BufferSize, 1);
+		storage.Data()[writeSlot] = inElement;
+		cursor.Produce(BufferSize, writeSlot, 1);
 		LeaveSection();
 
 		return ResultStatus::ok;
@@ -129,13 +130,14 @@ public:
 
 		EnterSection();
 
+		uint16 writeSlot = 0;
 		uint32 count = static_cast<uint32>(elements.size());
-		uint32 freeSpace = BufferSize - cursor.Size(BufferSize);
+		uint32 freeSpace = cursor.Room(BufferSize, writeSlot);
 		if (count > freeSpace) {
 			count = freeSpace;
 		}
 
-		uint32 writeIndex = cursor.WriteSlot(BufferSize);
+		uint32 writeIndex = writeSlot;
 		uint32 firstSegment = slotCount - writeIndex;
 		if (firstSegment > count) {
 			firstSegment = count;
@@ -146,7 +148,7 @@ public:
 		if (count > firstSegment) {
 			std::copy_n(elements.data() + firstSegment, count - firstSegment, items);
 		}
-		cursor.Produce(BufferSize, static_cast<uint16>(count));
+		cursor.Produce(BufferSize, writeSlot, static_cast<uint16>(count));
 		LeaveSection();
 
 		return static_cast<uint16>(count);
@@ -161,13 +163,15 @@ public:
 			LeaveSection();
 			return ResultStatus::busy;
 		}
-		if (IsEmpty()) {
+
+		uint16 readSlot = 0;
+		if (cursor.Available(BufferSize, readSlot) == 0) {
 			LeaveSection();
 			return ResultStatus::empty;
 		}
 
-		ElementType data = storage.Data()[cursor.ReadSlot()];
-		cursor.Consume(BufferSize, 1);
+		ElementType data = storage.Data()[readSlot];
+		cursor.Consume(BufferSize, readSlot, 1);
 		LeaveSection();
 
 		return data;
@@ -185,21 +189,22 @@ public:
 			return 0;
 		}
 
+		uint16 readSlot = 0;
 		uint32 count = static_cast<uint32>(out.size());
-		if (count > cursor.Size(BufferSize)) {
-			count = cursor.Size(BufferSize);
+		uint32 held = cursor.Available(BufferSize, readSlot);
+		if (count > held) {
+			count = held;
 		}
 
-		uint32 readIndex = cursor.ReadSlot();
-		uint32 firstSegment = slotCount - readIndex;
+		uint32 firstSegment = slotCount - readSlot;
 		if (firstSegment > count) {
 			firstSegment = count;
 		}
 
 		ElementType* items = storage.Data();
-		std::copy_n(&items[readIndex], firstSegment, out.data());
+		std::copy_n(&items[readSlot], firstSegment, out.data());
 		std::copy_n(items, count - firstSegment, out.data() + firstSegment);
-		cursor.Consume(BufferSize, static_cast<uint16>(count));
+		cursor.Consume(BufferSize, readSlot, static_cast<uint16>(count));
 		LeaveSection();
 
 		return static_cast<uint16>(count);
@@ -220,12 +225,13 @@ public:
 	// Consumer: the oldest element, in place, or nullptr when the ring is empty. Marked elements are included.
 	const ElementType* Front() const {
 		EnterSection();
-		if (cursor.Size(BufferSize) == 0) {
+		uint16 readSlot = 0;
+		if (cursor.Available(BufferSize, readSlot) == 0) {
 			LeaveSection();
 			return nullptr;
 		}
 
-		const ElementType* item = &storage.Data()[cursor.ReadSlot()];
+		const ElementType* item = &storage.Data()[readSlot];
 		LeaveSection();
 
 		return item;
@@ -235,12 +241,13 @@ public:
 	// Consumer: the element at index (0 is the oldest), in place, or nullptr when index is not held.
 	const ElementType* Peek(uint16 index) const {
 		EnterSection();
-		if (index >= cursor.Size(BufferSize)) {
+		uint16 readSlot = 0;
+		if (index >= cursor.Available(BufferSize, readSlot)) {
 			LeaveSection();
 			return nullptr;
 		}
 
-		const ElementType* item = &storage.Data()[Cursor::Advance(cursor.ReadSlot(), index, slotCount)];
+		const ElementType* item = &storage.Data()[Cursor::Advance(readSlot, index, slotCount)];
 		LeaveSection();
 
 		return item;
@@ -285,18 +292,21 @@ public:
 
 
 	Result<ElementType> Peek() const {
-		if (IsEmpty()) {
+		uint16 readSlot = 0;
+		if (cursor.Available(BufferSize, readSlot) == 0) {
 			return ResultStatus::empty;
 		}
-		return storage.Data()[cursor.ReadSlot()];
+		return storage.Data()[readSlot];
 	}
 
 
 	ElementType operator[](uint16 inIndex) const {
-		SystemAssert(inIndex < cursor.Size(BufferSize));
-
 		EnterSection();
-		ElementType data = storage.Data()[Cursor::Advance(cursor.ReadSlot(), inIndex, slotCount)];
+		uint16 readSlot = 0;
+		uint16 held = cursor.Available(BufferSize, readSlot);
+		SystemAssert(inIndex < held);
+
+		ElementType data = storage.Data()[Cursor::Advance(readSlot, inIndex, slotCount)];
 		LeaveSection();
 
 		return data;
@@ -308,7 +318,8 @@ public:
 	uint16 PeekMultiple(ElementType* outBuffer, uint16 count, uint16 offset = 0) const {
 		EnterSection();
 
-		uint16 size = cursor.Size(BufferSize);
+		uint16 readSlot = 0;
+		uint16 size = cursor.Available(BufferSize, readSlot);
 		// Can't peek more than we have
 		if (offset >= size) {
 			LeaveSection();
@@ -317,7 +328,6 @@ public:
 
 		uint16 available = size - offset;
 		uint16 toPeek = (count < available) ? count : available;
-		uint16 readSlot = cursor.ReadSlot();
 
 		for (uint16 i = 0; i < toPeek; i++) {
 			outBuffer[i] = storage.Data()[Cursor::Advance(readSlot, static_cast<uint32>(offset) + i, slotCount)];
