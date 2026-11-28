@@ -230,9 +230,9 @@ void CoreRegisterClickRejectsWhenClickListFull() {
 	VHAL_CHECK(!core.RegisterClick(c3));
 	// A duplicate click is refused.
 	VHAL_CHECK(!core.RegisterClick(c1));
-	// A click can be removed after the list was full.
+	// A click can be removed while the list is full.
 	VHAL_CHECK(core.RemoveClick(c2));
-	// A click is accepted after a slot was freed.
+	// A click is accepted once a slot is freed.
 	VHAL_CHECK(core.RegisterClick(c3));
 }
 
