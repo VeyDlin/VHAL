@@ -1,6 +1,7 @@
 #include <VHAL.h>
 #include <Utilities/Serialization/COBS/COBS.h>
 #include <VhalCheck.h>
+#include <cstdio>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -33,13 +34,15 @@ std::vector<uint8> MakePayload(size_t length, uint32 seed, bool allowSpecial) {
 }
 
 
-// Encodes and decodes the input. The result is false on an error or a mismatch, and details says which.
+// Encodes and decodes the input. The result is false on an error or a mismatch, and details says which; the details are also
+// printed to stderr, so a failing check shows the length.
 template <size_t TempBufferSize>
 bool RoundTrip(const COBS<TempBufferSize>& cobs, const std::vector<uint8>& input, std::string& details) {
 	std::vector<uint8> encoded(input.size() * 2 + 16);
 	Result<size_t> encodeResult = cobs.Encode(input.data(), input.size(), encoded.data(), encoded.size());
 	if (encodeResult.IsErr()) {
 		details = "Encode failed for length " + std::to_string(input.size());
+		std::fprintf(stderr, "%s\n", details.c_str());
 		return false;
 	}
 
@@ -47,12 +50,14 @@ bool RoundTrip(const COBS<TempBufferSize>& cobs, const std::vector<uint8>& input
 	Result<size_t> decodeResult = cobs.Decode(encoded.data(), encodeResult.Value(), decoded.data(), decoded.size());
 	if (decodeResult.IsErr()) {
 		details = "Decode failed for length " + std::to_string(input.size());
+		std::fprintf(stderr, "%s\n", details.c_str());
 		return false;
 	}
 
 	bool sameBytes = input.empty() || std::memcmp(decoded.data(), input.data(), input.size()) == 0;
 	if (decodeResult.Value() != input.size() || !sameBytes) {
 		details = "round trip mismatch for length " + std::to_string(input.size());
+		std::fprintf(stderr, "%s\n", details.c_str());
 		return false;
 	}
 
@@ -113,6 +118,9 @@ void CheckRoundTrip0to600() {
 		if (!RoundTrip(cobs, payload, details)) {
 			failingLengths.push_back(length);
 		}
+	}
+	if (!failingLengths.empty()) {
+		std::fprintf(stderr, "%zu lengths fail, first %zu\n", failingLengths.size(), failingLengths.front());
 	}
 	VHAL_CHECK(failingLengths.empty());
 }
