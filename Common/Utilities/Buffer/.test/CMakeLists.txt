@@ -59,6 +59,15 @@ vhal_test(
     "${VHAL_ROOT}/Periphery"
     "${VHAL_ROOT}/Common")
 
+vhal_test(
+  TestRingAccessReadme.cpp
+  INCLUDES
+    shim
+    "${VHAL_ROOT}/Periphery"
+    "${VHAL_ROOT}/Common")
+
+vhal_size(size/Size.cmake)
+
 vhal_fail(
   RefusedMembers
   INCLUDES
@@ -75,4 +84,5 @@ vhal_declared(
   TestRingModes.cpp
   TestRingAccessModel.cpp
   TestRingSingleWriterThreads.cpp
-  TestPacketQueue.cpp)
+  TestPacketQueue.cpp
+  TestRingAccessReadme.cpp)

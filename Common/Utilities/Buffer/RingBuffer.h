@@ -36,7 +36,7 @@ private:
 	static constexpr std::size_t storageCount = static_cast<std::size_t>(slotCount);
 
 	// A singleWriter ring publishes an index with release and reads the other context's index with acquire, so the data of an
-	// element is visible before its index. The other modes need no barrier.
+	// element is visible ahead of the index that publishes it. The other modes need no barrier.
 	static constexpr std::memory_order publishOrder =
 		Access == RingAccess::singleWriter ? std::memory_order_release : std::memory_order_relaxed;
 	static constexpr std::memory_order observeOrder =
@@ -47,7 +47,6 @@ private:
 	uint16 uncommittedReadCount = 0;  // How many reads are uncommitted
 
 
-private:
 	// The count of elements. A locked ring keeps it; the other modes derive it from the two indexes.
 	uint16 Count() const {
 		if constexpr (isLocked) {
@@ -88,7 +87,7 @@ private:
 	}
 
 
-	// Releases count elements from the front. The data of them must be read before this call.
+	// Releases count elements from the front. The data of them must be read first.
 	void Consume(uint16 count) {
 		if constexpr (isLocked) {
 			indexes.readIndex = RingIndexes::Advance(indexes.readIndex, count, slotCount);

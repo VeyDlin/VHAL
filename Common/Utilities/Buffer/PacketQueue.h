@@ -73,7 +73,7 @@ private:
 	}
 
 
-	// Releases count packets from the front. The packets must be read before this call.
+	// Releases count packets from the front. The packets must be read first.
 	void Consume(uint16 count) {
 		indexes.tail.store(RingIndexes::Advance(ReadSlot(), count, slotCount), publishOrder);
 	}
@@ -225,7 +225,7 @@ public:
 	}
 
 
-	// Drops every packet whose flags have the flag bit, and keeps the others in their order, each moved down to the first free slot.
+	// Drops every packet whose flags have the flag bit, and keeps the others in their order, each shifted down to the first free slot.
 	// Returns how many were dropped. It writes the head, which the producer owns, so it exists in locked and callerLocked mode only. It
 	// reads the head once, and a push during the call would be lost: locked mode holds the critical section across the call, and
 	// callerLocked requires the caller to serialize the accesses.

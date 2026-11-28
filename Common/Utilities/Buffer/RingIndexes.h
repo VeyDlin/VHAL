@@ -6,7 +6,7 @@
 // How a ring or a packet queue is accessed:
 //   locked        any number of writers; every access takes a critical section
 //   singleWriter  one producer context writes, one consumer context reads; no critical section. The indexes are published with
-//                 release stores and read with acquire loads, so the data of an element is visible before its index.
+//                 release stores and read with acquire loads, so the data of an element is visible ahead of its index.
 //   callerLocked  the caller serializes every access; no critical section and no barrier
 enum class RingAccess : uint8 {
 	locked,
@@ -55,15 +55,26 @@ public:
 	}
 
 
-	// The slot places after index, for places below slotCount.
+	// The slot places after index. index is below slotCount and places is at most slotCount, so one subtraction wraps the sum. No
+	// division is used: a core without a divide instruction would link the library's division routine for it.
 	static uint16 Advance(uint16 index, uint32 places, uint16 slotCount) {
-		return static_cast<uint16>((static_cast<uint32>(index) + places) % slotCount);
+		uint32 slot = static_cast<uint32>(index) + places;
+		if (slot >= slotCount) {
+			slot -= slotCount;
+		}
+
+		return static_cast<uint16>(slot);
 	}
 
 
-	// The entries from tail up to head.
+	// The entries from tail up to head. Both indexes are below slotCount, so one subtraction wraps the difference.
 	static uint16 Held(uint16 head, uint16 tail, uint16 slotCount) {
-		return static_cast<uint16>((static_cast<uint32>(head) + slotCount - tail) % slotCount);
+		uint32 held = static_cast<uint32>(head) + slotCount - tail;
+		if (held >= slotCount) {
+			held -= slotCount;
+		}
+
+		return static_cast<uint16>(held);
 	}
 };
 
