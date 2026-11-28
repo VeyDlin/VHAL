@@ -2,7 +2,7 @@
 // The test starts the server itself and ends it when it finishes. It prints VHAL_SKIP: and exits 0 when Python 3, the websockets
 // package or the POSIX socket headers are missing.
 #include <LoopbackServer.h>
-#include <TestHeap.h>
+#include <Utilities/Memory/IAllocator.h>
 #include <VhalCheck.h>
 #include <Drivers/Interface/Network/WebSocket/WebSocketClient.h>
 #include <Utilities/Memory/Heap.h>
@@ -30,7 +30,8 @@ static uint16 gPort = 0;
 
 struct LiveClient {
 	PosixSocketAdapter socket;
-	TestHeap<Memory::IncrementalDefrag<8>> memory;
+	Memory::Heap<Memory::IncrementalDefrag<8>> heap;
+	Memory::AllocatorOf<Memory::Heap<Memory::IncrementalDefrag<8>>> memory;
 	WebSocketClient client;
 	std::vector<std::string> texts;
 	std::vector<std::vector<uint8>> binaries;
@@ -38,7 +39,7 @@ struct LiveClient {
 	std::random_device entropy;
 
 
-	LiveClient() : memory(262144), client(socket, memory) {
+	LiveClient() : heap(262144), memory(heap), client(socket, memory) {
 		socket.SetTimeout(200);
 		client.onText = [this](std::string_view text) {
 			texts.emplace_back(text);
@@ -331,9 +332,9 @@ static void LivePacedAudioFramesWithPolling() {
 static void LiveHeapDefragmentsBetweenMessages() {
 	LiveClient c;
 	VHAL_CHECK_EQ(c.Connect("/echo"), ResultStatus::ok);
-	Memory::Handle keep = c.memory.Allocate(128);
-	Memory::Handle hole = c.memory.Allocate(512);
-	c.memory.Deallocate(hole);
+	Memory::Handle keep = c.heap.Allocate(128);
+	Memory::Handle hole = c.heap.Allocate(512);
+	c.heap.Deallocate(hole);
 
 	size_t sent = 0;
 	for (size_t round = 0; round < 12; round++) {
@@ -341,7 +342,7 @@ static void LiveHeapDefragmentsBetweenMessages() {
 		std::vector<uint8> payload = Pattern(length, static_cast<uint8>(round));
 		VHAL_CHECK_EQ(c.client.SendBinary(payload), ResultStatus::ok);
 		c.PollUntil([&c, round]() { return c.binaries.size() > round; });
-		c.memory.Defragment();
+		c.heap.Defragment();
 		sent++;
 	}
 
@@ -349,7 +350,7 @@ static void LiveHeapDefragmentsBetweenMessages() {
 	if (c.binaries.size() == sent) {
 		VHAL_CHECK(c.binaries[11] == Pattern(500 + 11 * 900, 11));
 	}
-	c.memory.Deallocate(keep);
+	c.heap.Deallocate(keep);
 	c.client.Close();
 }
 

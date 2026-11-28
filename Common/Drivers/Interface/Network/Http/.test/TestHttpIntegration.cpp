@@ -1,7 +1,8 @@
 // Integration tests: HttpClient and ServerSentEvents against http_server.py on loopback TCP. The test starts the server itself
 // and ends it when it finishes. It prints VHAL_SKIP: and exits 0 when Python 3 or the POSIX socket headers are missing.
 #include <LoopbackServer.h>
-#include <TestHeap.h>
+#include <VHAL.h>
+#include <Utilities/Memory/IAllocator.h>
 #include <Utilities/Callback/Delegate.h>
 #include <VhalCheck.h>
 #include <Drivers/Interface/Network/Http/HttpClient.h>
@@ -51,8 +52,9 @@ std::string Collect(HttpClient& client, ResultStatus& status) {
 // Sends one GET on a fresh client and reads the whole body.
 std::string Get(const char *path, ResultStatus& sendStatus, ResultStatus& bodyStatus, uint16& code) {
 	PosixSocketAdapter socket;
-	TestHeap<> heap(65536);
-	HttpClient client(socket, heap);
+	Memory::Heap<> heap(65536);
+	Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+	HttpClient client(socket, memory);
 	std::string url = Url(path);
 	HttpClient::Request request;
 	request.url = url;
@@ -138,7 +140,8 @@ void CheckStream(const StreamResult& result, ResultStatus bodyStatus) {
 // read, so the head and the event buffers move while they are being assembled.
 void PostStream(const char *path, bool defragment) {
 	PosixSocketAdapter socket;
-	TestHeap<Memory::IncrementalDefrag<8>> heap(65536);
+	Memory::Heap<Memory::IncrementalDefrag<8>> heap(65536);
+	Memory::AllocatorOf<Memory::Heap<Memory::IncrementalDefrag<8>>> memory(heap);
 	Memory::Handle gap = heap.Allocate(8);
 	Memory::Handle live = heap.Allocate(64);
 	heap.Deallocate(gap);
@@ -149,7 +152,7 @@ void PostStream(const char *path, bool defragment) {
 		};
 	}
 
-	HttpClient client(socket, heap);
+	HttpClient client(socket, memory);
 	std::string url = Url(path);
 	const char *payload = "{\"model\":\"test-model\",\"stream\":true}";
 	HttpClient::Header headers[] = {
@@ -174,7 +177,7 @@ void PostStream(const char *path, bool defragment) {
 	}
 
 	StreamResult result;
-	ResultStatus bodyStatus = StreamEvents(client, heap, result);
+	ResultStatus bodyStatus = StreamEvents(client, memory, result);
 	CheckStream(result, bodyStatus);
 
 	if (defragment) {
@@ -252,8 +255,9 @@ int main() {
 
 		{ "integ-keepalive-reuses-one-socket", []() -> void {
 			PosixSocketAdapter socket;
-			TestHeap<> heap(65536);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(65536);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			ResultStatus bodyStatus = ResultStatus::ok;
 			std::string urlCount = Url("/count");
 			std::string urlLength = Url("/length");
@@ -282,8 +286,9 @@ int main() {
 
 		{ "integ-connection-close-reconnects", []() -> void {
 			PosixSocketAdapter socket;
-			TestHeap<> heap(65536);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(65536);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			ResultStatus bodyStatus = ResultStatus::ok;
 			std::string urlCount = Url("/count");
 			std::string urlClose = Url("/close");
@@ -315,8 +320,9 @@ int main() {
 
 		{ "integ-redirect-is-returned-not-followed", []() -> void {
 			PosixSocketAdapter socket;
-			TestHeap<> heap(65536);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(65536);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			std::string url = Url("/redirect");
 			HttpClient::Request request;
 			request.url = url;
@@ -330,8 +336,9 @@ int main() {
 
 		{ "integ-head-has-no-body", []() -> void {
 			PosixSocketAdapter socket;
-			TestHeap<> heap(65536);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(65536);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			std::string url = Url("/length");
 			HttpClient::Request request;
 			request.method = Method::Head;
@@ -352,8 +359,9 @@ int main() {
 
 		{ "integ-post-echoes-body-and-headers", []() -> void {
 			PosixSocketAdapter socket;
-			TestHeap<> heap(65536);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(65536);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			std::string url = Url("/echo");
 			const char *payload = "{\"prompt\":\"hi\"}";
 			HttpClient::Header headers[] = {
@@ -381,8 +389,9 @@ int main() {
 
 		{ "integ-readbodyto-fits", []() -> void {
 			PosixSocketAdapter socket;
-			TestHeap<> heap(65536);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(65536);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			std::string url = Url("/length");
 			HttpClient::Request request;
 			request.url = url;
@@ -398,8 +407,9 @@ int main() {
 
 		{ "integ-readbodyto-too-small", []() -> void {
 			PosixSocketAdapter socket;
-			TestHeap<> heap(65536);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(65536);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			std::string url = Url("/length");
 			HttpClient::Request request;
 			request.url = url;
@@ -417,15 +427,16 @@ int main() {
 
 		{ "integ-sse-chunk-stream-crlf", []() -> void {
 			PosixSocketAdapter socket;
-			TestHeap<> heap(65536);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(65536);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			std::string url = Url("/sse-crlf");
 			HttpClient::Request request;
 			request.url = url;
 			VHAL_CHECK_EQ(client.Send(request), ResultStatus::ok);
 
 			StreamResult result;
-			ResultStatus bodyStatus = StreamEvents(client, heap, result);
+			ResultStatus bodyStatus = StreamEvents(client, memory, result);
 			CheckStream(result, bodyStatus);
 		} },
 
@@ -435,8 +446,9 @@ int main() {
 
 		{ "integ-stall-times-out", []() -> void {
 			PosixSocketAdapter socket;
-			TestHeap<> heap(65536);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(65536);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			client.options.timeoutMs = 300;
 			std::string url = Url("/stall");
 			HttpClient::Request request;
@@ -446,8 +458,9 @@ int main() {
 
 		{ "integ-https-without-tls-is-not-supported", []() -> void {
 			PosixSocketAdapter socket;
-			TestHeap<> heap(65536);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(65536);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			HttpClient::Request request;
 			request.url = "https://127.0.0.1:1/";
 			VHAL_CHECK_EQ(client.Send(request), ResultStatus::notSupported);
@@ -455,8 +468,9 @@ int main() {
 
 		{ "integ-unread-body-then-next-request", []() -> void {
 			PosixSocketAdapter socket;
-			TestHeap<> heap(65536);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(65536);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			std::string url = Url("/length");
 			HttpClient::Request request;
 			request.url = url;

@@ -1,6 +1,7 @@
 // Unit tests for HttpClient against a scripted socket. Every response is also replayed split at every byte boundary.
 #include "FakeSocket.h"
-#include <TestHeap.h>
+#include <VHAL.h>
+#include <Utilities/Memory/IAllocator.h>
 #include <VhalCheck.h>
 #include <Drivers/Interface/Network/Http/HttpClient.h>
 #include <Utilities/Memory/Heap.h>
@@ -31,8 +32,9 @@ Outcome Fetch(const std::vector<std::string>& slices, const char *url, Method me
 	Outcome outcome;
 	FakeSocket socket;
 	socket.slices = slices;
-	TestHeap<> heap(65536);
-	HttpClient client(socket, heap);
+	Memory::Heap<> heap(65536);
+	Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+	HttpClient client(socket, memory);
 	client.options = options;
 
 	HttpClient::Request request;
@@ -263,8 +265,9 @@ int main() {
 		{ "http-callback-abort-stops-read", []() -> void {
 			FakeSocket socket;
 			socket.slices = { "HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nabcdef" };
-			TestHeap<> heap(8192);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(8192);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			HttpClient::Request request;
 			request.url = "http://example.test/";
 			VHAL_CHECK_EQ(client.Send(request), ResultStatus::ok);
@@ -279,8 +282,9 @@ int main() {
 		{ "http-read-body-to-fits-and-overflows", []() -> void {
 			FakeSocket socket;
 			socket.slices = { "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello" };
-			TestHeap<> heap(8192);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(8192);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			HttpClient::Request request;
 			request.url = "http://example.test/";
 			VHAL_CHECK_EQ(client.Send(request), ResultStatus::ok);
@@ -294,8 +298,9 @@ int main() {
 		{ "http-read-body-to-copies-body", []() -> void {
 			FakeSocket socket;
 			socket.slices = { "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello" };
-			TestHeap<> heap(8192);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(8192);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			HttpClient::Request request;
 			request.url = "http://example.test/";
 			VHAL_CHECK_EQ(client.Send(request), ResultStatus::ok);
@@ -322,8 +327,9 @@ int main() {
 
 			FakeSocket socket;
 			socket.slices = { "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" };
-			TestHeap<> heap(8192);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(8192);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			VHAL_CHECK_EQ(client.Send(request), ResultStatus::ok);
 
 			std::string expected =
@@ -341,8 +347,9 @@ int main() {
 
 		{ "http-request-injection-refused", []() -> void {
 			FakeSocket socket;
-			TestHeap<> heap(4096);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(4096);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			HttpClient::Header injected[] = { { "X-Token", "a\r\nHost: evil" } };
 			HttpClient::Request request;
 			request.url = "http://example.test/";
@@ -393,8 +400,9 @@ int main() {
 				"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nab",
 				"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\ncd",
 			};
-			TestHeap<> heap(16384);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(16384);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			HttpClient::Request request;
 			request.url = "http://example.test/";
 			std::string bodies;
@@ -414,8 +422,9 @@ int main() {
 		{ "http-leftover-bytes-disable-reuse", []() -> void {
 			FakeSocket socket;
 			socket.slices = { "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nabHTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" };
-			TestHeap<> heap(16384);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(16384);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			HttpClient::Request request;
 			request.url = "http://example.test/";
 			client.Send(request);
@@ -433,8 +442,9 @@ int main() {
 				"HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 2\r\n\r\nab",
 				"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\ncd",
 			};
-			TestHeap<> heap(16384);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(16384);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			HttpClient::Request request;
 			request.url = "http://example.test/";
 			client.Send(request);
@@ -451,8 +461,9 @@ int main() {
 				"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nab",
 				"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\ncd",
 			};
-			TestHeap<> heap(16384);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(16384);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			HttpClient::Request request;
 			request.url = "http://example.test/";
 			client.Send(request);
@@ -467,8 +478,9 @@ int main() {
 				FakeSocket::CloseMarker,
 				"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\ncd",
 			};
-			TestHeap<> heap(16384);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(16384);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			HttpClient::Request request;
 			request.url = "http://example.test/";
 			client.Send(request);
@@ -490,8 +502,9 @@ int main() {
 		{ "http-timeout-is-reported", []() -> void {
 			FakeSocket socket;
 			socket.endStatus = ResultStatus::timeout;
-			TestHeap<> heap(8192);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(8192);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			HttpClient::Request request;
 			request.url = "http://example.test/";
 			VHAL_CHECK_EQ(client.Send(request), ResultStatus::timeout);
@@ -500,8 +513,9 @@ int main() {
 		{ "http-connect-timeout-separate-from-io", []() -> void {
 			FakeSocket socket;
 			socket.slices = { "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" };
-			TestHeap<> heap(8192);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(8192);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			client.options.connectTimeoutMs = 4000;
 			client.options.timeoutMs = 2500;
 			HttpClient::Request request;
@@ -513,8 +527,9 @@ int main() {
 
 		{ "http-head-with-body-refused", []() -> void {
 			FakeSocket socket;
-			TestHeap<> heap(8192);
-			HttpClient client(socket, heap);
+			Memory::Heap<> heap(8192);
+			Memory::AllocatorOf<Memory::Heap<>> memory(heap);
+			HttpClient client(socket, memory);
 			const uint8 payload[] = { 'x' };
 			HttpClient::Request request;
 			request.method = Method::Head;
@@ -524,7 +539,8 @@ int main() {
 		} },
 
 		{ "http-defragment-during-head-and-body", []() -> void {
-			TestHeap<Memory::IncrementalDefrag<8>> heap(4096);
+			Memory::Heap<Memory::IncrementalDefrag<8>> heap(4096);
+			Memory::AllocatorOf<Memory::Heap<Memory::IncrementalDefrag<8>>> memory(heap);
 			Memory::Handle gap = heap.Allocate(8);
 			Memory::Handle live = heap.Allocate(64);
 			heap.Deallocate(gap);
@@ -542,7 +558,7 @@ int main() {
 				heap.Defragment();
 			};
 
-			HttpClient client(socket, heap);
+			HttpClient client(socket, memory);
 			HttpClient::Request request;
 			request.url = "http://example.test/";
 			VHAL_CHECK_EQ(client.Send(request), ResultStatus::ok);

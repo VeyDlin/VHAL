@@ -1,5 +1,6 @@
 // Unit tests for ServerSentEvents, following the WHATWG "Server-sent events" rules.
-#include <TestHeap.h>
+#include <VHAL.h>
+#include <Utilities/Memory/IAllocator.h>
 #include <Utilities/Callback/Delegate.h>
 #include <VhalCheck.h>
 #include <Drivers/Interface/Network/Http/ServerSentEvents.h>
@@ -36,12 +37,14 @@ using EventDelegate = Callback::Delegate<void(std::string_view, std::string_view
 // Collects the events of one parser. The heap is part of the fixture so each test owns its memory.
 class Collector : public Recorder {
 public:
-	TestHeap<> heap;
+	Memory::Heap<> heap;
+	Memory::AllocatorOf<Memory::Heap<>> memory;
 	ServerSentEvents parser;
 
 	explicit Collector(uint32 maxEventBytes = 65536)
 		: heap(65536),
-		  parser(heap, maxEventBytes) {
+		  memory(heap),
+		  parser(memory, maxEventBytes) {
 		parser.onEvent = EventDelegate::Bind<Recorder, &Recorder::OnEvent>(this);
 	}
 
@@ -280,13 +283,14 @@ int main() {
 		} },
 
 		{ "sse-heap-defragments-between-feeds", []() -> void {
-			TestHeap<Memory::IncrementalDefrag<8>> heap(8192);
+			Memory::Heap<Memory::IncrementalDefrag<8>> heap(8192);
+			Memory::AllocatorOf<Memory::Heap<Memory::IncrementalDefrag<8>>> memory(heap);
 			Memory::Handle gap = heap.Allocate(8);
 			Memory::Handle live = heap.Allocate(64);
 			heap.Deallocate(gap);
 			void *before = live.Data();
 
-			ServerSentEvents parser(heap, 4096);
+			ServerSentEvents parser(memory, 4096);
 			Recorder recorder;
 			parser.onEvent = EventDelegate::Bind<Recorder, &Recorder::OnEvent>(&recorder);
 

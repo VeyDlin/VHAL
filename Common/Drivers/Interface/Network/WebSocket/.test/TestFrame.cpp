@@ -1,7 +1,7 @@
 // Byte-exact WebSocket client tests against a scripted socket: handshake, framing, masking, fragmentation, control
-// frames, the close handshake, every protocol error from the brief, send-side fragmentation and the allocator path.
+// frames, the close handshake, every protocol error, send-side fragmentation and the allocator path.
 #include "ScriptedSocket.h"
-#include <TestHeap.h>
+#include <Utilities/Memory/IAllocator.h>
 #include <VhalCheck.h>
 #include <Drivers/Interface/Network/WebSocket/WebSocketClient.h>
 #include <Utilities/Encoding/Base/Base64.h>
@@ -21,14 +21,15 @@ static const char kDefaultHead[] =
 struct Harness {
 	ScriptedSocket socket;
 	TestRandom random;
-	TestHeap<Memory::IncrementalDefrag<8>> memory;
+	Memory::Heap<Memory::IncrementalDefrag<8>> heap;
+	Memory::AllocatorOf<Memory::Heap<Memory::IncrementalDefrag<8>>> memory;
 	WebSocketClient client;
 	std::vector<std::string> texts;
 	std::vector<std::vector<uint8>> binaries;
 	std::vector<std::pair<uint16, std::string>> closes;
 
 
-	explicit Harness(size_t heapBytes = 262144) : memory(heapBytes), client(socket, memory) {
+	explicit Harness(size_t heapBytes = 262144) : heap(heapBytes), memory(heap), client(socket, memory) {
 		socket.answerHandshake = true;
 		socket.handshakeHead = kDefaultHead;
 		client.onText = [this](std::string_view text) {
@@ -815,20 +816,20 @@ static void MessageBufferSurvivesDefragmentationBetweenFragments() {
 	ConnectOk(h);
 
 	// Live blocks around a hole make the defragmenter move the message buffer when it runs.
-	Memory::Handle first = h.memory.Allocate(300);
-	Memory::Handle second = h.memory.Allocate(300);
-	h.memory.Deallocate(first);
-	VHAL_CHECK(h.memory.FragmentationPercent() > 0);
+	Memory::Handle first = h.heap.Allocate(300);
+	Memory::Handle second = h.heap.Allocate(300);
+	h.heap.Deallocate(first);
+	VHAL_CHECK(h.heap.FragmentationPercent() > 0);
 
 	std::string part1(1000, 'a');
 	std::string part2(1000, 'b');
 	std::string part3(500, 'c');
 	h.socket.Queue(ServerFrame(false, 0x2, Bytes(part1)));
 	VHAL_CHECK_EQ(h.client.Poll(0), ResultStatus::ok);
-	h.memory.Defragment();
+	h.heap.Defragment();
 	h.socket.Queue(ServerFrame(false, 0x0, Bytes(part2)));
 	VHAL_CHECK_EQ(h.client.Poll(0), ResultStatus::ok);
-	h.memory.Defragment();
+	h.heap.Defragment();
 	h.socket.Queue(ServerFrame(true, 0x0, Bytes(part3)));
 	VHAL_CHECK_EQ(h.client.Poll(0), ResultStatus::ok);
 
@@ -838,22 +839,22 @@ static void MessageBufferSurvivesDefragmentationBetweenFragments() {
 		VHAL_CHECK(std::string(h.binaries[0].begin(), h.binaries[0].end()) == expected);
 	}
 
-	h.memory.Deallocate(second);
+	h.heap.Deallocate(second);
 }
 
 
 static void MessagesAcrossDefragmentationAreDeliveredIntact() {
 	Harness h;
 	ConnectOk(h);
-	Memory::Handle keep = h.memory.Allocate(64);
+	Memory::Handle keep = h.heap.Allocate(64);
 	for (int round = 0; round < 20; round++) {
-		Memory::Handle hole = h.memory.Allocate(200 + round * 17);
+		Memory::Handle hole = h.heap.Allocate(200 + round * 17);
 		h.socket.Queue(ServerFrame(true, 0x1, Bytes("message " + std::to_string(round))));
 		h.socket.Queue(ServerFrame(true, 0x2, std::vector<uint8>(100 + round, static_cast<uint8>(round))));
 		// Poll(100) drains everything queued: with a fixed clock, Poll keeps reading until the socket runs dry.
 		VHAL_CHECK_EQ(h.client.Poll(100), ResultStatus::ok);
-		h.memory.Deallocate(hole);
-		h.memory.Defragment();
+		h.heap.Deallocate(hole);
+		h.heap.Defragment();
 	}
 
 	VHAL_CHECK_EQ(h.texts.size(), 20);
@@ -861,7 +862,7 @@ static void MessagesAcrossDefragmentationAreDeliveredIntact() {
 	if (h.texts.size() == 20) {
 		VHAL_CHECK_EQ(h.texts[19], "message 19");
 	}
-	h.memory.Deallocate(keep);
+	h.heap.Deallocate(keep);
 }
 
 
