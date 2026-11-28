@@ -90,7 +90,7 @@ static Result<std::size_t> Decode(std::span<const uint8> in, std::span<uint8> ou
 static Result<std::size_t> Decode(std::span<uint8> frame);
 ```
 
-The first overload decodes the frame `in` into `out` and returns the packet length. The zero delimiter must be the last byte of `in`; the frame is the whole input.
+The first overload decodes the frame `in` into `out` and returns the packet length. The zero delimiter must be the last byte of `in`; the frame is the whole input. A zero byte before the first block is ignored, so `Decode` of `00 01 00` gives the empty packet.
 
 The second overload decodes in place. The packet is written from the start of `frame`, and its length is returned. The packet never catches up with the bytes still to be read, so the in-place form is safe.
 
@@ -135,7 +135,7 @@ for (uint8 byte : received) {
 |---|---|---|
 | `Encode` | `messageTooLong` | `out` is smaller than `EncodedSize(in.size())`. |
 | `Decode` | `invalidArgument` | `in` is empty. |
-| `Decode` | `dataCorrupted` | The frame has no delimiter, a zero comes before the last byte, or a block runs into the delimiter. |
+| `Decode` | `dataCorrupted` | The frame has no delimiter, a block runs into the delimiter, or a zero byte that ends the frame comes before the last byte of `in`. A zero byte before the first block is ignored and does not count. |
 | `Decode` | `bufferOverflow` | The packet is longer than `out`. |
 
 COBS has no check of its own. A damaged frame can decode to a different packet of the same length. The integrity of the payload needs a check above the codec.
