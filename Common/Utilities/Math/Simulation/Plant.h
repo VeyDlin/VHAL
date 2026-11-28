@@ -614,28 +614,27 @@ public:
 
 
 	// The block of a kind in the chain. Each kind is in the chain at most once, so Get<Pmsm>() names the motor.
+	// The block of a kind in the chain. It exists only when the chain has that block once.
 	template<template<std::floating_point> class Block>
-	Block<Real>& Get() {
-		static_assert(Chain::template Count<Block<Real>>() == 1, "Simulation: the chain has no such block");
+	Block<Real>& Get() requires (Chain::template Count<Block<Real>>() == 1) {
 		return chain.template Get<Block<Real>>();
 	}
 
 
-	// The road load of the chain. Its block is named, so that its absence has a message.
-	Simulation::RoadLoad<Real>& Road() {
-		static_assert(roadCount == 1, "Simulation: the chain has no Road block");
+	// The road load of the chain. It exists only when the chain has a RoadLoad.
+	Simulation::RoadLoad<Real>& Road() requires (roadCount == 1) {
 		return chain.template Get<Simulation::RoadLoad<Real>>();
 	}
 
 
-	Simulation::Encoder<Real>& EncoderBlock() {
-		static_assert(encoderCount == 1, "Simulation: the chain has no Encoder block");
+	// The encoder of the chain. It exists only when the chain has an Encoder.
+	Simulation::Encoder<Real>& EncoderBlock() requires (encoderCount == 1) {
 		return chain.template Get<Simulation::Encoder<Real>>();
 	}
 
 
-	Simulation::CurrentSense<Real>& CurrentSenseBlock() {
-		static_assert(senseCount == 1, "Simulation: no phase current: the chain has no CurrentSense block");
+	// The phase-current sense of the chain. It exists only when the chain has a CurrentSense.
+	Simulation::CurrentSense<Real>& CurrentSenseBlock() requires (senseCount == 1) {
 		return chain.template Get<Simulation::CurrentSense<Real>>();
 	}
 

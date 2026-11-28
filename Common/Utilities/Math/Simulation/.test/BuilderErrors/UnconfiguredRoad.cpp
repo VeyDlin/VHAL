@@ -1,4 +1,4 @@
-// expect: the chain has no Road block
+// expect: no matching function
 #include <Utilities/Math/Simulation/Motors/Pmsm.h>
 #include <Utilities/Math/Simulation/Mechanics/Rotor.h>
 #include <Utilities/Math/Simulation/Plant.h>
