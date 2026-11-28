@@ -181,10 +181,10 @@ void LengthsTakeTheSlotSize() {
 
 
 void ExternalArraysInCallerLocked() {
-	// Four bytes per slot, two packets: three slots of bytes, lengths and flags.
-	uint8 bytesMemory[12] = {};
-	uint8 lengthMemory[3] = {};
-	uint8 flagMemory[3] = {};
+	// Four bytes per slot and two slots: the memory of the bytes, the lengths and the flags holds the two slots and no more.
+	uint8 bytesMemory[8] = {};
+	uint8 lengthMemory[2] = {};
+	uint8 flagMemory[2] = {};
 
 	PacketQueue<4, 2, Memory::External, RingAccess::callerLocked> queue{
 		std::span<uint8>(bytesMemory),
@@ -197,7 +197,7 @@ void ExternalArraysInCallerLocked() {
 	VHAL_CHECK_EQ(flagMemory[0], static_cast<uint8>(0x03));
 	VHAL_CHECK_EQ(bytesMemory[1], static_cast<uint8>(8));
 
-	uint8 shortBytes[11] = {};
+	uint8 shortBytes[7] = {};
 	PacketQueue<4, 2, Memory::External, RingAccess::callerLocked> notReady{
 		std::span<uint8>(shortBytes),
 		std::span<uint8>(lengthMemory),

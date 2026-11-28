@@ -12,8 +12,9 @@
 
 
 // A queue of Slots packets. Each packet is at most SlotBytes bytes long, and each slot keeps the length of its packet and a flags byte.
-// The length is uint8 when SlotBytes is 255 or less, and uint16 otherwise. The queue holds Slots packets in every mode. Its indexes are
-// RingIndexes, which leave one slot empty, so each of its three arrays holds Slots + 1 entries: Memory::External needs that many.
+// The length is uint8 when SlotBytes is 255 or less, and uint16 otherwise. The queue holds Slots packets in every mode. The locked and
+// callerLocked modes keep a read index and a count, so their three arrays hold Slots entries each. The singleWriter mode keeps head and
+// tail indexes (RingIndexes), which leave one slot empty, so its arrays hold Slots + 1 entries: Memory::External needs that many.
 //
 // Access works as for RingBuffer: locked takes a critical section for each access, singleWriter has one producer (Push) and one
 // consumer (every other member except the counts), and callerLocked leaves the serialization to the caller.
@@ -24,20 +25,18 @@ template <std::size_t SlotBytes, uint16 Slots, typename Policy = Memory::Inside,
 class PacketQueue {
 	static_assert(SlotBytes > 0, "PacketQueue with slots of 0 bytes are forbidden");
 	static_assert(Slots > 0, "PacketQueue with 0 slots is forbidden");
-	static_assert(Slots < std::numeric_limits<uint16>::max(), "PacketQueue keeps Slots + 1 indexes: Slots must be below 65535");
+	static_assert(
+		Access != RingAccess::singleWriter || Slots < std::numeric_limits<uint16>::max(),
+		"A singleWriter PacketQueue keeps Slots + 1 indexes: Slots must be below 65535");
 
 
 private:
 	using LengthType = std::conditional_t<(SlotBytes <= 255), uint8, uint16>;
+	using Cursor = RingCursor<Access == RingAccess::singleWriter>;
 
 	static constexpr bool isLocked = Access == RingAccess::locked;
-	static constexpr uint16 slotCount = static_cast<uint16>(Slots + 1);
+	static constexpr uint16 slotCount = Cursor::SlotCount(Slots);
 	static constexpr std::size_t storageSlots = static_cast<std::size_t>(slotCount);
-
-	static constexpr std::memory_order publishOrder =
-		Access == RingAccess::singleWriter ? std::memory_order_release : std::memory_order_relaxed;
-	static constexpr std::memory_order observeOrder =
-		Access == RingAccess::singleWriter ? std::memory_order_acquire : std::memory_order_relaxed;
 
 	using ByteStorage = typename Policy::template Storage<uint8, storageSlots * SlotBytes>;
 	using LengthStorage = typename Policy::template Storage<LengthType, storageSlots>;
@@ -46,10 +45,9 @@ private:
 	ByteStorage bytes;
 	LengthStorage lengths;
 	FlagStorage flags;
-	RingIndexes indexes;
+	Cursor cursor;
 
 
-private:
 	bool Ready() const {
 		return bytes.Ready() && lengths.Ready() && flags.Ready();
 	}
@@ -58,24 +56,6 @@ private:
 	// The packet of a slot, in place. The slot must hold a packet.
 	std::span<const uint8> PacketAt(uint16 slot) const {
 		return std::span<const uint8>(bytes.Data() + static_cast<std::size_t>(slot) * SlotBytes, lengths.Data()[slot]);
-	}
-
-
-	// The slot of the oldest packet.
-	uint16 ReadSlot() const {
-		return indexes.tail.load(std::memory_order_relaxed);
-	}
-
-
-	// The slot where the next packet goes.
-	uint16 WriteSlot() const {
-		return indexes.head.load(std::memory_order_relaxed);
-	}
-
-
-	// Releases count packets from the front. The packets must be read first.
-	void Consume(uint16 count) {
-		indexes.tail.store(RingIndexes::Advance(ReadSlot(), count, slotCount), publishOrder);
 	}
 
 
@@ -106,8 +86,8 @@ public:
 		: bytes(std::move(other.bytes))
 		, lengths(std::move(other.lengths))
 		, flags(std::move(other.flags))
-		, indexes(other.indexes) {
-		other.indexes.Reset();
+		, cursor(other.cursor) {
+		other.cursor.Reset();
 	}
 
 
@@ -116,20 +96,17 @@ public:
 			bytes = std::move(other.bytes);
 			lengths = std::move(other.lengths);
 			flags = std::move(other.flags);
-			indexes = other.indexes;
-			other.indexes.Reset();
+			cursor = other.cursor;
+			other.cursor.Reset();
 		}
 
 		return *this;
 	}
 
 
-	// The memory of the three arrays, for Memory::External: bytes for (Slots + 1) * SlotBytes bytes, lengths and flags for Slots + 1
-	// entries each.
+	// The memory of the three arrays, for Memory::External: bytes for slots * SlotBytes bytes, and lengths and flags for slots entries
+	// each, where slots is Slots, or Slots + 1 in singleWriter mode.
 	template <typename BytesArgument, typename LengthsArgument, typename FlagsArgument>
-		requires(
-			std::constructible_from<ByteStorage, BytesArgument> && std::constructible_from<LengthStorage, LengthsArgument>
-			&& std::constructible_from<FlagStorage, FlagsArgument>)
 	PacketQueue(BytesArgument&& bytesArgument, LengthsArgument&& lengthsArgument, FlagsArgument&& flagsArgument)
 		: bytes(std::forward<BytesArgument>(bytesArgument))
 		, lengths(std::forward<LengthsArgument>(lengthsArgument))
@@ -153,11 +130,11 @@ public:
 			return ResultStatus::busy;
 		}
 
-		uint16 head = WriteSlot();
+		uint16 head = cursor.WriteSlot(Slots);
 		std::copy(packet.begin(), packet.end(), bytes.Data() + static_cast<std::size_t>(head) * SlotBytes);
 		lengths.Data()[head] = static_cast<LengthType>(packet.size());
 		flags.Data()[head] = packetFlags;
-		indexes.head.store(RingIndexes::Next(head, slotCount), publishOrder);
+		cursor.Produce(Slots, 1);
 		LeaveSection();
 
 		return ResultStatus::ok;
@@ -172,7 +149,7 @@ public:
 			return ResultStatus::empty;
 		}
 
-		uint16 slot = ReadSlot();
+		uint16 slot = cursor.ReadSlot();
 		packet = PacketAt(slot);
 		packetFlags = flags.Data()[slot];
 		LeaveSection();
@@ -189,7 +166,7 @@ public:
 			return ResultStatus::outOfRange;
 		}
 
-		uint16 slot = RingIndexes::Advance(ReadSlot(), index, slotCount);
+		uint16 slot = Cursor::Advance(cursor.ReadSlot(), index, slotCount);
 		packet = PacketAt(slot);
 		packetFlags = flags.Data()[slot];
 		LeaveSection();
@@ -206,7 +183,7 @@ public:
 			return ResultStatus::empty;
 		}
 
-		Consume(1);
+		cursor.Consume(Slots, 1);
 		LeaveSection();
 
 		return ResultStatus::ok;
@@ -218,7 +195,7 @@ public:
 		EnterSection();
 		uint16 available = Count();
 		uint16 dropped = count < available ? count : available;
-		Consume(dropped);
+		cursor.Consume(Slots, dropped);
 		LeaveSection();
 
 		return dropped;
@@ -226,50 +203,50 @@ public:
 
 
 	// Drops every packet whose flags have the flag bit, and keeps the others in their order, each shifted down to the first free slot.
-	// Returns how many were dropped. It writes the head, which the producer owns, so it exists in locked and callerLocked mode only. It
-	// reads the head once, and a push during the call would be lost: locked mode holds the critical section across the call, and
-	// callerLocked requires the caller to serialize the accesses.
+	// Returns how many were dropped. It writes the count, which the producer owns in singleWriter mode, so it exists in locked and
+	// callerLocked mode only. It reads the queue state once, and a push during the call would be lost: locked mode holds the critical
+	// section across the call, and callerLocked requires the caller to serialize the accesses.
 	uint16 DropFlagged(uint8 flag) {
 		static_assert(
 			Access != RingAccess::singleWriter,
 			"PacketQueue::DropFlagged writes the head, which the producer owns in singleWriter mode: the consumer drops with Drop(count)");
 
 		EnterSection();
-		uint16 head = indexes.head.load(std::memory_order_relaxed);
-		uint16 readSlot = indexes.tail.load(std::memory_order_relaxed);
+		uint16 held = cursor.Size(Slots);
+		uint16 readSlot = cursor.ReadSlot();
 		uint16 writeSlot = readSlot;
-		uint16 dropped = 0;
+		uint16 slot = readSlot;
+		uint16 kept = 0;
 
-		while (readSlot != head) {
-			if ((flags.Data()[readSlot] & flag) != 0) {
-				dropped++;
-			} else {
-				if (writeSlot != readSlot) {
-					LengthType length = lengths.Data()[readSlot];
+		for (uint16 index = 0; index < held; index++) {
+			if ((flags.Data()[slot] & flag) == 0) {
+				if (writeSlot != slot) {
+					LengthType length = lengths.Data()[slot];
 					std::copy_n(
-						bytes.Data() + static_cast<std::size_t>(readSlot) * SlotBytes,
+						bytes.Data() + static_cast<std::size_t>(slot) * SlotBytes,
 						length,
 						bytes.Data() + static_cast<std::size_t>(writeSlot) * SlotBytes);
 					lengths.Data()[writeSlot] = length;
-					flags.Data()[writeSlot] = flags.Data()[readSlot];
+					flags.Data()[writeSlot] = flags.Data()[slot];
 				}
 
-				writeSlot = RingIndexes::Next(writeSlot, slotCount);
+				writeSlot = Cursor::Advance(writeSlot, 1, slotCount);
+				kept++;
 			}
 
-			readSlot = RingIndexes::Next(readSlot, slotCount);
+			slot = Cursor::Advance(slot, 1, slotCount);
 		}
 
-		indexes.head.store(writeSlot, publishOrder);
+		cursor.SetCount(kept);
 		LeaveSection();
 
-		return dropped;
+		return static_cast<uint16>(held - kept);
 	}
 
 
 	// The number of packets held.
 	uint16 Count() const {
-		return RingIndexes::Held(indexes.head.load(observeOrder), indexes.tail.load(observeOrder), slotCount);
+		return cursor.Size(Slots);
 	}
 
 
@@ -290,7 +267,7 @@ public:
 			"PacketQueue::Clear is not offered in singleWriter mode: the consumer empties the queue with Drop(Count())");
 
 		EnterSection();
-		indexes.Reset();
+		cursor.Reset();
 		LeaveSection();
 	}
 };

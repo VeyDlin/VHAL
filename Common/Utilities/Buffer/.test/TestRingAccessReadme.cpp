@@ -92,10 +92,10 @@ void PacketQueueDropFlagged() {
 
 
 void PacketQueueExternal() {
-	// Eight slots of 64 bytes are held, so the memory needs nine slots: 9 * 64 bytes, and nine entries of lengths and flags.
-	uint8 bytes[9 * 64] = {};
-	uint8 lengths[9] = {};
-	uint8 flags[9] = {};
+	// Eight slots of 64 bytes are held, so the memory needs eight slots: 8 * 64 bytes, and eight entries of lengths and flags.
+	uint8 bytes[8 * 64] = {};
+	uint8 lengths[8] = {};
+	uint8 flags[8] = {};
 
 	PacketQueue<64, 8, Memory::External, RingAccess::callerLocked> queue{
 		std::span<uint8>(bytes),

@@ -141,7 +141,7 @@ void NonLockedModesTakeNoSection() {
 
 
 template <RingAccess Access>
-void ExternalNeedsNPlusOneInNonLockedModes() {
+void ExternalNeedsNPlusOne() {
 	constexpr uint16 capacity = 4;
 	uint8 memory[capacity + 1] = {};
 
@@ -168,6 +168,22 @@ void ExternalLockedNeedsOnlyN() {
 	RingBuffer<uint8, capacity, Memory::External, RingAccess::locked> ring(std::span<uint8>(memory, capacity));
 	VHAL_CHECK_EQ(ring.Push(static_cast<uint8>(9)), ResultStatus::ok);
 	VHAL_CHECK_EQ(*ring.Front(), static_cast<uint8>(9));
+}
+
+
+// A callerLocked ring keeps the read index and the count of a locked ring, so N elements of memory are enough. Memory of N - 1 elements
+// is not.
+void ExternalCallerLockedNeedsOnlyN() {
+	constexpr uint16 capacity = 4;
+	uint8 memory[capacity] = {};
+	uint8 shortMemory[capacity - 1] = {};
+
+	RingBuffer<uint8, capacity, Memory::External, RingAccess::callerLocked> ring(std::span<uint8>(memory, capacity));
+	VHAL_CHECK_EQ(ring.Push(static_cast<uint8>(9)), ResultStatus::ok);
+	VHAL_CHECK_EQ(*ring.Front(), static_cast<uint8>(9));
+
+	RingBuffer<uint8, capacity, Memory::External, RingAccess::callerLocked> shortRing(std::span<uint8>(shortMemory, capacity - 1));
+	VHAL_CHECK_EQ(shortRing.Push(static_cast<uint8>(9)), ResultStatus::notReady);
 }
 
 
@@ -221,9 +237,9 @@ int main() {
 	NonLockedModesTakeNoSection<RingAccess::singleWriter>();
 	NonLockedModesTakeNoSection<RingAccess::callerLocked>();
 
-	ExternalNeedsNPlusOneInNonLockedModes<RingAccess::singleWriter>();
-	ExternalNeedsNPlusOneInNonLockedModes<RingAccess::callerLocked>();
+	ExternalNeedsNPlusOne<RingAccess::singleWriter>();
 	ExternalLockedNeedsOnlyN();
+	ExternalCallerLockedNeedsOnlyN();
 
 	LargestCapacityWraps();
 
