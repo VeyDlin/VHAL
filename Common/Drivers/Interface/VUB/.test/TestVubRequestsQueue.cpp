@@ -11,6 +11,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <mutex>
 #include <optional>
@@ -287,6 +288,15 @@ void Tick(StackType& stack, uint32 stepUs) {
 }
 
 
+// A wait that cannot end (a defect) stops the program at once: the run fails with this message and does not hang.
+[[noreturn]] void StopOnHang(const char* what) {
+	std::printf("FAILED, the run stopped: %s\n", what);
+	// _Exit does not flush, and stdout is a pipe under CTest
+	std::fflush(stdout);
+	std::_Exit(1);
+}
+
+
 // The requests of the wire: a REQUEST packet has its kind, its command id, its number and its tag.
 bool IsRequestOf(const std::vector<uint8>& packet, uint8 kind, uint8 id, uint16 number) {
 	return packet.size() >= RequestWire::RequestHeader && packet[0] == kind && packet[1] == id && VUB::GetLe16(packet.data() + 2) == number;
@@ -444,6 +454,10 @@ void TestAbandonedAwaitLeavesTheQueue() {
 	while (returned.load() == false && limit.Passed() == false) {
 		System::tickLow = System::tickLow + 100u;
 		std::this_thread::yield();
+	}
+
+	if (returned.load() == false) {
+		StopOnHang("Await did not give up at its limit");
 	}
 
 	waiter.join();
