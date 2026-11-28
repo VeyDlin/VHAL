@@ -1,11 +1,12 @@
 ﻿#pragma once
-#include <VHAL.h>
+#include <Utilities/DataTypes.h>
+#include <System/System.h>
 #include <array>
 #include <cstddef>
+#include <cstring>
 #include <span>
-#include <utility>
 #include <type_traits>
-#include <cassert>
+#include <utility>
 
 
 // The byte order of a multi-byte value, in memory or on a wire. It is the one byte order of VHAL.
