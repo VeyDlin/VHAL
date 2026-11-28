@@ -3,7 +3,7 @@
 #
 # - a package.json: npm run <VHAL_TOOL_SCRIPT, default test>, skipped when npm is absent. The script never runs npm ci or any download.
 #   When VHAL_TOOL_PREPARE names an npm script, that script runs first, when a g++ is on the PATH (the tests of a device simulator need
-#   it). When that script fails, the tests are skipped with the VHAL_SKIP: marker and its output is kept in the log.
+#   it). When that script fails, the test fails: a g++ is present, so the failure is an error of the code it builds.
 # - a project or solution file: dotnet test, skipped when dotnet is absent.
 # - a CMakeLists.txt: the tool is configured and built in .test-build/tools/<folder path>, with the generator and the host compiler
 #   of the main build (read from its cache). The tool is built with VHAL_TOOL_TEST set to ON, so that it never downloads a library
@@ -23,8 +23,8 @@ if(EXISTS "${VHAL_TOOL_DIR}/package.json")
   endif()
 
   # The npm script that prepares the tests (a device simulator, for one) runs when a g++ is on the PATH, because the simulator is built
-  # with it. Without one the tests that need the simulator skip themselves. When the script fails, the tests that need its output
-  # cannot run, so the test is skipped with the marker; the compiler's errors are in the log above it.
+  # with it. Without one the tests that need the simulator skip themselves. When the script fails with a g++ present, the code it
+  # builds has an error, so the test fails; the compiler's errors are in the log above the message.
   if(VHAL_TOOL_PREPARE)
     find_program(vhalGxx NAMES g++ g++.exe)
     if(vhalGxx)
@@ -33,8 +33,7 @@ if(EXISTS "${VHAL_TOOL_DIR}/package.json")
         WORKING_DIRECTORY "${VHAL_TOOL_DIR}"
         RESULT_VARIABLE prepareResult)
       if(NOT prepareResult EQUAL 0)
-        message("VHAL_SKIP: npm run ${VHAL_TOOL_PREPARE} failed in ${VHAL_TOOL_DIR} (${prepareResult}): the tests were not run")
-        return()
+        message(FATAL_ERROR "npm run ${VHAL_TOOL_PREPARE} failed in ${VHAL_TOOL_DIR} (${prepareResult})")
       endif()
     endif()
   endif()

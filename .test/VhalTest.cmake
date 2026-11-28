@@ -30,7 +30,7 @@
 # vhal_tool_test(<dir> [NAME <name>] [SCRIPT <npm script>] [PREPARE <npm script>])
 #     runs the tests of a counterpart program in the .tool folder: npm run test (or SCRIPT) for a package.json, dotnet test for a
 #     project file, and the CTest tests of a CMakeLists.txt. The test is skipped when its tool is absent. PREPARE names an npm script
-#     that runs before the tests when a g++ is on the PATH (a device simulator is built that way); when it fails, the test is skipped.
+#     that runs before the tests when a g++ is on the PATH (a device simulator is built that way); when it fails, the test fails.
 #     The test is named <module label>.tool for the module's .tool folder, and <module label>.tool.<sub folder> below it. NAME adds
 #     a last part, so that one folder can have a second test, such as the end-to-end suite of a package.json (SCRIPT test:e2e).
 
