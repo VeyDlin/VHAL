@@ -361,9 +361,9 @@ if (JSON::GetString(delta, "content", std::span(text), textLength)) {
 A transcript event works the same way. Top-level keys are read with the same calls, and array elements by index:
 
 ```cpp
-// {"type":"sample.partial","text":"Привет, мир, как дела?",
-//  "words":[{"text":"Привет,","start":0.021,"end":0.442},{"text":"мир","start":0.784,"end":1.105}],
-//  "is_final":true,"speech_final":false,"start":0.001,"duration":2.549,"language":"ru"}
+// {"type":"sample.partial","text":"Hello, world, how are you?",
+//  "words":[{"text":"Hello,","start":0.021,"end":0.442},{"text":"world,","start":0.784,"end":1.105}],
+//  "is_final":true,"speech_final":false,"start":0.001,"duration":2.549,"language":"en"}
 bool speechFinal = true;
 JSON::GetBool(json, "speech_final", speechFinal);  // false
 
