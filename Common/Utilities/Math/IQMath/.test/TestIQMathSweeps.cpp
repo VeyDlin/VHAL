@@ -85,6 +85,21 @@ void CheckAtan2DoubleSweep() {
 }
 
 
+// The exponential over the top of the Q16 range, where the result is largest and must stay positive and within 1 % of the double.
+void CheckExpTopOfRange() {
+	for (int i = 0; i <= 1000; ++i) {
+		Q16 x = Q16::FromFloat(static_cast<float>(9.0 + i * 0.0013));
+		Q16 value = exp(x);
+		double reference = std::exp(ToDoubleValue(x));
+		bool ok = value.raw > 0 && std::fabs(ToDoubleValue(value) - reference) <= 0.01 * reference;
+		VHAL_CHECK(ok);
+		if (!ok) {
+			return;
+		}
+	}
+}
+
+
 void CheckCeilFloorNegative() {
 	Q16 value(-1.5);
 	VHAL_CHECK(floor(value).ToFloat() == -2.0f);
@@ -121,6 +136,7 @@ int main() {
 	CheckDivideDoubleSweep();
 	CheckSqrtDoubleSweep();
 	CheckAtan2DoubleSweep();
+	CheckExpTopOfRange();
 	CheckCeilFloorNegative();
 	CheckToIntegerSaturates();
 	CheckFormatConversionSaturates();
