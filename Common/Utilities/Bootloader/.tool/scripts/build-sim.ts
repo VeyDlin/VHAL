@@ -20,6 +20,8 @@ const compilerArgs: string[] = [
     "-I",
     path.join(simDir, "shim"),
     "-I",
+    path.join(vhalDir, ".test", "shim"),
+    "-I",
     path.join(vhalDir, "Common"),
     "-I",
     path.join(vhalDir, "Periphery"),

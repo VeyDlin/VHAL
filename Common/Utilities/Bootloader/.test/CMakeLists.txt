@@ -1,13 +1,14 @@
-# The unit tests of the bootloader run against the unit shim, which comes first: it replaces VHAL.h with a simulated clock and an
-# in-memory flash. Periphery supplies System/System.h. The AES source is linked in: the bootloader's encrypted modes call it.
+# The unit tests of the bootloader run against the shim of this folder, which comes first: it replaces VHAL.h with an in-memory flash
+# and takes its System functions from the shared VhalSystem.h. Periphery supplies System/System.h. The AES source is linked in: the
+# bootloader's encrypted modes call it.
 #
-# The device simulator of the bootloader CLI is the stand-in that the CLI's end-to-end tests run. The CLI's own test suite runs with
-# npm test in the .tool folder, after npm run sim:build has built the simulator (.test/build) with g++.
+# The device simulator of the bootloader CLI uses the same shim (see main.cpp). The CLI's own test suite runs with npm test in the
+# .tool folder, after npm run sim:build has built the simulator (.test/build) with g++.
 
 vhal_test(
   unit/TestAesBootloader.cpp
   INCLUDES
-    unit/shim
+    shim
     "${VHAL_ROOT}/Periphery"
     "${VHAL_ROOT}/Common"
   SOURCES
@@ -16,7 +17,7 @@ vhal_test(
 vhal_test(
   unit/TestBootloaderFlash.cpp
   INCLUDES
-    unit/shim
+    shim
     "${VHAL_ROOT}/Periphery"
     "${VHAL_ROOT}/Common"
   SOURCES
@@ -25,7 +26,7 @@ vhal_test(
 vhal_test(
   unit/TestBootloaderProtocol.cpp
   INCLUDES
-    unit/shim
+    shim
     "${VHAL_ROOT}/Periphery"
     "${VHAL_ROOT}/Common"
   SOURCES
