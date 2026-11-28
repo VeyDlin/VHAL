@@ -21,8 +21,9 @@ int main() {
 	const double uniformMean = uniformSum / static_cast<double>(samples);
 	const double uniformVariance = uniformSquares / static_cast<double>(samples) - uniformMean * uniformMean;
 
-	// U(0, 1): mean 1/2, variance 1/12.
-	VHAL_CHECK_NEAR(uniformMean, 0.5, 0.003);
+	// U(0, 1): mean 1/2, variance 1/12. The standard error of the mean is sqrt(1/12 / N) = 6.5e-4, and that of the variance estimate
+	// is sqrt((mu4 - sigma^4) / N) = 1.7e-4 with mu4 = 1/80 (both with N = 200000). The tolerances are six of each.
+	VHAL_CHECK_NEAR(uniformMean, 0.5, 0.004);
 	VHAL_CHECK_NEAR(uniformVariance, 1.0 / 12.0, 0.001);
 
 	Simulation::Noise gaussian(777);
@@ -39,7 +40,8 @@ int main() {
 	const double gaussianMean = gaussianSum / static_cast<double>(samples);
 	const double gaussianVariance = gaussianSquares / static_cast<double>(samples) - gaussianMean * gaussianMean;
 
-	// Mean 0, variance sigma^2: the standard error of the mean is sigma / sqrt(N) = 0.0011, of the variance about 0.0008.
+	// Mean 0, variance sigma^2: the standard error of the mean is sigma / sqrt(N) = 0.0011, and that of the variance estimate is
+	// sigma^2 sqrt(2 / N) = 0.0008. The tolerances are about six of each.
 	VHAL_CHECK_NEAR(gaussianMean, 0.0, 0.007);
 	VHAL_CHECK_NEAR(gaussianVariance, sigma * sigma, 0.005);
 

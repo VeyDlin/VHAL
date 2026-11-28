@@ -122,7 +122,8 @@ void CheckMagneticNoise() {
 	const double variance = squares / static_cast<double>(periods) - mean * mean;
 	const double sigma = 0.5 * Simulation::Pi<double>() / 180.0;
 
-	// The standard errors are sigma / sqrt(N) = 6e-5 for the mean and 0.5 percent of sigma^2 for the variance.
+	// The standard error of the mean is sigma / sqrt(N) = 6.2e-5, so the tolerance of 4e-4 is about six of them. The standard error of
+	// the variance estimate is sigma^2 sqrt(2 / N) = 1 percent of sigma^2, so the tolerance of 3 percent is three of them.
 	VHAL_CHECK_NEAR(mean, 0.0, 4.0e-4);
 	VHAL_CHECK_NEAR(variance, sigma * sigma, 0.03 * sigma * sigma);
 }

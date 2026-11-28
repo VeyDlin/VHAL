@@ -117,7 +117,9 @@ void CheckTorque() {
 }
 
 
-// RK4 order four on the electrical step: the error at one time constant falls by about 16 when the step is halved.
+// RK4 order four on the electrical step: the error at one time constant falls by 16 when the step is halved. The error is
+// C h^4 (1 + O(R h / L)): the first correction is of relative order R h / Ld, which is 0.02 at the coarse step (h = tau / 50 with
+// tau = L / R), so the ratio is 16 within 0.5.
 void CheckOrder() {
 	const double expected = (1.0 / 0.5) * (1.0 - std::exp(-1.0));
 	double errors[2] = { 0.0, 0.0 };
@@ -137,13 +139,15 @@ void CheckOrder() {
 
 	VHAL_CHECK(errors[0] > 0.0);
 	VHAL_CHECK(errors[1] > 0.0);
-	VHAL_CHECK_NEAR(errors[0] / errors[1], 16.0, 1.0);
+	VHAL_CHECK_NEAR(errors[0] / errors[1], 16.0, 0.5);
 }
 
 
-// Energy balance on a random-like trajectory: the input power 1.5 (vd id + vq iq) equals the copper loss 1.5 Rs (id^2 + iq^2)
-// plus the mechanical power Te wm plus the rate of the stored energy W = 0.75 (Ld id^2 + Lq iq^2), over a window of 10 ms.
-// The tolerance is 1e-3 of the input energy.
+// Energy balance on a driven trajectory: the input power 1.5 (vd id + vq iq) equals the copper loss 1.5 Rs (id^2 + iq^2) plus the
+// mechanical power Te wm plus the rate of the stored energy W = 0.75 (Ld id^2 + Lq iq^2), over a window of 10 ms.
+// The powers are integrated with the trapezoid rule over steps of h = 1e-5 s. Its error is a sum of end terms of order h^2 times
+// the rate of change of the power, so it does not grow with the window: the relative error is of order h^2 times that rate over
+// the input energy, about 4e-6 in this run (the reviewer measured 3.8e-6). The tolerance is 1e-5 of the input energy.
 void CheckEnergyBalance() {
 	const double rs = 0.5;
 	const double ld = 2.0e-3;
@@ -188,7 +192,7 @@ void CheckEnergyBalance() {
 	const double storedEnd = 0.75 * (ld * run.state[0] * run.state[0] + lq * run.state[1] * run.state[1]);
 	const double balance = inputEnergy - copperEnergy - mechanicalEnergy - (storedEnd - storedStart);
 	VHAL_CHECK(inputEnergy > 0.0);
-	VHAL_CHECK(std::fabs(balance) <= 1.0e-3 * std::fabs(inputEnergy));
+	VHAL_CHECK(std::fabs(balance) <= 1.0e-5 * std::fabs(inputEnergy));
 }
 
 

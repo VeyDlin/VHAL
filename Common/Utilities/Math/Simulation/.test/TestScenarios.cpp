@@ -53,7 +53,9 @@ double SteadySpeed(double load, double low, double high) {
 }
 
 
-// The rotor inertia of the reverse-load run: 5e-5 kg m^2, so the mechanical time constant is 0.2 s.
+// The rotor inertia of the reverse-load run: 5e-5 kg m^2. The approach to the steady speed has the effective time constant
+// J / (b + 1.5 psi^2 / Rs) = 5e-5 / (1e-4 + 1.5e-4) = 0.2 s: the back-EMF of the surface machine adds to the viscous friction
+// (the slope of the steady torque at standstill is -1.5 psi^2 / Rs).
 using Reverse = Simulation::Plant<+[] {
 	return Simulation::PlantBuilder<double>()
 		.Add<Simulation::Pmsm>(Simulation::Pmsm<double>::Parameters{ resistance, inductance, inductance, flux, 1 })
@@ -77,7 +79,7 @@ using Light = Simulation::Plant<+[] {
 }>;
 
 
-// The heavy rotor of the spin-up run: 20 times the light inertia, 1e-3 kg m^2, a mechanical time constant of 4 s.
+// The heavy rotor of the spin-up run: 20 times the light inertia, 1e-3 kg m^2, an effective time constant of 1e-3 / 2.5e-4 = 4 s.
 using Heavy = Simulation::Plant<+[] {
 	return Simulation::PlantBuilder<double>()
 		.Add<Simulation::Pmsm>(Simulation::Pmsm<double>::Parameters{ resistance, inductance, inductance, flux, 1 })
@@ -93,7 +95,7 @@ using Heavy = Simulation::Plant<+[] {
 
 int main() {
 	// Reverse load: a 10 mN m load opposes forward rotation and the 0.5 V drive gives less than that at standstill, so the rotor
-	// settles at a negative speed: the motor runs backwards. Five seconds is 25 mechanical time constants.
+	// settles at a negative speed: the motor runs backwards. Five seconds is 25 effective time constants.
 	{
 		Reverse plant;
 		plant.Get<Simulation::Pmsm>().SetVoltageCommand(0.0, voltage);
@@ -112,7 +114,7 @@ int main() {
 	}
 
 	// Heavy inertial load: the same voltage with no load. The heavy rotor rises more slowly than the light one, and both settle at
-	// the same steady speed, the root of Te(w) = b w. The heavy run is 40 s, which is 10 of its time constants.
+	// the same steady speed, the root of Te(w) = b w. The heavy run is 40 s, which is 10 effective time constants.
 	{
 		const double steady = SteadySpeed(0.0, 0.0, 200.0);
 		VHAL_CHECK(steady > 0.0);
