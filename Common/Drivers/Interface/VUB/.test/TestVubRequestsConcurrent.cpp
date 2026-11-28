@@ -1,5 +1,6 @@
 #include "Chains.h"
 #include "SimCheck.h"
+#include "WaitLimit.h"
 #include <Drivers/Interface/VUB/Layer/Reliable.h>
 #include <Drivers/Interface/VUB/Requests.h>
 #include <Drivers/Interface/VUB/Stack.h>
@@ -48,9 +49,8 @@ void System::CriticalSection(bool isEnable) {
 	if (isEnable && isWaiterThread && windowArm.load() && windowSections.fetch_add(1) + 1 == 2) {
 		windowArm.store(false);
 		windowGate.store(true);
-		uint32 spins = 0;
-		while (windowDone.load() == false && spins < 2000000u) {
-			spins++;
+		VubWait::WaitLimit limit;
+		while (windowDone.load() == false && limit.Passed() == false) {
 			std::this_thread::yield();
 		}
 	}
@@ -81,10 +81,6 @@ inline uint32 ConcurrentClock() {
 }
 
 
-// Bounds: the rounds of a wait, the spins of a worker, and the retries of a send.
-inline constexpr uint32 MaxRounds = 200000;
-inline constexpr uint32 MaxSpins = 2000000;
-inline constexpr uint32 MaxSendAttempts = 300000;
 inline constexpr std::size_t Keys = 256;
 
 
@@ -464,18 +460,20 @@ void RunRounds(ReportingPacketLine& line, NearStack& near, FarStack& far, uint32
 }
 
 
-// Runs rounds until the condition holds or maxRounds rounds have run. Returns whether the condition holds at the end.
+// Runs rounds until the condition holds. The rounds go on while the other threads make progress, and stop when the wait's real-time limit
+// (VubWait::Limit) has passed. Returns whether the condition holds at the end.
 template<typename NearStack, typename FarStack, typename Condition>
-bool RunUntil(ReportingPacketLine& line, NearStack& near, FarStack& far, uint32 stepUs, uint32 maxRounds, Condition condition) {
-	for (uint32 round = 0; round < maxRounds; round++) {
-		if (condition()) {
-			return true;
+bool RunUntil(ReportingPacketLine& line, NearStack& near, FarStack& far, uint32 stepUs, Condition condition) {
+	VubWait::WaitLimit limit;
+	while (condition() == false) {
+		if (limit.Passed()) {
+			return false;
 		}
 
 		RunRound(line, near, far, stepUs);
 	}
 
-	return condition();
+	return true;
 }
 
 
@@ -552,7 +550,8 @@ void Establish(ReportingPacketLine& line, Requester& near, FarStack& far) {
 // Sends one Command::run from another thread and retries while the table or the staging ring is busy. Returns false when the send is refused
 // for another reason, or when the retries run out.
 bool SendRunUntilAccepted(RequesterHandle handle, uint16 amount) {
-	for (uint32 attempt = 0; attempt < MaxSendAttempts; attempt++) {
+	VubWait::WaitLimit limit;
+	while (limit.Passed() == false) {
 		Result<VUB::RequestId> sent = SendRunOnce(handle, amount);
 		if (sent.IsErr() == false) {
 			return true;
@@ -657,7 +656,7 @@ void TestTwoSendersWhileRoundsRun() {
 		});
 	}
 
-	bool done = RunUntil(line, near, far, 100, MaxRounds, []() { return finalsTotal >= 120; });
+	bool done = RunUntil(line, near, far, 100, []() { return finalsTotal >= 120; });
 	for (std::thread& producer : producers) {
 		producer.join();
 	}
@@ -697,18 +696,17 @@ void TestTicketsFinishedFromAnotherThread() {
 		SIM_EXPECT(sent.IsErr() == false);
 	}
 
-	bool parked = RunUntil(line, near, far, 100, MaxRounds, []() { return ParkedRunCount() == 3; });
+	bool parked = RunUntil(line, near, far, 100, []() { return ParkedRunCount() == 3; });
 	if (parked == false) {
 		StopOnHang("the responder did not park the three requests");
 	}
 
 	std::atomic<uint32> finished{0};
 	std::thread worker([&finished]() {
-		uint32 spins = 0;
-		while (finished.load() < 3 && spins < MaxSpins) {
+		VubWait::WaitLimit limit;
+		while (finished.load() < 3 && limit.Passed() == false) {
 			std::optional<ParkedRun> taken = TakeParkedRun();
 			if (taken.has_value() == false) {
-				spins++;
 				std::this_thread::yield();
 				continue;
 			}
@@ -721,7 +719,7 @@ void TestTicketsFinishedFromAnotherThread() {
 		}
 	});
 
-	bool done = RunUntil(line, near, far, 100, MaxRounds, []() { return finalsTotal >= 3; });
+	bool done = RunUntil(line, near, far, 100, []() { return finalsTotal >= 3; });
 	worker.join();
 	RunRounds(line, near, far, 100, 5);
 	SIM_EXPECT(done);
@@ -754,7 +752,7 @@ void TestCancelFromAnotherThread() {
 	}
 
 	VUB::RequestId id = sent.Value();
-	bool parked = RunUntil(line, near, far, 100, MaxRounds, []() { return ParkedRunCount() == 1; });
+	bool parked = RunUntil(line, near, far, 100, []() { return ParkedRunCount() == 1; });
 	if (parked == false) {
 		StopOnHang("the responder did not park the request");
 	}
@@ -767,7 +765,7 @@ void TestCancelFromAnotherThread() {
 	SIM_EXPECT(firstCancel == ResultStatus::ok);
 	SIM_EXPECT(handle.Cancel<Job::Command::run>(id) == ResultStatus::ok);
 
-	bool done = RunUntil(line, near, far, 100, MaxRounds, []() { return finalsTotal >= 1; });
+	bool done = RunUntil(line, near, far, 100, []() { return finalsTotal >= 1; });
 	RunRounds(line, near, far, 100, 5);
 	SIM_EXPECT(done);
 	SIM_EXPECT(finalsTotal == 1);
@@ -794,7 +792,7 @@ void TestCancelAllFromAnotherThread() {
 		SIM_EXPECT(sent.IsErr() == false);
 	}
 
-	bool parked = RunUntil(line, near, far, 100, MaxRounds, []() { return ParkedRunCount() == 2; });
+	bool parked = RunUntil(line, near, far, 100, []() { return ParkedRunCount() == 2; });
 	if (parked == false) {
 		StopOnHang("the responder did not park the two requests");
 	}
@@ -808,7 +806,7 @@ void TestCancelAllFromAnotherThread() {
 	Result<VUB::RequestId> after = SendRunOnce(handle, 12);
 	SIM_EXPECT(after.IsErr() == false);
 
-	bool done = RunUntil(line, near, far, 100, MaxRounds, []() { return finalsTotal >= 3; });
+	bool done = RunUntil(line, near, far, 100, []() { return finalsTotal >= 3; });
 	RunRounds(line, near, far, 100, 5);
 	SIM_EXPECT(done);
 	SIM_EXPECT(finalsTotal == 3);
@@ -835,9 +833,8 @@ void TestEmitFromAnotherThread() {
 	std::atomic<uint32> emitted{0};
 	std::thread emitter([farHandle, &emitGate, &emitted]() mutable {
 		for (uint32 count = 0; count < 20; count++) {
-			uint32 spins = 0;
-			while (emitGate.load() <= count && spins < MaxSpins) {
-				spins++;
+			VubWait::WaitLimit limit;
+			while (emitGate.load() <= count && limit.Passed() == false) {
 				std::this_thread::yield();
 			}
 
@@ -847,7 +844,8 @@ void TestEmitFromAnotherThread() {
 
 			Job::JobTick tick{};
 			tick.count = count;
-			for (uint32 attempt = 0; attempt < MaxSendAttempts; attempt++) {
+			VubWait::WaitLimit sendLimit;
+			while (sendLimit.Passed() == false) {
 				if (farHandle.Emit<Job::Event::tick>(tick) == ResultStatus::ok) {
 					emitted++;
 					break;
@@ -861,7 +859,7 @@ void TestEmitFromAnotherThread() {
 	bool done = true;
 	for (uint32 count = 0; count < 20 && done; count++) {
 		emitGate.store(count + 1);
-		done = RunUntil(line, near, far, 100, MaxRounds, [count]() { return tickCount > count; });
+		done = RunUntil(line, near, far, 100, [count]() { return tickCount > count; });
 	}
 
 	emitter.join();
@@ -891,7 +889,7 @@ void TestFullTableIsBusyAndLosesNothing() {
 		SIM_EXPECT(sent.IsErr() == false);
 	}
 
-	bool parked = RunUntil(line, near, far, 100, MaxRounds, []() { return ParkedRunCount() == 4; });
+	bool parked = RunUntil(line, near, far, 100, []() { return ParkedRunCount() == 4; });
 	if (parked == false) {
 		StopOnHang("the responder did not park the four requests");
 	}
@@ -915,7 +913,7 @@ void TestFullTableIsBusyAndLosesNothing() {
 		SIM_EXPECT(request.ticket.Finish(Job::JobStatus::started, report) == ResultStatus::ok);
 	}
 
-	bool released = RunUntil(line, near, far, 100, MaxRounds, []() { return finalsTotal >= 4; });
+	bool released = RunUntil(line, near, far, 100, []() { return finalsTotal >= 4; });
 	if (released == false) {
 		StopOnHang("the four parked requests did not close after their tickets finished");
 	}
@@ -929,7 +927,7 @@ void TestFullTableIsBusyAndLosesNothing() {
 		}
 	});
 
-	bool done = RunUntil(line, near, far, 100, MaxRounds, []() { return finalsTotal >= 10; });
+	bool done = RunUntil(line, near, far, 100, []() { return finalsTotal >= 10; });
 	sender.join();
 	RunRounds(line, near, far, 100, 5);
 	SIM_EXPECT(done);
@@ -965,7 +963,7 @@ void TestAwaitAnsweredWithInterim() {
 		returned.store(true);
 	});
 
-	bool done = RunUntil(line, near, far, 100, MaxRounds, [&returned]() { return returned.load(); });
+	bool done = RunUntil(line, near, far, 100, [&returned]() { return returned.load(); });
 	if (done == false) {
 		StopOnHang("Await did not return the final of an answered request");
 	}
@@ -995,7 +993,7 @@ void TestAwaitRefusedWhenResponderIsFull() {
 		SIM_EXPECT(sent.IsErr() == false);
 	}
 
-	bool parked = RunUntil(line, near, far, 100, MaxRounds, []() { return ParkedHoldCount() == 3; });
+	bool parked = RunUntil(line, near, far, 100, []() { return ParkedHoldCount() == 3; });
 	if (parked == false) {
 		StopOnHang("the responder did not park the three requests");
 	}
@@ -1007,7 +1005,7 @@ void TestAwaitRefusedWhenResponderIsFull() {
 		returned.store(true);
 	});
 
-	bool done = RunUntil(line, near, far, 100, MaxRounds, [&returned]() { return returned.load(); });
+	bool done = RunUntil(line, near, far, 100, [&returned]() { return returned.load(); });
 	if (done == false) {
 		StopOnHang("Await did not return for a refused request");
 	}
@@ -1026,7 +1024,7 @@ void TestAwaitRefusedWhenResponderIsFull() {
 		SIM_EXPECT(request.ticket.Finish(Job::JobStatus::started) == ResultStatus::ok);
 	}
 
-	bool closed = RunUntil(line, near, far, 100, MaxRounds, []() { return holdFinals >= 3; });
+	bool closed = RunUntil(line, near, far, 100, []() { return holdFinals >= 3; });
 	RunRounds(line, near, far, 100, 5);
 	SIM_EXPECT(closed);
 	SIM_EXPECT(holdFinals == 3);
@@ -1051,13 +1049,14 @@ void TestAwaitTimesOut() {
 		returned.store(true);
 	});
 
-	// The request must be sent and parked before the deadline rounds start: the waiting thread may start after the rounds would have run out.
-	bool parked = RunUntil(line, near, far, 100, MaxRounds, []() { return ParkedHoldCount() == 1; });
+	// The request must be sent and parked before the deadline rounds start. The parking waits in real time, so a waiting thread that the host
+	// schedules late still parks its request.
+	bool parked = RunUntil(line, near, far, 100, []() { return ParkedHoldCount() == 1; });
 	if (parked == false) {
 		StopOnHang("the responder did not park the request of the Await");
 	}
 
-	bool done = RunUntil(line, near, far, 100000, 1000, [&returned]() { return returned.load(); });
+	bool done = RunUntil(line, near, far, 100000, [&returned]() { return returned.load(); });
 	if (done == false) {
 		StopOnHang("Await did not return at the request's deadline");
 	}
@@ -1088,7 +1087,7 @@ void TestAwaitAbandonedThenLateAnswerFreesSlotOnce() {
 		returned.store(true);
 	});
 
-	bool parked = RunUntil(line, near, far, 100, MaxRounds, []() { return ParkedHoldCount() == 1; });
+	bool parked = RunUntil(line, near, far, 100, []() { return ParkedHoldCount() == 1; });
 	if (parked == false) {
 		StopOnHang("the responder did not park the request of the Await");
 	}
@@ -1097,9 +1096,8 @@ void TestAwaitAbandonedThenLateAnswerFreesSlotOnce() {
 	// rounds free the slot.
 	uint32 savedUs = nowUs.load();
 	nowUs.store(savedUs + 10000000);
-	uint32 spins = 0;
-	while (returned.load() == false && spins < MaxSpins) {
-		spins++;
+	VubWait::WaitLimit limit;
+	while (returned.load() == false && limit.Passed() == false) {
 		System::tickLow = System::tickLow + 100u;
 		std::this_thread::yield();
 	}
@@ -1138,7 +1136,7 @@ void TestAwaitAbandonedThenLateAnswerFreesSlotOnce() {
 	Result<VUB::RequestId> extra = SendRunOnce(handle, 34);
 	SIM_EXPECT(extra.IsErr());
 	SIM_EXPECT(extra.IsErr() && extra.Error() == ResultStatus::busy);
-	bool closed = RunUntil(line, near, far, 100, MaxRounds, []() { return finalsTotal >= 4; });
+	bool closed = RunUntil(line, near, far, 100, []() { return finalsTotal >= 4; });
 	RunRounds(line, near, far, 100, 5);
 	SIM_EXPECT(closed);
 	SIM_EXPECT(finalsTotal == 4);
@@ -1168,7 +1166,7 @@ void TestSeveralAwaitsAtOnce() {
 		});
 	}
 
-	bool done = RunUntil(line, near, far, 100, MaxRounds, [&returned]() {
+	bool done = RunUntil(line, near, far, 100, [&returned]() {
 		return returned[0].load() && returned[1].load() && returned[2].load();
 	});
 	if (done == false) {
@@ -1206,7 +1204,7 @@ void TestAwaitResultIsResetWhenPeerRestarts() {
 		returned.store(true);
 	});
 
-	bool parked = RunUntil(line, near, *far, 100, MaxRounds, []() { return ParkedHoldCount() == 1; });
+	bool parked = RunUntil(line, near, *far, 100, []() { return ParkedHoldCount() == 1; });
 	if (parked == false) {
 		StopOnHang("the responder did not park the request of the Await");
 	}
@@ -1223,7 +1221,7 @@ void TestAwaitResultIsResetWhenPeerRestarts() {
 	Result<VUB::RequestId> sent = SendRunOnce(handle, 61);
 	SIM_EXPECT(sent.IsErr() == false);
 
-	bool done = RunUntil(line, near, *far, 100, MaxRounds, [&returned]() { return returned.load(); });
+	bool done = RunUntil(line, near, *far, 100, [&returned]() { return returned.load(); });
 	if (done == false) {
 		StopOnHang("Await did not return after the peer restarted");
 	}
@@ -1272,12 +1270,12 @@ void TestFullQueueIsBusyUntilProcess() {
 	SIM_EXPECT(second.IsErr() == false);
 	SIM_EXPECT(third.IsErr() && third.Error() == ResultStatus::busy);
 
-	bool done = RunUntil(line, near, far, 100, MaxRounds, []() { return finalsTotal >= 2; });
+	bool done = RunUntil(line, near, far, 100, []() { return finalsTotal >= 2; });
 	SIM_EXPECT(done);
 	body.amount = 3;
 	Result<VUB::RequestId> fourth = handle.Send<Job::Command::run, &OnRunFinal, &OnRunInterim>(body);
 	SIM_EXPECT(fourth.IsErr() == false);
-	done = RunUntil(line, near, far, 100, MaxRounds, []() { return finalsTotal >= 3; });
+	done = RunUntil(line, near, far, 100, []() { return finalsTotal >= 3; });
 	RunRounds(line, near, far, 100, 3);
 	SIM_EXPECT(done);
 	SIM_EXPECT(finalsTotal == 3);
@@ -1309,7 +1307,7 @@ void TestHandlerSendsFromProcessWhileTaskSends() {
 		producerDone.store(true);
 	});
 
-	bool done = RunUntil(line, near, far, 100, MaxRounds, [&producerDone]() {
+	bool done = RunUntil(line, near, far, 100, [&producerDone]() {
 		return producerDone.load() && finalsTotal == 40 + echoSent;
 	});
 	producer.join();
@@ -1345,7 +1343,7 @@ void TestAwaitCancelledFromAnotherTask() {
 		returned.store(true);
 	});
 
-	bool parked = RunUntil(line, near, far, 100, MaxRounds, []() { return ParkedRunCount() == 1; });
+	bool parked = RunUntil(line, near, far, 100, []() { return ParkedRunCount() == 1; });
 	if (parked == false) {
 		StopOnHang("the responder did not park the awaited request");
 	}
@@ -1355,7 +1353,7 @@ void TestAwaitCancelledFromAnotherTask() {
 	});
 	canceller.join();
 
-	bool done = RunUntil(line, near, far, 100, MaxRounds, [&returned]() { return returned.load(); });
+	bool done = RunUntil(line, near, far, 100, [&returned]() { return returned.load(); });
 	if (done == false) {
 		StopOnHang("Await did not return after the cancel");
 	}
@@ -1386,15 +1384,14 @@ void TestAwaitAbandonedFinalBeforeDeadline() {
 		returned.store(true);
 	});
 
-	bool parked = RunUntil(line, near, far, 100, MaxRounds, []() { return ParkedHoldCount() == 1; });
+	bool parked = RunUntil(line, near, far, 100, []() { return ParkedHoldCount() == 1; });
 	if (parked == false) {
 		StopOnHang("the responder did not park the request of the Await");
 	}
 
 	// The tick moves while the test waits, as a running system's tick does: the wait's start may be read after an early step.
-	uint32 spins = 0;
-	while (returned.load() == false && spins < MaxSpins) {
-		spins++;
+	VubWait::WaitLimit limit;
+	while (returned.load() == false && limit.Passed() == false) {
 		System::tickLow = System::tickLow + 100u;
 		std::this_thread::yield();
 	}
@@ -1458,15 +1455,14 @@ void TestAwaitFinalBetweenTheCheckAndTheAbandon() {
 		awaited = handle.Await<Job::Command::hold>(body);
 	});
 
-	bool parked = RunUntil(line, near, far, 100, MaxRounds, []() { return ParkedHoldCount() == 1; });
+	bool parked = RunUntil(line, near, far, 100, []() { return ParkedHoldCount() == 1; });
 	if (parked == false) {
 		StopOnHang("the responder did not park the request of the Await");
 	}
 
 	windowPauseArm.store(true);
-	uint32 spins = 0;
-	while (windowGate.load() == false && spins < MaxSpins) {
-		spins++;
+	VubWait::WaitLimit limit;
+	while (windowGate.load() == false && limit.Passed() == false) {
 		std::this_thread::yield();
 	}
 
@@ -1509,7 +1505,7 @@ void TestAwaitOfNoReplyCommand() {
 		returned.store(true);
 	});
 
-	bool done = RunUntil(line, near, far, 100, MaxRounds, [&returned]() { return returned.load(); });
+	bool done = RunUntil(line, near, far, 100, [&returned]() { return returned.load(); });
 	if (done == false) {
 		StopOnHang("Await of a command with no reply did not return");
 	}

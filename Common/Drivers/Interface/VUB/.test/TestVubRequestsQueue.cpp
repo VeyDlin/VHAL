@@ -11,6 +11,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <mutex>
 #include <optional>
@@ -18,6 +19,7 @@
 #include <thread>
 #include <vector>
 #include "SimCheck.h"
+#include "WaitLimit.h"
 
 
 namespace RequestWire = VUB::RequestWire;
@@ -286,6 +288,15 @@ void Tick(StackType& stack, uint32 stepUs) {
 }
 
 
+// A wait that cannot end (a defect) stops the program at once: the run fails with this message and does not hang.
+[[noreturn]] void StopOnHang(const char* what) {
+	std::printf("FAILED, the run stopped: %s\n", what);
+	// _Exit does not flush, and stdout is a pipe under CTest
+	std::fflush(stdout);
+	std::_Exit(1);
+}
+
+
 // The requests of the wire: a REQUEST packet has its kind, its command id, its number and its tag.
 bool IsRequestOf(const std::vector<uint8>& packet, uint8 kind, uint8 id, uint16 number) {
 	return packet.size() >= RequestWire::RequestHeader && packet[0] == kind && packet[1] == id && VUB::GetLe16(packet.data() + 2) == number;
@@ -439,11 +450,14 @@ void TestAbandonedAwaitLeavesTheQueue() {
 		returned.store(true);
 	});
 
-	uint32 spins = 0;
-	while (returned.load() == false && spins < 2000000) {
-		spins++;
+	VubWait::WaitLimit limit;
+	while (returned.load() == false && limit.Passed() == false) {
 		System::tickLow = System::tickLow + 100u;
 		std::this_thread::yield();
+	}
+
+	if (returned.load() == false) {
+		StopOnHang("Await did not give up at its limit");
 	}
 
 	waiter.join();
@@ -743,10 +757,9 @@ void TestConcurrentPingAndFireFromTwoTasks() {
 		for (uint32 index = 0; index < 40; index++) {
 			Job::JobRequest body{};
 			body.amount = static_cast<uint16>(index);
-			uint32 attempts = 0;
+			VubWait::WaitLimit limit;
 			ResultStatus status = handle.Fire<Job::Command::note>(body);
-			while (status == ResultStatus::busy && attempts < 2000000) {
-				attempts++;
+			while (status == ResultStatus::busy && limit.Passed() == false) {
 				std::this_thread::yield();
 				status = handle.Fire<Job::Command::note>(body);
 			}
@@ -762,10 +775,9 @@ void TestConcurrentPingAndFireFromTwoTasks() {
 	});
 	std::thread pings([handle, &pingsAccepted, &refused, &pingsDone]() mutable {
 		for (uint32 index = 0; index < 20; index++) {
-			uint32 attempts = 0;
+			VubWait::WaitLimit limit;
 			ResultStatus status = handle.Ping<&OnPing>(0);
-			while (status == ResultStatus::busy && attempts < 2000000) {
-				attempts++;
+			while (status == ResultStatus::busy && limit.Passed() == false) {
 				std::this_thread::yield();
 				status = handle.Ping<&OnPing>(0);
 			}
@@ -782,9 +794,8 @@ void TestConcurrentPingAndFireFromTwoTasks() {
 
 	// The stack takes one packet per Process, so the packets of both tasks need 60 of them. A ping's time runs while it waits in the queue: with
 	// 1 ms between two Processes each one is sent long before its 500 ms.
-	uint32 steps = 0;
-	while ((firesDone.load() == false || pingsDone.load() == false) && steps < 2000000) {
-		steps++;
+	VubWait::WaitLimit limit;
+	while ((firesDone.load() == false || pingsDone.load() == false) && limit.Passed() == false) {
 		Tick(stack, 1000);
 		std::this_thread::yield();
 	}
@@ -819,10 +830,9 @@ void TestWireOrderOfOneTask() {
 		for (uint32 index = 0; index < 40; index++) {
 			Job::JobRequest body{};
 			body.amount = static_cast<uint16>(index);
-			uint32 attempts = 0;
+			VubWait::WaitLimit limit;
 			ResultStatus status = ResultStatus::busy;
-			while (status == ResultStatus::busy && attempts < 2000000) {
-				attempts++;
+			while (status == ResultStatus::busy && limit.Passed() == false) {
 				Result<VUB::RequestId> sent = handle.Send<Job::Command::run, &OnFinal>(body);
 				status = sent.IsErr() ? sent.Error() : ResultStatus::ok;
 				if (status == ResultStatus::busy) {
@@ -836,10 +846,9 @@ void TestWireOrderOfOneTask() {
 
 			Job::JobTick tick{};
 			tick.count = index;
-			attempts = 0;
+			VubWait::WaitLimit emitLimit;
 			status = ResultStatus::busy;
-			while (status == ResultStatus::busy && attempts < 2000000) {
-				attempts++;
+			while (status == ResultStatus::busy && emitLimit.Passed() == false) {
 				status = handle.Emit<Job::Event::tick>(tick);
 				if (status == ResultStatus::busy) {
 					std::this_thread::yield();
@@ -854,9 +863,8 @@ void TestWireOrderOfOneTask() {
 		taskDone.store(true);
 	});
 
-	uint32 steps = 0;
-	while (taskDone.load() == false && steps < 2000000) {
-		steps++;
+	VubWait::WaitLimit limit;
+	while (taskDone.load() == false && limit.Passed() == false) {
 		Tick(stack, 10000);
 		std::this_thread::yield();
 	}
@@ -918,10 +926,9 @@ void TestConcurrentHealthFromTwoTasks() {
 	std::atomic<uint32> tasksDone{0};
 	std::thread first([handle, &accepted, &refused, &tasksDone]() mutable {
 		for (uint32 index = 0; index < 15; index++) {
-			uint32 attempts = 0;
+			VubWait::WaitLimit limit;
 			ResultStatus status = handle.Health<&OnHealth>();
-			while (status == ResultStatus::busy && attempts < 2000000) {
-				attempts++;
+			while (status == ResultStatus::busy && limit.Passed() == false) {
 				std::this_thread::yield();
 				status = handle.Health<&OnHealth>();
 			}
@@ -937,10 +944,9 @@ void TestConcurrentHealthFromTwoTasks() {
 	});
 	std::thread second([handle, &accepted, &refused, &tasksDone]() mutable {
 		for (uint32 index = 0; index < 15; index++) {
-			uint32 attempts = 0;
+			VubWait::WaitLimit limit;
 			ResultStatus status = handle.Health<&OnHealth>();
-			while (status == ResultStatus::busy && attempts < 2000000) {
-				attempts++;
+			while (status == ResultStatus::busy && limit.Passed() == false) {
 				std::this_thread::yield();
 				status = handle.Health<&OnHealth>();
 			}
@@ -955,9 +961,8 @@ void TestConcurrentHealthFromTwoTasks() {
 		tasksDone++;
 	});
 
-	uint32 steps = 0;
-	while (tasksDone.load() < 2 && steps < 2000000) {
-		steps++;
+	VubWait::WaitLimit limit;
+	while (tasksDone.load() < 2 && limit.Passed() == false) {
 		Tick(stack, 10000);
 		std::this_thread::yield();
 	}
