@@ -1,5 +1,7 @@
 #pragma once
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 
 
 // The limit of the waits of the concurrency tests. A wait for another thread to make progress gives up when this much real time has passed,
@@ -26,5 +28,14 @@ public:
 private:
 	std::chrono::steady_clock::time_point end;
 };
+
+
+// A wait that cannot end (a defect) stops the program at once: the run fails with this message and does not hang.
+[[noreturn]] inline void StopOnHang(const char* what) {
+	std::printf("FAILED, the run stopped: %s\n", what);
+	// _Exit does not flush, and stdout is a pipe under CTest
+	std::fflush(stdout);
+	std::_Exit(1);
+}
 
 }

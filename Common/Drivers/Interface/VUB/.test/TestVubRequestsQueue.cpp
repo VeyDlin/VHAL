@@ -21,6 +21,8 @@
 #include "SimCheck.h"
 #include "WaitLimit.h"
 
+using VubWait::StopOnHang;
+
 
 namespace RequestWire = VUB::RequestWire;
 
@@ -285,15 +287,6 @@ template<typename StackType>
 void Tick(StackType& stack, uint32 stepUs) {
 	nowUs.fetch_add(stepUs);
 	stack.Process();
-}
-
-
-// A wait that cannot end (a defect) stops the program at once: the run fails with this message and does not hang.
-[[noreturn]] void StopOnHang(const char* what) {
-	std::printf("FAILED, the run stopped: %s\n", what);
-	// _Exit does not flush, and stdout is a pipe under CTest
-	std::fflush(stdout);
-	std::_Exit(1);
 }
 
 

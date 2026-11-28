@@ -21,6 +21,8 @@
 #include <utility>
 #include <vector>
 
+using VubWait::StopOnHang;
+
 // The requests layer on a concurrent stack, with host threads. The requester and the responder are two stacks on a reporting packet line
 // (Chains.h). The main thread runs the rounds: each round runs both stacks' Process and carries their packets across the line. Other threads
 // send requests, finish tickets, cancel, emit events and call Await. The critical section is a recursive mutex, so the sections really
@@ -88,15 +90,6 @@ inline constexpr std::size_t Keys = 256;
 inline constexpr uint16 RequesterSession = 0x5A5A;
 inline constexpr uint16 ResponderSession = 0x3C3C;
 inline constexpr uint16 RestartedSession = 0x2B2B;
-
-
-// A wait that cannot end (a defect) stops the program at once: the run fails with this message and does not hang.
-[[noreturn]] void StopOnHang(const char* what) {
-	std::printf("FAILED, the run stopped: %s\n", what);
-	// _Exit does not flush, and stdout is a pipe under CTest
-	std::fflush(stdout);
-	std::_Exit(1);
-}
 
 
 namespace Job {
