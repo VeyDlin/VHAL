@@ -26,6 +26,9 @@ EXCLUDE_DIRS = {
     "Bootloader/.tool/sim",
 }
 
+# Per-module PC check folders: skipped at any depth, matched as a whole path segment
+TEST_DIR_NAME = ".test"
+
 # Directories under Port/ that contain vendor device/startup files
 PORT_EXCLUDE_DIRS = {
     "Drivers",
@@ -33,9 +36,17 @@ PORT_EXCLUDE_DIRS = {
 }
 
 
+def _is_test_path(rel_path: str) -> bool:
+    """Check if any path segment is a .test folder (PC checks, never documented)."""
+    normalized = rel_path.replace("\\", "/")
+    return TEST_DIR_NAME in normalized.split("/")
+
+
 def _is_excluded(rel_path: str) -> bool:
     """Check if a path falls under an excluded third-party directory."""
     normalized = rel_path.replace("\\", "/")
+    if _is_test_path(normalized):
+        return True
     for excl in EXCLUDE_DIRS:
         idx = normalized.find(excl)
         if idx != -1:
@@ -141,6 +152,9 @@ def scan_docs_only(docs_root: str, rel_path: str) -> dict | None:
     Scan a docs-only directory (no source .h files).
     Each .md file becomes a page, subdirectories are scanned recursively.
     """
+    if _is_test_path(rel_path):
+        return None
+
     abs_path = os.path.join(docs_root, rel_path)
     if not os.path.isdir(abs_path):
         return None
