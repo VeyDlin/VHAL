@@ -8,3 +8,16 @@ vhal_test(
     "${VHAL_ROOT}/Common")
 
 vhal_check(RuntimeFailures/BitOutOfRange.cmake)
+
+vhal_fail(
+  ByteConverterErrors
+  INCLUDES
+    "${VHAL_ROOT}/Periphery"
+    "${VHAL_ROOT}/Common")
+
+vhal_fail(
+  ByteConverterGnuErrors
+  INCLUDES
+    "${VHAL_ROOT}/Periphery"
+    "${VHAL_ROOT}/Common"
+  OPTIONS -std=gnu++23)

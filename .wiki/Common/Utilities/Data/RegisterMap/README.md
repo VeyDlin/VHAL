@@ -11,7 +11,7 @@ its register, two registers at one address, a view block past Modbus address 0xF
 
 | Header | What it gives | Page |
 |---|---|---|
-| `RegisterDescriptor.h` | `RegisterDescriptor<T>`, the byte order and access enums, `RegisterToBytes`, `RegisterFromBytes` | [RegisterDescriptor](RegisterDescriptor) |
+| `RegisterDescriptor.h` | `RegisterDescriptor<T>`, the access enum. The byte order is `ByteOrder` of `ByteConverter.h` | [RegisterDescriptor](RegisterDescriptor) |
 | `BitField.h` | `BitField<Width>(register, shift)`, a part of a register | [BitField](BitField) |
 | `RegisterAccess.h` | `Read`, `Write`, `Modify` over a bus | [RegisterAccess](RegisterAccess) |
 | `RegisterSet.h` | `RegisterSet<...>`, a list of registers with the duplicate check | [RegisterSet](RegisterSet) |

@@ -1,4 +1,5 @@
 #pragma once
+#include <Utilities/Data/ByteConverter.h>
 #include <Utilities/Data/RegisterMap/BitField.h>
 #include <Utilities/Data/RegisterMap/RegisterBus.h>
 #include <Utilities/Data/RegisterMap/RegisterDescriptor.h>
@@ -26,7 +27,7 @@ Result<typename decltype(Reg)::ValueType> Read(Bus& bus) {
 	if (status != ResultStatus::ok) {
 		return status;
 	}
-	return RegisterFromBytes<Value>(bytes, Reg.byteOrder);
+	return ByteConverter::FromBytes<Value, Reg.byteOrder>(bytes);
 }
 
 
@@ -35,7 +36,7 @@ template<auto Reg, RegisterBus Bus>
 ResultStatus Write(Bus& bus, typename decltype(Reg)::ValueType value) {
 	static_assert(Reg.CanWrite(), "register is read-only: Write<Reg>() needs Write or ReadWrite access");
 	using Value = typename decltype(Reg)::ValueType;
-	std::array<uint8, sizeof(Value)> bytes = RegisterToBytes<Value>(value, Reg.byteOrder);
+	std::array<uint8, sizeof(Value)> bytes = ByteConverter::ToBytes<Value, Reg.byteOrder>(value);
 	return bus.WriteRegs(Reg.Ref(), bytes);
 }
 
@@ -56,7 +57,7 @@ ResultStatus Modify(Bus& bus, typename decltype(Field)::ValueType value) {
 		return status;
 	}
 
-	Raw raw = RegisterFromBytes<Raw>(bytes, Field.reg.byteOrder);
-	bytes = RegisterToBytes<Raw>(Field.Insert(raw, value), Field.reg.byteOrder);
+	Raw raw = ByteConverter::FromBytes<Raw, Field.reg.byteOrder>(bytes);
+	bytes = ByteConverter::ToBytes<Raw, Field.reg.byteOrder>(Field.Insert(raw, value));
 	return bus.WriteRegs(Field.reg.Ref(), bytes);
 }

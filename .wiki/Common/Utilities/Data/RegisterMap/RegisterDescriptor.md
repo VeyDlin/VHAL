@@ -9,7 +9,7 @@ owns no storage.
 constexpr auto ChargeControl = RegisterDescriptor<uint8>(0x09, 0x01).ReadWrite();
 constexpr auto Measured = RegisterDescriptor<uint16>(0x68, 0x3B)
 	.AddressWidth(2)
-	.ByteOrder(RegisterByteOrder::LittleEndian)
+	.Order(ByteOrder::little)
 	.Table(RegisterTable::Input)
 	.ReadOnly();
 ```
@@ -25,7 +25,7 @@ holding table.
 | Method | Sets |
 |---|---|
 | `AddressWidth(1 or 2)` | the register address size on the wire, in bytes |
-| `ByteOrder(RegisterByteOrder)` | `BigEndian` (default) or `LittleEndian` for the value's bytes |
+| `Order(ByteOrder)` | `big` (default) or `little` for the value's bytes. `ByteOrder` is declared in `Utilities/Data/ByteConverter.h` |
 | `Table(RegisterTable)` | the Modbus table: `Holding`, `Input`, `Coil` or `Discrete`. I2C and SPI ignore it |
 | `ReadOnly()`, `WriteOnly()`, `ReadWrite()` | the access rule |
 
@@ -39,10 +39,11 @@ holding table.
 
 ## Byte packing
 
-`RegisterToBytes<T>(value, order)` and `RegisterFromBytes<T>(bytes, order)` pack and unpack a value. Both are `constexpr`, so a
-constant can be checked at compile time:
+A register's bytes are packed and unpacked by `ByteConverter`, which is also the only byte-order code of VHAL:
+`ByteConverter::ToBytes<T, order>(value)` and `ByteConverter::FromBytes<T, order>(bytes)`. Both are `constexpr`, so a constant
+can be checked at compile time. See [ByteConverter](../ByteConverter).
 
 ```cpp
-constexpr std::array<uint8, 2> packed = RegisterToBytes<uint16>(0x1234, RegisterByteOrder::BigEndian);   // 12 34
+constexpr std::array<uint8, 2> packed = ByteConverter::ToBytes<uint16, ByteOrder::big>(uint16(0x1234));   // 12 34
 static_assert(packed[0] == 0x12);
 ```

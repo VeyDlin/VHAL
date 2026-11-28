@@ -1,10 +1,9 @@
 #pragma once
 #include <Utilities/DataTypes.h>
+#include <Utilities/Data/ByteConverter.h>
 #include <Utilities/Data/RegisterMap/RegisterBus.h>
 #include <Utilities/CompileTime/Require.h>
-#include <array>
 #include <cstddef>
-#include <span>
 #include <type_traits>
 
 
@@ -13,39 +12,6 @@ enum class RegisterAccess : uint8 {
 	Write,
 	ReadWrite
 };
-
-
-enum class RegisterByteOrder : uint8 {
-	BigEndian,
-	LittleEndian
-};
-
-
-// Packs a value into bytes in the given order. Works in constant expressions, so a register value can be checked at compile time.
-template<typename Value>
-constexpr std::array<uint8, sizeof(Value)> RegisterToBytes(Value value, RegisterByteOrder order) {
-	using Unsigned = std::make_unsigned_t<Value>;
-	Unsigned raw = static_cast<Unsigned>(value);
-	std::array<uint8, sizeof(Value)> bytes{};
-	for (std::size_t index = 0; index < sizeof(Value); index++) {
-		std::size_t position = order == RegisterByteOrder::BigEndian ? sizeof(Value) - 1 - index : index;
-		bytes[position] = static_cast<uint8>(raw >> (8 * index));
-	}
-	return bytes;
-}
-
-
-// Unpacks a value from bytes in the given order. Works in constant expressions.
-template<typename Value>
-constexpr Value RegisterFromBytes(std::span<const uint8> bytes, RegisterByteOrder order) {
-	using Unsigned = std::make_unsigned_t<Value>;
-	Unsigned raw = 0;
-	for (std::size_t index = 0; index < sizeof(Value); index++) {
-		std::size_t position = order == RegisterByteOrder::BigEndian ? sizeof(Value) - 1 - index : index;
-		raw = static_cast<Unsigned>(raw | (static_cast<Unsigned>(bytes[position]) << (8 * index)));
-	}
-	return static_cast<Value>(raw);
-}
 
 
 // A register: its address on a bus, its value type and its rules. It owns no storage, so it is a constexpr constant.
@@ -64,7 +30,7 @@ struct RegisterDescriptor {
 	uint8 device;
 	uint16 address;
 	uint8 addressWidth = 1;
-	RegisterByteOrder byteOrder = RegisterByteOrder::BigEndian;
+	ByteOrder byteOrder = ByteOrder::big;
 	RegisterAccess access = RegisterAccess::ReadWrite;
 	RegisterTable table = RegisterTable::Holding;
 
@@ -83,7 +49,7 @@ struct RegisterDescriptor {
 	}
 
 
-	constexpr RegisterDescriptor ByteOrder(RegisterByteOrder order) const {
+	constexpr RegisterDescriptor Order(ByteOrder order) const {
 		RegisterDescriptor result = *this;
 		result.byteOrder = order;
 		return result;
