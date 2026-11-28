@@ -73,7 +73,7 @@ public:
 
 		// str may point into our own buffer, which growth frees: append from a private copy instead.
 		if (IsInOwnBuffer(str)) {
-			String copy(str);
+			String copy(str, data_.GetAlloc());
 			if (copy.Length() != len) return false;
 			return Append(copy.Data());
 		}
@@ -112,7 +112,7 @@ public:
 		if (index > len) return false;
 
 		if (IsInOwnBuffer(str)) {
-			String copy(str);
+			String copy(str, data_.GetAlloc());
 			if (copy.Length() != insertLen) return false;
 			return Insert(index, copy.Data());
 		}
@@ -186,7 +186,8 @@ public:
 		return memcmp(Data() + len - suffixLen, suffix, suffixLen) == 0;
 	}
 
-	// Stores the substring into out. Returns false, with out unchanged, when the allocator refuses memory.
+	// Stores the substring into out. The result is built with the allocator of out, or with the allocator of this string
+	// when out has none. Returns false, with out unchanged, when the chosen allocator refuses memory.
 	bool Substr(std::size_t pos, String& out, std::size_t count = Npos) const {
 		std::size_t len = Length();
 		if (pos >= len) {
@@ -195,7 +196,11 @@ public:
 		}
 		if (count == Npos || count > len - pos) count = len - pos;
 
-		String result;
+		AllocatorType* alloc = out.data_.GetAlloc();
+		if (alloc == nullptr) {
+			alloc = data_.GetAlloc();
+		}
+		String result(alloc);
 		if (!result.ReserveFor(count)) return false;
 		const char* d = Data();
 		for (std::size_t i = 0; i < count; i++) {
