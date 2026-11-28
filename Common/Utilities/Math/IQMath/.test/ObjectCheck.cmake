@@ -1,18 +1,12 @@
 # The object check of the IQ core: each sample in ObjectCheck/ is compiled to an object for Cortex-M0+ with -Os, and the check fails when
 # the object references a soft-float or soft-double helper (__aeabi_f* or __aeabi_d*). The IQ types must not reach either helper. A
 # control sample, control_*.cpp, must reference one, so the check is known to see the helpers. The script needs the ARM compiler and
-# its nm tool, which is the compiler's neighbour; it prints the VHAL_SKIP marker and returns when either is absent.
-# The inputs are VHAL_ARM_CXX (the ARM compiler), VHAL_ROOT (the repository root) and VHAL_WORK_DIR (a folder it may empty).
+# its nm tool; it prints the VHAL_SKIP marker and returns when either is absent.
+# The inputs are VHAL_ARM_CXX (the ARM compiler), VHAL_ARM_NM (its nm tool), VHAL_ROOT (the repository root) and VHAL_WORK_DIR (a
+# folder it may empty).
 cmake_minimum_required(VERSION 3.25)
 
 set(sampleDir "${CMAKE_CURRENT_LIST_DIR}/ObjectCheck")
-
-# The nm tool is named after the compiler with the g++ suffix (and its version, when there is one) replaced by nm. The .exe suffix
-# is put back by hand: a reference to an optional group that did not match is an error in some CMake versions.
-string(REGEX REPLACE "g\\+\\+(-[0-9.]+)?(\\.exe)?$" "nm" armNm "${VHAL_ARM_CXX}")
-if(VHAL_ARM_CXX MATCHES "\\.exe$")
-  string(APPEND armNm ".exe")
-endif()
 
 execute_process(
   COMMAND "${VHAL_ARM_CXX}" --version
@@ -20,7 +14,7 @@ execute_process(
   OUTPUT_QUIET
   ERROR_QUIET)
 execute_process(
-  COMMAND "${armNm}" --version
+  COMMAND "${VHAL_ARM_NM}" --version
   RESULT_VARIABLE nmResult
   OUTPUT_QUIET
   ERROR_QUIET)
@@ -31,7 +25,7 @@ execute_process(
   ERROR_QUIET
   OUTPUT_STRIP_TRAILING_WHITESPACE)
 if(NOT armResult EQUAL 0 OR NOT nmResult EQUAL 0)
-  message("VHAL_SKIP: ${VHAL_ARM_CXX} or ${armNm} is absent: the IQ object check was not run")
+  message("VHAL_SKIP: ${VHAL_ARM_CXX} or ${VHAL_ARM_NM} is absent: the IQ object check was not run")
   return()
 endif()
 
@@ -73,7 +67,7 @@ foreach(source IN LISTS samples)
   endif()
 
   execute_process(
-    COMMAND "${armNm}" "${object}"
+    COMMAND "${VHAL_ARM_NM}" "${object}"
     RESULT_VARIABLE nmResult
     OUTPUT_VARIABLE symbols
     ERROR_QUIET)

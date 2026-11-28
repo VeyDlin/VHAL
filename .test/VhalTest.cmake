@@ -5,18 +5,26 @@
 # vhal_test(<source.cpp> [INCLUDES dirs] [DEFINES defs] [LIBS libs] [OPTIONS flags] [ARGS args] [SOURCES files])
 #     builds one host test executable with -std=c++23 -Wall -Wextra -Werror and runs it; the test passes on exit code 0.
 #     The include directories are searched in the order given, relative to the module folder. The default is Common. The frame
-#     adds .test/include and .test/shim after them, to every host test.
+#     adds .test/include and .test/shim after them, to every host test. A host test that prints the VHAL_SKIP: marker is reported
+#     as skipped, with its reason. With --sanitize the test is built and run with the sanitizers (see the root project).
 # vhal_test(GLOB <pattern> [INCLUDES dirs] ...)
 #     the same for each file of the module folder that matches the pattern, with the same options.
-# vhal_fail(<dir> [INCLUDES dirs])
+# vhal_fail(<dir> [INCLUDES dirs] [OPTIONS flags])
 #     one test per *.cpp file of the folder. Each snippet must fail to compile with -fsyntax-only. Its first line is
-#     "// expect: <text>", and its diagnostic must contain that text. A second line "// one error" asks for exactly one error line.
+#     "// expect: <text>", and its diagnostic must contain that text. A second line "// one error" asks for exactly one error line,
+#     and a second line "// expect-value: <text>" asks for the value <text> in the diagnostic, printed as "Value = <text>]" by GCC
+#     or as ", <text>>" by Clang.
+# vhal_headers(<header>... [INCLUDES dirs] [OPTIONS flags])
+#     one test per header, named <label>.check.Header_<file stem>, or Header_<folder>_<file stem> when two headers of the call share
+#     the stem: the header is the only include of a translation unit, which must pass -fsyntax-only with -std=c++23 -Wall -Wextra
+#     -Werror and the OPTIONS flags. The header is included by its path under the first include root that holds it, and by quoted
+#     absolute path when no root holds it. The headers are paths relative to the module folder or absolute.
 # vhal_size(<script.cmake>)
 #     runs a size measurement with the ARM compiler (VHAL_ARM_CXX). The test is skipped when that compiler is absent or older
 #     than GCC 14, or the size tool is absent.
 # vhal_check(<script.cmake> [ARGS args])
 #     runs a scripted check with cmake -P. The arguments follow the -- on the command line, and the script reads them from
-#     CMAKE_ARGV, the last one being the last argument.
+#     CMAKE_ARGV, the last one being the last argument. The script gets the nm tool of the ARM objects as VHAL_ARM_NM.
 # vhal_declared(<pattern> <file>...)
 #     fails the configure when a file of the module folder matches the pattern and is not one of the declared files.
 # vhal_tool_test(<dir>)
@@ -54,8 +62,17 @@ function(vhalAddHostTest source stem)
   target_include_directories(${targetName} PRIVATE ${includeDirs} "${VHAL_TEST_DIR}/include" "${VHAL_TEST_DIR}/shim")
   target_link_libraries(${targetName} PRIVATE ${vhalArg_LIBS})
 
+  if(VHAL_SANITIZE)
+    target_compile_options(${targetName} PRIVATE ${VHAL_SANITIZE_FLAGS})
+    target_link_options(${targetName} PRIVATE ${VHAL_SANITIZE_FLAGS})
+  endif()
+
   add_test(NAME "${testName}" COMMAND "$<TARGET_FILE:${targetName}>" ${vhalArg_ARGS})
-  set_tests_properties("${testName}" PROPERTIES LABELS "${VHAL_MODULE_LABEL};host")
+  set_tests_properties("${testName}" PROPERTIES LABELS "${VHAL_MODULE_LABEL};host" SKIP_REGULAR_EXPRESSION "VHAL_SKIP:")
+
+  if(VHAL_SANITIZE)
+    set_tests_properties("${testName}" PROPERTIES ENVIRONMENT "${VHAL_SANITIZER_ENVIRONMENT}")
+  endif()
 endfunction()
 
 
@@ -79,7 +96,7 @@ endfunction()
 
 # One compile-fail test per snippet of the folder.
 function(vhal_fail dir)
-  cmake_parse_arguments(PARSE_ARGV 1 vhalArg "" "" "INCLUDES")
+  cmake_parse_arguments(PARSE_ARGV 1 vhalArg "" "" "INCLUDES;OPTIONS")
 
   cmake_path(ABSOLUTE_PATH dir BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE OUTPUT_VARIABLE snippetDir)
   file(GLOB snippets "${snippetDir}/*.cpp")
@@ -104,8 +121,82 @@ function(vhal_fail dir)
         "-DVHAL_CXX=${CMAKE_CXX_COMPILER}"
         "-DVHAL_SNIPPET=${snippet}"
         "-DVHAL_INCLUDES=${includeDirs}"
+        "-DVHAL_OPTIONS=${vhalArg_OPTIONS}"
         -P "${VHAL_TEST_DIR}/FailCheck.cmake")
     set_tests_properties("${testName}" PROPERTIES LABELS "${VHAL_MODULE_LABEL};fail")
+  endforeach()
+endfunction()
+
+
+# One header-alone test per header. The header is included by the path it has under the first include root that holds it, so
+# the test checks the spelling that the consumers use; a header under no root is included by its quoted absolute path. Each header
+# is compiled alone by HeaderAlone.cmake, with the flags and the include roots that the module gives.
+function(vhal_headers)
+  cmake_parse_arguments(PARSE_ARGV 0 vhalArg "" "" "INCLUDES;OPTIONS")
+
+  set(includeDirs "")
+  foreach(includeDir IN LISTS vhalArg_INCLUDES)
+    cmake_path(ABSOLUTE_PATH includeDir BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE OUTPUT_VARIABLE absoluteDir)
+    list(APPEND includeDirs "${absoluteDir}")
+  endforeach()
+
+  # The stems of the headers. A stem that two headers share is given its folder as a prefix, so the test names stay unique.
+  set(headerPaths "")
+  set(stems "")
+  foreach(header IN LISTS vhalArg_UNPARSED_ARGUMENTS)
+    cmake_path(ABSOLUTE_PATH header BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE OUTPUT_VARIABLE headerPath)
+    get_filename_component(headerStem "${headerPath}" NAME_WE)
+    list(APPEND headerPaths "${headerPath}")
+    list(APPEND stems "${headerStem}")
+  endforeach()
+
+  set(names "")
+  foreach(headerPath IN LISTS headerPaths)
+    get_filename_component(stem "${headerPath}" NAME_WE)
+
+    set(stemCount 0)
+    foreach(otherStem IN LISTS stems)
+      if(otherStem STREQUAL stem)
+        math(EXPR stemCount "${stemCount} + 1")
+      endif()
+    endforeach()
+
+    set(label "${stem}")
+    if(stemCount GREATER 1)
+      get_filename_component(folderPath "${headerPath}" DIRECTORY)
+      get_filename_component(folderName "${folderPath}" NAME)
+      set(label "${folderName}_${stem}")
+    endif()
+    if(label IN_LIST names)
+      message(FATAL_ERROR "vhal_headers: two headers of ${CMAKE_CURRENT_SOURCE_DIR} have the test name ${label}")
+    endif()
+    list(APPEND names "${label}")
+
+    set(headerInclude "")
+    foreach(includeDir IN LISTS includeDirs)
+      cmake_path(IS_PREFIX includeDir "${headerPath}" NORMALIZE underRoot)
+      if(underRoot AND headerInclude STREQUAL "")
+        cmake_path(RELATIVE_PATH headerPath BASE_DIRECTORY "${includeDir}" OUTPUT_VARIABLE headerInclude)
+      endif()
+    endforeach()
+
+    if(headerInclude STREQUAL "")
+      set(probeLine "#include \"${headerPath}\"")
+    else()
+      set(probeLine "#include <${headerInclude}>")
+    endif()
+
+    set(testName "${VHAL_MODULE_LABEL}.check.Header_${label}")
+    add_test(
+      NAME "${testName}"
+      COMMAND "${CMAKE_COMMAND}"
+        "-DVHAL_CXX=${CMAKE_CXX_COMPILER}"
+        "-DVHAL_PROBE_LINE=${probeLine}"
+        "-DVHAL_INCLUDES=${includeDirs}"
+        "-DVHAL_OPTIONS=${vhalArg_OPTIONS}"
+        "-DVHAL_WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/header-${label}"
+        -P "${VHAL_TEST_DIR}/HeaderAlone.cmake")
+    set_tests_properties("${testName}" PROPERTIES LABELS "${VHAL_MODULE_LABEL};check")
   endforeach()
 endfunction()
 
@@ -150,6 +241,7 @@ function(vhal_check script)
     COMMAND "${CMAKE_COMMAND}"
       "-DVHAL_CXX=${CMAKE_CXX_COMPILER}"
       "-DVHAL_ARM_CXX=${VHAL_ARM_CXX}"
+      "-DVHAL_ARM_NM=${VHAL_ARM_NM}"
       "-DVHAL_ROOT=${VHAL_ROOT}"
       "-DVHAL_WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/check-${stem}${suffix}"
       -P "${scriptPath}" --

@@ -1,4 +1,5 @@
 .vs/
 .test-build/
+.test-build-sanitize/
 
 !.gitkeep

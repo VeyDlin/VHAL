@@ -9,7 +9,15 @@ vhal_test(
   OPTIONS
     -Wconversion)
 
-vhal_check(HeaderAlone.cmake)
+file(GLOB registerBusHeaders "${VHAL_ROOT}/Common/Drivers/Interface/RegisterBus/*.h")
+
+vhal_headers(
+  ${registerBusHeaders}
+  INCLUDES
+    "${VHAL_ROOT}/Common"
+    "."
+  OPTIONS
+    -Wconversion)
 
 vhal_fail(
   BuilderErrors

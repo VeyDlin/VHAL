@@ -159,7 +159,20 @@ vhal_declared(Test*.cpp
 
 vhal_fail(BuilderErrors INCLUDES "${VHAL_ROOT}/Common" "${VHAL_ROOT}/Periphery")
 
-vhal_check(HeaderCheck.cmake)
+set(vubHeaderDir "${VHAL_ROOT}/Common/Drivers/Interface/VUB")
+file(GLOB vubHeaders "${vubHeaderDir}/*.h")
+foreach(vubFolder IN ITEMS TestKit Link Framing Transform Engine Layer PC Requests)
+  file(GLOB vubFolderHeaders "${vubHeaderDir}/${vubFolder}/*.h")
+  list(APPEND vubHeaders ${vubFolderHeaders})
+endforeach()
+list(SORT vubHeaders)
+
+vhal_headers(
+  ${vubHeaders}
+  INCLUDES
+    "${VHAL_ROOT}/Common"
+    "${VHAL_ROOT}/Periphery/Adapter/.test/shim"
+    "${VHAL_ROOT}/Periphery")
 
 vhal_size(size/Size.cmake)
 

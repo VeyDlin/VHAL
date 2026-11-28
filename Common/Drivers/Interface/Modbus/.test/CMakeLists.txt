@@ -1,8 +1,6 @@
-# Host tests of the Modbus layers, the header check, the builder error snippets and the size measurements of the probes. The shim
+# Host tests of the Modbus layers, the header checks, the builder error snippets and the size measurements of the probes. The shim
 # replaces the umbrella header VHAL.h and comes first, then Periphery, then Common, then this folder.
-# The default run has no sanitizers. For a sanitizer run, delete .test-build and configure it again with CXXFLAGS set, for example
-# CXXFLAGS="-fsanitize=address,undefined" ./test.cmd Modbus. The flags stay in .test-build until it is deleted, and the compiler must
-# have the sanitizer runtime (the MinGW toolchain on Windows does not, so configure fails there).
+# The sanitizers run the host tests when the root is configured with --sanitize (./test.cmd --sanitize Modbus).
 
 vhal_test(
   GLOB Test*.cpp
@@ -12,7 +10,19 @@ vhal_test(
     "${VHAL_ROOT}/Common"
     ".")
 
-vhal_check(HeaderAlone.cmake)
+file(GLOB modbusHeaders "${VHAL_ROOT}/Common/Drivers/Interface/Modbus/*.h")
+file(GLOB modbusPduHeaders "${VHAL_ROOT}/Common/Drivers/Interface/Modbus/Pdu/*.h")
+
+vhal_headers(
+  ${modbusHeaders}
+  ${modbusPduHeaders}
+  "${VHAL_ROOT}/Common/Drivers/Interface/Modbus/RTU/RtuFramer.h"
+  "${VHAL_ROOT}/Common/Drivers/Interface/Modbus/RTU/RtuTiming.h"
+  "${VHAL_ROOT}/Common/Drivers/Interface/Modbus/RTU/RtuTransport.h"
+  INCLUDES
+    shim
+    "${VHAL_ROOT}/Periphery"
+    "${VHAL_ROOT}/Common")
 
 vhal_fail(
   BuilderErrors
