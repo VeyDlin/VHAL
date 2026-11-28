@@ -13,7 +13,7 @@ namespace {
 
 using Heater = Simulation::Plant<+[] {
 	return Simulation::PlantBuilder<double>()
-		.Add<Simulation::FirstOrderThermal>()
+		.AddThermal<8>()
 			.Ambient(25.0)
 			.ThermalResistance(5.0)
 			.ThermalCapacitance(10.0)
@@ -56,13 +56,13 @@ int main() {
 
 		if (k == 3 || k == 5) {
 			// Before and at the delay the mass has not heated: the power of periods before the delay is zero.
-			VHAL_CHECK_NEAR(heater.Get<Simulation::FirstOrderThermal>().Temperature(), 25.0, 1.0e-9);
+			VHAL_CHECK_NEAR(heater.Thermal().Temperature(), 25.0, 1.0e-9);
 		}
 	}
 
 	const double elapsed = 505.0 * period;
 	const double rise = 10.0 * 5.0 * (1.0 - std::exp(-(elapsed - delay) / timeConstant));
-	VHAL_CHECK_NEAR(heater.Get<Simulation::FirstOrderThermal>().Temperature(), 25.0 + rise, 1.0e-6);
+	VHAL_CHECK_NEAR(heater.Thermal().Temperature(), 25.0 + rise, 1.0e-6);
 
 	return VhalCheck::Finish("Simulation thermal");
 }

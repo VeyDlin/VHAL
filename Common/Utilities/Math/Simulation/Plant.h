@@ -67,12 +67,48 @@ class MagneticSensor;
 template<std::floating_point T>
 class CurrentSense;
 
-template<std::floating_point T>
+template<std::floating_point T, std::size_t Depth>
 class FirstOrderThermal;
 
 
 template<typename... Blocks>
 struct BlockList;
+
+
+// A stand-in for the thermal block of a chain that has none. Its accessors are not declared, so it is never used as a block.
+struct NoThermalBlock {
+	static constexpr std::size_t maxDelaySteps = 0;
+};
+
+
+// The thermal block of a chain: its type and the number of thermal blocks in the chain. The type is NoThermalBlock when the chain
+// has none.
+template<typename... Blocks>
+struct ThermalFinder {
+	static constexpr std::size_t count = 0;
+	using Type = NoThermalBlock;
+};
+
+
+template<typename Head, typename... Tail>
+struct ThermalFinder<Head, Tail...> : ThermalFinder<Tail...> {
+};
+
+
+template<std::floating_point T, std::size_t Depth, typename... Tail>
+struct ThermalFinder<FirstOrderThermal<T, Depth>, Tail...> {
+	static constexpr std::size_t count = 1 + ThermalFinder<Tail...>::count;
+	using Type = FirstOrderThermal<T, Depth>;
+};
+
+
+template<typename Chain>
+struct ThermalOf;
+
+
+template<typename... Blocks>
+struct ThermalOf<BlockList<Blocks...>> : ThermalFinder<Blocks...> {
+};
 
 
 // The end of a chain.
@@ -230,6 +266,8 @@ class PlantChainBuilder {
 public:
 	using Real = T;
 	using ChainType = BlockList<Blocks...>;
+	using ThermalType = typename ThermalOf<ChainType>::Type;
+	static constexpr std::size_t thermalCount = ThermalOf<ChainType>::count;
 
 
 	ChainType blocks;
@@ -254,6 +292,16 @@ public:
 	template<template<std::floating_point> class Block>
 	constexpr PlantChainBuilder<T, Blocks..., Block<T>> Add(typename Block<T>::Parameters parameters) const {
 		return PlantChainBuilder<T, Blocks..., Block<T>>(AppendBlock(blocks, Block<T>(parameters)), substepCount);
+	}
+
+
+	// Adds the heater. Depth is the number of control periods its delay line can hold: the storage of the delay is part of the type.
+	template<std::size_t Depth>
+	constexpr PlantChainBuilder<T, Blocks..., FirstOrderThermal<T, Depth>> AddThermal() const {
+		static_assert(Depth > 0, "Simulation: the delay line needs a depth");
+
+		return PlantChainBuilder<T, Blocks..., FirstOrderThermal<T, Depth>>(
+			AppendBlock(blocks, FirstOrderThermal<T, Depth>()), substepCount);
 	}
 
 
@@ -442,40 +490,40 @@ public:
 	}
 
 
-	constexpr PlantChainBuilder Ambient(T value) const requires (ChainType::template Count<FirstOrderThermal<T>>() == 1) {
+	constexpr PlantChainBuilder Ambient(T value) const requires (thermalCount == 1) {
 		PlantChainBuilder result(*this);
-		result.blocks.template Get<FirstOrderThermal<T>>().SetAmbient(value);
+		result.blocks.template Get<ThermalType>().SetAmbient(value);
 		return result;
 	}
 
 
-	constexpr PlantChainBuilder ThermalResistance(T value) const requires (ChainType::template Count<FirstOrderThermal<T>>() == 1) {
+	constexpr PlantChainBuilder ThermalResistance(T value) const requires (thermalCount == 1) {
 		PlantChainBuilder result(*this);
-		result.blocks.template Get<FirstOrderThermal<T>>().SetResistance(value);
+		result.blocks.template Get<ThermalType>().SetResistance(value);
 		return result;
 	}
 
 
-	constexpr PlantChainBuilder ThermalCapacitance(T value) const requires (ChainType::template Count<FirstOrderThermal<T>>() == 1) {
+	constexpr PlantChainBuilder ThermalCapacitance(T value) const requires (thermalCount == 1) {
 		PlantChainBuilder result(*this);
-		result.blocks.template Get<FirstOrderThermal<T>>().SetCapacitance(value);
+		result.blocks.template Get<ThermalType>().SetCapacitance(value);
 		return result;
 	}
 
 
-	constexpr PlantChainBuilder DelaySteps(std::size_t value) const requires (ChainType::template Count<FirstOrderThermal<T>>() == 1) {
+	constexpr PlantChainBuilder DelaySteps(std::size_t value) const requires (thermalCount == 1) {
 		Require<"Simulation: depth must be positive">(value > 0);
-		Require<"Simulation: the delay is longer than the line">(value <= FirstOrderThermal<T>::maxDelaySteps);
+		Require<"Simulation: the delay is longer than the line">(value <= ThermalType::maxDelaySteps);
 
 		PlantChainBuilder result(*this);
-		result.blocks.template Get<FirstOrderThermal<T>>().SetDelaySteps(value);
+		result.blocks.template Get<ThermalType>().SetDelaySteps(value);
 		return result;
 	}
 
 
-	constexpr PlantChainBuilder Power(T value) const requires (ChainType::template Count<FirstOrderThermal<T>>() == 1) {
+	constexpr PlantChainBuilder Power(T value) const requires (thermalCount == 1) {
 		PlantChainBuilder result(*this);
-		result.blocks.template Get<FirstOrderThermal<T>>().SetPower(value);
+		result.blocks.template Get<ThermalType>().SetPower(value);
 		return result;
 	}
 };
@@ -514,9 +562,11 @@ public:
 	static constexpr std::size_t magneticCount = Chain::template Count<Simulation::MagneticSensor<Real>>();
 	static constexpr std::size_t senseCount = Chain::template Count<Simulation::CurrentSense<Real>>();
 	static constexpr std::size_t pmsmCount = Chain::template Count<Simulation::Pmsm<Real>>();
+	static constexpr std::size_t thermalCount = ThermalOf<Chain>::count;
 
 
 	static_assert(motorCount <= 1, "Simulation: one motor per chain");
+	static_assert(thermalCount <= 1, "Simulation: one thermal block per chain");
 	static_assert(rotorCount <= 1, "Simulation: one rotor per chain");
 	static_assert(rotorCount == 0 || motorCount == 1, "Simulation: the rotor needs a motor");
 	static_assert(motorCount == 0 || rotorCount == 1, "Simulation: the motor needs a rotor");
@@ -572,6 +622,12 @@ public:
 	Simulation::CurrentSense<Real>& CurrentSenseBlock() {
 		static_assert(senseCount == 1, "Simulation: no phase current: the chain has no CurrentSense block");
 		return chain.template Get<Simulation::CurrentSense<Real>>();
+	}
+
+
+	// The heater of the chain. It exists only when the chain has one.
+	typename ThermalOf<Chain>::Type& Thermal() requires (thermalCount == 1) {
+		return chain.template Get<typename ThermalOf<Chain>::Type>();
 	}
 
 

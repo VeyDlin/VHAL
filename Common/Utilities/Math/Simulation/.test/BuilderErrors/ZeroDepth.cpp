@@ -5,7 +5,7 @@
 
 using Heater = Simulation::Plant<+[] {
 	return Simulation::PlantBuilder<double>()
-		.Add<Simulation::FirstOrderThermal>()
+		.AddThermal<8>()
 			.ThermalResistance(5.0)
 			.ThermalCapacitance(10.0)
 			.DelaySteps(0);

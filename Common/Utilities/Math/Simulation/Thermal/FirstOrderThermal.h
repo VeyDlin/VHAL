@@ -6,7 +6,8 @@
 
 // A heater: a first-order thermal mass with a transport delay on its power input. The state is the rise of the temperature above
 // the ambient temperature, theta. The heating equation is the first-order model of Astrom and Murray, Feedback Systems, with the
-// input power delayed by the line (the delay is a whole number of control periods):
+// input power delayed by the line (the delay is a whole number of control periods). The delay
+// line holds Depth periods: Depth is the template argument, so the storage is the configured depth and nothing more:
 //
 //   C d(theta)/dt = P(t - td) - theta / Rth
 //   T = Tamb + theta
@@ -16,8 +17,11 @@
 namespace Simulation {
 
 
-template<std::floating_point T>
+template<std::floating_point T, std::size_t Depth>
 class FirstOrderThermal {
+	static_assert(Depth > 0, "Simulation: the delay line needs a depth");
+
+
 public:
 	struct Signals {
 		T heatPower = 0;
@@ -27,7 +31,7 @@ public:
 
 	static constexpr std::size_t states = 1;
 	static constexpr int stage = 0;
-	static constexpr std::size_t maxDelaySteps = 256;
+	static constexpr std::size_t maxDelaySteps = Depth;
 
 
 private:
@@ -36,7 +40,7 @@ private:
 	T capacitance = 0;
 	T power = 0;
 	std::size_t delaySteps = 1;
-	DelayLine<T, maxDelaySteps> line;
+	DelayLine<T, Depth> line;
 	T latchedTemperature = 0;
 
 

@@ -387,7 +387,7 @@ namespace PageThermal {
 
 using Heater = Simulation::Plant<+[] {
 	return Simulation::PlantBuilder<double>()
-		.Add<Simulation::FirstOrderThermal>()
+		.AddThermal<5>()
 			.Ambient(25.0)
 			.ThermalResistance(5.0)
 			.ThermalCapacitance(10.0)
@@ -400,16 +400,17 @@ using Heater = Simulation::Plant<+[] {
 void Run() {
 	Heater heater;
 	heater.Advance(0.1);
-	VHAL_CHECK(heater.Get<Simulation::FirstOrderThermal>().Temperature() == 25.0);
+	VHAL_CHECK(heater.Thermal().Temperature() == 25.0);
 
-	Simulation::FirstOrderThermal<double> block;
+	Simulation::FirstOrderThermal<double, 5> block;
 	block.SetAmbient(25.0);
 	block.SetResistance(5.0);
 	block.SetCapacitance(10.0);
 	block.SetDelaySteps(5);
 	block.SetPower(10.0);
 	VHAL_CHECK(block.Temperature() == 0.0);
-	VHAL_CHECK(Simulation::FirstOrderThermal<double>::maxDelaySteps == 256u);
+	using Heating = Simulation::FirstOrderThermal<double, 5>;
+	VHAL_CHECK(Heating::maxDelaySteps == 5u);
 
 	Simulation::DelayLine<double, 8> line;
 	line.Push(1.5);
