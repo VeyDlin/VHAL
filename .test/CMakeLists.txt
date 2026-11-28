@@ -31,7 +31,14 @@ endif()
 set(VHAL_SANITIZE_FLAGS "")
 set(VHAL_SANITIZER_ENVIRONMENT "")
 if(VHAL_SANITIZE)
-  set(VHAL_SANITIZE_FLAGS -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
+  # GCC's null, nonnull-attribute and returns-nonnull-attribute checks turn off the folding of null-pointer comparisons, so a
+  # compile-time check that a function given as a template argument is not null stops being a constant expression. They are left
+  # out; a null dereference still stops the test through the address sanitizer.
+  set(VHAL_SANITIZE_FLAGS
+    -fsanitize=address,undefined
+    -fno-sanitize=null,nonnull-attribute,returns-nonnull-attribute
+    -fno-sanitize-recover=all
+    -fno-omit-frame-pointer)
   set(VHAL_SANITIZER_ENVIRONMENT
     "ASAN_OPTIONS=exitcode=1:detect_leaks=1"
     "UBSAN_OPTIONS=exitcode=1:halt_on_error=1:print_stacktrace=1")
