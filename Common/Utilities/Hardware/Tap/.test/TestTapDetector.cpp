@@ -133,8 +133,8 @@ private:
 };
 
 
-// The settings the test firmware uses after calibration: the two calibrated faces, single taps at once.
-TapDetector::Tuning FirmwareTuning(TapDetector::Face top, TapDetector::Face back) {
+// The tuning of the calibrated case: the two calibrated faces, single taps at once.
+TapDetector::Tuning CalibratedTuning(TapDetector::Face top, TapDetector::Face back) {
 	TapDetector::Tuning tuning;
 	tuning.classification = TapDetector::Classification::TwoFaces;
 	tuning.twoFaces[0] = top;
@@ -323,7 +323,7 @@ void CheckGyroConfirmation() {
 // and the sway is neither a tap nor moving.
 void CheckHandSwayLightKnock() {
 	TapRig rig;
-	rig.detector.SetTuning(FirmwareTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ));
+	rig.detector.SetTuning(CalibratedTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ));
 	rig.SwayWithKnock(2.0f, 1.0f, 0.15f, 1.0f);
 	rig.Idle(0.1f);
 	std::vector<TapDetector::Tap> taps = DrainTaps(rig);
@@ -340,7 +340,7 @@ void CheckHandSwayLightKnock() {
 // A knock on the top face and one on the back face (Z, the other axis) are two taps, each on its own face.
 void CheckTopAndBackFaces() {
 	TapRig rig;
-	rig.detector.SetTuning(FirmwareTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ));
+	rig.detector.SetTuning(CalibratedTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ));
 	rig.Idle(0.5f);
 	rig.Knock(0, 1.0f, 0.8f, false);
 	rig.Idle(0.6f);
@@ -359,7 +359,7 @@ void CheckTopAndBackFaces() {
 // on the top face.
 void CheckRingingKeepsTopFace() {
 	TapRig rig;
-	rig.detector.SetTuning(FirmwareTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ));
+	rig.detector.SetTuning(CalibratedTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ));
 	rig.Idle(0.5f);
 	rig.Knock(0, 1.0f, 0.8f, false);
 	rig.Ring(2, 0.25f);
@@ -376,7 +376,7 @@ void CheckRingingKeepsTopFace() {
 // A back knock followed by ringing on the top axis stays on the back face.
 void CheckBackKnockRingingKeepsBackFace() {
 	TapRig rig;
-	rig.detector.SetTuning(FirmwareTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ));
+	rig.detector.SetTuning(CalibratedTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ));
 	rig.Idle(0.5f);
 	rig.Knock(2, 1.0f, 0.8f, false);
 	rig.Ring(0, 0.25f);
@@ -390,7 +390,7 @@ void CheckBackKnockRingingKeepsBackFace() {
 // rejection says so.
 void CheckOtherFaceRejected() {
 	TapRig rig;
-	rig.detector.SetTuning(FirmwareTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ));
+	rig.detector.SetTuning(CalibratedTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ));
 	rig.Idle(0.5f);
 	rig.Knock(2, -1.0f, 0.8f, false);
 	rig.Idle(0.6f);
@@ -406,7 +406,7 @@ void CheckOtherFaceRejected() {
 // Single taps are reported at once (not after the 350 ms double window), and two knocks 0.3 s apart are two singles.
 void CheckSingleIsImmediate() {
 	TapRig rig;
-	rig.detector.SetTuning(FirmwareTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ));
+	rig.detector.SetTuning(CalibratedTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ));
 	rig.Idle(0.5f);
 	rig.Knock(0, 1.0f, 0.8f, false);
 	rig.Idle(0.1f);
@@ -424,7 +424,7 @@ void CheckSingleIsImmediate() {
 // Start-to-start gaps of 60 ms (inside the 80 ms refractory window: ringing, not a tap) and 100 ms (a second tap).
 void CheckRefractoryBoundary() {
 	TapRig close;
-	close.detector.SetTuning(FirmwareTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ));
+	close.detector.SetTuning(CalibratedTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ));
 	close.Idle(0.5f);
 	close.Knock(0, 1.0f, 0.8f, false);
 	close.Idle(0.045f);
@@ -433,7 +433,7 @@ void CheckRefractoryBoundary() {
 	VHAL_CHECK(DrainTaps(close).size() == 1);
 
 	TapRig apart;
-	apart.detector.SetTuning(FirmwareTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ));
+	apart.detector.SetTuning(CalibratedTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ));
 	apart.Idle(0.5f);
 	apart.Knock(0, 1.0f, 0.8f, false);
 	apart.Idle(0.085f);
@@ -446,7 +446,7 @@ void CheckRefractoryBoundary() {
 // Five knocks 120 ms apart: the first two are taps, the third and the rest are a burst and count as moving.
 void CheckKnockBurstIsMoving() {
 	TapRig rig;
-	rig.detector.SetTuning(FirmwareTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ));
+	rig.detector.SetTuning(CalibratedTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ));
 	rig.Idle(0.5f);
 	for (uint32 index = 0; index < 5; index++) {
 		rig.Knock(0, 1.0f, 0.8f, false);
@@ -464,7 +464,7 @@ void CheckKnockBurstIsMoving() {
 // threshold of 40 g/s the 32 g/s knock is no tap.
 void CheckThresholdEdges() {
 	TapRig low;
-	low.detector.SetTuning(FirmwareTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ));
+	low.detector.SetTuning(CalibratedTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ));
 	low.Idle(0.5f);
 	low.Knock(0, 1.0f, 0.095f, false);
 	low.Idle(0.5f);
@@ -474,7 +474,7 @@ void CheckThresholdEdges() {
 	VHAL_CHECK(DrainTaps(low).size() == 1);
 
 	TapRig high;
-	TapDetector::Tuning tuning = FirmwareTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ);
+	TapDetector::Tuning tuning = CalibratedTuning(TapDetector::Face::PlusX, TapDetector::Face::PlusZ);
 	tuning.candidateGPerS = 40.0f;
 	for (uint32 index = 0; index < 6; index++) {
 		tuning.faceGPerS[index] = 40.0f;
