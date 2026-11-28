@@ -90,7 +90,7 @@ void KnownVectors() {
 
 
 void DecodeLongInputNotTruncated() {
-	// 750 bytes encode to 1000 characters, well past the old 512-character internal buffer.
+	// 750 bytes encode to 1000 characters, far beyond any fixed 512-character buffer.
 	std::vector<uint8> original = MakePattern(750, 7);
 	std::string encoded = EncodeToString(std::span(original));
 	VHAL_CHECK_EQ(encoded.size(), 1000);
@@ -208,7 +208,7 @@ void DecodeInvalidWritesNothing() {
 
 
 void DecodeToBufferLargeAndTooSmall() {
-	// 1500 bytes encode to 2000 characters: larger than the old 1024-byte intermediate buffer.
+	// 1500 bytes encode to 2000 characters, more than a 1024-byte intermediate buffer holds.
 	std::vector<uint8> original = MakePattern(1500, 11);
 	std::string encoded = EncodeToString(std::span(original));
 
