@@ -98,6 +98,12 @@ Config GetConfig() const;
 
 Returns a copy of the current configuration.
 
+```cpp
+COBS<128> cobs({ });
+
+COBS<128>::Config config = cobs.GetConfig(); // config.startByte is 0xFF
+```
+
 ### Encode
 
 ```cpp
