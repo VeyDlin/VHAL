@@ -158,8 +158,7 @@ if(vhalJobs STREQUAL "")
   set(vhalJobs "${vhalCores}")
 endif()
 
-# CTest lists the tests that the arguments select. Its listing also reports each executable that is not built yet, so only the
-# test lines and the total are kept.
+# CTest lists the tests that the arguments select. Only the test lines and the total are kept.
 execute_process(
   COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${vhalBuildDir}" -N ${vhalCtestArgs}
   RESULT_VARIABLE vhalSelectResult
@@ -191,23 +190,30 @@ else()
   set(vhalKeepGoing "-k")
 endif()
 
-# The command of a host test in CTest's listing is the path of its executable. The listing is read as JSON, which also names the
-# executables that are not built yet, so the build covers the selected host tests and nothing else.
-execute_process(
-  COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${vhalBuildDir}" -N --show-only=json-v1 ${vhalCtestArgs}
-  RESULT_VARIABLE vhalJsonResult
-  OUTPUT_VARIABLE vhalJsonOutput
-  ERROR_QUIET)
+# The configure lists the executable of each host test in HostTargets.txt, as <test name>=<target>. The selected host tests are the
+# selected names of the listing above; a selected test without an entry needs no build, and the build covers the others only.
+file(STRINGS "${vhalBuildDir}/HostTargets.txt" vhalHostTargetLines)
 
-if(NOT vhalJsonResult EQUAL 0)
-  message(FATAL_ERROR "CTest could not list the tests as JSON.")
-endif()
+string(REGEX MATCHALL "Test +#[0-9]+: [^\r\n]+" vhalSelectedLines "${vhalSelectOutput}")
+set(vhalSelectedNames "")
+foreach(vhalSelectedLine IN LISTS vhalSelectedLines)
+  string(REGEX REPLACE "^Test +#[0-9]+: " "" vhalSelectedName "${vhalSelectedLine}")
+  list(APPEND vhalSelectedNames "${vhalSelectedName}")
+endforeach()
 
-string(REGEX MATCHALL "/vhaltest_[A-Za-z0-9_]+" vhalTargetPaths "${vhalJsonOutput}")
 set(vhalTargets "")
-foreach(vhalTargetPath IN LISTS vhalTargetPaths)
-  string(SUBSTRING "${vhalTargetPath}" 1 -1 vhalTarget)
-  list(APPEND vhalTargets "${vhalTarget}")
+foreach(vhalHostTargetLine IN LISTS vhalHostTargetLines)
+  string(FIND "${vhalHostTargetLine}" "=" vhalSeparator REVERSE)
+  if(vhalSeparator LESS 0)
+    continue()
+  endif()
+
+  string(SUBSTRING "${vhalHostTargetLine}" 0 ${vhalSeparator} vhalHostTestName)
+  math(EXPR vhalTargetStart "${vhalSeparator} + 1")
+  string(SUBSTRING "${vhalHostTargetLine}" ${vhalTargetStart} -1 vhalHostTarget)
+  if(vhalHostTestName IN_LIST vhalSelectedNames)
+    list(APPEND vhalTargets "${vhalHostTarget}")
+  endif()
 endforeach()
 list(REMOVE_DUPLICATES vhalTargets)
 list(LENGTH vhalTargets vhalTargetCount)

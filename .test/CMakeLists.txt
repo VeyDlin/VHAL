@@ -160,3 +160,8 @@ endforeach()
 # The frame's own self-test, under the label Frame. The .test folder is hidden, so the walk above does not find it.
 set(VHAL_MODULE_LABEL "Frame")
 add_subdirectory("${VHAL_TEST_DIR}/self" "${CMAKE_BINARY_DIR}/frame/self")
+
+# The executable of each host test, one <test name>=<target> line. Run.cmake reads it to build the selected tests.
+get_property(vhalHostTargets GLOBAL PROPERTY VHAL_HOST_TARGETS)
+list(JOIN vhalHostTargets "\n" vhalHostTargetText)
+file(WRITE "${CMAKE_BINARY_DIR}/HostTargets.txt" "${vhalHostTargetText}\n")

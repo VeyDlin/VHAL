@@ -71,6 +71,7 @@ function(vhalAddHostTest source stem)
   endif()
 
   add_test(NAME "${testName}" COMMAND "$<TARGET_FILE:${targetName}>" ${vhalArg_ARGS})
+  set_property(GLOBAL APPEND PROPERTY VHAL_HOST_TARGETS "${testName}=${targetName}")
   set_tests_properties("${testName}" PROPERTIES LABELS "${VHAL_MODULE_LABEL};host" SKIP_REGULAR_EXPRESSION "VHAL_SKIP:")
 
   if(VHAL_SANITIZE)
