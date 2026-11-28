@@ -175,7 +175,8 @@ public:
 	}
 
 
-	// Writes the low width bytes of value, with a width of 1 to 8 given at run time. A width outside that range is not checked.
+	// Writes the low width bytes of value, with a width of 1 to 8 given at run time. A width outside that range is undefined behaviour:
+	// there is no run-time check, by design.
 	template<ByteOrder order>
 	static constexpr void Put(std::span<uint8> bytes, std::size_t offset, uint64 value, std::size_t width) {
 		PutBytes(bytes.data(), offset, value, width, order);
@@ -216,7 +217,8 @@ public:
 	}
 
 
-	// Reads width bytes, with a width of 1 to 8 given at run time, as a uint64. A width outside that range is not checked.
+	// Reads width bytes, with a width of 1 to 8 given at run time, as a uint64. A width outside that range is undefined behaviour:
+	// there is no run-time check, by design.
 	template<ByteOrder order>
 	static constexpr uint64 Get(std::span<const uint8> bytes, std::size_t offset, std::size_t width) {
 		return GetBytes(bytes.data(), offset, width, order);
