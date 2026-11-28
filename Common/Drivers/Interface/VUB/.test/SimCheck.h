@@ -4,10 +4,9 @@
 #include <VhalCheck.h>
 
 
-// Checks one condition. A failure prints the text of the condition with the line given. This header is the file of a failure.
-inline void SimExpect(bool condition, const char* text, int line) {
-	VhalCheck::ExpectTrue(condition, __FILE__, line, text);
-}
+// Checks one condition at the line given. A failure prints the file of the call, the line, and the text of the condition. The macro
+// keeps the file of the caller: a function would report this header.
+#define SimExpect(condition, text, line) ::VhalCheck::ExpectTrue(static_cast<bool>(condition), __FILE__, line, text)
 
 
 // Checks the condition, and prints its text and line when it fails.
