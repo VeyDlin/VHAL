@@ -200,7 +200,7 @@ TEST_CASE(T21_Rdp1UpdatesWhenAllowed) {
 }
 
 
-// RDP Level 2: the access level forbids flash changes, Initialize returns an error before the transport starts.
+// RDP Level 2: the access level forbids flash changes, Initialize returns an error without starting the transport.
 TEST_CASE(T21_Rdp2InitializeRefused) {
 	ResetSystem();
 	Rig<PlainBootloader> rig(kFlashBase, kFlashSize);

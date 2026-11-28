@@ -125,7 +125,7 @@ TEST_CASE(T20_WrongKeySizeInitializeFails) {
 }
 
 
-// SetIV: a per-image IV sent with SetIV replaces the construction IV. The image is one CTR stream under the new IV, which the
+// SetIV: a per-image IV sent with SetIV replaces the construction IV. The image is one CTR stream under this IV, which the
 // construction IV alone would not decrypt.
 TEST_CASE(T42_SetIvChangesKeystream) {
 	ResetSystem();

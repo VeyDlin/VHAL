@@ -174,7 +174,7 @@ TEST_CASE(T06_FlashWriteFailureIsSticky) {
 }
 
 
-// ResetWritePos restarts the stream; the new image size (not the old one) is what Finalize records.
+// ResetWritePos restarts the stream; the size of the image sent after the reset is what Finalize records.
 TEST_CASE(T07_ResetWritePosReupload) {
 	ResetSystem();
 	Rig<PlainBootloader> rig(kFlashBase, kFlashSize);
@@ -184,7 +184,7 @@ TEST_CASE(T07_ResetWritePosReupload) {
 	std::vector<uint8> imageA = MakeImage(1000, 0x40);
 	CHECK(rig.client.Upload(imageA, 240, 0x01));
 
-	// The last Write before the reset used sequence 5; the first Write after it reuses 5 and must still be processed.
+	// The last Write sent ahead of the reset used sequence 5; the first Write after the reset reuses 5 and must still be processed.
 	Reply reset = rig.client.Call(kCmdResetWritePos);
 	CHECK_EQ(reset.status, kStatusSuccess);
 
@@ -454,7 +454,7 @@ TEST_CASE(T30_StartBusyDuringErase) {
 }
 
 
-// Finalize during an erase answers Busy: a header written now would be erased again, or would mark a half-erased region valid.
+// Finalize during an erase answers Busy: a header written during the erase would be erased again, or would mark a half-erased region valid.
 // The erase still completes and leaves the header erased.
 TEST_CASE(T45_FinalizeBusyDuringErase) {
 	ResetSystem();

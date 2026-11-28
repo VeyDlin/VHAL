@@ -165,7 +165,7 @@ TEST_CASE(T22_CspPayloadAboveMaxResyncs) {
 
 
 // The same one-fragment message (id 1, index 0, last) arriving twice is a retransmission: delivered once, ACKed twice. The same
-// payload as a new message (id 2) is delivered again.
+// payload as a message with id 2 is delivered again.
 TEST_CASE(T36_CspRetransmitVsNewMessage) {
 	ProtocolRecorder recorder;
 	Protocol protocol = recorder.Create();
@@ -288,7 +288,7 @@ TEST_CASE(T33_CspCrcFailureResyncsByteByByte) {
 
 
 // A frame whose length byte was corrupted upwards (claims 8 payload bytes, carries 4) must not swallow the start of the valid
-// fragment behind it. Consuming the claimed length loses that fragment. The valid fragment is index 0 of a new message: under
+// fragment behind it. Consuming the claimed length loses that fragment. The valid fragment is index 0 of its own message: under
 // format v2 an index above 0 needs an open message.
 TEST_CASE(T33_CspCorruptedLengthDoesNotEatNextFragment) {
 	ProtocolRecorder recorder;
@@ -402,8 +402,8 @@ TEST_CASE(T35_CspStaleAckIgnored) {
 }
 
 
-// A message starting at index 0 while the previous message never got its last fragment resets the receiver once, before the new
-// payload is delivered. Both payloads are delivered.
+// A message starting at index 0 while the previous message lacks its last fragment resets the receiver once. Both payloads are
+// delivered.
 TEST_CASE(T37_CspIncompleteMessageResetsReceiver) {
 	ProtocolRecorder recorder;
 	Protocol protocol = recorder.Create();
