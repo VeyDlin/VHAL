@@ -4,11 +4,12 @@
 #include <cstddef>
 
 
-// A mass on a spring with a damper, driven by a force that the caller sets while the plant runs:
+// A mass on a spring with a damper, driven by a force that the caller sets while the plant runs (Astrom and Murray, Feedback Systems,
+// the second-order system):
 //
 //   m x'' + c x' + k x = F(t)
 //
-// The states are the position and the velocity. It is a standalone chain: it does not take part in the motor chain.
+// The states are the position and the velocity. It can run in a chain of its own; it is not a motor block.
 namespace Simulation {
 
 

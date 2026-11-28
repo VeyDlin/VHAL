@@ -1,7 +1,7 @@
 # BrushedDc
 
-Brushed DC motor, electrical part. The state is the armature current. The equations follow the brushed-motor note of
-Northwestern University (https://hades.mech.northwestern.edu/index.php/Brushed_DC_Motor_Theory):
+Brushed DC motor, electrical part. The state is the armature current. The equations are the armature circuit and the torque of a
+separately excited dc machine (Krause, Wasynczuk, Sudhoff and Pekarek, *Analysis of Electric Machinery and Drive Systems*):
 
 ```
 V = R i + L di/dt + Ke w

@@ -1,9 +1,8 @@
 # Pmsm
 
 Permanent-magnet synchronous motor in the amplitude-invariant dq frame. The states are the d and q currents and the electrical
-angle. A surface machine has `Ld == Lq`. The equations follow the dq model of a permanent-magnet machine (Krause, Wasynczuk,
-Sudhoff and Pekarek, *Analysis of Electric Machinery and Drive Systems*), written in the same form as the Pulsim documentation
-(https://lgili.github.io/Pulsim/0.10.0/motor-models/):
+angle. A surface machine has `Ld == Lq`. The equations follow the dq model of a permanent-magnet machine in the amplitude-invariant
+form (Krause, Wasynczuk, Sudhoff and Pekarek, *Analysis of Electric Machinery and Drive Systems*):
 
 ```
 vd = Rs id + Ld d(id)/dt - we Lq iq

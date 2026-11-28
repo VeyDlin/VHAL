@@ -1,8 +1,8 @@
 # TwoMassShaft
 
 An elastic shaft between a motor inertia and a load inertia, with a spring and a damper in the shaft. It replaces the
-[Rotor](Rotor.md) in a chain. The equations are the two-inertia model (Krause, Wasynczuk, Sudhoff and Pekarek, the mechanical
-system chapter):
+[Rotor](Rotor.md) in a chain. The equations are the two-inertia model (Krause, Wasynczuk, Sudhoff and Pekarek, *Analysis of Electric
+Machinery and Drive Systems*, the mechanical model of a drive with a flexible shaft):
 
 ```
 Jm d(wm)/dt = Te - k (thm - thl) - c (wm - wl) - bm wm

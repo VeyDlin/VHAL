@@ -6,7 +6,7 @@
 
 // An elastic shaft between a motor inertia and a load inertia, with a spring and a damper in the shaft. It replaces the Rotor in
 // a chain. The states are the speed and angle of each side. The equations are the standard two-inertia model (Krause, Wasynczuk,
-// Sudhoff and Pekarek, Analysis of Electric Machinery and Drive Systems, the mechanical system chapter):
+// Sudhoff and Pekarek, Analysis of Electric Machinery and Drive Systems, the mechanical model of a drive with a flexible shaft):
 //
 //   Jm d(wm)/dt = Te - k (thm - thl) - c (wm - wl) - bm wm
 //   Jl d(wl)/dt = k (thm - thl) + c (wm - wl) - tau_load - bl wl

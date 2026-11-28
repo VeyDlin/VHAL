@@ -7,7 +7,7 @@
 
 
 // A vehicle on a road, as a load on the rotor. It has no state. The road force is the sum of the rolling, aerodynamic and grade
-// resistances (Gillespie, Fundamentals of Vehicle Dynamics, SAE, 1992, the road-load forces of the vehicle-performance chapter).
+// resistances (Gillespie, Fundamentals of Vehicle Dynamics, SAE, 1992, the road-load forces).
 // The rolling term takes the sign of the speed, so that it opposes the motion and is zero at standstill:
 //
 //   F = 1/2 rho CdA v |v| + Crr m g cos(theta) sign(v) + m g sin(theta)

@@ -5,7 +5,9 @@
 #include <cstddef>
 
 
-// A rigid rotor with viscous and Coulomb friction. The states are the speed and the angle of the shaft. The equations are
+// A rigid rotor with viscous and Coulomb friction. The states are the speed and the angle of the shaft. The equation is Newton's
+// second law for rotation (Krause, Wasynczuk, Sudhoff and Pekarek, Analysis of Electric Machinery and Drive Systems, the mechanical
+// equation of motion), with the friction terms of the model:
 //
 //   J dwm/dt = Te - tau_load - b wm - tc sign(wm)
 //   d(thetaM)/dt = wm

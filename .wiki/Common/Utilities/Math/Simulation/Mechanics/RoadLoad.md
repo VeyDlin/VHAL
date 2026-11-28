@@ -1,7 +1,7 @@
 # RoadLoad
 
-A vehicle on a road, as a load on the rotor. The block has no state. The road force is the road-load equation (Ecomodder wiki,
-https://ecomodder.com/wiki/Road_Load_Equation), with the rolling term taken with the sign of the speed, so that it opposes the
+A vehicle on a road, as a load on the rotor. The block has no state. The road force is the road-load equation (Gillespie,
+*Fundamentals of Vehicle Dynamics*, SAE, 1992), with the rolling term taken with the sign of the speed, so that it opposes the
 motion and is zero at standstill:
 
 ```

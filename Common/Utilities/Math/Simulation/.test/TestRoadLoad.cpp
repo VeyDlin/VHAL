@@ -7,7 +7,7 @@
 #include <cmath>
 
 
-// Checks of the road load. The formulas are the road-load equation (Ecomodder wiki). The steady speed is found by bisection of
+// Checks of the road load. The formulas are the road-load equation (Gillespie, Fundamentals of Vehicle Dynamics). The steady speed is found by bisection of
 // G Tm / r = F(v) and compared with the speed the coupled rotor reaches. The vehicle values are test values, not a vehicle.
 namespace {
 
