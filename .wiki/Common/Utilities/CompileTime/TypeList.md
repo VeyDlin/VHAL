@@ -11,7 +11,7 @@ Searches over a list of types, at compile time. The code is in `Common/Utilities
 | `TypeList::IndexOf<Type, Container>()` | the index of the first element whose type is exactly `Type`, or the number of elements when there is none |
 | `TypeList::IndexOfOnce<Type, Container>()` | the index of the only element whose type is exactly `Type`; a compile error that names the type when there is none or more than one |
 
-A predicate is a type or an object with a member template `Holds<Element>()` that gives a `bool`. `Holds` is called for each element type. A predicate that compares a value keeps it as a template argument, or as a member of the object.
+A predicate is an object of a class that has a member template `Holds<Element>()` returning a `bool`; `Holds` may be `static` or `const`. The search passes the object and calls `Holds<Element>()` with each element type as `Element`, up to the first element that holds. `IndexWhereOnce` takes the predicate's class as a template argument instead and default-constructs it. A predicate that compares a value keeps it as a template argument, or as a member of the object.
 
 ## Predicates
 
@@ -147,11 +147,7 @@ static_assert(TypeList::CountWhere<std::tuple<char, int, char>>(IsType<char>{}) 
 static_assert(TypeList::IndexWhereOnce<Items, IsKey<Id::ping, true>>() == 0);
 ```
 
-When no element or two or more elements hold, the call does not compile. The diagnostic names the predicate and shows the count as the `Value` argument:
-
-```text
-error: call to non-'constexpr' function 'void ExactlyOnceFailed() [with Predicate = HasBlock<char>; long unsigned int Value = 0]'
-```
+When no element or two or more elements hold, the call does not compile. The diagnostic names the predicate and gives the count as the template argument `Value` of `ExactlyOnceFailed`, so a call with no match shows `Value = 0`.
 
 ## Arrays
 

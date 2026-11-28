@@ -61,6 +61,8 @@ constexpr ElapsedCase elapsedCases[] = {
 	{halfRange, halfRange - 1u, 1u, true},
 	{halfRange - 1u, halfRange - 2u, 1u, true},
 	{halfRange - 1u, halfRange - 2u, 2u, false},
+	// A start ahead of the counter: the difference wraps to a value near 2^32, so the interval has passed.
+	{4u, 5u, 10u, true},
 };
 
 
