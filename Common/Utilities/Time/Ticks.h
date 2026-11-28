@@ -36,8 +36,17 @@ constexpr bool Elapsed(uint32 now, uint32 since, uint32 interval) {
 }
 
 
-// True when the counter has reached due, compared as given. There is no wrap. The 64-bit forms are templates that accept only uint64, so
-// that an argument of a narrower type reaches the 32-bit form and does not make the call ambiguous.
+// A 64-bit call takes uint64 for every argument. A call that mixes uint64 with another type matches the deleted forms below, so it does
+// not compile.
+template<typename... Tick>
+concept AnyUint64 = (std::same_as<Tick, uint64> || ...);
+
+
+template<typename... Tick>
+concept AllUint64 = (std::same_as<Tick, uint64> && ...);
+
+
+// True when the counter has reached due, compared as given. There is no wrap.
 template<typename Tick>
 requires std::same_as<Tick, uint64>
 constexpr bool Reached(Tick now, Tick due) {
@@ -51,6 +60,18 @@ requires std::same_as<Tick, uint64>
 constexpr bool Elapsed(Tick now, Tick since, Tick interval) {
 	return now >= since && now - since >= interval;
 }
+
+
+// A call with one uint64 argument and another argument of a different type. The 32-bit form would narrow the uint64 value, so the call
+// is rejected; the caller passes uint64 for both arguments.
+template<typename Now, typename Due>
+requires (AnyUint64<Now, Due> && !AllUint64<Now, Due>)
+bool Reached(Now now, Due due) = delete;
+
+
+template<typename Now, typename Since, typename Interval>
+requires (AnyUint64<Now, Since, Interval> && !AllUint64<Now, Since, Interval>)
+bool Elapsed(Now now, Since since, Interval interval) = delete;
 
 
 // The whole seconds of a span of milliseconds, and the microseconds of the rest.

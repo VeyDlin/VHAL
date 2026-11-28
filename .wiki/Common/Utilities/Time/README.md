@@ -55,7 +55,7 @@ bool reached = Ticks::Reached(totalUs, uint64{4000000}); // true
 bool elapsed = Ticks::Elapsed(totalUs, uint64{4000000}, uint64{1000000}); // true
 ```
 
-The 64-bit forms take two `uint64` arguments. Pass `uint64` for both arguments: a call that mixes a `uint64` with a `uint32` or an `int` is not a 64-bit call, and it reaches the 32-bit form, which narrows the `uint64` argument to 32 bits.
+The 64-bit forms take `uint64` for every argument. A call with one `uint64` argument and another argument of a different type does not compile, for example `Ticks::Reached(totalUs, 4000000)` with `totalUs` a `uint64`. Write both arguments as `uint64`, as the example above does: `Ticks::Reached(totalUs, uint64{4000000})`.
 
 ## Split
 
