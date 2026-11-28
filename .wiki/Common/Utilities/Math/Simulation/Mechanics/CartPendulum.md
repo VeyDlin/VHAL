@@ -58,5 +58,7 @@ const double position = cart.CartPosition();
 const double angle = cart.PoleAngle();
 ```
 
-The self-check starts from a small angle at rest and compares the angle after 0.3 s with `theta0 cosh(lambda t)`, with
-`lambda = sqrt((M + m) g / (M l))`, to 1e-3 relative.
+The self-checks are two. The first starts from a small angle at rest and compares the angle after 0.3 s with `theta0 cosh(lambda t)`,
+with `lambda = sqrt((M + m) g / (M l))`, to 1e-3 relative. The second takes the Jacobian of the derivative at the upright position by
+central differences and compares its entries with the linearisation: `A[0][1] = 1`, `A[1][2] = -m g / M`, `A[2][3] = 1` and
+`A[3][2] = (M + m) g / (M l)`, which has the eigenvalues 0, 0 and `+/- lambda`.

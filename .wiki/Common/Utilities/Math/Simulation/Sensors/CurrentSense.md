@@ -33,5 +33,4 @@ const double b = sense.PhaseB();
 const double c = sense.PhaseC();
 ```
 
-In a plant, a chain without this block has no phase current: `plant.CurrentSenseBlock()` refuses the call with
-`no phase current: the chain has no CurrentSense block`.
+In a plant, a chain without this block has no `CurrentSenseBlock()` accessor: the call does not compile (`no matching function`).

@@ -13,7 +13,8 @@ the torque `Te`.
 
 ## SetInertia
 
-`SetInertia(J)` sets the inertia, kg m^2. The speed is divided by it, so it must be positive; the builder checks this.
+`SetInertia(J)` sets the inertia, kg m^2. The speed is divided by it, so it must be positive: the builder's `Inertia` refuses zero, and
+the plant checks the inertia when the chain is complete (`Simulation: the rotor inertia must be positive`).
 
 ```cpp
 #include <Utilities/Math/Simulation/Mechanics/Rotor.h>

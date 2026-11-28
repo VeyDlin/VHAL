@@ -22,7 +22,8 @@ void Run() {
 
 ## QuadraticLoad
 
-A load that grows with the square of the speed, such as a fan: `tau = k wm |wm|`, with `k` in N m s^2/rad^2.
+A load that grows with the square of the speed, such as a fan: `tau = k w |w|`, with `k` in N m s^2/rad^2. The speed `w` is the rotor
+speed, or the load-side speed of a [TwoMassShaft](TwoMassShaft.md), where the load acts.
 
 ```cpp
 Simulation::QuadraticLoad<double> fan;
@@ -30,4 +31,5 @@ fan.SetCoefficient(1.0e-6);
 const double coefficient = fan.Coefficient();
 ```
 
-In a chain with a [TwoMassShaft](TwoMassShaft.md) the quadratic load is not read.
+In a chain with a [TwoMassShaft](TwoMassShaft.md) the constant and quadratic loads and the road load all act on the load side, with the
+load-side speed. A chain with a [Rotor](Rotor.md) has the same loads on the rotor.

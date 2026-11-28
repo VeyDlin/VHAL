@@ -10,8 +10,8 @@ Jl d(wl)/dt = k (thm - thl) + c (wm - wl) - tau_load - bl wl
 d(thm)/dt = wm,  d(thl)/dt = wl
 ```
 
-The load side takes the constant and road loads of the chain, and the reflected inertia of a road load. The quadratic load is not
-read: it needs one speed, and the shaft has two. The Coulomb friction of [Rotor](Rotor.md) is not in this model. The resonance of
+The load side takes the constant, quadratic and road loads of the chain, and the reflected inertia of a road load; each of them reads the
+load-side speed. The Coulomb friction of [Rotor](Rotor.md) is not in this model. The resonance of
 the shaft with no damping is `sqrt(k (Jm + Jl) / (Jm Jl))`.
 
 ## Setters

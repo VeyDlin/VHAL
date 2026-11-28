@@ -147,7 +147,7 @@ void CheckOrder() {
 // mechanical power Te wm plus the rate of the stored energy W = 0.75 (Ld id^2 + Lq iq^2), over a window of 10 ms.
 // The powers are integrated with the trapezoid rule over steps of h = 1e-5 s. Its error is a sum of end terms of order h^2 times
 // the rate of change of the power, so it does not grow with the window: the relative error is of order h^2 times that rate over
-// the input energy, about 4e-6 in this run (the reviewer measured 3.8e-6). The tolerance is 1e-5 of the input energy.
+// the input energy, about 4e-6 in this run (measured: 3.8e-6). The tolerance is 1e-5 of the input energy.
 void CheckEnergyBalance() {
 	const double rs = 0.5;
 	const double ld = 2.0e-3;

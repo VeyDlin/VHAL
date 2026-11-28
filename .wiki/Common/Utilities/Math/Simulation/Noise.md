@@ -7,7 +7,8 @@ using both uniform values for one sample.
 
 ## Noise
 
-`Noise(seed)` starts the sequence. The seed must not be zero: a zero state stays zero.
+`Noise(seed)` starts the sequence. The seed must not be zero: the xorshift step keeps a zero state at zero, so every `Uniform()` is
+`0.5 / 2^32` and the samples are constant. A plant's `Seed` setter refuses zero at compile time.
 
 ```cpp
 #include <Utilities/Math/Simulation/Noise.h>

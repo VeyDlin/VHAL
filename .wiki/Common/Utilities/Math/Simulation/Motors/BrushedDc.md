@@ -9,7 +9,12 @@ torque = Kt i,  with Kt = Ke in SI units
 ```
 
 The block has one torque constant, which is both `Kt` and `Ke` in SI units. The mechanical part is a [Rotor](../Mechanics/Rotor.md)
-on the same chain.
+on the same chain. The inductance and the torque constant must be positive: the plant checks them when the chain is complete.
+
+## Checks
+
+The self-checks of this block: with the rotor held at standstill the current rises with the time constant `L / R` to the stall current
+`V / R` (6 A at 6 V in the check's values), and the stall torque is `Kt V / R`.
 
 ## Parameters
 

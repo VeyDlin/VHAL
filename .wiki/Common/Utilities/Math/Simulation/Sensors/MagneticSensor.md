@@ -19,7 +19,8 @@ void Run() {
 
 ## SetSeed
 
-`SetSeed(seed)` sets the seed of the error sequence. It must not be zero.
+`SetSeed(seed)` sets the seed of the error sequence. It must not be zero: the builder's `Seed` refuses zero at compile time
+(`Simulation: the seed must not be zero`).
 
 ```cpp
 Simulation::MagneticSensor<double> sensor;

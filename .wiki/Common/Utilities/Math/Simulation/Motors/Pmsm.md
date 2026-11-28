@@ -62,4 +62,5 @@ Read through a plant, as in [Plant](../Plant.md): `plant.Get<Simulation::Pmsm>()
 The self-checks of this block are: the electrical time constant `L / R` at standstill, the steady current `V / Rs` at a held rotor,
 the back-EMF with `vq = we psi`, the torque against the formula, the fourth-order convergence of the step, and the energy balance
 (the input power equals the copper loss, the mechanical power and the rate of the stored energy `0.75 (Ld id^2 + Lq iq^2)`, to
-1e-3 of the input energy).
+1e-5 of the input energy, which is the trapezoid rule's error at the step of 1e-5 s). The order check expects the error ratio of 16 for a
+halved step within 0.5.

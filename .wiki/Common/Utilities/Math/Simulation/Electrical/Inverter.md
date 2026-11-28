@@ -8,7 +8,8 @@ voltage to the motor. It needs a PMSM in the chain.
 
 ## SetDcBus
 
-`SetDcBus(Vdc)` sets the DC bus voltage in V. It can be set while the plant runs.
+`SetDcBus(Vdc)` sets the DC bus voltage in V. It can be set while the plant runs. A plant with an inverter needs a DC bus above zero:
+the plant checks it when the chain is complete (`Simulation: the DC bus must be positive`), so the default of zero is refused.
 
 ```cpp
 #include <Utilities/Math/Simulation/Electrical/Inverter.h>
