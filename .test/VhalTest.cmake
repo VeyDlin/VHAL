@@ -300,6 +300,7 @@ function(vhal_tool_test dir)
     NAME "${testName}"
     COMMAND "${CMAKE_COMMAND}"
       "-DVHAL_TOOL_DIR=${toolDir}"
+      "-DVHAL_BUILD_DIR=${CMAKE_BINARY_DIR}"
       ${prepareArg}
       ${scriptArg}
       -P "${VHAL_TEST_DIR}/ToolTest.cmake")

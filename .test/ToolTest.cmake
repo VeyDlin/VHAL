@@ -5,7 +5,7 @@
 #   When VHAL_TOOL_PREPARE names an npm script, that script runs first, when a g++ is on the PATH (the tests of a device simulator need
 #   it). When that script fails, the test fails: a g++ is present, so the failure is an error of the code it builds.
 # - a project or solution file: dotnet test, skipped when dotnet is absent.
-# - a CMakeLists.txt: the tool is configured and built in .test-build/tools/<folder path>, with the generator and the host compiler
+# - a CMakeLists.txt: the tool is configured and built in <VHAL_BUILD_DIR>/tools/<folder path>, with the generator and the host compiler
 #   of the main build (read from its cache). The tool is built with VHAL_TOOL_TEST set to ON, so that it never downloads a library
 #   and prints VHAL_SKIP: when a library it needs is missing.
 #
@@ -75,12 +75,12 @@ endif()
 if(EXISTS "${VHAL_TOOL_DIR}/CMakeLists.txt")
   file(RELATIVE_PATH vhalToolPath "${vhalToolRoot}" "${VHAL_TOOL_DIR}")
   string(REPLACE "/" "_" vhalToolKey "${vhalToolPath}")
-  set(vhalToolBuild "${vhalToolRoot}/.test-build/tools/${vhalToolKey}")
+  set(vhalToolBuild "${VHAL_BUILD_DIR}/tools/${vhalToolKey}")
 
   # The main build is configured by Run.cmake before any test runs; its cache names the generator and the host compiler.
-  set(vhalCache "${vhalToolRoot}/.test-build/CMakeCache.txt")
+  set(vhalCache "${VHAL_BUILD_DIR}/CMakeCache.txt")
   if(NOT EXISTS "${vhalCache}")
-    message(FATAL_ERROR "The build folder .test-build is not configured: run ./test.cmd first")
+    message(FATAL_ERROR "The build folder ${VHAL_BUILD_DIR} is not configured: run ./test.cmd first")
   endif()
 
   file(STRINGS "${vhalCache}" vhalGeneratorLine REGEX "^CMAKE_GENERATOR:INTERNAL=")
