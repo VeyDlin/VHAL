@@ -102,6 +102,15 @@ public:
 	}
 
 
+	// Makes the object for a message from the finished CRC of its head, so Add continues that message:
+	// Resume(Calculate(head)).Add(tail) gives the CRC of head followed by tail.
+	static constexpr Crc Resume(Value finished) {
+		Crc crc;
+		crc.remainder = CrcResume<Parameters>(finished);
+		return crc;
+	}
+
+
 	constexpr void Add(std::span<const uint8> data) {
 		remainder = Engine::template Run<Parameters>(remainder, data);
 	}

@@ -172,9 +172,10 @@ public:
 	}
 
 
-	// Decodes a frame that is the whole of in: the zero delimiter must be its last byte. Writes the packet into out and returns its length.
-	// An empty input is invalidArgument. A frame that is broken or has no delimiter, or a delimiter that is not the last byte, is
-	// dataCorrupted. A packet longer than out is bufferOverflow.
+	// Decodes a frame that is the whole of in. Writes the packet into out and returns its length. A zero byte before the first block is
+	// ignored, so leading zeros do not change the result. An empty input is invalidArgument. A frame that has no delimiter, a block that
+	// runs into the delimiter, or a zero byte that ends the frame before the last byte of in, is dataCorrupted. A packet longer than out
+	// is bufferOverflow.
 	static Result<std::size_t> Decode(std::span<const uint8> in, std::span<uint8> out) {
 		if (in.empty()) {
 			return ResultStatus::invalidArgument;

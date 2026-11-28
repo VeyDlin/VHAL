@@ -2,6 +2,13 @@
 
 Consistent Overhead Byte Stuffing (COBS) by Cheshire and Baker. The codec turns a packet into a frame that has no zero byte except the last one, so a zero on a serial line marks the end of a frame. It keeps no buffer: the caller provides every span.
 
+This is standard COBS, the format of the paper: no start byte, no escaping, and a zero byte only as the delimiter. `Common/Utilities`
+has a second COBS, `Serialization/COBS`, which is a different format: it frames with a start byte and escapes the start, stop and escape
+bytes of the payload. The two frame formats are not interchangeable.
+
+Use this codec when the link ends each frame with a zero byte. Use `Serialization/COBS` only where its start byte and escape codes are the
+agreed format of the link.
+
 Header: `Common/Utilities/Encoding/COBS/Cobs.h`, namespace `Encoding`, class `Cobs`.
 
 ## Table of Contents
@@ -76,6 +83,14 @@ static constexpr std::size_t EncodeUnchecked(std::span<const uint8> in, std::spa
 
 The same without the check, for a caller that has checked that `out` holds `EncodedSize(in.size())` bytes. It returns the frame length.
 
+```cpp
+std::array<uint8, 4> packet = { 0x11, 0x22, 0x00, 0x33 };
+std::array<uint8, Cobs::EncodedSize(4)> frame {};
+
+// frame[0 .. length) is 03 11 22 02 33 00
+std::size_t length = Cobs::EncodeUnchecked(std::span<const uint8>(packet), std::span<uint8>(frame));
+```
+
 ### Decode
 
 ```cpp
@@ -83,9 +98,17 @@ static Result<std::size_t> Decode(std::span<const uint8> in, std::span<uint8> ou
 static Result<std::size_t> Decode(std::span<uint8> frame);
 ```
 
-The first overload decodes the frame `in` into `out` and returns the packet length. The zero delimiter must be the last byte of `in`; the frame is the whole input.
+The first overload decodes the frame `in` into `out` and returns the packet length. The zero delimiter must be the last byte of `in`; the frame is the whole input. A zero byte before the first block is ignored, so `Decode` of `00 01 00` gives the empty packet.
 
 The second overload decodes in place. The packet is written from the start of `frame`, and its length is returned. The packet never catches up with the bytes still to be read, so the in-place form is safe.
+
+```cpp
+const std::array<uint8, 6> frame = { 0x03, 0x11, 0x22, 0x02, 0x33, 0x00 };
+std::array<uint8, 4> packet {};
+
+// packet is 11 22 00 33, and decoded.Value() is 4
+Result<std::size_t> decoded = Cobs::Decode(std::span<const uint8>(frame), std::span<uint8>(packet));
+```
 
 ### Decoder
 
@@ -110,6 +133,15 @@ A zero byte ends the frame. The next byte starts the following frame, so a broke
 
 ```cpp
 Cobs::Decoder decoder;
+std::array<uint8, 8> packet {};
+std::size_t length = 0;
+
+decoder.Push(0x05, std::span<uint8>(packet), length); // a block of four bytes is open
+decoder.Reset();                                      // the partial frame is dropped
+```
+
+```cpp
+Cobs::Decoder decoder;
 std::array<uint8, 32> packet {};
 std::size_t length = 0;
 
@@ -128,7 +160,7 @@ for (uint8 byte : received) {
 |---|---|---|
 | `Encode` | `messageTooLong` | `out` is smaller than `EncodedSize(in.size())`. |
 | `Decode` | `invalidArgument` | `in` is empty. |
-| `Decode` | `dataCorrupted` | The frame has no delimiter, a zero comes before the last byte, or a block runs into the delimiter. |
+| `Decode` | `dataCorrupted` | The frame has no delimiter, a block runs into the delimiter, or a zero byte that ends the frame comes before the last byte of `in`. A zero byte before the first block is ignored and does not count. |
 | `Decode` | `bufferOverflow` | The packet is longer than `out`. |
 
 COBS has no check of its own. A damaged frame can decode to a different packet of the same length. The integrity of the payload needs a check above the codec.
@@ -147,3 +179,5 @@ The tests are in `Common/Utilities/Encoding/COBS/.test/`. `./test.cmd COBS` buil
 
 - `TestCobsVectors.cpp`: the vectors of the paper and of the Wikipedia article, written by hand, including the blocks of 253, 254 and 255 bytes. Every packet of 0 to 3 bytes over `00`, `01` and `FF`. Random packets of 0 to 1000 bytes, checked against a reference encoder written from the block rules. Round trips with in-place and two-span decoding. `EncodedSize` bounds. Errors.
 - `TestCobsStream.cpp`: the decoder one byte at a time, garbage and resynchronisation, overflow, `Reset`, and constant-expression use.
+- `TestCobsDecodeErrors.cpp`: each error row of `Decode` in the table above, with the status it names, and the leading-zero rule.
+- `TestCobsReadme.cpp`: the examples of this page, as the page writes them.

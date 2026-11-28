@@ -118,7 +118,19 @@ std::mt19937 generator(20261125);
 int failures = 0;
 
 
-// Checks one preset with one engine: the check value, then random messages against the reference, each one whole and in two parts.
+// The CRC of data continued at split: the register of the head, recovered from its finished value, takes the tail.
+template<typename Checked>
+bool ResumesAt(std::span<const uint8> data, std::size_t split, uint64 expected) {
+	Checked head;
+	head.Add(data.first(split));
+	Checked resumed = Checked::Resume(head.Get());
+	resumed.Add(data.subspan(split));
+	return static_cast<uint64>(resumed.Get()) == expected;
+}
+
+
+// Checks one preset with one engine: the check value, the check text resumed at every split, then random messages against the reference,
+// each one whole and in two parts, and resumed at the cut of the parts.
 template<typename Preset, typename Engine>
 void CheckEngine(const char* presetName, const char* engineName) {
 	if constexpr (Engine::template Supports<Preset::parameters>()) {
@@ -127,13 +139,23 @@ void CheckEngine(const char* presetName, const char* engineName) {
 		static_assert(Checked::checked);
 
 		const uint64 checkValue = static_cast<uint64>(Checked::Calculate(std::span<const uint8>(CheckText)));
-		if (checkValue != Preset::parameters.check) {
+		if (Preset::parameters.hasCheck && checkValue != Preset::parameters.check) {
 			failures++;
 			std::printf("CHECK %s with %s: %llX, the check value is %llX\n", presetName, engineName,
 				static_cast<unsigned long long>(checkValue), static_cast<unsigned long long>(Preset::parameters.check));
 		}
 
+		const uint64 checkExpected = ReferenceCrc(Preset::parameters, std::span<const uint8>(CheckText));
+		for (std::size_t split = 0; split <= CheckText.size(); split++) {
+			if (!ResumesAt<Checked>(std::span<const uint8>(CheckText), split, checkExpected)) {
+				failures++;
+				std::printf("RESUME %s with %s: the check text resumed at %zu differs\n", presetName, engineName, split);
+				break;
+			}
+		}
+
 		int wrong = 0;
+		int resumeWrong = 0;
 		for (int round = 0; round < 200; round++) {
 			std::vector<uint8> data(generator() % 101);
 			for (uint8& byte : data) {
@@ -155,11 +177,18 @@ void CheckEngine(const char* presetName, const char* engineName) {
 			parts.Reset();
 			parts.Add(std::span<const uint8>(data));
 			wrong += static_cast<uint64>(parts.Get()) != expected ? 1 : 0;
+
+			resumeWrong += ResumesAt<Checked>(std::span<const uint8>(data), cut, expected) ? 0 : 1;
 		}
 
 		if (wrong != 0) {
 			failures++;
 			std::printf("RANDOM %s with %s: %d of 600 results differ from the reference\n", presetName, engineName, wrong);
+		}
+
+		if (resumeWrong != 0) {
+			failures++;
+			std::printf("RESUME %s with %s: %d of 200 resumed results differ from the reference\n", presetName, engineName, resumeWrong);
 		}
 	}
 }
@@ -195,6 +224,29 @@ static_assert(ChecksAtCompileTime<Checksum::Crc16IsoIec144433A>());
 static_assert(ChecksAtCompileTime<Checksum::Crc16IsoIec144433A::With<CrcBitwise>>());
 static_assert(ChecksAtCompileTime<Checksum::Crc16IsoIec144433A::With<CrcNibble>>());
 static_assert(ChecksAtCompileTime<Checksum::Crc16IsoIec144433A::With<CrcTable>>());
+
+
+// The check text resumed after four bytes, at compile time: the register of the head, recovered from its finished value, takes the rest.
+template<typename Checked>
+constexpr bool ResumesAtCompileTime() {
+	Checked head;
+	head.Add(std::span<const uint8>(CheckText.data(), 4));
+	Checked resumed = Checked::Resume(head.Get());
+	resumed.Add(std::span<const uint8>(CheckText.data() + 4, CheckText.size() - 4));
+	return static_cast<uint64>(resumed.Get()) == Checked::parameters.check;
+}
+
+
+static_assert(ResumesAtCompileTime<Checksum::Crc16Modbus>());
+static_assert(ResumesAtCompileTime<Checksum::Crc16Modbus::With<CrcTable>>());
+static_assert(ResumesAtCompileTime<Checksum::Crc12Umts>());
+static_assert(ResumesAtCompileTime<Checksum::Crc16CcittFalse>());
+static_assert(ResumesAtCompileTime<Checksum::Crc7Mmc>());
+static_assert(ResumesAtCompileTime<Checksum::Crc64Ecma182>());
+
+
+// A reflected input with a normal output: no preset has this pair of reflections, so this set covers it. It has no check value.
+constexpr CrcParameters reflectInOnly = CrcParameters().Width(16).Polynomial(0x8005).Initial(0x1D0F).FinalXor(0x3C5A).ReflectIn();
 }
 
 
@@ -253,12 +305,13 @@ int main() {
 	CheckPreset<Checksum::Crc32Q>("Crc32Q");
 	CheckPreset<Checksum::Crc40Gsm>("Crc40Gsm");
 	CheckPreset<Checksum::Crc64Ecma182>("Crc64Ecma182");
+	CheckPreset<Checksum::Crc<reflectInOnly>>("reflectInOnly");
 
 	if (failures != 0) {
 		std::printf("%d preset check(s) failed\n", failures);
 		return 1;
 	}
 
-	std::printf("all 54 presets checked with every engine that supports them\n");
+	std::printf("all 54 presets and the reflected-input set checked with every engine that supports them\n");
 	return 0;
 }
