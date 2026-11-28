@@ -42,6 +42,29 @@ crc.Reset();                     // back to the initial register
 
 `Get` does not change the register, so it can be called between parts.
 
+## Resume
+
+`Resume` makes an object from a finished value, so that a message continues from a CRC that was kept. The rule: a finished value
+continues the message. `Resume(Calculate(head))` followed by `Add(tail)` gives the CRC of `head` followed by `tail`, for every
+parameter set and every engine, at any split.
+
+```cpp
+#include <Utilities/Checksum/CRC/Preset/Crc16Modbus.h>
+
+// The CRC of the first part is kept as a finished value
+Checksum::Crc16Modbus first;
+first.Add(head);
+const uint16 saved = first.Get();
+
+// The object is rebuilt from the saved value and takes the rest of the message
+Checksum::Crc16Modbus crc = Checksum::Crc16Modbus::Resume(saved);
+crc.Add(tail);
+const uint16 value = crc.Get();  // the CRC of head followed by tail
+```
+
+The value is one that `Get` or `Calculate` returned for the same type. `Resume` recovers the register from it, so the value must be
+of the width of the type, as `Value` is. `.test/TestCrcReadme.cpp` compiles this example.
+
 ## Parameters
 
 `CrcParameters` is a chain. `Width` and `Polynomial` are required. The others default to 0 and false.
