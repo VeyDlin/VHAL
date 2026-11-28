@@ -83,6 +83,14 @@ static constexpr std::size_t EncodeUnchecked(std::span<const uint8> in, std::spa
 
 The same without the check, for a caller that has checked that `out` holds `EncodedSize(in.size())` bytes. It returns the frame length.
 
+```cpp
+std::array<uint8, 4> packet = { 0x11, 0x22, 0x00, 0x33 };
+std::array<uint8, Cobs::EncodedSize(4)> frame {};
+
+// frame[0 .. length) is 03 11 22 02 33 00
+std::size_t length = Cobs::EncodeUnchecked(std::span<const uint8>(packet), std::span<uint8>(frame));
+```
+
 ### Decode
 
 ```cpp
@@ -93,6 +101,14 @@ static Result<std::size_t> Decode(std::span<uint8> frame);
 The first overload decodes the frame `in` into `out` and returns the packet length. The zero delimiter must be the last byte of `in`; the frame is the whole input. A zero byte before the first block is ignored, so `Decode` of `00 01 00` gives the empty packet.
 
 The second overload decodes in place. The packet is written from the start of `frame`, and its length is returned. The packet never catches up with the bytes still to be read, so the in-place form is safe.
+
+```cpp
+const std::array<uint8, 6> frame = { 0x03, 0x11, 0x22, 0x02, 0x33, 0x00 };
+std::array<uint8, 4> packet {};
+
+// packet is 11 22 00 33, and decoded.Value() is 4
+Result<std::size_t> decoded = Cobs::Decode(std::span<const uint8>(frame), std::span<uint8>(packet));
+```
 
 ### Decoder
 
@@ -114,6 +130,15 @@ The decoder takes one byte at a time and writes the packet into the caller's spa
 | `tooLong` | The frame is complete, but `out` was too small for the packet. |
 
 A zero byte ends the frame. The next byte starts the following frame, so a broken or overlong frame does not lose the frame after it. `Reset` drops a partial frame. The state is a code, a count of bytes the block still owes, a pending zero, an overflow flag and a count of written bytes.
+
+```cpp
+Cobs::Decoder decoder;
+std::array<uint8, 8> packet {};
+std::size_t length = 0;
+
+decoder.Push(0x05, std::span<uint8>(packet), length); // a block of four bytes is open
+decoder.Reset();                                      // the partial frame is dropped
+```
 
 ```cpp
 Cobs::Decoder decoder;
