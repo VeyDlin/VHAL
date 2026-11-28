@@ -41,7 +41,7 @@ public:
 	}
 
 
-	// The seed of the error sequence. It must not be zero.
+	// The seed of the error sequence. It must not be zero: the builder refuses zero.
 	constexpr void SetSeed(std::uint32_t value) {
 		noise = Noise(value);
 	}

@@ -406,6 +406,8 @@ public:
 
 
 	constexpr Builder Seed(std::uint32_t value) const requires (ChainType::template Count<MagneticSensor<T>>() == 1) {
+		Require<"Simulation: the seed must not be zero">(value != 0);
+
 		Builder result(*this);
 		result.blocks.template Get<MagneticSensor<T>>().SetSeed(value);
 		return result;

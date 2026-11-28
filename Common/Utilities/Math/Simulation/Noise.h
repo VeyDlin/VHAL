@@ -13,7 +13,8 @@ namespace Simulation {
 
 class Noise {
 public:
-	// The seed must not be zero: a zero state stays zero, and the sequence is then all zeros.
+	// The seed must not be zero. The xorshift step keeps a zero state at zero, so every Uniform() returns 0.5 / 2^32 and the
+	// samples are constant, not random. The plant builder refuses a zero seed at compile time (its Seed setter).
 	constexpr explicit Noise(std::uint32_t seedValue) : state(seedValue) {
 	}
 
