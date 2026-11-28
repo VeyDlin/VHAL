@@ -9,9 +9,9 @@
 #   sanitizer report fail its test. The configure stops when the compiler cannot build and run a sanitized program.
 #
 # The compiler is CXX when it is set, otherwise g++. It must be GCC 14 or newer. The build folder .test-build (or
-# .test-build-sanitize) is configured once (Ninja when it is found), every test executable is built with -k so that one failing
-# target does not hide the others, and CTest then runs the selected tests. The script fails when the configure, the build or a test
-# fails.
+# .test-build-sanitize) is configured once (Ninja when it is found). The executables of the selected host tests are built with -k
+# so that one failing target does not hide the others, and CTest then runs the selected tests. A run builds nothing else. The
+# script fails when the configure, the build or a test fails.
 
 cmake_minimum_required(VERSION 3.25)
 
@@ -191,9 +191,47 @@ else()
   set(vhalKeepGoing "-k")
 endif()
 
+# The command of a host test in CTest's listing is the path of its executable. The listing is read as JSON, which also names the
+# executables that are not built yet, so the build covers the selected host tests and nothing else.
 execute_process(
-  COMMAND "${CMAKE_COMMAND}" --build "${vhalBuildDir}" --parallel "${vhalJobs}" -- ${vhalKeepGoing}
-  RESULT_VARIABLE vhalBuildResult)
+  COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${vhalBuildDir}" -N --show-only=json-v1 ${vhalCtestArgs}
+  RESULT_VARIABLE vhalJsonResult
+  OUTPUT_VARIABLE vhalJsonOutput
+  ERROR_QUIET)
+
+if(NOT vhalJsonResult EQUAL 0)
+  message(FATAL_ERROR "CTest could not list the tests as JSON.")
+endif()
+
+string(REGEX MATCHALL "/vhaltest_[A-Za-z0-9_]+" vhalTargetPaths "${vhalJsonOutput}")
+set(vhalTargets "")
+foreach(vhalTargetPath IN LISTS vhalTargetPaths)
+  string(SUBSTRING "${vhalTargetPath}" 1 -1 vhalTarget)
+  list(APPEND vhalTargets "${vhalTarget}")
+endforeach()
+list(REMOVE_DUPLICATES vhalTargets)
+list(LENGTH vhalTargets vhalTargetCount)
+
+if(vhalTargetCount EQUAL 0)
+  message("No host test is selected, so the build is skipped.")
+  set(vhalBuildResult 0)
+else()
+  string(JOIN " " vhalTargetText ${vhalTargets})
+  string(LENGTH "${vhalTargetText}" vhalTargetLength)
+
+  # The Windows command line holds 32767 characters. A longer target list is replaced by a build of every target.
+  set(vhalBuildTargets "")
+  if(vhalTargetLength GREATER 20000)
+    message("Building all test executables: the selection names ${vhalTargetCount} of them, too many for one command line.")
+  else()
+    message("Building ${vhalTargetCount} test executables.")
+    set(vhalBuildTargets --target ${vhalTargets})
+  endif()
+
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" --build "${vhalBuildDir}" --parallel "${vhalJobs}" ${vhalBuildTargets} -- ${vhalKeepGoing}
+    RESULT_VARIABLE vhalBuildResult)
+endif()
 
 execute_process(
   COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${vhalBuildDir}" --output-on-failure --no-tests=error ${vhalCtestArgs}
