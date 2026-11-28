@@ -14,3 +14,10 @@ vhal_fail(
   INCLUDES
     "${VHAL_ROOT}/Periphery"
     "${VHAL_ROOT}/Common")
+
+vhal_fail(
+  ByteConverterGnuErrors
+  INCLUDES
+    "${VHAL_ROOT}/Periphery"
+    "${VHAL_ROOT}/Common"
+  OPTIONS -std=gnu++23)

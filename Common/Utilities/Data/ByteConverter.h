@@ -257,6 +257,7 @@ private:
 			static_assert(sizeof(T) == 0, "ByteConverter: floating-point values are not supported; convert them to an integer first");
 		} else {
 			static_assert(std::is_integral_v<T> || std::is_enum_v<T>, "ByteConverter: the value type is an integer or an enum");
+			static_assert(sizeof(T) <= 8, "ByteConverter: the value type is 8 bytes or less");
 		}
 	}
 
