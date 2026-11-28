@@ -8,10 +8,11 @@
 // Searches over a list of types, at compile time. A list is a std::tuple<...> or a TypeList::List<...>. A search gives the index of the
 // first element for which a predicate holds, or the number of elements when none holds.
 //
-// A predicate is a type or an object with a member template Holds<Element>() that gives a bool. A predicate that holds a value, such as
-// a key or a type to compare, is a class template with that value as its parameter, and its Holds reads the element's member. Holds is
-// called for every element, so a search whose result is a constant is evaluated at compile time. The functions are constexpr, and they
-// are compiled to code only where a call happens at run time.
+// A predicate is an object of a class with a member template Holds<Element>() that gives a bool; Holds may be static or const. A
+// predicate that holds a value, such as a key or a type to compare, is a class template with that value as its parameter, and its
+// Holds reads the element's member. Holds is called for the elements up to the first one that holds (for every element in a count),
+// so a search whose result is a constant is evaluated at compile time. The functions are constexpr, and they are compiled to code
+// only where a call happens at run time.
 namespace TypeList {
 
 
@@ -47,29 +48,17 @@ void ExactlyOnceFailed();
 // The number of elements for which the predicate holds. The predicate's Holds is called for each element type of the tuple.
 template<typename Tuple, typename Predicate, std::size_t... Index>
 constexpr std::size_t CountWhereIn([[maybe_unused]] const Predicate& predicate, std::index_sequence<Index...>) {
-	const std::array<bool, sizeof...(Index)> holds = {predicate.template Holds<std::tuple_element_t<Index, Tuple>>()...};
-	std::size_t count = 0;
-	for (std::size_t index = 0; index < holds.size(); index++) {
-		if (holds[index]) {
-			count++;
-		}
-	}
-
-	return count;
+	return (std::size_t{0} + ... + static_cast<std::size_t>(predicate.template Holds<std::tuple_element_t<Index, Tuple>>()));
 }
 
 
-// The index of the first element for which the predicate holds, or the number of elements when none holds.
+// The index of the first element for which the predicate holds, or the number of elements when none holds. The fold stops at the first
+// element that holds, so Holds is not called for the elements after it, and no array of results is built.
 template<typename Tuple, typename Predicate, std::size_t... Index>
 constexpr std::size_t IndexWhereIn([[maybe_unused]] const Predicate& predicate, std::index_sequence<Index...>) {
-	const std::array<bool, sizeof...(Index)> holds = {predicate.template Holds<std::tuple_element_t<Index, Tuple>>()...};
-	for (std::size_t index = 0; index < holds.size(); index++) {
-		if (holds[index]) {
-			return index;
-		}
-	}
-
-	return sizeof...(Index);
+	std::size_t found = sizeof...(Index);
+	const bool any = (... || (found = Index, predicate.template Holds<std::tuple_element_t<Index, Tuple>>()));
+	return any ? found : sizeof...(Index);
 }
 
 
