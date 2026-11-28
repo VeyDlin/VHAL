@@ -249,7 +249,7 @@ Simulator arguments (inside `--sim-args`):
 
 The simulator is started for each command, so state on the device (the written image, user data) lasts one command. Use `--flash-out`/`--flash-in` to carry the flash content between commands.
 
-`npm test` runs the unit tests. `npm run test:e2e` runs the end-to-end tests against the simulator. The repository's test run (`./test.cmd Bootloader`) builds the simulator with `npm run sim:build` first when a g++ is on the PATH, and the end-to-end entry (`Bootloader.tool.e2e`) is skipped when that build fails.
+`npm test` runs the unit tests. `npm run test:e2e` runs the end-to-end tests against the simulator. The repository's test run (`./test.cmd Bootloader`) builds the simulator with `npm run sim:build` first when a g++ is on the PATH, and the end-to-end entry (`Bootloader.tool.e2e`) fails when that build fails. Without a g++ the entry is skipped.
 
 ## Package Format
 
