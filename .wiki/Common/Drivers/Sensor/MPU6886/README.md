@@ -8,7 +8,7 @@ SCL 22) at address 0x68, and `WHO_AM_I` (0x75) reads 0x19.
 
 ## Board facts
 
-- The INT pin is not connected to the ESP32 on this board (measured with `tools/imu-wake-probe`). Every read is polled,
+- The INT pin is not connected to the ESP32 on this board (measured on the board). Every read is polled,
   and no interrupt is configured. The FIFO is drained on a timer instead.
 - The caller starts the bus before `Init`: `imuBus.SetParameters({ .speed = AI2C::Speed::Fast })`. The driver does not
   reconfigure the bus.
@@ -82,7 +82,7 @@ Data rates with the DLPF on (`CONFIG.DLPF_CFG` 1 to 6 at a 1 kHz internal rate):
 ## FIFO
 
 The FIFO is 1 kB. A frame is 14 bytes (accelerometer, temperature, gyroscope), so it holds about 73 frames, which is about
-73 ms at 1 kHz. The test firmware drains it every 10 ms; `ReadFifo` returns at most 16 frames per call, and the caller
+73 ms at 1 kHz. A caller that drains it every 10 ms keeps well inside that; `ReadFifo` returns at most 16 frames per call, and the caller
 repeats the call while the FIFO returned a full 16.
 
 `ReadFifo` does, in order:
@@ -94,27 +94,26 @@ repeats the call while the FIFO returned a full 16.
    burst read.
 
 The frames have no timestamps. The caller must assign them with the true 1 ms spacing: a clock that advances by one frame
-interval per frame, re-anchored to the timer only when it falls far behind (test firmware: `frameTimeUs`, 50 ms lag limit).
+interval per frame, re-anchored to the timer only when it falls far behind (for example, a re-anchor at a 50 ms lag).
 Timestamps taken from the read time instead are wrong when two drains read one or two frames: the spacing between frames
 then shrinks, and any derivative (the tap jerk) is too large.
 
 ## Gyroscope bias
 
 `CalibrateGyroBias(count, intervalMs, maxSpreadDps, bias)` averages `count` readings taken `intervalMs` apart. It returns
-`busy` and no bias when any axis moved more than `maxSpreadDps` between the minimum and the maximum. The test firmware
-measured x 1.026, y 0.874, z 0.134 deg/s on the board (lying still).
+`busy` and no bias when any axis moved more than `maxSpreadDps` between the minimum and the maximum. On one board, lying
+still, the measured bias was x 1.026, y 0.874, z 0.134 deg/s.
 
 ## Tests
 
-`tools/vhal-host-tests/motion/run.sh` (`[HOST] motion.mpu6886.*`). The driver compiles against `stubs/VHAL.h`, a simulated
+`Drivers/Sensor/MPU6886/.test/TestMpu6886.cpp` (`./test.cmd MPU6886`). The driver compiles against `.test/shim/VHAL.h`, a simulated
 device with a register file, a write log, the FIFO, read-to-clear INT_STATUS and FIFO_RST. The tests check the write
 sequence of `Init`, a dropped configuration write (readback mismatch), wrong `WHO_AM_I`, the burst decode and scaling,
 gyroscope bias calibration (and that it rejects motion), the FIFO drain, the overflow reset and the sleep write (`Sleep`:
 one PWR_MGMT_1 write, 0x41).
 
 `Sleep` stops the accelerometer and gyroscope and keeps the registers, so the caller can put the device to sleep whenever it
-does not need samples. The current drawn in sleep is not measured here. The compile check is
-`tools/vhal-harness/main/checks/CheckMotion.cpp`.
+does not need samples. The current drawn in sleep is not measured here.
 
 ## Sources
 

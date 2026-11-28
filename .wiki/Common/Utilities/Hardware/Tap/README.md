@@ -14,7 +14,7 @@ Number types: `float` only. `TapDetector` is not a template: its inputs are floa
 has `sqrt` and `abs`, so the reason is not the functions. Converting would change the tuned behaviour, and the thresholds would
 need re-checking on the board first.
 
-Host tests: `tools/vhal-host-tests/motion/` (the `motion.tap.*` tests, on synthetic traces).
+Host tests: `Utilities/Hardware/Tap/.test/TestTapDetector.cpp` (`./test.cmd Tap`), on synthetic traces.
 
 ---
 
@@ -41,12 +41,12 @@ except where a section says it was measured on the board.
   decaying average from the raw acceleration.
 - US patent 8,442,797, "Directional tap detection algorithm using an accelerometer": classify a tap by the axis whose
   acceleration derivative (jerk) has the largest magnitude; its sign gives the struck face; per-direction thresholds.
-  The test firmware does not use the largest-jerk rule for its gestures any more (see TapDetector, two faces).
+  The `TwoFaces` mode does not use the largest-jerk rule (see Event and Classification).
 - ADXL344 datasheet: tapping a face gives a negative spike on that face's positive axis. The sign convention depends on how
-  the sensor is mounted, so it is determined on the board (see the test firmware).
+  the sensor is mounted, so it is determined on the board.
 - Back-of-device taps as an input gesture: iOS Back Tap (Accessibility) and Android's Quick Tap feature trigger actions on
-  taps on the back of the phone. The test firmware uses the same idea: a knock on the back of the case is a second gesture
-  next to the knock on the top edge.
+  taps on the back of the phone. `TwoFaces` with a calibrated back face uses the same idea: a knock on the back of the case
+  is a second gesture next to the knock on the top edge.
 
 ## High-pass Acceleration and Jerk
 
@@ -59,7 +59,7 @@ Gravity and slow motion leave, the onset of a knock stays. Then the jerk of the 
 is what the rest of the detector uses. The filter output is zero at the first sample after a reset (a gap longer than
 `maxGapSec`, or the start), which is the rest state.
 
-Why 20 Hz (the test model; there is no measured spectrum of a knock in the logs): with a 0.3 g sway at 8 Hz, the filter keeps
+Why 20 Hz (the model used by the tests; there is no measured spectrum of a knock in the recorded data): with a 0.3 g sway at 8 Hz, the filter keeps
 `|H| = 8 / sqrt(8^2 + 20^2) = 0.37`, so the residual is about 0.11 g and its jerk about 5.6 g/s (mean magnitude 3.6 g/s). At
 2 Hz it keeps 0.10 of the sway. At 50 Hz it keeps `50 / sqrt(50^2 + 20^2) = 0.93` of a knock's onset, so the peak jerk of a
 knock is almost the same as without the filter. 25 Hz would also work (0.30 at 8 Hz, 0.86 at 50 Hz); 20 Hz was kept to
@@ -72,17 +72,16 @@ An event starts when the jerk norm reaches `candidateGPerS` and ends after `even
 
 - `SixFaces` (the classic mode, kept for other uses): the face is the axis with the largest jerk at the peak sample, with
   the sign of that component; the peak is the jerk norm. Index order: +X, -X, +Y, -Y, +Z, -Z.
-- `TwoFaces` (the test firmware): only the two calibrated faces count. For each calibrated axis the first lobe is tracked,
+- `TwoFaces`: only the two calibrated faces count. For each calibrated axis the first lobe is tracked,
   a run of samples whose jerk on that axis is at least `candidateGPerS` (it ends at the first sample below). The axis whose
   first lobe *starts earlier* decides. Equal starts go to the larger peak. Its sign must match the calibrated face of that
   axis; otherwise the candidate is `other_face`. A candidate with no lobe on either calibrated axis (a side edge, a
   diagonal knock) is `other_face` too.
 
-Why the earliest lobe and not the largest one: the case rings after the impact. In the test firmware's data (summary of
-`tools/tilt-scroll-test/user_session.log`) the largest-jerk rule put the bottom edge on +Y, because the ringing of the case
-was larger than the knock on the bottom axis. The impact is always the first lobe; ringing comes after it, so the earliest
-lobe keeps the top knock on its face. Tests `motion.tap.ringing_keeps_top_face` and
-`motion.tap.back_knock_ringing_keeps_back_face` check this.
+Why the earliest lobe and not the largest one: the case rings after the impact. In a recording on the board the
+largest-jerk rule put the bottom edge on +Y, because the ringing of the case was larger than the knock on the bottom axis. The impact is always the first lobe; ringing comes after it, so the earliest
+lobe keeps the top knock on its face. The checks `CheckRingingKeepsTopFace` and
+`CheckBackKnockRingingKeepsBackFace` in `TestTapDetector.cpp` check this.
 
 ## Acceptance
 
@@ -105,43 +104,38 @@ burst rule removes the rest of the shake, but not that first knock; this is a kn
 
 `doubleTapEnabled` selects the behaviour. The library default is `true` (unchanged): an accepted tap waits `doubleWindowSec`
 (0.35 s) for a second tap on the same face; if one arrives it is a double tap, otherwise the single tap is reported when the
-window expires. The test firmware sets `doubleTapEnabled = false`: a single tap is reported at once (the latency is the
+window expires. With `doubleTapEnabled = false`, a single tap is reported at once (the latency is the
 quiet time, about 15 ms after the knock). A double knock then counts as two singles (or as refractory ringing if they are
 within 80 ms).
 
 ## Queues
 
 `PopTap` and `PopRejection` return the oldest entries of two fixed queues of 8. The newest entry overwrites the oldest when
-a queue is full, so the caller must drain them regularly (the test firmware does, every frame).
+a queue is full, so the caller must drain them regularly (draining them on every frame of the sample loop is enough).
 
 ## Thresholds and the Measured Floor
 
 The header defaults: `candidateGPerS` = 25 g/s and `faceGPerS` = 25 g/s on every face; `movingGPerS` = 12 g/s;
-`highPassHz` = 20 Hz; `SixFaces`; `doubleTapEnabled` = true. The test firmware sets the threshold after calibration as
-described in `tools/tilt-scroll-test/README.md` (candidate `clamp(0.15 x median, 15 x floor, 0.35 x median)`), and the page
-level as 3 x median.
+`highPassHz` = 20 Hz; `SixFaces`; `doubleTapEnabled` = true. A calibration step can set the candidate threshold after measuring the rest state, as
+`clamp(0.15 x median, 15 x floor, 0.35 x median)`.
 
-The 25 g/s default comes from the measured noise and from the knocks the person made:
+The 25 g/s default comes from the measured noise and from the knocks made on the board:
 
-- the noise floor (`[NOISE]` line, the rest window, high-passed jerk RMS per axis) was 0.8 g/s on the last boot and 0.8 to
-  1.2 g/s in the session log; 25 g/s is about 20 to 30 times that;
-- the session log's 58 `weak` rejections (with a face threshold of 60 g/s) all had peaks between 32 and 67 g/s, so the
-  person's light knocks were above 30 g/s. A threshold of 25 g/s lets all of them through the level check; the 60 g/s face
-  threshold was the single biggest reason for lost knocks;
-- the 15 x floor lower bound and the 35 % of median upper bound: the session's median accepted peak (59 accepted taps in the
-  whole log, median 187 g/s) gives 0.15 x 187 = 28 g/s, inside the bounds, so the calibration lands close to the default.
+- the noise floor (the high-passed jerk RMS per axis over a rest window) was 0.8 to 1.2 g/s on the board; 25 g/s is about
+  20 to 30 times that;
+- light knocks on the board had peaks between 32 and 67 g/s. With a face threshold of 60 g/s, all of them were rejected as
+  `weak`; a threshold of 25 g/s lets them through the level check;
+- the 15 x floor lower bound and the 35 % of median upper bound: a median accepted peak of 187 g/s on the board gives
+  0.15 x 187 = 28 g/s, inside the bounds, so the calibration lands close to the default.
 
-The `moving` threshold of 12 g/s was set against the rest activity (1.2 g/s on the last boot, 1.8 g/s in the session log) and
-the sway model (mean high-passed jerk about 3.6 g/s at 8 Hz, 0.3 g). 12 g/s is about three times the sway and about ten times
-the rest.
+The `moving` threshold of 12 g/s is set against the rest activity (1.2 to 1.8 g/s on the board) and the sway model (mean
+high-passed jerk about 3.6 g/s at 8 Hz, 0.3 g). 12 g/s is about three times the sway and about ten times the rest.
 
-The 80 ms refractory window was kept. The session log has no timestamps, so the 26 `refractory` rejections (12 in the first
-557 lines) cannot be timed against it; the 80 ms value could not be checked and stays as it was.
+The 80 ms refractory window is not yet checked against timed data from the board, so it is a starting value.
 
 ---
 
 ## Files
 
 - `VHAL/Common/Utilities/Hardware/Tap/TapDetector.h`: the detector and `AccelHighPass`.
-- `tools/vhal-host-tests/motion/tests/TapDetectorTests.cpp`: the host tests (`[HOST] motion.tap.*`).
-- `tools/tilt-scroll-test/`: the on-board test that uses the detector (its README has the procedure).
+- `Utilities/Hardware/Tap/.test/TestTapDetector.cpp`: the host tests (`Tap.TestTapDetector`).
