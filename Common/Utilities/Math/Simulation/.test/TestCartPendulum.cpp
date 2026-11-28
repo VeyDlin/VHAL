@@ -43,5 +43,35 @@ int main() {
 	// The linearised cart accelerates as x'' = -m g theta / M while the pole leans, so its velocity is negative after the start.
 	VHAL_CHECK(run.state[1] < 0.0);
 
+	// The Jacobian at the upright position, by central differences of the block's own derivative with no force. The states are
+	// (x, x', theta, theta'). The linearisation is A[0][1] = 1, A[1][2] = -m g / M, A[2][3] = 1 and A[3][2] = (M + m) g / (M l), and
+	// the other entries are zero. Its eigenvalues are 0, 0 and +/- lambda, since the matrix is block-triangular. The difference has an
+	// error of order h^2 (about 1e-12) and a rounding error of about 1e-10 with h = 1e-6, so the tolerance is 1e-6.
+	const double step = 1.0e-6;
+	const double gravity = Simulation::StandardGravity<double>();
+	double jacobian[4][4] = { { 0.0, 0.0, 0.0, 0.0 }, { 0.0, 0.0, 0.0, 0.0 }, { 0.0, 0.0, 0.0, 0.0 }, { 0.0, 0.0, 0.0, 0.0 } };
+
+	for (int column = 0; column < 4; column++) {
+		double up[4] = { 0.0, 0.0, 0.0, 0.0 };
+		double down[4] = { 0.0, 0.0, 0.0, 0.0 };
+		double rateUp[4] = { 0.0, 0.0, 0.0, 0.0 };
+		double rateDown[4] = { 0.0, 0.0, 0.0, 0.0 };
+		up[column] = step;
+		down[column] = -step;
+		run.Evaluate(up, rateUp);
+		run.Evaluate(down, rateDown);
+
+		for (int row = 0; row < 4; row++) {
+			jacobian[row][column] = (rateUp[row] - rateDown[row]) / (2.0 * step);
+		}
+	}
+
+	VHAL_CHECK_NEAR(jacobian[0][1], 1.0, 1.0e-6);
+	VHAL_CHECK_NEAR(jacobian[1][2], -parameters.poleMass * gravity / parameters.cartMass, 1.0e-6);
+	VHAL_CHECK_NEAR(jacobian[2][3], 1.0, 1.0e-6);
+	VHAL_CHECK_NEAR(jacobian[3][2], (parameters.cartMass + parameters.poleMass) * gravity / (parameters.cartMass * parameters.length), 1.0e-6);
+	VHAL_CHECK_NEAR(jacobian[1][0], 0.0, 1.0e-6);
+	VHAL_CHECK_NEAR(jacobian[3][0], 0.0, 1.0e-6);
+
 	return VhalCheck::Finish("Simulation cart-pendulum");
 }
