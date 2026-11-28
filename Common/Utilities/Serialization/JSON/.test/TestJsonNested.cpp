@@ -14,7 +14,7 @@
 
 
 // Sample streaming transcript event, raw UTF-8.
-static constexpr std::string_view sampleTranscriptPartial = R"JSON({"type":"sample.partial","text":"Привет, мир, как дела?","words":[{"text":"Привет,","start":0.021,"end":0.442},{"text":"мир","start":0.784,"end":1.105}],"is_final":true,"speech_final":false,"start":0.001,"duration":2.549,"language":"ru"})JSON";
+static constexpr std::string_view sampleTranscriptPartial = R"JSON({"type":"sample.partial","text":"Привет, мир, как дела?","words":[{"text":"Привет,","start":0.021,"end":0.442},{"text":"мир","start":0.784,"end":1.105}],"is_final":true,"segment_final":false,"start":0.001,"duration":2.549,"language":"ru"})JSON";
 
 // Sample streaming chat chunk, raw UTF-8.
 static constexpr std::string_view sampleChatChunkRawUtf8 = R"JSON({"id":"3f2a9c1e-5b7d-4e8a-9c2f-1a6b3d4e5f60","object":"example.chunk","created":1700000000,"model":"sample-model-1.0-standard","choices":[{"index":0,"delta":{"content":"При","role":"assistant"}}],"system_fingerprint":"fp_0123456789","service_tier":"default"})JSON";
@@ -51,11 +51,11 @@ void TranscriptPartialRawUtf8() {
 	VHAL_CHECK_EQ(std::string_view(buffer.data(), length), "Привет, мир, как дела?");
 
 	bool isFinal = false;
-	bool speechFinal = true;
+	bool segmentFinal = true;
 	VHAL_CHECK(JSON::GetBool(sampleTranscriptPartial, "is_final", isFinal));
 	VHAL_CHECK(isFinal);
-	VHAL_CHECK(JSON::GetBool(sampleTranscriptPartial, "speech_final", speechFinal));
-	VHAL_CHECK(!speechFinal);
+	VHAL_CHECK(JSON::GetBool(sampleTranscriptPartial, "segment_final", segmentFinal));
+	VHAL_CHECK(!segmentFinal);
 
 	double duration = 0.0;
 	VHAL_CHECK(JSON::GetNumber(sampleTranscriptPartial, "duration", duration));

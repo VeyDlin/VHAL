@@ -85,8 +85,8 @@ def handler(ws):
 
     if path.startswith("/events"):
         ws.send('{"type":"event.created","id":"e-1"}')
-        ws.send('{"type":"event.partial","text":"hello","is_final":false,"speech_final":false}')
-        ws.send('{"type":"event.partial","text":"hello world","is_final":true,"speech_final":true}')
+        ws.send('{"type":"event.partial","text":"hello","is_final":false,"segment_final":false}')
+        ws.send('{"type":"event.partial","text":"hello world","is_final":true,"segment_final":true}')
         ws.close(code=1000, reason="")
         return
 
