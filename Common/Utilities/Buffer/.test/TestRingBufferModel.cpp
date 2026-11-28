@@ -118,6 +118,34 @@ void ClearResetsState() {
 }
 
 
+namespace {
+
+struct Packet {
+	uint32 id;
+	uint16 length;
+	uint8 flags;
+};
+
+} // namespace
+
+
+// A struct element is stored and returned whole. Clear empties the buffer, and the buffer is usable again after it.
+void StructElementsAndClear() {
+	RingBuffer<Packet, 2> fifo;
+	Packet first{ 0xAABBCCDDu, 512, 0x7F };
+	VHAL_CHECK_EQ(fifo.Push(first), ResultStatus::ok);
+	fifo.Clear();
+	VHAL_CHECK_EQ(fifo.Size(), static_cast<uint16>(0));
+	VHAL_CHECK(fifo.Pop().IsErr());
+
+	VHAL_CHECK_EQ(fifo.Push(first), ResultStatus::ok);
+	Packet out = fifo.Pop().Value();
+	VHAL_CHECK_EQ(out.id, 0xAABBCCDDu);
+	VHAL_CHECK_EQ(out.length, static_cast<uint16>(512));
+	VHAL_CHECK_EQ(out.flags, static_cast<uint8>(0x7F));
+}
+
+
 void PeekAndPeekMultipleWrap() {
 	RingBuffer<uint8, 4> ring;
 	ring.Push(static_cast<uint8>(1));
@@ -211,6 +239,7 @@ int main() {
 	InterleavedWrapMatchesModel();
 	IndexTypeNearUint16Max();
 	ClearResetsState();
+	StructElementsAndClear();
 	PeekAndPeekMultipleWrap();
 	MarkCommitAndRollback();
 	PopDuringPendingCommitKeepsSizeConsistent();
