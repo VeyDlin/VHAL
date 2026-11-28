@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include <VHAL.h>
+#include <type_traits>
 #include <utility>
 
 
@@ -30,7 +31,7 @@ public:
 	// After:   0000 1000 (bit 3 is set)
 	template<typename T, typename T1>
 	static inline void Set(T &value, T1 bit) {
-		SystemAssert(std::cmp_greater(sizeof(T) * 8U, bit));
+		SystemAssert(std::cmp_greater(sizeof(T) * 8U, PositionOf(bit)));
 		value |= static_cast<T>(static_cast<T>(1) << static_cast<T>(bit));
 	}
 
@@ -44,7 +45,7 @@ public:
 	// After:    1111 1011 (bit 2 is cleared)
 	template<typename T, typename T1>
 	static inline void Clear(T &value, T1 bit) {
-		SystemAssert(std::cmp_greater(sizeof(T) * 8U, bit));
+		SystemAssert(std::cmp_greater(sizeof(T) * 8U, PositionOf(bit)));
 		value &= ~static_cast<T>(static_cast<T>(1) << static_cast<T>(bit));
 	}
 
@@ -58,7 +59,7 @@ public:
 	// After:    0000 0000 (bit 2 is toggled)
 	template<typename T, typename T1>
 	static inline void Toggle(T &value, T1 bit) {
-		SystemAssert(std::cmp_greater(sizeof(T) * 8U, bit));
+		SystemAssert(std::cmp_greater(sizeof(T) * 8U, PositionOf(bit)));
 		value ^= static_cast<T>(static_cast<T>(1) << static_cast<T>(bit));
 	}
 
@@ -72,7 +73,7 @@ public:
 	// Result: true (bit 2 is set)
 	template<typename T, typename T1>
 	static inline bool Check(const T &value, T1 bit) {
-		SystemAssert(std::cmp_greater(sizeof(T) * 8U, bit));
+		SystemAssert(std::cmp_greater(sizeof(T) * 8U, PositionOf(bit)));
 		return !((value & (static_cast<T>(1) << static_cast<T>(bit))) == static_cast<T>(0U));
 	}
 
@@ -86,7 +87,7 @@ public:
 	// After:   0000 0010 (bit 1 is set)
 	template<typename T, typename T1>
 	static inline void SetValue(T &value, T1 bit) {
-		SystemAssert(std::cmp_greater(sizeof(T) * 8U, bit));
+		SystemAssert(std::cmp_greater(sizeof(T) * 8U, PositionOf(bit)));
 		value = static_cast<T>(static_cast<T>(1) << static_cast<T>(bit));
 	}
 
@@ -100,7 +101,7 @@ public:
 	// After:   0011 0000 (bits are set starting from position 4)
 	template<typename T, typename T1, typename T2>
 	static inline void SetAt(T &value, T1 bits, T2 position) {
-		SystemAssert(std::cmp_greater(sizeof(T) * 8U, position));
+		SystemAssert(std::cmp_greater(sizeof(T) * 8U, PositionOf(position)));
 		value |= (static_cast<T>(static_cast<T>(bits) << static_cast<T>(position)));
 	}
 
@@ -114,7 +115,7 @@ public:
 	// After:   1100 1111 (bits are cleared starting from position 4)
 	template<typename T, typename T1, typename T2>
 	static inline void ClearAt(T &value, T1 bits, T2 position) {
-		SystemAssert(std::cmp_greater(sizeof(T) * 8U, position));
+		SystemAssert(std::cmp_greater(sizeof(T) * 8U, PositionOf(position)));
 		value &= ~(static_cast<T>(static_cast<T>(bits) << static_cast<T>(position)));
 	}
 
@@ -133,5 +134,16 @@ public:
 		} else {
 			Clear(value, position);
 		}
+	}
+
+private:
+	// The integer type a position is compared as: an enum position is compared as its underlying type, any other is itself.
+	template<typename T1>
+	using PositionType = typename std::conditional_t<std::is_enum_v<T1>, std::underlying_type<T1>, std::type_identity<T1>>::type;
+
+	// The position as an integer for the range assertions. The underlying type keeps all bits of a 64-bit enum position.
+	template<typename T1>
+	static constexpr PositionType<T1> PositionOf(T1 position) {
+		return static_cast<PositionType<T1>>(position);
 	}
 };

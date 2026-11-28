@@ -61,12 +61,63 @@ void ClearAtDocumentedExample() {
 }
 
 
+enum class Flag : uint8 {
+	Low = 0,
+	Mid = 3,
+	High = 7
+};
+
+
+enum class WideFlag : uint64 {
+	Bit40 = 40
+};
+
+
+// A bit given as an enum class value: set, check, toggle, clear, and the position of the high bit of the byte.
+void SetClearToggleCheckEnumPosition() {
+	uint8 value = 0;
+	Bit::Set(value, Flag::Mid);
+	VHAL_CHECK_EQ(value, static_cast<uint8>(0x08));
+	VHAL_CHECK(Bit::Check(value, Flag::Mid));
+	VHAL_CHECK(!Bit::Check(value, Flag::Low));
+
+	Bit::Toggle(value, Flag::Mid);
+	VHAL_CHECK_EQ(value, static_cast<uint8>(0x00));
+
+	Bit::Set(value, Flag::High);
+	VHAL_CHECK_EQ(value, static_cast<uint8>(0x80));
+	Bit::Clear(value, Flag::High);
+	VHAL_CHECK_EQ(value, static_cast<uint8>(0x00));
+
+	Bit::SetValue(value, Flag::High);
+	VHAL_CHECK_EQ(value, static_cast<uint8>(0x80));
+	Bit::ClearAt(value, 0b1, Flag::High);
+	VHAL_CHECK_EQ(value, static_cast<uint8>(0x00));
+}
+
+
+// A 64-bit enum position keeps all of its bits, so it addresses bit 40 of a uint64 and nothing else.
+void EnumPositionOnWideValue() {
+	uint64 wide = 0;
+	Bit::Set(wide, WideFlag::Bit40);
+	VHAL_CHECK_EQ(wide, 1ull << 40);
+	VHAL_CHECK(Bit::Check(wide, WideFlag::Bit40));
+	Bit::Toggle(wide, WideFlag::Bit40);
+	VHAL_CHECK_EQ(wide, 0ull);
+	Bit::Write(wide, WideFlag::Bit40, true);
+	Bit::Clear(wide, WideFlag::Bit40);
+	VHAL_CHECK_EQ(wide, 0ull);
+}
+
+
 int main() {
 	ByteSetBuildsMask();
 	SetClearToggleCheckUint8();
 	HighBitsOfWideTypes();
 	SetValueAndSetAtDocumentedExamples();
 	ClearAtDocumentedExample();
+	SetClearToggleCheckEnumPosition();
+	EnumPositionOnWideValue();
 
 	return VhalCheck::Finish("TestBit");
 }
